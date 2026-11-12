@@ -1,0 +1,2135 @@
+{
+ "topic_id": "db.warehouse",
+ "title": "Data warehousing and OLAP",
+ "chapter_note": {
+  "about": "A data warehouse is a separate store built for analysis. This chapter starts with why it exists (OLTP versus OLAP, and ETL), then how its tables are arranged: fact tables for measures and dimension tables for descriptions, in a star, snowflake or constellation. After that come the OLAP operations that let you look at the cube from different angles, and the counting questions: how many rows CUBE and ROLLUP return, and how many cuboids a cube has. GATE asks few questions here, but they are quick marks if the formulas are fresh.",
+  "simple": "A shop's tills record every sale, but they are not made for big questions. So the shop copies its sales into a separate store, tidies them up, and keeps all the history there. The store keeps the numbers (how many sold, how much money) in one big table, and the descriptions (which product, which store, which month) in small side tables. Then managers can total the numbers, zoom in and out, cut out slices, and ask for every subtotal at once. In exam words: data warehouse, ETL, fact and dimension tables, OLAP operations, CUBE and ROLLUP.",
+  "concept_map": [
+   {
+    "atom_id": "w6",
+    "title": "Warehouse basics",
+    "one_line": "OLTP versus OLAP; ETL is extract, transform, load."
+   },
+   {
+    "atom_id": "w1",
+    "title": "Fact and dimension tables",
+    "one_line": "Measures and keys in the fact table; the grain fixes the row count."
+   },
+   {
+    "atom_id": "w2",
+    "title": "Schema types",
+    "one_line": "Star, snowflake and constellation; counting joins."
+   },
+   {
+    "atom_id": "w3",
+    "title": "OLAP operations",
+    "one_line": "Roll-up, drill-down, slice, dice, pivot."
+   },
+   {
+    "atom_id": "w4",
+    "title": "CUBE and ROLLUP counting",
+    "one_line": "Grouping sets and result rows, dense and sparse."
+   },
+   {
+    "atom_id": "w5",
+    "title": "Cuboid lattice",
+    "one_line": "2^n cuboids; base and apex; hierarchies multiply (L+1)."
+   }
+  ],
+  "gate_patterns": [
+   "CUBE result size: the number of rows of GROUP BY CUBE on a dense or sparse table, using the grouping sets (2025 DA Q46).",
+   "Identify an OLAP operation from the direction of movement in a hierarchy or the selection on dimensions (2026 DA Q18).",
+   "Counting questions on facts, schemas and cuboids: maximum fact rows, joins in a snowflake, cuboids in the lattice. Weightage: about 1.0 marks per DA paper; it does not appear in CS papers."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "w6",
+   "title": "Warehouse basics",
+   "simple": "A shop's till system is built to record each sale fast, one at a time. A warehouse is a separate store where all the shop's history is copied, cleaned and kept so that managers can ask big questions like 'which region sold most in five years'. Before the copy, the data from different tills is tidied so that, say, two spellings of the same customer become one. Old records are added to, never rewritten, so history stays true. In exam words: OLTP runs short transactions, OLAP runs long analytical queries over a warehouse fed by ETL (extract, transform, load).",
+   "idea": "A **data warehouse** is a separate database for analysis. Data is copied from the day-to-day (**OLTP**) systems by **ETL**: extract, transform, load. Then **OLAP** queries aggregate that history. The warehouse keeps data and adds to it, instead of overwriting.",
+   "definition": "**OLTP:** many short read/write transactions on current data, normalised. **OLAP:** few long, read-mostly aggregate queries over historical data, denormalised.\n\nA warehouse is **subject-oriented, integrated, time-variant and non-volatile.**\n\n**ETL:** *Extract* data from sources; *Transform* (clean, convert, integrate keys and formats); *Load* into the warehouse.",
+   "intuition_full": "Running a heavy analytical query on the live transaction database would slow down every sale and would see a moving target, so the data is copied to a separate store. That store is organised for reading: wide, denormalised tables, with history kept so trends can be seen. Because it integrates many sources, the transform step does the real work: matching codes, converting units and currencies, removing duplicates. Non-volatile means rows are appended and never edited in place; a change in the real world becomes a new row with a date. These four properties are the textbook definition and the usual true/false material.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Two source systems feed a warehouse. The shop database stores customer code `C-001` with an order amount of 250. The web database stores the same customer as code `001` with an amount of 90. Follow the rows through extract, transform and load, then answer the OLAP question: what is customer `C001`'s total?",
+     "steps": [
+      "The sources are **OLTP** (online transaction processing) systems. They handle many short reads and writes on current data. The shop holds `C-001, 250` and the web store holds `001, 90`.",
+      "**Extract:** copy the needed rows out of the sources into a staging area. The sources are not changed.",
+      "**Transform:** clean and integrate. Both codes mean the same customer, so reconcile them to one format, `C001`. The amounts are already in the same currency.",
+      "**Load:** write the cleaned rows into the warehouse. The warehouse is subject-oriented, integrated, time-variant and non-volatile: rows are added, not overwritten.",
+      "**OLAP** (online analytical processing) query: total amount for `C001` is $250 + 90 = 340$. It is a read-only aggregate over history."
+     ],
+     "answer": "Total for `C001` is 340, after the transform step unified the two codes."
+    },
+    {
+     "level": "gate",
+     "setup": "Classify as OLTP or OLAP: (a) record a withdrawal of 500 from an account; (b) total sales by region for the last five years; (c) update a customer's phone number; (d) compare quarterly profit across product lines. Then name the ETL step: (e) convert amounts from dollars to rupees; (f) copy yesterday's new rows out of the source.",
+     "steps": [
+      "OLTP means short transactions on current data that read and write a few rows. OLAP means long read-mostly queries that aggregate a lot of history.",
+      "(a) and (c) are OLTP. (b) and (d) are OLAP.",
+      "(e) changes the format or content of data, so it is **transform**.",
+      "(f) copies data out of the source, so it is **extract**."
+     ],
+     "answer": "(a) OLTP, (b) OLAP, (c) OLTP, (d) OLAP, (e) transform, (f) extract."
+    },
+    {
+     "level": "twist",
+     "setup": "A customer moves from Pune to Delhi. The warehouse must still answer 'sales by city last year' correctly. Should the warehouse overwrite the old city?",
+     "steps": [
+      "The warehouse is **non-volatile** and **time-variant**: it keeps history. Overwriting the city would move last year's sales into Delhi.",
+      "Instead it adds a new dimension row for the customer with the new city and a validity date range, and keeps the old row.",
+      "New facts point to the new row; old facts still point to the old row. History stays correct."
+     ],
+     "answer": "No. Add a new dimension row with dates instead of overwriting."
+    }
+   ],
+   "why": "This is the entry point of the chapter and a one-line question. In GATE: classify a workload as OLTP or OLAP, or name the ETL step for a task. No past paper has asked it directly, so expect it as a one-mark warm-up.",
+   "how": [
+    "Short, current, row-level updates: OLTP. Aggregates over history: OLAP.",
+    "Copy out of the source: extract. Clean, convert, match: transform. Write into the warehouse: load.",
+    "Remember the four properties: subject-oriented, integrated, time-variant, non-volatile.",
+    "Warehouse tables are denormalised for speed; OLTP tables are normalised."
+   ],
+   "mistake": "Putting data cleaning or key matching in the load step. Reconciling formats is the transform step; extract only copies and load only writes. Another slip is thinking the warehouse is updated in place by transactions.",
+   "edge_cases": [
+    "A staging area holds data between extract and load.",
+    "Incremental loads copy only new or changed rows.",
+    "OLAP queries are read-only; the warehouse is refreshed by ETL, not by users.",
+    "A data mart is a smaller warehouse for one department."
+   ],
+   "connections": [
+    "**Fact and dimension tables** (next card) are how warehouse data is organised.",
+    "**Normalisation** (`db.nf`) is the OLTP design; warehouses deliberately denormalise.",
+    "Aggregation uses SQL `GROUP BY` (`db.sql`)."
+   ],
+   "check": [
+    {
+     "q": "A query sums five years of sales by region. OLTP or OLAP?",
+     "a": "OLAP."
+    },
+    {
+     "q": "Which ETL step converts dollars to rupees?",
+     "a": "Transform."
+    },
+    {
+     "q": "Is a data warehouse updated in place by overwriting old values?",
+     "a": "No. It is non-volatile and keeps history."
+    }
+   ],
+   "asked": "Asked: no direct past-paper question yet; the ideas sit inside 2025 DA Q46 and 2026 DA Q18",
+   "try": {
+    "id": "gen.db.warehouse.001",
+    "label": "Try: which workload is typical of OLAP (L1)"
+   },
+   "scene": "db.warehouse.w6.etl",
+   "example": {
+    "setup": "Two source systems feed a warehouse. The shop database stores customer code `C-001` with an order amount of 250. The web database stores the same customer as code `001` with an amount of 90. Follow the rows through extract, transform and load, then answer the OLAP question: what is customer `C001`'s total?",
+    "steps": [
+     "The sources are **OLTP** (online transaction processing) systems. They handle many short reads and writes on current data. The shop holds `C-001, 250` and the web store holds `001, 90`.",
+     "**Extract:** copy the needed rows out of the sources into a staging area. The sources are not changed.",
+     "**Transform:** clean and integrate. Both codes mean the same customer, so reconcile them to one format, `C001`. The amounts are already in the same currency.",
+     "**Load:** write the cleaned rows into the warehouse. The warehouse is subject-oriented, integrated, time-variant and non-volatile: rows are added, not overwritten.",
+     "**OLAP** (online analytical processing) query: total amount for `C001` is $250 + 90 = 340$. It is a read-only aggregate over history."
+    ],
+    "answer": "Total for `C001` is 340, after the transform step unified the two codes."
+   },
+   "what": "A **data warehouse** is a separate database for analysis. Data is copied from the day-to-day (**OLTP**) systems by **ETL**: extract, transform, load. Then **OLAP** queries aggregate that history. The warehouse keeps data and adds to it, instead of overwriting.",
+   "what_full": "A **data warehouse** is a separate database for analysis. Data is copied from the day-to-day (**OLTP**) systems by **ETL**: extract, transform, load. Then **OLAP** queries aggregate that history. The warehouse keeps data and adds to it, instead of overwriting.\n\n**OLTP:** many short read/write transactions on current data, normalised. **OLAP:** few long, read-mostly aggregate queries over historical data, denormalised.\n\nA warehouse is **subject-oriented, integrated, time-variant and non-volatile.**\n\n**ETL:** *Extract* data from sources; *Transform* (clean, convert, integrate keys and formats); *Load* into the warehouse.\n\n**Worked example.** Two source systems feed a warehouse. The shop database stores customer code `C-001` with an order amount of 250. The web database stores the same customer as code `001` with an amount of 90. Follow the rows through extract, transform and load, then answer the OLAP question: what is customer `C001`'s total?\n\n1. The sources are **OLTP** (online transaction processing) systems. They handle many short reads and writes on current data. The shop holds `C-001, 250` and the web store holds `001, 90`.\n2. **Extract:** copy the needed rows out of the sources into a staging area. The sources are not changed.\n3. **Transform:** clean and integrate. Both codes mean the same customer, so reconcile them to one format, `C001`. The amounts are already in the same currency.\n4. **Load:** write the cleaned rows into the warehouse. The warehouse is subject-oriented, integrated, time-variant and non-volatile: rows are added, not overwritten.\n5. **OLAP** (online analytical processing) query: total amount for `C001` is $250 + 90 = 340$. It is a read-only aggregate over history.\n\n**Answer:** Total for `C001` is 340, after the transform step unified the two codes.",
+   "why_full": "This is the entry point of the chapter and a one-line question. In GATE: classify a workload as OLTP or OLAP, or name the ETL step for a task. No past paper has asked it directly, so expect it as a one-mark warm-up.\n\nAsked: no direct past-paper question yet; the ideas sit inside 2025 DA Q46 and 2026 DA Q18",
+   "trap": "Putting data cleaning or key matching in the load step. Reconciling formats is the transform step; extract only copies and load only writes. Another slip is thinking the warehouse is updated in place by transactions."
+  },
+  {
+   "atom_id": "w1",
+   "title": "Fact and dimension tables",
+   "simple": "Picture a shop receipt book. Each line says: on this date, this product, in this store, we sold this many for this money. The numbers you add up (how many, how much) are the facts. The words that describe the line (which product, which store, which month) live in separate small tables, and the receipt just stores a short code that points to them. The grain is how detailed one line is: one line per day, or one per month. In exam words: the fact table stores measures and foreign keys; dimension tables store descriptive attributes; the grain fixes what one fact row means.",
+   "idea": "A warehouse stores its numbers in a **fact table**, with one row per event at a chosen **grain**. Each row holds **measures** (numbers to add up) and **foreign keys** to **dimension tables**. The dimensions hold descriptive attributes: who, what, where, when.",
+   "definition": "**Fact table:** foreign keys to each dimension plus numeric measures (units, amount). Tall and narrow.\n\n**Dimension table:** a key plus descriptive attributes, with hierarchies such as day, month, year. Short and wide.\n\n**Grain:** what one fact row represents. Maximum fact rows $=\\prod_i d_i$ over the dimensions at the grain, where $d_i$ is the number of distinct values of dimension $i$.",
+   "intuition_full": "Separating facts from dimensions avoids repeating descriptions in every fact row: the fact table has millions of rows, but the dimensions are small. Aggregation then means: join facts to dimensions, group by a dimension attribute, and add up a measure. Measures are things you can meaningfully sum; keys and attributes you group by. The grain is the most important design choice because every measure and every dimension must agree with it. A finer grain (day instead of month) answers more questions but multiplies the number of rows. In a dense table, the number of rows is the product of the dimension sizes, which is the upper bound used in counting questions.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A retail warehouse has dimensions Date (12 months), Product (5) and Store (4), and measures `units` and `amount`. The grain is one row per month, product and store. Describe a fact row, and find the maximum number of fact rows.",
+     "steps": [
+      "**Dimension tables** describe the context of a sale: when (Date, 12 months), what (Product, 5) and where (Store, 4). Their columns are what you group by.",
+      "The **fact table** has one row per combination that had sales. A sample row: date 3, product 2, store 1, units 7, amount 350.",
+      "The first three columns are keys that point to the dimension tables. The row says: in month 3, product 2 sold 7 units in store 1 for 350.",
+      "The **grain** is month by product by store. The maximum number of rows is one per combination: $12 \\times 5 \\times 4 = 240$.",
+      "`units` and `amount` are the **measures**: numbers you add up when aggregating. The keys are never added."
+     ],
+     "answer": "At most 240 fact rows. Measures: units and amount. Keys: date, product, store."
+    },
+    {
+     "level": "gate",
+     "setup": "The sales fact table above has 12 months, 5 products and 4 stores, and only 30% of the combinations had any sales. How many rows does it hold? A Promotion dimension with 6 values is then added to the grain, and again 30% of the combinations occur. How many rows now?",
+     "steps": [
+      "Possible combinations: $12 \\times 5 \\times 4 = 240$. With 30% present: $0.3 \\times 240 = 72$ rows.",
+      "Adding Promotion multiplies the possible combinations by 6: $240 \\times 6 = 1440$.",
+      "30% of 1440 is $432$ rows.",
+      "Each new dimension at the grain multiplies the potential row count by its size."
+     ],
+     "answer": "72 rows, then 432 rows."
+    },
+    {
+     "level": "twist",
+     "setup": "The grain of the same table is changed from month to **day**: 365 days instead of 12 months. How many possible rows now?",
+     "steps": [
+      "Only the Date dimension changes: 365 values instead of 12.",
+      "Possible rows: $365 \\times 5 \\times 4 = 7300$.",
+      "A finer grain keeps more detail and allows more questions, but multiplies the size by $365/12 \\approx 30$. Fixing the grain is the first design decision."
+     ],
+     "answer": "7,300 possible rows."
+    }
+   ],
+   "why": "This card gives the vocabulary for everything after it. In GATE: which column is a measure, and the maximum number of fact rows for given dimension sizes. The dimension sizes are the same numbers that drive the CUBE count in 2025 DA Q46.",
+   "how": [
+    "Identify the grain: what does one row stand for?",
+    "Numeric, summable columns are measures; descriptive columns belong in dimensions.",
+    "Maximum fact rows = product of the dimension sizes at the grain.",
+    "A sparse table has fewer rows than the product."
+   ],
+   "mistake": "Putting descriptive columns (like a product name) in the fact table, or treating keys as measures. Keys are not summed. Also, using the product formula for a table that is not dense.",
+   "edge_cases": [
+    "A fact table with no measures records only that an event happened (a factless fact table).",
+    "The same dimension can play different roles (order date, ship date).",
+    "Not every numeric column is additive; a percentage should not be summed.",
+    "Changing the grain changes every count."
+   ],
+   "connections": [
+    "**Schema types** (next card) arrange these tables as star or snowflake.",
+    "**CUBE counting** later uses the same dimension sizes.",
+    "Foreign keys are the integrity constraints from `db.nf`."
+   ],
+   "check": [
+    {
+     "q": "Three dimensions with 6, 10 and 3 values. Maximum fact rows at the full grain?",
+     "a": "$6 \\times 10 \\times 3 = 180$."
+    },
+    {
+     "q": "Is `product_name` a measure or a dimension attribute?",
+     "a": "A dimension attribute."
+    },
+    {
+     "q": "Is `amount` normally a measure?",
+     "a": "Yes. It is a number you sum."
+    }
+   ],
+   "asked": "Asked: no direct past-paper question yet; the ideas sit inside 2025 DA Q46 and 2026 DA Q18",
+   "try": {
+    "id": "gen.db.warehouse.002",
+    "label": "Try: which column is a measure in the fact table (L1)"
+   },
+   "scene": "db.warehouse.w1.facts",
+   "example": {
+    "setup": "A retail warehouse has dimensions Date (12 months), Product (5) and Store (4), and measures `units` and `amount`. The grain is one row per month, product and store. Describe a fact row, and find the maximum number of fact rows.",
+    "steps": [
+     "**Dimension tables** describe the context of a sale: when (Date, 12 months), what (Product, 5) and where (Store, 4). Their columns are what you group by.",
+     "The **fact table** has one row per combination that had sales. A sample row: date 3, product 2, store 1, units 7, amount 350.",
+     "The first three columns are keys that point to the dimension tables. The row says: in month 3, product 2 sold 7 units in store 1 for 350.",
+     "The **grain** is month by product by store. The maximum number of rows is one per combination: $12 \\times 5 \\times 4 = 240$.",
+     "`units` and `amount` are the **measures**: numbers you add up when aggregating. The keys are never added."
+    ],
+    "answer": "At most 240 fact rows. Measures: units and amount. Keys: date, product, store."
+   },
+   "what": "A warehouse stores its numbers in a **fact table**, with one row per event at a chosen **grain**. Each row holds **measures** (numbers to add up) and **foreign keys** to **dimension tables**. The dimensions hold descriptive attributes: who, what, where, when.",
+   "what_full": "A warehouse stores its numbers in a **fact table**, with one row per event at a chosen **grain**. Each row holds **measures** (numbers to add up) and **foreign keys** to **dimension tables**. The dimensions hold descriptive attributes: who, what, where, when.\n\n**Fact table:** foreign keys to each dimension plus numeric measures (units, amount). Tall and narrow.\n\n**Dimension table:** a key plus descriptive attributes, with hierarchies such as day, month, year. Short and wide.\n\n**Grain:** what one fact row represents. Maximum fact rows $=\\prod_i d_i$ over the dimensions at the grain, where $d_i$ is the number of distinct values of dimension $i$.\n\n**Worked example.** A retail warehouse has dimensions Date (12 months), Product (5) and Store (4), and measures `units` and `amount`. The grain is one row per month, product and store. Describe a fact row, and find the maximum number of fact rows.\n\n1. **Dimension tables** describe the context of a sale: when (Date, 12 months), what (Product, 5) and where (Store, 4). Their columns are what you group by.\n2. The **fact table** has one row per combination that had sales. A sample row: date 3, product 2, store 1, units 7, amount 350.\n3. The first three columns are keys that point to the dimension tables. The row says: in month 3, product 2 sold 7 units in store 1 for 350.\n4. The **grain** is month by product by store. The maximum number of rows is one per combination: $12 \\times 5 \\times 4 = 240$.\n5. `units` and `amount` are the **measures**: numbers you add up when aggregating. The keys are never added.\n\n**Answer:** At most 240 fact rows. Measures: units and amount. Keys: date, product, store.",
+   "why_full": "This card gives the vocabulary for everything after it. In GATE: which column is a measure, and the maximum number of fact rows for given dimension sizes. The dimension sizes are the same numbers that drive the CUBE count in 2025 DA Q46.\n\nAsked: no direct past-paper question yet; the ideas sit inside 2025 DA Q46 and 2026 DA Q18",
+   "trap": "Putting descriptive columns (like a product name) in the fact table, or treating keys as measures. Keys are not summed. Also, using the product formula for a table that is not dense."
+  },
+  {
+   "atom_id": "w2",
+   "title": "Schema types",
+   "simple": "A star schema is like a bicycle wheel: the sales table is the hub and each description table (date, product, store) is a spoke ending in one block. A snowflake splits a spoke into more pieces, such as a product table pointing to a separate category table, so the picture branches like a snowflake. That saves some repeated text, but a question that needs the category must hop through one more table. If a shop has two hubs, sales and returns, sharing the same spokes, that is a constellation. In exam words: star = denormalised dimensions, snowflake = normalised dimensions, constellation = several fact tables sharing dimensions.",
+   "idea": "A **star schema** has a central fact table joined directly to one denormalised table per dimension. A **snowflake schema** normalises the dimensions into further tables, so queries need more joins. A **fact constellation** has several fact tables sharing dimension tables.",
+   "definition": "**Star:** 1 fact table + $k$ dimension tables; touching all needs $k$ joins.\n\n**Snowflake:** dimension hierarchies are split into extra tables; the tables form a tree, so touching $t$ tables needs $t - 1$ joins.\n\n**Constellation (galaxy):** multiple fact tables with shared dimensions; shared tables are counted once.",
+   "intuition_full": "The trade-off is storage against speed. A star repeats attributes: every product row carries its category name, so the name is stored many times. That wastes some space but makes a query that groups by category need only one join. A snowflake stores each category once and links to it, which is how OLTP schemas are normalised, but each extra level adds a join and slows analytical queries. Warehouses therefore usually prefer the star. When several business processes (sales, shipping, returns) need the same dimensions, they share the dimension tables, which gives the constellation. Counting questions are tree-counting questions: tables are nodes, joins are edges.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A star schema has a fact table Sales and four dimensions: Date, Product, Store, Customer. A snowflake version splits Product into Product and Category, and Store into Store and City. How many joins does a query touching all tables need in each design?",
+     "steps": [
+      "**Star schema:** the fact table sits in the centre with one denormalised table per dimension. Tables: $1 + 4 = 5$.",
+      "To use every table the query joins the fact table to each dimension: 4 joins.",
+      "**Snowflake:** normalise a dimension. Product splits into Product and Category, so Category hangs off Product.",
+      "Store splits into Store and City in the same way.",
+      "Tables: $5 + 2 = 7$. They form a tree, so touching all of them needs $7 - 1 = 6$ joins."
+     ],
+     "answer": "Star: 4 joins. Snowflake: 7 tables and 6 joins."
+    },
+    {
+     "level": "gate",
+     "setup": "Sales has dimensions Date, Product, Store, Customer. Returns has dimensions Date, Product, Customer. They are two fact tables in one design sharing dimension tables. How many tables are there? How many if each fact table had its own copy of its dimensions?",
+     "steps": [
+      "This is a **fact constellation** (galaxy): several fact tables that share dimensions.",
+      "Shared dimension tables count once: Date, Product, Store, Customer.",
+      "Tables: 2 fact tables $+$ 4 dimensions $= 6$.",
+      "Separate stars would be $(1+4) + (1+3) = 9$ tables."
+     ],
+     "answer": "6 shared tables; 9 if the dimensions are not shared."
+    },
+    {
+     "level": "twist",
+     "setup": "In the snowflake above, a query needs only the sales amount grouped by category. How many joins does it need, compared with the star?",
+     "steps": [
+      "Snowflake: Sales to Product to Category, 2 joins.",
+      "Star: Category is a column inside Product, so Sales to Product is 1 join.",
+      "Snowflaking saves storage and avoids repeating category names, but costs extra joins on queries."
+     ],
+     "answer": "2 joins in the snowflake, 1 in the star."
+    }
+   ],
+   "why": "Schema questions are counting questions on the diagram. In GATE: count tables or joins for a star, snowflake or constellation. No past paper has asked it directly; it is a likely 1-mark question.",
+   "how": [
+    "Draw the fact table(s) and the dimensions.",
+    "Star: joins to touch everything = number of dimensions.",
+    "Snowflake: add one table for every split; joins = tables $- 1$.",
+    "Constellation: count shared dimensions once."
+   ],
+   "mistake": "Counting a shared dimension twice in a constellation, or using 'dimensions' instead of 'tables minus one' for the number of joins in a snowflake. Check the picture for the exact number of tables.",
+   "edge_cases": [
+    "A query that touches only some tables needs fewer joins than the full count.",
+    "Snowflaking a dimension into three tables adds two tables.",
+    "A star can be seen as a snowflake with no splits.",
+    "A dimension that is never split stays one table in a snowflake."
+   ],
+   "connections": [
+    "**Fact and dimension tables** (previous card) define the pieces.",
+    "**Normalisation** (`db.nf`) is what snowflaking does to dimension tables.",
+    "Join cost links to `db.relalg` and `db.sql`."
+   ],
+   "check": [
+    {
+     "q": "A star schema has a fact table and 6 dimensions. Joins to touch all tables?",
+     "a": "6."
+    },
+    {
+     "q": "Which schema normalises the dimension tables?",
+     "a": "The snowflake schema."
+    },
+    {
+     "q": "What do you call several fact tables sharing dimensions?",
+     "a": "A fact constellation (galaxy)."
+    }
+   ],
+   "asked": "Asked: no direct past-paper question yet; the ideas sit inside 2025 DA Q46 and 2026 DA Q18",
+   "try": {
+    "id": "gen.db.warehouse.003",
+    "label": "Try: what the dimension tables of a star schema are (L1)"
+   },
+   "scene": "db.warehouse.w2.schema",
+   "example": {
+    "setup": "A star schema has a fact table Sales and four dimensions: Date, Product, Store, Customer. A snowflake version splits Product into Product and Category, and Store into Store and City. How many joins does a query touching all tables need in each design?",
+    "steps": [
+     "**Star schema:** the fact table sits in the centre with one denormalised table per dimension. Tables: $1 + 4 = 5$.",
+     "To use every table the query joins the fact table to each dimension: 4 joins.",
+     "**Snowflake:** normalise a dimension. Product splits into Product and Category, so Category hangs off Product.",
+     "Store splits into Store and City in the same way.",
+     "Tables: $5 + 2 = 7$. They form a tree, so touching all of them needs $7 - 1 = 6$ joins."
+    ],
+    "answer": "Star: 4 joins. Snowflake: 7 tables and 6 joins."
+   },
+   "what": "A **star schema** has a central fact table joined directly to one denormalised table per dimension. A **snowflake schema** normalises the dimensions into further tables, so queries need more joins. A **fact constellation** has several fact tables sharing dimension tables.",
+   "what_full": "A **star schema** has a central fact table joined directly to one denormalised table per dimension. A **snowflake schema** normalises the dimensions into further tables, so queries need more joins. A **fact constellation** has several fact tables sharing dimension tables.\n\n**Star:** 1 fact table + $k$ dimension tables; touching all needs $k$ joins.\n\n**Snowflake:** dimension hierarchies are split into extra tables; the tables form a tree, so touching $t$ tables needs $t - 1$ joins.\n\n**Constellation (galaxy):** multiple fact tables with shared dimensions; shared tables are counted once.\n\n**Worked example.** A star schema has a fact table Sales and four dimensions: Date, Product, Store, Customer. A snowflake version splits Product into Product and Category, and Store into Store and City. How many joins does a query touching all tables need in each design?\n\n1. **Star schema:** the fact table sits in the centre with one denormalised table per dimension. Tables: $1 + 4 = 5$.\n2. To use every table the query joins the fact table to each dimension: 4 joins.\n3. **Snowflake:** normalise a dimension. Product splits into Product and Category, so Category hangs off Product.\n4. Store splits into Store and City in the same way.\n5. Tables: $5 + 2 = 7$. They form a tree, so touching all of them needs $7 - 1 = 6$ joins.\n\n**Answer:** Star: 4 joins. Snowflake: 7 tables and 6 joins.",
+   "why_full": "Schema questions are counting questions on the diagram. In GATE: count tables or joins for a star, snowflake or constellation. No past paper has asked it directly; it is a likely 1-mark question.\n\nAsked: no direct past-paper question yet; the ideas sit inside 2025 DA Q46 and 2026 DA Q18",
+   "trap": "Counting a shared dimension twice in a constellation, or using 'dimensions' instead of 'tables minus one' for the number of joins in a snowflake. Check the picture for the exact number of tables."
+  },
+  {
+   "atom_id": "w3",
+   "title": "OLAP operations",
+   "simple": "Think of a spreadsheet of sales by region and by quarter. Roll-up is adding up the quarters to see the yearly total. Drill-down is the opposite: opening a yearly total to see the quarters again. Slice is cutting out one row, such as only the East region. Dice is cutting out a smaller block, like East and West for the first two quarters. Pivot is turning the table on its side so rows become columns. In exam words: roll-up and drill-down move along a hierarchy; slice fixes one dimension value; dice selects values on several dimensions; pivot rotates the axes.",
+   "idea": "OLAP operations let you look at the cube from different angles. **Roll-up** aggregates upward along a hierarchy. **Drill-down** goes down to finer detail. **Slice** fixes one dimension. **Dice** selects a sub-cube on several dimensions. **Pivot** rotates the axes.",
+   "definition": "**Roll-up:** move up a concept hierarchy (city to country) or drop a dimension; values are aggregated. **Drill-down:** the reverse; more detail. **Slice:** select on one dimension (fix one value); yields a sub-cube with one fewer dimension. **Dice:** select values on two or more dimensions. **Pivot (rotate):** swap rows and columns for a different view.",
+   "intuition_full": "Each operation is a small change to the question: how detailed (roll-up and drill-down), which part (slice and dice), or which way round (pivot). Roll-up and drill-down need a hierarchy such as day, month, quarter, year, and drill-down can only go as fine as the stored grain. Slice and dice are the selections of relational algebra applied to the cube: slice has an equality on one dimension, dice has conditions on several. Counting cells is a product: a dice keeps $k_1 \\times k_2 \\times \\dots$ cells, and a slice removes one factor. GATE usually describes a change in words and asks you to name the operation.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A sales cube has Region (East, West) and Quarter (Q1 to Q4). Units sold: East 10, 12, 14, 16 and West 8, 9, 11, 12. Apply roll-up to year, drill-down, slice Region = East, dice to Q1 and Q2, and pivot.",
+     "steps": [
+      "The cube (here a 2D view) shows units by Region and Quarter. Each cell is one aggregate.",
+      "**Roll-up** climbs the Quarter hierarchy to Year and sums: East $10+12+14+16 = 52$, West $8+9+11+12 = 40$. Detail is removed.",
+      "**Drill-down** goes the other way, from Year back to Quarter. Detail is added (it needs the finer data to exist).",
+      "**Slice** fixes one dimension value: Region = East. One row of cells remains, and the Region dimension is gone.",
+      "**Dice** picks a sub-cube on several dimensions: Region in {East, West} and Quarter in {Q1, Q2}. That is $2 \\times 2 = 4$ cells.",
+      "**Pivot** (rotate) swaps the axes: Quarter becomes the rows and Region the columns. The numbers are the same."
+     ],
+     "answer": "Roll-up gives 52 and 40; slice keeps East's 4 cells; dice keeps 4 cells; pivot only transposes."
+    },
+    {
+     "level": "gate",
+     "setup": "A cube has 4 quarters, 6 stores and 10 items. How many cells are in (a) the full cube, (b) the slice for one store, (c) a dice with 2 quarters, 3 stores and 5 items?",
+     "steps": [
+      "(a) Full cube: $4 \\times 6 \\times 10 = 240$ cells.",
+      "(b) A slice fixes one store, so that dimension disappears: $4 \\times 10 = 40$ cells.",
+      "(c) A dice keeps a subset of values on each dimension: $2 \\times 3 \\times 5 = 30$ cells."
+     ],
+     "answer": "(a) 240, (b) 40, (c) 30."
+    },
+    {
+     "level": "twist",
+     "setup": "The warehouse stores sales per **month** only. Can you drill down from month to day?",
+     "steps": [
+      "Drill-down moves to a finer level of a hierarchy, but the finer data must exist in the cube.",
+      "If the facts were loaded at month grain, the day-level detail was never stored.",
+      "So the drill-down to day is impossible without reloading the facts at a finer grain."
+     ],
+     "answer": "No. A cube cannot show detail finer than its grain."
+    }
+   ],
+   "why": "Naming an operation from a description is a standard one-mark question. In GATE: identify an OLAP operation from the direction of movement in a hierarchy (2026 DA Q18).",
+   "how": [
+    "Read the verb: moving up a hierarchy is roll-up, down is drill-down.",
+    "One fixed value on one dimension: slice. Value sets on several dimensions: dice.",
+    "Rotating the axes: pivot.",
+    "For counts, multiply the kept values per dimension."
+   ],
+   "mistake": "Mixing up the direction of roll-up and drill-down, or calling a selection on several dimensions a slice. Roll-up removes detail; drill-down adds it. A slice fixes one value; a dice picks sets on several dimensions.",
+   "edge_cases": [
+    "Aggregating away a whole dimension (to 'all') is also a roll-up.",
+    "A slice reduces the number of dimensions by one.",
+    "A dice keeps the number of dimensions.",
+    "Pivot changes only the presentation."
+   ],
+   "connections": [
+    "**Fact and dimension tables** supply the cube.",
+    "**CUBE and ROLLUP** (next cards) are the SQL way of computing all roll-ups.",
+    "Slice and dice are the selection operator σ from `db.relalg`."
+   ],
+   "check": [
+    {
+     "q": "City totals become country totals. Which operation?",
+     "a": "Roll-up."
+    },
+    {
+     "q": "You fix Year = 2024 and keep the other dimensions. Which operation?",
+     "a": "Slice."
+    },
+    {
+     "q": "A cube has 5 regions and 8 products; a dice keeps 2 and 4. How many cells?",
+     "a": "$2 \\times 4 = 8$."
+    }
+   ],
+   "asked": "Asked: 2026 DA Q18",
+   "try": {
+    "id": "gen.db.warehouse.004",
+    "label": "Try: city-to-country aggregation (L1)"
+   },
+   "scene": "db.warehouse.w3.olap",
+   "example": {
+    "setup": "A sales cube has Region (East, West) and Quarter (Q1 to Q4). Units sold: East 10, 12, 14, 16 and West 8, 9, 11, 12. Apply roll-up to year, drill-down, slice Region = East, dice to Q1 and Q2, and pivot.",
+    "steps": [
+     "The cube (here a 2D view) shows units by Region and Quarter. Each cell is one aggregate.",
+     "**Roll-up** climbs the Quarter hierarchy to Year and sums: East $10+12+14+16 = 52$, West $8+9+11+12 = 40$. Detail is removed.",
+     "**Drill-down** goes the other way, from Year back to Quarter. Detail is added (it needs the finer data to exist).",
+     "**Slice** fixes one dimension value: Region = East. One row of cells remains, and the Region dimension is gone.",
+     "**Dice** picks a sub-cube on several dimensions: Region in {East, West} and Quarter in {Q1, Q2}. That is $2 \\times 2 = 4$ cells.",
+     "**Pivot** (rotate) swaps the axes: Quarter becomes the rows and Region the columns. The numbers are the same."
+    ],
+    "answer": "Roll-up gives 52 and 40; slice keeps East's 4 cells; dice keeps 4 cells; pivot only transposes."
+   },
+   "what": "OLAP operations let you look at the cube from different angles. **Roll-up** aggregates upward along a hierarchy. **Drill-down** goes down to finer detail. **Slice** fixes one dimension. **Dice** selects a sub-cube on several dimensions. **Pivot** rotates the axes.",
+   "what_full": "OLAP operations let you look at the cube from different angles. **Roll-up** aggregates upward along a hierarchy. **Drill-down** goes down to finer detail. **Slice** fixes one dimension. **Dice** selects a sub-cube on several dimensions. **Pivot** rotates the axes.\n\n**Roll-up:** move up a concept hierarchy (city to country) or drop a dimension; values are aggregated. **Drill-down:** the reverse; more detail. **Slice:** select on one dimension (fix one value); yields a sub-cube with one fewer dimension. **Dice:** select values on two or more dimensions. **Pivot (rotate):** swap rows and columns for a different view.\n\n**Worked example.** A sales cube has Region (East, West) and Quarter (Q1 to Q4). Units sold: East 10, 12, 14, 16 and West 8, 9, 11, 12. Apply roll-up to year, drill-down, slice Region = East, dice to Q1 and Q2, and pivot.\n\n1. The cube (here a 2D view) shows units by Region and Quarter. Each cell is one aggregate.\n2. **Roll-up** climbs the Quarter hierarchy to Year and sums: East $10+12+14+16 = 52$, West $8+9+11+12 = 40$. Detail is removed.\n3. **Drill-down** goes the other way, from Year back to Quarter. Detail is added (it needs the finer data to exist).\n4. **Slice** fixes one dimension value: Region = East. One row of cells remains, and the Region dimension is gone.\n5. **Dice** picks a sub-cube on several dimensions: Region in {East, West} and Quarter in {Q1, Q2}. That is $2 \\times 2 = 4$ cells.\n6. **Pivot** (rotate) swaps the axes: Quarter becomes the rows and Region the columns. The numbers are the same.\n\n**Answer:** Roll-up gives 52 and 40; slice keeps East's 4 cells; dice keeps 4 cells; pivot only transposes.",
+   "why_full": "Naming an operation from a description is a standard one-mark question. In GATE: identify an OLAP operation from the direction of movement in a hierarchy (2026 DA Q18).\n\nAsked: 2026 DA Q18",
+   "trap": "Mixing up the direction of roll-up and drill-down, or calling a selection on several dimensions a slice. Roll-up removes detail; drill-down adds it. A slice fixes one value; a dice picks sets on several dimensions."
+  },
+  {
+   "atom_id": "w4",
+   "title": "CUBE and ROLLUP counting",
+   "simple": "Suppose you total sales by city and by shop type. A CUBE hands you every possible subtotal in one go: by both together, by city alone, by shop type alone, and the grand total. A ROLLUP gives only the subtotals that follow the order you wrote, like country, then country and city, then everything. To count the rows, count the distinct combinations in each subtotal and add them up. If every combination really exists, there is a quick shortcut: add one to each count and multiply. In exam words: CUBE has $2^n$ grouping sets, ROLLUP has $n+1$; the dense CUBE size is $\\prod(d_i+1)$.",
+   "idea": "`GROUP BY CUBE(A,B,...)` returns the aggregate for **every subset** of the columns, so $2^n$ grouping sets. `ROLLUP(A,B,...)` returns only the **prefixes**, so $n+1$ sets. The number of rows is the sum, over the sets, of the distinct combinations of that set's columns.",
+   "definition": "A **grouping set** is a list of columns used in one `GROUP BY`; rows are the distinct combinations present (the omitted columns show NULL).\n\n`CUBE(A_1..A_n)`: all $2^n$ subsets. `ROLLUP(A_1..A_n)`: $(A_1..A_n), (A_1..A_{n-1}), \\dots, (A_1), ()$.\n\n**Dense table** (every combination present, $d_i$ distinct values): CUBE rows $=\\prod_i (d_i + 1)$; ROLLUP rows $= d_1 d_2 \\cdots d_n + d_1 \\cdots d_{n-1} + \\dots + d_1 + 1$.",
+   "intuition_full": "Each grouping set is one cuboid of the data cube: a table of aggregates at one level of detail. The empty set is the grand total, a single row. For a dense table the product $\\prod(d_i+1)$ has a neat reading: expanding $(d_1+1)(d_2+1)\\cdots$ gives one term for each subset of columns, namely the product of the $d_i$ in that subset, which is exactly the size of that grouping set. Adding 1 means 'or the column is rolled up to NULL'. In a sparse table that algebra breaks, because a grouping set can have fewer distinct combinations than the product, so count distinct values per set. ROLLUP depends on column order; CUBE does not.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A table has every combination of $A$ (2 values), $B$ (3 values) and $C$ (2 values), so 12 rows. How many rows does `GROUP BY CUBE(A,B,C)` return, and how many does `GROUP BY ROLLUP(A,B,C)` return?",
+     "steps": [
+      "`CUBE(A,B,C)` produces one grouping set for every subset of $\\{A,B,C\\}$: $2^3 = 8$ sets (ABC, AB, AC, BC, A, B, C, and the empty set).",
+      "In a dense table, a grouping set returns one row per distinct combination of its columns: ABC has $2\\cdot3\\cdot2 = 12$, AB has 6, AC has 4, BC has 6, A has 2, B has 3, C has 2, and the empty set has 1.",
+      "Total: $12 + 6 + 4 + 6 + 2 + 3 + 2 + 1 = 36$. This equals $(2+1)(3+1)(2+1) = 36$.",
+      "`ROLLUP(A,B,C)` uses only the prefixes ABC, AB, A and the empty set: $n+1 = 4$ sets. Rows: $12 + 6 + 2 + 1 = 21$.",
+      "The shortcut $(d_1+1)(d_2+1)\\cdots$ works only when the table is dense; for a sparse table count distinct values per set."
+     ],
+     "answer": "CUBE: 36 rows. ROLLUP: 21 rows."
+    },
+    {
+     "level": "gate",
+     "setup": "`Facts(D1, D2, val)` holds six rows: $(p,u)$, $(p,v)$, $(q,u)$, $(q,w)$, $(r,w)$, $(r,v)$. How many rows does `GROUP BY CUBE(D1, D2)` return?",
+     "steps": [
+      "The table is not dense: $D_1$ has 3 values and $D_2$ has 3 values, but only 6 of the 9 pairs exist. The formula $(3+1)(3+1) = 16$ does not apply.",
+      "Grouping set $(D_1, D_2)$: the distinct pairs, 6 rows.",
+      "Grouping set $(D_1)$: distinct $D_1$ values $p, q, r$, 3 rows. Grouping set $(D_2)$: distinct $u, v, w$, 3 rows.",
+      "Grand total: 1 row. Total: $6 + 3 + 3 + 1 = 13$."
+     ],
+     "answer": "13 rows (not 16)."
+    },
+    {
+     "level": "twist",
+     "setup": "All combinations present for $A$ (3 values) and $B$ (4 values). Compare the row counts of `ROLLUP(A,B)` and `ROLLUP(B,A)`.",
+     "steps": [
+      "`ROLLUP(A,B)` uses the sets $(A,B)$, $(A)$ and $()$: $12 + 3 + 1 = 16$ rows.",
+      "`ROLLUP(B,A)` uses $(B,A)$, $(B)$ and $()$: $12 + 4 + 1 = 17$ rows.",
+      "The order of columns in ROLLUP matters, because it decides which prefixes are kept. CUBE does not depend on the order."
+     ],
+     "answer": "16 rows for ROLLUP(A,B) and 17 for ROLLUP(B,A)."
+    }
+   ],
+   "why": "Row counts for CUBE are a recurring DA question. In GATE: the number of rows for a dense or sparse table, or the grouping-set count (2025 DA Q46).",
+   "how": [
+    "List the grouping sets: all subsets for CUBE, prefixes for ROLLUP.",
+    "Dense table: multiply $(d_i+1)$ for CUBE; sum the prefix products for ROLLUP.",
+    "Sparse table: count distinct combinations present in each grouping set, then add.",
+    "Don't forget the grand total row (the empty set)."
+   ],
+   "mistake": "Using $\\prod(d_i+1)$ for a table that is not dense, or forgetting the grand total row. In a sparse table, count what is actually present in each grouping set.",
+   "edge_cases": [
+    "With one column, CUBE and ROLLUP both give $d + 1$ rows.",
+    "ROLLUP is order-sensitive; CUBE is not.",
+    "A column with one distinct value adds a factor of 2 to the dense CUBE.",
+    "`GROUPING SETS` lets you list any chosen subsets."
+   ],
+   "connections": [
+    "**Cuboid lattice** (next card) is the picture of these grouping sets.",
+    "**Fact and dimension tables** give the $d_i$.",
+    "Aggregation with `GROUP BY` is in `db.sql`."
+   ],
+   "check": [
+    {
+     "q": "How many grouping sets does `CUBE(A,B)` generate?",
+     "a": "$2^2 = 4$."
+    },
+    {
+     "q": "Dense table, $A$ with 5 values and $B$ with 2. Rows of `CUBE(A,B)`?",
+     "a": "$(5+1)(2+1) = 18$."
+    },
+    {
+     "q": "How many grouping sets does `ROLLUP(A,B,C)` generate?",
+     "a": "$3+1 = 4$."
+    }
+   ],
+   "asked": "Asked: 2025 DA Q46",
+   "try": {
+    "id": "gen.db.warehouse.010",
+    "label": "Try: grouping sets in CUBE(A,B,C) (L2)"
+   },
+   "scene": "db.warehouse.w4.cube",
+   "example": {
+    "setup": "A table has every combination of $A$ (2 values), $B$ (3 values) and $C$ (2 values), so 12 rows. How many rows does `GROUP BY CUBE(A,B,C)` return, and how many does `GROUP BY ROLLUP(A,B,C)` return?",
+    "steps": [
+     "`CUBE(A,B,C)` produces one grouping set for every subset of $\\{A,B,C\\}$: $2^3 = 8$ sets (ABC, AB, AC, BC, A, B, C, and the empty set).",
+     "In a dense table, a grouping set returns one row per distinct combination of its columns: ABC has $2\\cdot3\\cdot2 = 12$, AB has 6, AC has 4, BC has 6, A has 2, B has 3, C has 2, and the empty set has 1.",
+     "Total: $12 + 6 + 4 + 6 + 2 + 3 + 2 + 1 = 36$. This equals $(2+1)(3+1)(2+1) = 36$.",
+     "`ROLLUP(A,B,C)` uses only the prefixes ABC, AB, A and the empty set: $n+1 = 4$ sets. Rows: $12 + 6 + 2 + 1 = 21$.",
+     "The shortcut $(d_1+1)(d_2+1)\\cdots$ works only when the table is dense; for a sparse table count distinct values per set."
+    ],
+    "answer": "CUBE: 36 rows. ROLLUP: 21 rows."
+   },
+   "what": "`GROUP BY CUBE(A,B,...)` returns the aggregate for **every subset** of the columns, so $2^n$ grouping sets. `ROLLUP(A,B,...)` returns only the **prefixes**, so $n+1$ sets. The number of rows is the sum, over the sets, of the distinct combinations of that set's columns.",
+   "what_full": "`GROUP BY CUBE(A,B,...)` returns the aggregate for **every subset** of the columns, so $2^n$ grouping sets. `ROLLUP(A,B,...)` returns only the **prefixes**, so $n+1$ sets. The number of rows is the sum, over the sets, of the distinct combinations of that set's columns.\n\nA **grouping set** is a list of columns used in one `GROUP BY`; rows are the distinct combinations present (the omitted columns show NULL).\n\n`CUBE(A_1..A_n)`: all $2^n$ subsets. `ROLLUP(A_1..A_n)`: $(A_1..A_n), (A_1..A_{n-1}), \\dots, (A_1), ()$.\n\n**Dense table** (every combination present, $d_i$ distinct values): CUBE rows $=\\prod_i (d_i + 1)$; ROLLUP rows $= d_1 d_2 \\cdots d_n + d_1 \\cdots d_{n-1} + \\dots + d_1 + 1$.\n\n**Worked example.** A table has every combination of $A$ (2 values), $B$ (3 values) and $C$ (2 values), so 12 rows. How many rows does `GROUP BY CUBE(A,B,C)` return, and how many does `GROUP BY ROLLUP(A,B,C)` return?\n\n1. `CUBE(A,B,C)` produces one grouping set for every subset of $\\{A,B,C\\}$: $2^3 = 8$ sets (ABC, AB, AC, BC, A, B, C, and the empty set).\n2. In a dense table, a grouping set returns one row per distinct combination of its columns: ABC has $2\\cdot3\\cdot2 = 12$, AB has 6, AC has 4, BC has 6, A has 2, B has 3, C has 2, and the empty set has 1.\n3. Total: $12 + 6 + 4 + 6 + 2 + 3 + 2 + 1 = 36$. This equals $(2+1)(3+1)(2+1) = 36$.\n4. `ROLLUP(A,B,C)` uses only the prefixes ABC, AB, A and the empty set: $n+1 = 4$ sets. Rows: $12 + 6 + 2 + 1 = 21$.\n5. The shortcut $(d_1+1)(d_2+1)\\cdots$ works only when the table is dense; for a sparse table count distinct values per set.\n\n**Answer:** CUBE: 36 rows. ROLLUP: 21 rows.",
+   "why_full": "Row counts for CUBE are a recurring DA question. In GATE: the number of rows for a dense or sparse table, or the grouping-set count (2025 DA Q46).\n\nAsked: 2025 DA Q46",
+   "trap": "Using $\\prod(d_i+1)$ for a table that is not dense, or forgetting the grand total row. In a sparse table, count what is actually present in each grouping set."
+  },
+  {
+   "atom_id": "w5",
+   "title": "Cuboid lattice",
+   "simple": "Imagine a sales report with three columns: place, product and month. The most detailed report keeps all three. If you hide one column and add up, you get a shorter report; there are three ways to do that. Hide two columns and you get three even shorter ones. Hide all three and you have one number, the grand total. Each of these reports is a cuboid, and together they form a lattice shaped like a diamond. For three columns that is eight reports, because each column is either kept or hidden. In exam words: a cube with $n$ dimensions and no hierarchies has $2^n$ cuboids; with hierarchies it has $\\prod(L_i+1)$.",
+   "idea": "Every way of keeping or dropping dimensions gives one **cuboid**, an aggregate table. They form a **lattice** from the **base cuboid** (all dimensions, most detail) to the **apex cuboid** (no dimensions, one grand total). With $n$ dimensions and no hierarchies there are $2^n$ cuboids.",
+   "definition": "Cuboid: aggregate over one subset of the dimensions. Base cuboid: all $n$ dimensions. Apex cuboid: none (a single cell). Number of cuboids with $k$ dimensions $=\\binom nk$; total $=2^n$.\n\n**With concept hierarchies:** dimension $i$ has $L_i$ levels, plus 'all'. Total cuboids $=\\prod_{i=1}^{n} (L_i + 1)$.",
+   "intuition_full": "Each dimension is a switch: keep it or roll it up to 'all'. $n$ independent switches give $2^n$ combinations. The lattice orders cuboids by detail: you can compute a coarser cuboid from a finer one (ABC can give AB), but not the other way round. That matters in warehouses because materialising only some cuboids saves space, and the others are derived on demand. With hierarchies each dimension has more than two states: it can be at any of its $L_i$ levels or at 'all', which is $L_i + 1$ states, and the total is the product. The `CUBE` operator in SQL computes exactly these cuboids.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A cube has three dimensions A, B and C with no concept hierarchies. Build its lattice of cuboids and count them.",
+     "steps": [
+      "The **base cuboid** has all three dimensions: ABC. It is the most detailed.",
+      "Roll up one dimension at a time. Dropping one dimension gives the 2-D cuboids AB, AC and BC.",
+      "Dropping another gives the 1-D cuboids A, B and C.",
+      "Dropping the last gives the **apex cuboid** (): one cell, the grand total.",
+      "Cuboids by level: $1 + 3 + 3 + 1 = 8 = 2^3$. In general $n$ dimensions give $2^n$ cuboids."
+     ],
+     "answer": "8 cuboids ($2^3$): base ABC, three 2-D, three 1-D, apex ()."
+    },
+    {
+     "level": "gate",
+     "setup": "A cube has dimensions Time (day, month, year), Product (item, category) and Store (store only). Count the cuboids when concept hierarchies are included.",
+     "steps": [
+      "For each dimension, a cuboid picks one of its levels, or the special level 'all' (dimension removed).",
+      "Time: 3 levels $+$ 1 for 'all' $= 4$ choices. Product: $2 + 1 = 3$. Store: $1 + 1 = 2$.",
+      "Total cuboids: $4 \\times 3 \\times 2 = 24$.",
+      "Without hierarchies it would be $2^3 = 8$."
+     ],
+     "answer": "24 cuboids."
+    },
+    {
+     "level": "twist",
+     "setup": "A 5-dimensional cube without hierarchies. How many of its cuboids have exactly 2 dimensions? How many cuboids are there in total?",
+     "steps": [
+      "A cuboid with exactly 2 dimensions is a choice of 2 dimensions out of 5: $\\binom52 = 10$.",
+      "By size the counts are $1, 5, 10, 10, 5, 1$ for 0 to 5 dimensions.",
+      "Total: $1 + 5 + 10 + 10 + 5 + 1 = 32 = 2^5$."
+     ],
+     "answer": "10 cuboids have 2 dimensions; 32 in total."
+    }
+   ],
+   "why": "Counting cuboids is a quick formula question. In GATE: the number of cuboids for $n$ dimensions with or without hierarchies, or the number of cuboids with a given number of dimensions (2025 DA Q46 draws on the same grouping-set idea).",
+   "how": [
+    "Without hierarchies: $2^n$.",
+    "With hierarchies: multiply $(L_i + 1)$ over the dimensions.",
+    "Cuboids with exactly $k$ dimensions: $\\binom nk$.",
+    "Base cuboid has all dimensions; the apex has none."
+   ],
+   "mistake": "Forgetting the apex (the grand total) or forgetting the '+1' for 'all' in the hierarchy formula. Also confusing the number of cuboids with the number of cells in the base cuboid.",
+   "edge_cases": [
+    "A one-dimensional cube has 2 cuboids: the base and the apex.",
+    "If a dimension has a single level and nothing else, it still gives a factor of 2 (kept or removed).",
+    "The lattice has one base and one apex.",
+    "A cuboid can be computed from any finer cuboid."
+   ],
+   "connections": [
+    "**CUBE counting** (previous card) counts the rows in these cuboids.",
+    "**OLAP operations**: each roll-up moves one step up the lattice.",
+    "The subset lattice is the same as the power set in `dm.sets_rel`."
+   ],
+   "check": [
+    {
+     "q": "How many cuboids does a 4-D cube without hierarchies have?",
+     "a": "$2^4 = 16$."
+    },
+    {
+     "q": "How many 1-D cuboids does a 5-D cube have?",
+     "a": "$\\binom51 = 5$."
+    },
+    {
+     "q": "Dimension levels 2, 3: cuboids with hierarchies?",
+     "a": "$(2+1)(3+1) = 12$."
+    }
+   ],
+   "asked": "Asked: 2025 DA Q46",
+   "try": {
+    "id": "gen.db.warehouse.009",
+    "label": "Try: cuboids in a 4-dimension lattice (L2)"
+   },
+   "scene": "db.warehouse.w5.lattice",
+   "example": {
+    "setup": "A cube has three dimensions A, B and C with no concept hierarchies. Build its lattice of cuboids and count them.",
+    "steps": [
+     "The **base cuboid** has all three dimensions: ABC. It is the most detailed.",
+     "Roll up one dimension at a time. Dropping one dimension gives the 2-D cuboids AB, AC and BC.",
+     "Dropping another gives the 1-D cuboids A, B and C.",
+     "Dropping the last gives the **apex cuboid** (): one cell, the grand total.",
+     "Cuboids by level: $1 + 3 + 3 + 1 = 8 = 2^3$. In general $n$ dimensions give $2^n$ cuboids."
+    ],
+    "answer": "8 cuboids ($2^3$): base ABC, three 2-D, three 1-D, apex ()."
+   },
+   "what": "Every way of keeping or dropping dimensions gives one **cuboid**, an aggregate table. They form a **lattice** from the **base cuboid** (all dimensions, most detail) to the **apex cuboid** (no dimensions, one grand total). With $n$ dimensions and no hierarchies there are $2^n$ cuboids.",
+   "what_full": "Every way of keeping or dropping dimensions gives one **cuboid**, an aggregate table. They form a **lattice** from the **base cuboid** (all dimensions, most detail) to the **apex cuboid** (no dimensions, one grand total). With $n$ dimensions and no hierarchies there are $2^n$ cuboids.\n\nCuboid: aggregate over one subset of the dimensions. Base cuboid: all $n$ dimensions. Apex cuboid: none (a single cell). Number of cuboids with $k$ dimensions $=\\binom nk$; total $=2^n$.\n\n**With concept hierarchies:** dimension $i$ has $L_i$ levels, plus 'all'. Total cuboids $=\\prod_{i=1}^{n} (L_i + 1)$.\n\n**Worked example.** A cube has three dimensions A, B and C with no concept hierarchies. Build its lattice of cuboids and count them.\n\n1. The **base cuboid** has all three dimensions: ABC. It is the most detailed.\n2. Roll up one dimension at a time. Dropping one dimension gives the 2-D cuboids AB, AC and BC.\n3. Dropping another gives the 1-D cuboids A, B and C.\n4. Dropping the last gives the **apex cuboid** (): one cell, the grand total.\n5. Cuboids by level: $1 + 3 + 3 + 1 = 8 = 2^3$. In general $n$ dimensions give $2^n$ cuboids.\n\n**Answer:** 8 cuboids ($2^3$): base ABC, three 2-D, three 1-D, apex ().",
+   "why_full": "Counting cuboids is a quick formula question. In GATE: the number of cuboids for $n$ dimensions with or without hierarchies, or the number of cuboids with a given number of dimensions (2025 DA Q46 draws on the same grouping-set idea).\n\nAsked: 2025 DA Q46",
+   "trap": "Forgetting the apex (the grand total) or forgetting the '+1' for 'all' in the hierarchy formula. Also confusing the number of cuboids with the number of cells in the base cuboid."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "db.warehouse.w6.etl",
+   "title": "Extract, transform, load: from OLTP rows to an OLAP total",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 56,
+     "y": 18,
+     "text": "Sources",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "h2",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "Staging",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "h3",
+     "kind": "text",
+     "x": 304,
+     "y": 18,
+     "text": "Warehouse",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "s1",
+     "kind": "box",
+     "x": 8,
+     "y": 38,
+     "w": 96,
+     "h": 28,
+     "label": "C-001 | 250"
+    },
+    {
+     "id": "s2",
+     "kind": "box",
+     "x": 8,
+     "y": 78,
+     "w": 96,
+     "h": 28,
+     "label": "001 | 90"
+    },
+    {
+     "id": "g1",
+     "kind": "box",
+     "x": 132,
+     "y": 38,
+     "w": 96,
+     "h": 28,
+     "label": "C-001 | 250"
+    },
+    {
+     "id": "g2",
+     "kind": "box",
+     "x": 132,
+     "y": 78,
+     "w": 96,
+     "h": 28,
+     "label": "001 | 90"
+    },
+    {
+     "id": "w1",
+     "kind": "box",
+     "x": 256,
+     "y": 38,
+     "w": 96,
+     "h": 28,
+     "label": "C001 | 250"
+    },
+    {
+     "id": "w2",
+     "kind": "box",
+     "x": 256,
+     "y": 78,
+     "w": 96,
+     "h": 28,
+     "label": "C001 | 90"
+    },
+    {
+     "id": "x1",
+     "kind": "arrow",
+     "x1": 106,
+     "y1": 52,
+     "x2": 130,
+     "y2": 52
+    },
+    {
+     "id": "x2",
+     "kind": "arrow",
+     "x1": 106,
+     "y1": 92,
+     "x2": 130,
+     "y2": 92
+    },
+    {
+     "id": "l1",
+     "kind": "arrow",
+     "x1": 230,
+     "y1": 52,
+     "x2": 254,
+     "y2": 52
+    },
+    {
+     "id": "l2",
+     "kind": "arrow",
+     "x1": 230,
+     "y1": 92,
+     "x2": 254,
+     "y2": 92
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 150,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "ev2",
+     "kind": "text",
+     "x": 180,
+     "y": 180,
+     "text": "",
+     "size": 13
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 304,
+     "y": 122,
+     "text": "",
+     "size": 15,
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The sources are **OLTP** (online transaction processing) systems. They handle many short reads and writes on current data. The shop holds `C-001, 250` and the web store holds `001, 90`.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "OLTP sources: short transactions"
+      },
+      {
+       "id": "ev2",
+       "text": "shop: C-001   web: 001"
+      }
+     ],
+     "highlight": [
+      "s1",
+      "s2"
+     ]
+    },
+    {
+     "caption": "**Extract:** copy the needed rows out of the sources into a staging area. The sources are not changed.",
+     "show": [
+      "g1",
+      "g2",
+      "x1",
+      "x2"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "Extract: copy rows to staging"
+      },
+      {
+       "id": "ev2",
+       "text": "sources are unchanged"
+      }
+     ],
+     "highlight": [
+      "g1",
+      "g2"
+     ]
+    },
+    {
+     "caption": "**Transform:** clean and integrate. Both codes mean the same customer, so reconcile them to one format, `C001`. The amounts are already in the same currency.",
+     "set": [
+      {
+       "id": "g1",
+       "label": "C001 | 250"
+      },
+      {
+       "id": "g2",
+       "label": "C001 | 90"
+      },
+      {
+       "id": "ev",
+       "text": "Transform: unify C-001 and 001 to C001"
+      },
+      {
+       "id": "ev2",
+       "text": "same customer, one code"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g1",
+       "tone": "good"
+      },
+      {
+       "id": "g2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "**Load:** write the cleaned rows into the warehouse. The warehouse is subject-oriented, integrated, time-variant and non-volatile: rows are added, not overwritten.",
+     "show": [
+      "w1",
+      "w2",
+      "l1",
+      "l2"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "Load: append to the warehouse"
+      },
+      {
+       "id": "ev2",
+       "text": "rows are added, not overwritten"
+      }
+     ],
+     "highlight": [
+      "w1",
+      "w2"
+     ]
+    },
+    {
+     "caption": "**OLAP** (online analytical processing) query: total amount for `C001` is $250 + 90 = 340$. It is a read-only aggregate over history.",
+     "show": [
+      "res"
+     ],
+     "set": [
+      {
+       "id": "res",
+       "text": "340"
+      },
+      {
+       "id": "ev",
+       "text": "OLAP: SUM(amount) for C001"
+      },
+      {
+       "id": "ev2",
+       "text": "250 + 90 = 340"
+      }
+     ],
+     "highlight": [
+      "w1",
+      "w2",
+      "res"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.warehouse.w1.facts",
+   "title": "A fact row points to its dimensions",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "dd",
+     "kind": "box",
+     "x": 14,
+     "y": 12,
+     "w": 96,
+     "h": 28,
+     "label": "Date (12)"
+    },
+    {
+     "id": "dp",
+     "kind": "box",
+     "x": 132,
+     "y": 12,
+     "w": 96,
+     "h": 28,
+     "label": "Product (5)"
+    },
+    {
+     "id": "ds",
+     "kind": "box",
+     "x": 250,
+     "y": 12,
+     "w": 96,
+     "h": 28,
+     "label": "Store (4)"
+    },
+    {
+     "id": "f",
+     "kind": "grid",
+     "x": 60,
+     "y": 104,
+     "rows": 3,
+     "cols": 5,
+     "cw": 48,
+     "ch": 26,
+     "cells": [
+      [
+       3,
+       2,
+       1,
+       7,
+       350
+      ],
+      [
+       3,
+       5,
+       4,
+       2,
+       90
+      ],
+      [
+       7,
+       2,
+       1,
+       4,
+       200
+      ]
+     ],
+     "colLabels": [
+      "date",
+      "prod",
+      "store",
+      "units",
+      "amt"
+     ]
+    },
+    {
+     "id": "k1",
+     "kind": "arrow",
+     "x1": 62,
+     "y1": 42,
+     "x2": 84,
+     "y2": 88
+    },
+    {
+     "id": "k2",
+     "kind": "arrow",
+     "x1": 180,
+     "y1": 42,
+     "x2": 132,
+     "y2": 88
+    },
+    {
+     "id": "k3",
+     "kind": "arrow",
+     "x1": 298,
+     "y1": 42,
+     "x2": 180,
+     "y2": 88
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "ev2",
+     "kind": "text",
+     "x": 180,
+     "y": 234,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "**Dimension tables** describe the context of a sale: when (Date, 12 months), what (Product, 5) and where (Store, 4). Their columns are what you group by.",
+     "show": [
+      "dd",
+      "dp",
+      "ds"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "dimensions: when, what, where"
+      }
+     ],
+     "highlight": [
+      "dd",
+      "dp",
+      "ds"
+     ]
+    },
+    {
+     "caption": "The **fact table** has one row per combination that had sales. A sample row: date 3, product 2, store 1, units 7, amount 350.",
+     "show": [
+      "f"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "fact rows: one per combination"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The first three columns are keys that point to the dimension tables. The row says: in month 3, product 2 sold 7 units in store 1 for 350.",
+     "show": [
+      "k1",
+      "k2",
+      "k3"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "keys point to the dimensions"
+      }
+     ],
+     "highlight": [
+      "k1",
+      "k2",
+      "k3"
+     ]
+    },
+    {
+     "caption": "The **grain** is month by product by store. The maximum number of rows is one per combination: $12 \\times 5 \\times 4 = 240$.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "grain: month × product × store"
+      },
+      {
+       "id": "ev2",
+       "text": "max rows = 12 × 5 × 4 = 240",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "ev2"
+     ]
+    },
+    {
+     "caption": "`units` and `amount` are the **measures**: numbers you add up when aggregating. The keys are never added.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "units and amt are measures"
+      },
+      {
+       "id": "ev2",
+       "text": "measures are summed; keys are not",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f",
+       "cells": [
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         2,
+         3
+        ],
+        [
+         2,
+         4
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.warehouse.w2.schema",
+   "title": "From a star to a snowflake",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "fact",
+     "kind": "box",
+     "x": 140,
+     "y": 100,
+     "w": 80,
+     "h": 30,
+     "label": "Sales"
+    },
+    {
+     "id": "dd",
+     "kind": "box",
+     "x": 20,
+     "y": 30,
+     "w": 76,
+     "h": 28,
+     "label": "Date"
+    },
+    {
+     "id": "dc",
+     "kind": "box",
+     "x": 264,
+     "y": 30,
+     "w": 76,
+     "h": 28,
+     "label": "Customer"
+    },
+    {
+     "id": "dp",
+     "kind": "box",
+     "x": 20,
+     "y": 164,
+     "w": 76,
+     "h": 28,
+     "label": "Product"
+    },
+    {
+     "id": "ds",
+     "kind": "box",
+     "x": 264,
+     "y": 164,
+     "w": 76,
+     "h": 28,
+     "label": "Store"
+    },
+    {
+     "id": "cat",
+     "kind": "box",
+     "x": 20,
+     "y": 212,
+     "w": 76,
+     "h": 28,
+     "label": "Category"
+    },
+    {
+     "id": "cty",
+     "kind": "box",
+     "x": 264,
+     "y": 212,
+     "w": 76,
+     "h": 28,
+     "label": "City"
+    },
+    {
+     "id": "e1",
+     "kind": "edge",
+     "from": "fact",
+     "to": "dd"
+    },
+    {
+     "id": "e2",
+     "kind": "edge",
+     "from": "fact",
+     "to": "dc"
+    },
+    {
+     "id": "e3",
+     "kind": "edge",
+     "from": "fact",
+     "to": "dp"
+    },
+    {
+     "id": "e4",
+     "kind": "edge",
+     "from": "fact",
+     "to": "ds"
+    },
+    {
+     "id": "e5",
+     "kind": "edge",
+     "from": "dp",
+     "to": "cat"
+    },
+    {
+     "id": "e6",
+     "kind": "edge",
+     "from": "ds",
+     "to": "cty"
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 180,
+     "y": 232,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "**Star schema:** the fact table sits in the centre with one denormalised table per dimension. Tables: $1 + 4 = 5$.",
+     "show": [
+      "fact",
+      "dd",
+      "dc",
+      "dp",
+      "ds",
+      "e1",
+      "e2",
+      "e3",
+      "e4"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "star: 5 tables"
+      }
+     ]
+    },
+    {
+     "caption": "To use every table the query joins the fact table to each dimension: 4 joins.",
+     "set": [
+      {
+       "id": "cnt",
+       "text": "star: 4 joins",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "e1",
+      "e2",
+      "e3",
+      "e4"
+     ]
+    },
+    {
+     "caption": "**Snowflake:** normalise a dimension. Product splits into Product and Category, so Category hangs off Product.",
+     "show": [
+      "cat",
+      "e5"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "Product split",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "cat",
+      "e5"
+     ]
+    },
+    {
+     "caption": "Store splits into Store and City in the same way.",
+     "show": [
+      "cty",
+      "e6"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "Store split",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "cty",
+      "e6"
+     ]
+    },
+    {
+     "caption": "Tables: $5 + 2 = 7$. They form a tree, so touching all of them needs $7 - 1 = 6$ joins.",
+     "set": [
+      {
+       "id": "cnt",
+       "text": "7 tables, 6 joins",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "e1",
+      "e2",
+      "e3",
+      "e4",
+      "e5",
+      "e6"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.warehouse.w3.olap",
+   "title": "OLAP operations on a Region by Quarter table",
+   "viewBox": [
+    0,
+    0,
+    360,
+    236
+   ],
+   "objects": [
+    {
+     "id": "q",
+     "kind": "grid",
+     "x": 60,
+     "y": 56,
+     "rows": 2,
+     "cols": 4,
+     "cw": 44,
+     "ch": 30,
+     "cells": [
+      [
+       10,
+       12,
+       14,
+       16
+      ],
+      [
+       8,
+       9,
+       11,
+       12
+      ]
+     ],
+     "colLabels": [
+      "Q1",
+      "Q2",
+      "Q3",
+      "Q4"
+     ],
+     "rowLabels": [
+      "East",
+      "West"
+     ]
+    },
+    {
+     "id": "yr",
+     "kind": "grid",
+     "x": 256,
+     "y": 56,
+     "rows": 2,
+     "cols": 1,
+     "cw": 60,
+     "ch": 30,
+     "cells": [
+      52,
+      40
+     ],
+     "colLabels": [
+      "Year"
+     ]
+    },
+    {
+     "id": "pv",
+     "kind": "grid",
+     "x": 100,
+     "y": 56,
+     "rows": 4,
+     "cols": 2,
+     "cw": 60,
+     "ch": 30,
+     "cells": [
+      [
+       10,
+       8
+      ],
+      [
+       12,
+       9
+      ],
+      [
+       14,
+       11
+      ],
+      [
+       16,
+       12
+      ]
+     ],
+     "colLabels": [
+      "East",
+      "West"
+     ],
+     "rowLabels": [
+      "Q1",
+      "Q2",
+      "Q3",
+      "Q4"
+     ]
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "ev2",
+     "kind": "text",
+     "x": 180,
+     "y": 200,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The cube (here a 2D view) shows units by Region and Quarter. Each cell is one aggregate.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "units by Region and Quarter"
+      }
+     ],
+     "highlight": [
+      "q"
+     ]
+    },
+    {
+     "caption": "**Roll-up** climbs the Quarter hierarchy to Year and sums: East $10+12+14+16 = 52$, West $8+9+11+12 = 40$. Detail is removed.",
+     "show": [
+      "yr"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "roll-up: Quarter → Year"
+      },
+      {
+       "id": "ev2",
+       "text": "East 52   West 40"
+      }
+     ],
+     "highlight": [
+      "yr"
+     ]
+    },
+    {
+     "caption": "**Drill-down** goes the other way, from Year back to Quarter. Detail is added (it needs the finer data to exist).",
+     "hide": [
+      "yr"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "drill-down: Year → Quarter"
+      },
+      {
+       "id": "ev2",
+       "text": "back to the detail"
+      }
+     ],
+     "highlight": [
+      "q"
+     ]
+    },
+    {
+     "caption": "**Slice** fixes one dimension value: Region = East. One row of cells remains, and the Region dimension is gone.",
+     "dim": {
+      "id": "q",
+      "cells": [
+       [
+        1,
+        0
+       ],
+       [
+        1,
+        1
+       ],
+       [
+        1,
+        2
+       ],
+       [
+        1,
+        3
+       ]
+      ]
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "slice: Region = East"
+      },
+      {
+       "id": "ev2",
+       "text": "one dimension value fixed"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "q",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "**Dice** picks a sub-cube on several dimensions: Region in {East, West} and Quarter in {Q1, Q2}. That is $2 \\times 2 = 4$ cells.",
+     "undim": [
+      "q"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "dice: {East, West} × {Q1, Q2}"
+      },
+      {
+       "id": "ev2",
+       "text": "4 cells"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "q",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "**Pivot** (rotate) swaps the axes: Quarter becomes the rows and Region the columns. The numbers are the same.",
+     "hide": [
+      "q"
+     ],
+     "show": [
+      "pv"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "pivot: swap the axes"
+      },
+      {
+       "id": "ev2",
+       "text": "same numbers, rotated"
+      }
+     ],
+     "highlight": [
+      "pv"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.warehouse.w4.cube",
+   "title": "Rows returned by each grouping set of CUBE(A,B,C)",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "b",
+     "kind": "bar",
+     "x": 24,
+     "y": 52,
+     "w": 312,
+     "h": 100,
+     "values": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "ABC",
+      "AB",
+      "AC",
+      "BC",
+      "A",
+      "B",
+      "C",
+      "()"
+     ],
+     "max": 12,
+     "hideZero": true
+    },
+    {
+     "id": "ev2",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "`CUBE(A,B,C)` produces one grouping set for every subset of $\\{A,B,C\\}$: $2^3 = 8$ sets (ABC, AB, AC, BC, A, B, C, and the empty set).",
+     "set": [
+      {
+       "id": "ev",
+       "text": "CUBE(A,B,C): 2³ = 8 grouping sets"
+      }
+     ],
+     "highlight": [
+      "b"
+     ]
+    },
+    {
+     "caption": "In a dense table, a grouping set returns one row per distinct combination of its columns: ABC has $2\\cdot3\\cdot2 = 12$, AB has 6, AC has 4, BC has 6, A has 2, B has 3, C has 2, and the empty set has 1.",
+     "set": [
+      {
+       "id": "b",
+       "values": [
+        12,
+        6,
+        4,
+        6,
+        2,
+        3,
+        2,
+        1
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "rows per set = product of distinct counts"
+      }
+     ],
+     "highlight": [
+      "b"
+     ]
+    },
+    {
+     "caption": "Total: $12 + 6 + 4 + 6 + 2 + 3 + 2 + 1 = 36$. This equals $(2+1)(3+1)(2+1) = 36$.",
+     "set": [
+      {
+       "id": "ev2",
+       "text": "total = 36 = 3 · 4 · 3",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "good"
+      },
+      "ev2"
+     ]
+    },
+    {
+     "caption": "`ROLLUP(A,B,C)` uses only the prefixes ABC, AB, A and the empty set: $n+1 = 4$ sets. Rows: $12 + 6 + 2 + 1 = 21$.",
+     "dim": {
+      "id": "b",
+      "cells": [
+       2,
+       3,
+       5,
+       6
+      ]
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "ROLLUP: only prefixes ABC, AB, A, ()"
+      },
+      {
+       "id": "ev2",
+       "text": "12 + 6 + 2 + 1 = 21",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        0,
+        1,
+        4,
+        7
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The shortcut $(d_1+1)(d_2+1)\\cdots$ works only when the table is dense; for a sparse table count distinct values per set.",
+     "undim": [
+      "b"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "dense formula: (d1+1)(d2+1)(d3+1)"
+      },
+      {
+       "id": "ev2",
+       "text": "only for a dense table",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      "ev"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.warehouse.w5.lattice",
+   "title": "The lattice of cuboids for three dimensions",
+   "viewBox": [
+    0,
+    0,
+    360,
+    256
+   ],
+   "objects": [
+    {
+     "id": "n_e",
+     "kind": "node",
+     "x": 180,
+     "y": 26,
+     "label": "()",
+     "r": 17
+    },
+    {
+     "id": "n_A",
+     "kind": "node",
+     "x": 90,
+     "y": 86,
+     "label": "A",
+     "r": 17
+    },
+    {
+     "id": "n_B",
+     "kind": "node",
+     "x": 180,
+     "y": 86,
+     "label": "B",
+     "r": 17
+    },
+    {
+     "id": "n_C",
+     "kind": "node",
+     "x": 270,
+     "y": 86,
+     "label": "C",
+     "r": 17
+    },
+    {
+     "id": "n_AB",
+     "kind": "node",
+     "x": 90,
+     "y": 146,
+     "label": "AB",
+     "r": 17
+    },
+    {
+     "id": "n_AC",
+     "kind": "node",
+     "x": 180,
+     "y": 146,
+     "label": "AC",
+     "r": 17
+    },
+    {
+     "id": "n_BC",
+     "kind": "node",
+     "x": 270,
+     "y": 146,
+     "label": "BC",
+     "r": 17
+    },
+    {
+     "id": "n_ABC",
+     "kind": "node",
+     "x": 180,
+     "y": 206,
+     "label": "ABC",
+     "r": 17
+    },
+    {
+     "id": "le0",
+     "kind": "edge",
+     "from": "n_e",
+     "to": "n_A"
+    },
+    {
+     "id": "le1",
+     "kind": "edge",
+     "from": "n_e",
+     "to": "n_B"
+    },
+    {
+     "id": "le2",
+     "kind": "edge",
+     "from": "n_e",
+     "to": "n_C"
+    },
+    {
+     "id": "le3",
+     "kind": "edge",
+     "from": "n_A",
+     "to": "n_AB"
+    },
+    {
+     "id": "le4",
+     "kind": "edge",
+     "from": "n_A",
+     "to": "n_AC"
+    },
+    {
+     "id": "le5",
+     "kind": "edge",
+     "from": "n_B",
+     "to": "n_AB"
+    },
+    {
+     "id": "le6",
+     "kind": "edge",
+     "from": "n_B",
+     "to": "n_BC"
+    },
+    {
+     "id": "le7",
+     "kind": "edge",
+     "from": "n_C",
+     "to": "n_AC"
+    },
+    {
+     "id": "le8",
+     "kind": "edge",
+     "from": "n_C",
+     "to": "n_BC"
+    },
+    {
+     "id": "le9",
+     "kind": "edge",
+     "from": "n_AB",
+     "to": "n_ABC"
+    },
+    {
+     "id": "le10",
+     "kind": "edge",
+     "from": "n_AC",
+     "to": "n_ABC"
+    },
+    {
+     "id": "le11",
+     "kind": "edge",
+     "from": "n_BC",
+     "to": "n_ABC"
+    },
+    {
+     "id": "lv0",
+     "kind": "text",
+     "x": 8,
+     "y": 30,
+     "text": "0 dims",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "lv1",
+     "kind": "text",
+     "x": 8,
+     "y": 90,
+     "text": "1 dim",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "lv2",
+     "kind": "text",
+     "x": 8,
+     "y": 150,
+     "text": "2 dims",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "lv3",
+     "kind": "text",
+     "x": 8,
+     "y": 210,
+     "text": "3 dims",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 180,
+     "y": 244,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The **base cuboid** has all three dimensions: ABC. It is the most detailed.",
+     "show": [
+      "n_ABC",
+      "lv3"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "base cuboid ABC: most detail"
+      }
+     ],
+     "highlight": [
+      "n_ABC"
+     ]
+    },
+    {
+     "caption": "Roll up one dimension at a time. Dropping one dimension gives the 2-D cuboids AB, AC and BC.",
+     "show": [
+      "n_AB",
+      "n_AC",
+      "n_BC",
+      "lv2",
+      "le9",
+      "le10",
+      "le11"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "drop one dimension: 3 cuboids"
+      }
+     ],
+     "highlight": [
+      "n_AB",
+      "n_AC",
+      "n_BC"
+     ]
+    },
+    {
+     "caption": "Dropping another gives the 1-D cuboids A, B and C.",
+     "show": [
+      "n_A",
+      "n_B",
+      "n_C",
+      "lv1",
+      "le3",
+      "le4",
+      "le5",
+      "le6",
+      "le7",
+      "le8"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "drop another: 3 cuboids"
+      }
+     ],
+     "highlight": [
+      "n_A",
+      "n_B",
+      "n_C"
+     ]
+    },
+    {
+     "caption": "Dropping the last gives the **apex cuboid** (): one cell, the grand total.",
+     "show": [
+      "n_e",
+      "lv0",
+      "le0",
+      "le1",
+      "le2"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "apex (): the grand total"
+      }
+     ],
+     "highlight": [
+      "n_e"
+     ]
+    },
+    {
+     "caption": "Cuboids by level: $1 + 3 + 3 + 1 = 8 = 2^3$. In general $n$ dimensions give $2^n$ cuboids.",
+     "set": [
+      {
+       "id": "cnt",
+       "text": "1 + 3 + 3 + 1 = 8 = 2³",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "n_e",
+      "n_ABC",
+      "cnt"
+     ]
+    }
+   ]
+  }
+ ]
+}

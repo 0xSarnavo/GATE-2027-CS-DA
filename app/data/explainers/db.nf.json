@@ -1,0 +1,3351 @@
+{
+ "topic_id": "db.nf",
+ "title": "Normalisation and dependencies",
+ "chapter_note": {
+  "about": "Normalisation questions are algorithm questions in disguise. You get a relation and a few functional dependencies (FDs), and must find keys, name the highest normal form, or judge a split of the table. Everything rests on one routine, the attribute closure. This chapter starts with FDs and closure, then keys, then the normal forms up to BCNF. After that come minimal covers, the two tests for a good decomposition (lossless join and dependency preservation), the two decomposition algorithms, and finally the integrity constraints every table carries.",
+  "simple": "A badly designed table repeats the same fact in many rows, so one change has to be made in many places. Normalisation is the cleaning-up routine. You first write down which columns decide which others (the rules), then find the columns that identify a row (the keys). Then you check the rules against a ladder of normal forms and split the table where a rule is broken. A good split must let you glue the pieces back without fake rows, and must keep every rule checkable. In exam words: FDs, closure, candidate keys, 1NF to BCNF, lossless join, dependency preservation, decomposition.",
+  "concept_map": [
+   {
+    "atom_id": "n1",
+    "title": "FDs and Armstrong's axioms",
+    "one_line": "Equal left side forces equal right side; trivial when the right side is inside the left."
+   },
+   {
+    "atom_id": "n2",
+    "title": "Attribute closure",
+    "one_line": "Grow X with the FDs; X → Y holds exactly when Y is inside X⁺."
+   },
+   {
+    "atom_id": "n3",
+    "title": "Superkeys and candidate keys",
+    "one_line": "Superkey: X⁺ is everything. Candidate key: a minimal superkey."
+   },
+   {
+    "atom_id": "n4",
+    "title": "1NF, 2NF and 3NF",
+    "one_line": "Atomic cells; no partial dependency; every FD has a superkey on the left or a prime on the right."
+   },
+   {
+    "atom_id": "n5",
+    "title": "BCNF",
+    "one_line": "Every non-trivial FD has a superkey on the left."
+   },
+   {
+    "atom_id": "n6",
+    "title": "Minimal cover and equivalence",
+    "one_line": "Split, shrink left sides, drop redundant FDs; equivalence is closure both ways."
+   },
+   {
+    "atom_id": "n7",
+    "title": "Lossless join",
+    "one_line": "Two parts: the overlap is a key of one part. More parts: the chase."
+   },
+   {
+    "atom_id": "n8",
+    "title": "Dependency preservation",
+    "one_line": "Every FD can still be checked inside one part, or recovered from projections."
+   },
+   {
+    "atom_id": "n9",
+    "title": "Decomposition algorithms",
+    "one_line": "BCNF split is lossless and may lose FDs; 3NF synthesis keeps both properties."
+   },
+   {
+    "atom_id": "n10",
+    "title": "Integrity constraints",
+    "one_line": "Primary and foreign keys, NULL rules, and the delete actions."
+   }
+  ],
+  "gate_patterns": [
+   "Closure and keys: derive or reject an FD, count candidate keys or superkeys, list prime attributes (2021 CS2 Q50, 2024 DA Q46, 2022 CS Q31, 2026 CS1 Q65, 2025 DA Q57).",
+   "Normal forms: name the highest normal form of a relation, or judge true/false statements about 2NF, 3NF and BCNF (2018 CS Q52, 2020 CS Q46, 2025 CS2 Q46, 2022 CS Q14, 2024 CS1 Q22).",
+   "Decompositions and constraints: lossless join by chase, dependency preservation, and foreign key delete actions (2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16, 2017 CS2 Q19). Weightage: about 2.0 marks per CS paper and 2.0 per DA paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "n1",
+   "title": "FDs and Armstrong's axioms",
+   "simple": "Think of a school register where each roll number belongs to exactly one student name. If two rows show the same roll number, they must show the same name, or the register is wrong. That rule is a functional dependency (a promise that one set of columns decides another). Two rows can only break the promise by agreeing on the deciding columns and disagreeing on the decided ones. Checking a small table can show a promise is broken, but it can never prove the promise is true for every future table. In exam words: $X \\to Y$ means equal $X$ forces equal $Y$; it is trivial when $Y \\subseteq X$; Armstrong's axioms are reflexivity, augmentation and transitivity.",
+   "idea": "A **functional dependency** (FD) says one set of columns decides another. If two rows agree on the left side, they must agree on the right side. Think of a roll number deciding a name. An FD is a rule about the schema, not about one table.",
+   "definition": "$X \\to Y$ holds in a relation when any two rows with equal $X$ values also have equal $Y$ values. Here $X$ and $Y$ are sets of attributes (columns).\n\n**Armstrong's axioms:** reflexivity ($Y \\subseteq X \\Rightarrow X \\to Y$, the trivial FDs), augmentation ($X \\to Y \\Rightarrow XZ \\to YZ$) and transitivity ($X \\to Y,\\ Y \\to Z \\Rightarrow X \\to Z$). They are sound and complete: they derive exactly the FDs implied by the given set $F$.",
+   "intuition_full": "Picture a lookup table: feed in $X$, get out $Y$. An FD says that lookup is a function, so the same input can never give two different outputs. That is why two rows are enough to break it, and why one table can never prove it. The three axioms are just common sense about functions. Reflexivity: knowing $AB$ lets you read off $B$. Augmentation: if $A$ decides $B$, then $A$ together with $C$ still decides $B$ together with $C$. Transitivity: if $A$ decides $B$ and $B$ decides $C$, then $A$ decides $C$. Everything else, such as union ($X \\to Y, X \\to Z \\Rightarrow X \\to YZ$), decomposition and pseudo-transitivity, is derived from these three. In practice you rarely apply the axioms by hand. You compute a closure instead, which is the next card.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "An instance of $R(A,B,C)$ has four rows: $(1,p,x)$, $(2,p,x)$, $(3,q,y)$, $(4,q,z)$. Which of $B \\to C$, $C \\to B$, $A \\to B$, $B \\to A$ hold on this instance?",
+     "steps": [
+      "To test $X \\to Y$, group the rows by their $X$ value. Each group may show only one $Y$ value.",
+      "Test $B \\to C$. Group $p$ is rows 1 and 2, and $C$ is $x$ and $x$. So far this is consistent.",
+      "Group $q$ is rows 3 and 4, and $C$ is $y$ and $z$. One $B$ value gives two $C$ values, so $B \\to C$ fails on this instance.",
+      "Test $C \\to B$. $x$ appears only with $p$, $y$ only with $q$, $z$ only with $q$. Every $C$ value has one $B$ value, so $C \\to B$ holds here.",
+      "$A \\to B$ holds because $A$ is different in every row. $B \\to A$ fails, since $p$ goes with $A = 1$ and $A = 2$. Data can refute an FD, but never prove it for the schema."
+     ],
+     "answer": "On this instance $C \\to B$ and $A \\to B$ hold. $B \\to C$ and $B \\to A$ fail."
+    },
+    {
+     "level": "gate",
+     "setup": "$R(A,B,C,D)$ has $F=\\{A \\to B,\\ BC \\to D\\}$. Derive $AC \\to D$ using Armstrong's axioms, then decide whether $A \\to D$ also follows.",
+     "steps": [
+      "Augmentation: from $A \\to B$, add $C$ to both sides to get $AC \\to BC$.",
+      "Transitivity: $AC \\to BC$ and $BC \\to D$ give $AC \\to D$. This is called pseudo-transitivity.",
+      "Check by closure: $(AC)^+ = \\{A,B,C,D\\}$ (A gives B, then BC gives D). D is inside, so $AC \\to D$ follows.",
+      "For $A \\to D$: $A^+ = \\{A,B\\}$ and D is missing. So $A \\to D$ does not follow from $F$. The rows $(a,b,c_1,d_1)$ and $(a,b,c_2,d_2)$ satisfy $F$ and break $A \\to D$."
+     ],
+     "answer": "$AC \\to D$ follows. $A \\to D$ does not follow."
+    },
+    {
+     "level": "twist",
+     "setup": "A relation instance has exactly one row. Does it satisfy $A \\to B$? Does that prove $A \\to B$ is an FD of the schema? Is $AB \\to B$ ever violated?",
+     "steps": [
+      "An FD is violated only by two rows that agree on the left side and differ on the right side. One row has no such pair, so every FD holds on it.",
+      "So the single row satisfies $A \\to B$, and also $B \\to A$ and every other FD. This tells us nothing about the schema.",
+      "An FD is a promise about all legal instances. One instance can only refute it; it can never confirm it.",
+      "$AB \\to B$ is trivial because $B \\subseteq AB$. Two rows that agree on $A$ and $B$ already agree on $B$, so no instance can break it."
+     ],
+     "answer": "Yes, it satisfies $A \\to B$. No, that proves nothing. $AB \\to B$ can never be violated."
+    }
+   ],
+   "why": "Every other topic in this chapter (keys, normal forms, decompositions) is built on FDs, so you must read, test and derive them quickly. In GATE: pick the FDs that hold on a given instance, or the FDs that follow from a given set (2021 CS2 Q50, 2024 DA Q46, 2024 DA sample Q26).",
+   "how": [
+    "For an instance: take each FD, group rows by the left side and look for a group with two right-side values.",
+    "For a derivation: do not use the axioms blindly. Compute the closure of the left side and check the right side.",
+    "To refute a derived FD: build two rows that agree on the left side, satisfy $F$, and differ on the right side.",
+    "Trivial FDs ($Y \\subseteq X$) always hold; do not spend time on them."
+   ],
+   "mistake": "Concluding that an FD holds because the given table has no counterexample. The table shows only some rows, so it can refute an FD but never prove it. The same slip appears when someone calls $A \\to AB$ trivial: only part of the right side is inside the left, so it is non-trivial.",
+   "edge_cases": [
+    "An instance with zero or one row satisfies every FD.",
+    "If the left side is a key, the FD holds on every instance, because no two rows agree on it.",
+    "$\\emptyset \\to Y$ means every row has the same $Y$ value (a constant column).",
+    "Union is valid ($X \\to Y$ and $X \\to Z$ give $X \\to YZ$), but $XY \\to Z$ does not give $X \\to Z$."
+   ],
+   "connections": [
+    "**Attribute closure** (next card) is the practical tool for deciding whether an FD follows.",
+    "A key is just an attribute set whose closure is everything.",
+    "In SQL, a `UNIQUE` or `PRIMARY KEY` constraint is the way to enforce an FD with a key on the left."
+   ],
+   "check": [
+    {
+     "q": "Rows $(1,a)$, $(2,a)$, $(3,b)$ in $R(X,Y)$. Does $Y \\to X$ hold on this instance?",
+     "a": "No. $Y = a$ appears with $X = 1$ and $X = 2$."
+    },
+    {
+     "q": "Which of $AB \\to A$ and $A \\to AB$ is trivial?",
+     "a": "$AB \\to A$, since $A \\subseteq AB$. $A \\to AB$ is not trivial."
+    },
+    {
+     "q": "Given $A \\to B$ and $B \\to C$, name the axiom that gives $A \\to C$.",
+     "a": "Transitivity."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q50, 2024 DA Q46, 2024 DA sample Q26, 2000 CS Q2_24, 2002 CS Q2_25",
+   "try": {
+    "id": "gen.nf.001",
+    "label": "Try: which functional dependency is trivial (L1)"
+   },
+   "scene": "db.nf.n1.instance",
+   "example": {
+    "setup": "An instance of $R(A,B,C)$ has four rows: $(1,p,x)$, $(2,p,x)$, $(3,q,y)$, $(4,q,z)$. Which of $B \\to C$, $C \\to B$, $A \\to B$, $B \\to A$ hold on this instance?",
+    "steps": [
+     "To test $X \\to Y$, group the rows by their $X$ value. Each group may show only one $Y$ value.",
+     "Test $B \\to C$. Group $p$ is rows 1 and 2, and $C$ is $x$ and $x$. So far this is consistent.",
+     "Group $q$ is rows 3 and 4, and $C$ is $y$ and $z$. One $B$ value gives two $C$ values, so $B \\to C$ fails on this instance.",
+     "Test $C \\to B$. $x$ appears only with $p$, $y$ only with $q$, $z$ only with $q$. Every $C$ value has one $B$ value, so $C \\to B$ holds here.",
+     "$A \\to B$ holds because $A$ is different in every row. $B \\to A$ fails, since $p$ goes with $A = 1$ and $A = 2$. Data can refute an FD, but never prove it for the schema."
+    ],
+    "answer": "On this instance $C \\to B$ and $A \\to B$ hold. $B \\to C$ and $B \\to A$ fail."
+   },
+   "what": "A **functional dependency** (FD) says one set of columns decides another. If two rows agree on the left side, they must agree on the right side. Think of a roll number deciding a name. An FD is a rule about the schema, not about one table.",
+   "what_full": "A **functional dependency** (FD) says one set of columns decides another. If two rows agree on the left side, they must agree on the right side. Think of a roll number deciding a name. An FD is a rule about the schema, not about one table.\n\n$X \\to Y$ holds in a relation when any two rows with equal $X$ values also have equal $Y$ values. Here $X$ and $Y$ are sets of attributes (columns).\n\n**Armstrong's axioms:** reflexivity ($Y \\subseteq X \\Rightarrow X \\to Y$, the trivial FDs), augmentation ($X \\to Y \\Rightarrow XZ \\to YZ$) and transitivity ($X \\to Y,\\ Y \\to Z \\Rightarrow X \\to Z$). They are sound and complete: they derive exactly the FDs implied by the given set $F$.\n\n**Worked example.** An instance of $R(A,B,C)$ has four rows: $(1,p,x)$, $(2,p,x)$, $(3,q,y)$, $(4,q,z)$. Which of $B \\to C$, $C \\to B$, $A \\to B$, $B \\to A$ hold on this instance?\n\n1. To test $X \\to Y$, group the rows by their $X$ value. Each group may show only one $Y$ value.\n2. Test $B \\to C$. Group $p$ is rows 1 and 2, and $C$ is $x$ and $x$. So far this is consistent.\n3. Group $q$ is rows 3 and 4, and $C$ is $y$ and $z$. One $B$ value gives two $C$ values, so $B \\to C$ fails on this instance.\n4. Test $C \\to B$. $x$ appears only with $p$, $y$ only with $q$, $z$ only with $q$. Every $C$ value has one $B$ value, so $C \\to B$ holds here.\n5. $A \\to B$ holds because $A$ is different in every row. $B \\to A$ fails, since $p$ goes with $A = 1$ and $A = 2$. Data can refute an FD, but never prove it for the schema.\n\n**Answer:** On this instance $C \\to B$ and $A \\to B$ hold. $B \\to C$ and $B \\to A$ fail.",
+   "why_full": "Every other topic in this chapter (keys, normal forms, decompositions) is built on FDs, so you must read, test and derive them quickly. In GATE: pick the FDs that hold on a given instance, or the FDs that follow from a given set (2021 CS2 Q50, 2024 DA Q46, 2024 DA sample Q26).\n\nAsked: 2021 CS2 Q50, 2024 DA Q46, 2024 DA sample Q26, 2000 CS Q2_24, 2002 CS Q2_25",
+   "trap": "Concluding that an FD holds because the given table has no counterexample. The table shows only some rows, so it can refute an FD but never prove it. The same slip appears when someone calls $A \\to AB$ trivial: only part of the right side is inside the left, so it is non-trivial."
+  },
+  {
+   "atom_id": "n2",
+   "title": "Attribute closure",
+   "simple": "Imagine a group chat where a few people already know a secret. A rule says: if both Asha and Ravi know it, then Meera learns it too. You keep applying such rules until nobody new learns anything. Everyone who ends up knowing the secret is the closure. If the person you were asking about is in that group, they get the secret. In exam words: the closure $X^+$ is the set of all attributes that $X$ determines. $X \\to Y$ follows from $F$ exactly when $Y \\subseteq X^+$.",
+   "idea": "The **closure** of a set $X$ is everything $X$ can reach by repeatedly using the FDs. Start with $X$. Whenever an FD has its whole left side already inside, add its right side. Stop when a full pass adds nothing.",
+   "definition": "$X^+ = \\{A : X \\to A \\text{ follows from } F\\}$. Here $F$ is the given set of FDs and $A$ ranges over single attributes.\n\n**Test:** $X \\to Y$ follows from $F$ if and only if $Y \\subseteq X^+$.\n\n**Superkey test:** $X$ is a superkey if and only if $X^+$ is every attribute of $R$.",
+   "intuition_full": "Each FD is a rule of the form 'if you hold these, you also get that'. Closure is the snowball you get by applying rules until the pile stops growing. The loop must repeat because an FD that could not fire in pass one may fire in pass two, once an earlier FD has handed over the attribute it needed. The loop always ends, because the set can only grow and has at most $n$ attributes. That one routine replaces the three Armstrong axioms in practice. To test an FD, compute one closure. To test a key, compute one closure. To find all keys, compute closures of a few candidate sets. Almost every calculation in this chapter is a closure in disguise.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "$R(A,B,C,D,E,F,G)$ has $F=\\{A \\to B,\\ BC \\to D,\\ D \\to E,\\ CE \\to F,\\ G \\to A\\}$. Compute $(AC)^+$.",
+     "steps": [
+      "Start with $X^+ = \\{A, C\\}$. Look for an FD whose left side lies inside $X^+$.",
+      "$A \\to B$: $A$ is inside, so add $B$. Now $X^+ = \\{A,B,C\\}$.",
+      "$BC \\to D$: $B$ and $C$ are now inside, so add $D$. Now $X^+ = \\{A,B,C,D\\}$.",
+      "$D \\to E$: $D$ is inside, so add $E$.",
+      "$CE \\to F$: $C$ and $E$ are inside, so add $F$. Now $X^+ = \\{A,B,C,D,E,F\\}$.",
+      "$G \\to A$: $G$ is not inside, so this FD never fires. A full pass adds nothing new, so stop."
+     ],
+     "answer": "$(AC)^+ = \\{A,B,C,D,E,F\\}$, six attributes. $AC \\to F$ holds, $AC \\to G$ does not, and $AC$ is not a superkey."
+    },
+    {
+     "level": "gate",
+     "setup": "$R(A,B,C,D,E)$ has $F=\\{AB \\to C,\\ C \\to D,\\ D \\to E,\\ E \\to B\\}$. Which of these follow from $F$: (1) $A \\to E$, (2) $AB \\to E$, (3) $CD \\to B$, (4) $E \\to D$?",
+     "steps": [
+      "(1) $A^+ = \\{A\\}$. No FD has a left side inside $\\{A\\}$, so $A \\to E$ does not follow.",
+      "(2) $(AB)^+$: $AB$ gives $C$, $C$ gives $D$, $D$ gives $E$. All of $ABCDE$, so $AB \\to E$ follows.",
+      "(3) $(CD)^+$: $C$ gives $D$ (already in), $D$ gives $E$, $E$ gives $B$. So $\\{B,C,D,E\\} \\ni B$, and $CD \\to B$ follows.",
+      "(4) $E^+ = \\{E, B\\}$. $D$ is not in it, so $E \\to D$ does not follow."
+     ],
+     "answer": "Only (2) $AB \\to E$ and (3) $CD \\to B$ follow."
+    },
+    {
+     "level": "twist",
+     "setup": "$F=\\{C \\to D,\\ B \\to C,\\ A \\to B\\}$ is written with the last link first. Compute $A^+$ with a single left-to-right scan, and then correctly.",
+     "steps": [
+      "Start with $A^+ = \\{A\\}$. Scan once in the written order.",
+      "$C \\to D$: $C$ is not inside yet. $B \\to C$: $B$ is not inside yet. $A \\to B$: add $B$. After one scan, $A^+ = \\{A,B\\}$.",
+      "A second scan: $C \\to D$ still fails, $B \\to C$ adds $C$. $A^+ = \\{A,B,C\\}$.",
+      "A third scan: $C \\to D$ adds $D$. $A^+ = \\{A,B,C,D\\}$. A fourth scan adds nothing, so stop."
+     ],
+     "answer": "$A^+ = \\{A,B,C,D\\}$. One scan gives only $\\{A,B\\}$, which is wrong; repeat until a full scan adds nothing."
+    }
+   ],
+   "why": "Closure is the one routine used by key finding, normal form checks, covers and decomposition tests. In GATE: 'does this FD follow from $F$', or 'how many attributes are in $X^+$' (2021 CS2 Q50, 2024 DA Q46, 2024 CS1 Q44, 2026 CS2 Q42).",
+   "how": [
+    "Write $X^+ = X$.",
+    "Scan every FD. If the left side is inside $X^+$, add the right side.",
+    "Repeat the scan until a full pass adds nothing.",
+    "Compare: $Y \\subseteq X^+$ means $X \\to Y$ follows; $X^+ = R$ means $X$ is a superkey."
+   ],
+   "mistake": "Stopping after one scan of the FD list. An FD written early may only become usable after a later one fires. Keep scanning until a complete pass changes nothing.",
+   "edge_cases": [
+    "If no left side fits inside $X$, then $X^+ = X$.",
+    "Attributes that are on no right side can only enter $X^+$ if you put them in $X$.",
+    "Order of FDs does not change the final closure, only the number of passes.",
+    "$X^+$ always contains $X$ (reflexivity)."
+   ],
+   "connections": [
+    "**Superkeys and candidate keys** (next-but-one card) use $X^+ = R$ as the test.",
+    "**Minimal cover** uses closure to decide whether an FD is redundant.",
+    "**Lossless join** and **dependency preservation** tests both run closure inside the procedure."
+   ],
+   "check": [
+    {
+     "q": "$F=\\{A \\to B,\\ B \\to C\\}$. What is $A^+$?",
+     "a": "$\\{A,B,C\\}$."
+    },
+    {
+     "q": "$F=\\{AB \\to C\\}$. What is $A^+$?",
+     "a": "$\\{A\\}$. The left side $AB$ is not inside $\\{A\\}$."
+    },
+    {
+     "q": "$R(A,B,C,D)$, $F=\\{A \\to B,\\ B \\to C,\\ C \\to D\\}$. How many attributes are in $B^+$?",
+     "a": "3: $\\{B,C,D\\}$."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q50, 2024 DA Q46, 2024 CS1 Q44, 2026 CS1 Q30, 2026 CS2 Q42, 2015 CS3 Q20",
+   "try": {
+    "id": "gen.nf.003",
+    "label": "Try: closure and superkey test (L1)"
+   },
+   "scene": "db.nf.n2.closure",
+   "example": {
+    "setup": "$R(A,B,C,D,E,F,G)$ has $F=\\{A \\to B,\\ BC \\to D,\\ D \\to E,\\ CE \\to F,\\ G \\to A\\}$. Compute $(AC)^+$.",
+    "steps": [
+     "Start with $X^+ = \\{A, C\\}$. Look for an FD whose left side lies inside $X^+$.",
+     "$A \\to B$: $A$ is inside, so add $B$. Now $X^+ = \\{A,B,C\\}$.",
+     "$BC \\to D$: $B$ and $C$ are now inside, so add $D$. Now $X^+ = \\{A,B,C,D\\}$.",
+     "$D \\to E$: $D$ is inside, so add $E$.",
+     "$CE \\to F$: $C$ and $E$ are inside, so add $F$. Now $X^+ = \\{A,B,C,D,E,F\\}$.",
+     "$G \\to A$: $G$ is not inside, so this FD never fires. A full pass adds nothing new, so stop."
+    ],
+    "answer": "$(AC)^+ = \\{A,B,C,D,E,F\\}$, six attributes. $AC \\to F$ holds, $AC \\to G$ does not, and $AC$ is not a superkey."
+   },
+   "what": "The **closure** of a set $X$ is everything $X$ can reach by repeatedly using the FDs. Start with $X$. Whenever an FD has its whole left side already inside, add its right side. Stop when a full pass adds nothing.",
+   "what_full": "The **closure** of a set $X$ is everything $X$ can reach by repeatedly using the FDs. Start with $X$. Whenever an FD has its whole left side already inside, add its right side. Stop when a full pass adds nothing.\n\n$X^+ = \\{A : X \\to A \\text{ follows from } F\\}$. Here $F$ is the given set of FDs and $A$ ranges over single attributes.\n\n**Test:** $X \\to Y$ follows from $F$ if and only if $Y \\subseteq X^+$.\n\n**Superkey test:** $X$ is a superkey if and only if $X^+$ is every attribute of $R$.\n\n**Worked example.** $R(A,B,C,D,E,F,G)$ has $F=\\{A \\to B,\\ BC \\to D,\\ D \\to E,\\ CE \\to F,\\ G \\to A\\}$. Compute $(AC)^+$.\n\n1. Start with $X^+ = \\{A, C\\}$. Look for an FD whose left side lies inside $X^+$.\n2. $A \\to B$: $A$ is inside, so add $B$. Now $X^+ = \\{A,B,C\\}$.\n3. $BC \\to D$: $B$ and $C$ are now inside, so add $D$. Now $X^+ = \\{A,B,C,D\\}$.\n4. $D \\to E$: $D$ is inside, so add $E$.\n5. $CE \\to F$: $C$ and $E$ are inside, so add $F$. Now $X^+ = \\{A,B,C,D,E,F\\}$.\n6. $G \\to A$: $G$ is not inside, so this FD never fires. A full pass adds nothing new, so stop.\n\n**Answer:** $(AC)^+ = \\{A,B,C,D,E,F\\}$, six attributes. $AC \\to F$ holds, $AC \\to G$ does not, and $AC$ is not a superkey.",
+   "why_full": "Closure is the one routine used by key finding, normal form checks, covers and decomposition tests. In GATE: 'does this FD follow from $F$', or 'how many attributes are in $X^+$' (2021 CS2 Q50, 2024 DA Q46, 2024 CS1 Q44, 2026 CS2 Q42).\n\nAsked: 2021 CS2 Q50, 2024 DA Q46, 2024 CS1 Q44, 2026 CS1 Q30, 2026 CS2 Q42, 2015 CS3 Q20",
+   "trap": "Stopping after one scan of the FD list. An FD written early may only become usable after a later one fires. Keep scanning until a complete pass changes nothing."
+  },
+  {
+   "atom_id": "n3",
+   "title": "Superkeys and candidate keys",
+   "simple": "A key is like a roll number: one value that picks out exactly one student. A superkey is any combination of columns that is enough to do this, even if it carries extra columns you did not need. A candidate key is a combination with nothing extra: remove any column and it stops working. To find them, start with the columns nobody else can work out, because those must be in every key. Then add columns until the closure covers the whole table. In exam words: $X$ is a superkey if $X^+ = R$; a candidate key is a minimal superkey; a prime attribute belongs to some candidate key.",
+   "idea": "A **superkey** is a set of attributes that determines every attribute. A **candidate key** is a superkey with nothing to spare. An attribute in some candidate key is **prime**. To find keys, first spot the attributes that no FD can produce, then grow from them.",
+   "definition": "$X$ is a **superkey** of $R$ if $X^+ = R$. $X$ is a **candidate key** if it is a superkey and no proper subset of $X$ is a superkey. A **prime** attribute lies in at least one candidate key; the others are **non-prime**.\n\nIf $K$ is the set of attributes on no right side, then $K$ is inside every candidate key. If $K^+ = R$, then $K$ is the only candidate key.",
+   "intuition_full": "A relation can have many ways to identify a row, and each is a candidate key. The ones with extra columns are the superkeys. Since a superkey is any set containing a key, counting superkeys is a counting problem on subsets, handled by inclusion-exclusion. Finding keys is a search: attributes that appear on no right side cannot be derived, so they must be supplied by the key itself. That removes most of the guesswork. If the attributes you are forced to include are not yet enough, add one more attribute at a time and test with a closure. Attributes on the right side of an FD whose left side is already in the key are never needed. Cyclic FDs such as $A \\to B$, $B \\to A$ create several keys, because each member of the cycle can stand in for the others.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "$R(A,B,C,D,E)$ has $F=\\{A \\to B,\\ BC \\to D,\\ D \\to C\\}$. Find all candidate keys, the prime attributes, and the number of superkeys.",
+     "steps": [
+      "List the attributes that never appear on a right side. Right sides are $B$, $D$, $C$, so $A$ and $E$ appear on none.",
+      "Nothing can produce $A$ or $E$, so they are in every key. Start with $AE$ and compute $(AE)^+ = \\{A,B,E\\}$. C and D are missing, so $AE$ is not a key.",
+      "Add $C$: $(ACE)^+$ gives $B$ from $A$, then $D$ from $BC$. That is all of $ABCDE$. Dropping any attribute breaks it, so $ACE$ is a candidate key.",
+      "Add $D$ instead: $(ADE)^+$ gives $B$ from $A$ and $C$ from $D$. All five again, so $ADE$ is a second candidate key.",
+      "Prime attributes are those in some key: $A, C, D, E$. Only $B$ is non-prime. Superkeys are supersets of a key: $ACE$, $ADE$, $ABCE$, $ABDE$, $ACDE$, $ABCDE$."
+     ],
+     "answer": "Keys: $ACE$ and $ADE$. Prime: $A,C,D,E$. Number of superkeys: 6."
+    },
+    {
+     "level": "gate",
+     "setup": "$R(A,B,C,D,E)$ has exactly three candidate keys: $A$, $BC$ and $BD$. How many superkeys does $R$ have?",
+     "steps": [
+      "A superkey contains at least one candidate key. Count the subsets of $\\{A,B,C,D,E\\}$ that contain $A$, or $BC$, or $BD$.",
+      "Contain $A$: the other 4 attributes are free, so $2^4 = 16$. Contain $BC$: $2^3 = 8$. Contain $BD$: $2^3 = 8$.",
+      "Overlaps: $A$ and $BC$ together means $ABC$ is fixed, $2^2 = 4$. $A$ and $BD$: 4. $BC$ and $BD$ means $BCD$ is fixed, 4. All three means $ABCD$ is fixed, $2^1 = 2$.",
+      "Inclusion-exclusion: $16 + 8 + 8 - 4 - 4 - 4 + 2 = 22$."
+     ],
+     "answer": "22 superkeys."
+    },
+    {
+     "level": "twist",
+     "setup": "$R(A,B,C,D)$ has $F=\\{A \\to B,\\ B \\to A,\\ C \\to D,\\ D \\to C\\}$. Every attribute is on a right side. Find the candidate keys.",
+     "steps": [
+      "The shortcut 'attributes on no right side' finds nothing here, because every attribute is produced by some FD.",
+      "But $A$ and $B$ determine each other, and so do $C$ and $D$. Each pair acts like one attribute.",
+      "A key must reach all four attributes, so it needs one of $\\{A,B\\}$ and one of $\\{C,D\\}$. Check: $(AC)^+ = \\{A,B,C,D\\}$.",
+      "The four choices $AC$, $AD$, $BC$, $BD$ are all keys, and none can be shortened. Every attribute is prime."
+     ],
+     "answer": "Four candidate keys: $AC$, $AD$, $BC$, $BD$. All attributes are prime."
+    }
+   ],
+   "why": "Keys decide normal forms, lossless joins and what a table's primary key can be. In GATE: list the candidate keys, count them, count the superkeys, or list the prime attributes (2022 CS Q31, 2026 CS1 Q65, 2024 CS2 Q56, 2025 DA Q57).",
+   "how": [
+    "Mark the attributes that appear on no right side. They are in every key.",
+    "Compute the closure of that set. If it is everything, it is the only key.",
+    "Otherwise add one attribute at a time (try each) and test with a closure, keeping only minimal sets.",
+    "Prime attributes are the union of the keys. Superkeys are supersets of the keys; count with inclusion-exclusion."
+   ],
+   "mistake": "Counting candidate keys when the question asks for superkeys, or the other way round. Another slip is forgetting an attribute that is on no right side. It belongs to every key, so a set without it can never be a key.",
+   "edge_cases": [
+    "No FDs at all: the only candidate key is the full set of attributes.",
+    "Cycles ($A \\to B \\to A$) create several keys.",
+    "An attribute that is on a right side can still be forced into every key if nothing else produces it.",
+    "A relation with one candidate key has as many superkeys as there are supersets of it: $2^{n-|K|}$."
+   ],
+   "connections": [
+    "**Normal forms** (next cards) use 'prime' and 'superkey' directly.",
+    "The primary key chosen in SQL is one of the candidate keys.",
+    "Counting superkeys uses the **inclusion-exclusion** principle from `dm.counting`."
+   ],
+   "check": [
+    {
+     "q": "$R(A,B,C)$ with $F=\\{A \\to B,\\ B \\to C\\}$. What is the only candidate key?",
+     "a": "$A$. It is on no right side and $A^+ = ABC$."
+    },
+    {
+     "q": "A relation $R(A,B,C,D)$ has the single candidate key $A$. How many superkeys does it have?",
+     "a": "$2^3 = 8$: every set containing $A$."
+    },
+    {
+     "q": "$R(A,B)$ has no FDs. What is the candidate key?",
+     "a": "$AB$. Without FDs, only the full set determines everything."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q31, 2026 CS1 Q65, 2024 CS2 Q56, 2024 DA sample Q41, 2025 DA Q57, 2026 DA Q17",
+   "try": {
+    "id": "gen.nf.004",
+    "label": "Try: which set is a candidate key (L1)"
+   },
+   "scene": "db.nf.n3.keys",
+   "example": {
+    "setup": "$R(A,B,C,D,E)$ has $F=\\{A \\to B,\\ BC \\to D,\\ D \\to C\\}$. Find all candidate keys, the prime attributes, and the number of superkeys.",
+    "steps": [
+     "List the attributes that never appear on a right side. Right sides are $B$, $D$, $C$, so $A$ and $E$ appear on none.",
+     "Nothing can produce $A$ or $E$, so they are in every key. Start with $AE$ and compute $(AE)^+ = \\{A,B,E\\}$. C and D are missing, so $AE$ is not a key.",
+     "Add $C$: $(ACE)^+$ gives $B$ from $A$, then $D$ from $BC$. That is all of $ABCDE$. Dropping any attribute breaks it, so $ACE$ is a candidate key.",
+     "Add $D$ instead: $(ADE)^+$ gives $B$ from $A$ and $C$ from $D$. All five again, so $ADE$ is a second candidate key.",
+     "Prime attributes are those in some key: $A, C, D, E$. Only $B$ is non-prime. Superkeys are supersets of a key: $ACE$, $ADE$, $ABCE$, $ABDE$, $ACDE$, $ABCDE$."
+    ],
+    "answer": "Keys: $ACE$ and $ADE$. Prime: $A,C,D,E$. Number of superkeys: 6."
+   },
+   "what": "A **superkey** is a set of attributes that determines every attribute. A **candidate key** is a superkey with nothing to spare. An attribute in some candidate key is **prime**. To find keys, first spot the attributes that no FD can produce, then grow from them.",
+   "what_full": "A **superkey** is a set of attributes that determines every attribute. A **candidate key** is a superkey with nothing to spare. An attribute in some candidate key is **prime**. To find keys, first spot the attributes that no FD can produce, then grow from them.\n\n$X$ is a **superkey** of $R$ if $X^+ = R$. $X$ is a **candidate key** if it is a superkey and no proper subset of $X$ is a superkey. A **prime** attribute lies in at least one candidate key; the others are **non-prime**.\n\nIf $K$ is the set of attributes on no right side, then $K$ is inside every candidate key. If $K^+ = R$, then $K$ is the only candidate key.\n\n**Worked example.** $R(A,B,C,D,E)$ has $F=\\{A \\to B,\\ BC \\to D,\\ D \\to C\\}$. Find all candidate keys, the prime attributes, and the number of superkeys.\n\n1. List the attributes that never appear on a right side. Right sides are $B$, $D$, $C$, so $A$ and $E$ appear on none.\n2. Nothing can produce $A$ or $E$, so they are in every key. Start with $AE$ and compute $(AE)^+ = \\{A,B,E\\}$. C and D are missing, so $AE$ is not a key.\n3. Add $C$: $(ACE)^+$ gives $B$ from $A$, then $D$ from $BC$. That is all of $ABCDE$. Dropping any attribute breaks it, so $ACE$ is a candidate key.\n4. Add $D$ instead: $(ADE)^+$ gives $B$ from $A$ and $C$ from $D$. All five again, so $ADE$ is a second candidate key.\n5. Prime attributes are those in some key: $A, C, D, E$. Only $B$ is non-prime. Superkeys are supersets of a key: $ACE$, $ADE$, $ABCE$, $ABDE$, $ACDE$, $ABCDE$.\n\n**Answer:** Keys: $ACE$ and $ADE$. Prime: $A,C,D,E$. Number of superkeys: 6.",
+   "why_full": "Keys decide normal forms, lossless joins and what a table's primary key can be. In GATE: list the candidate keys, count them, count the superkeys, or list the prime attributes (2022 CS Q31, 2026 CS1 Q65, 2024 CS2 Q56, 2025 DA Q57).\n\nAsked: 2022 CS Q31, 2026 CS1 Q65, 2024 CS2 Q56, 2024 DA sample Q41, 2025 DA Q57, 2026 DA Q17",
+   "trap": "Counting candidate keys when the question asks for superkeys, or the other way round. Another slip is forgetting an attribute that is on no right side. It belongs to every key, so a set without it can never be a key."
+  },
+  {
+   "atom_id": "n4",
+   "title": "1NF, 2NF and 3NF",
+   "simple": "Think of a table of orders where the customer's phone number is repeated on every row. If the number changes, you must fix it in many places, and you can miss one. The normal forms are a ladder of rules that stop this kind of repetition. First, every cell holds one value, not a list. Second, no column may depend on only part of the key. Third, no column may depend on another non-key column. A table that fails a step has the repetition problem. In exam words: 1NF means atomic cells; 2NF means no partial dependency; 3NF means every $X \\to A$ has $X$ a superkey or $A$ prime.",
+   "idea": "The **normal forms** are checks that stop the same fact from being stored many times. 1NF wants one value per cell. 2NF wants every non-key column to depend on the whole key. 3NF wants it to depend on nothing but the key.",
+   "definition": "**1NF:** every cell holds a single atomic value.\n\n**2NF:** 1NF, and no non-prime attribute depends on a proper part of a candidate key.\n\n**3NF:** for every non-trivial FD $X \\to A$, either $X$ is a superkey or $A$ is prime.\n\nTo name the highest normal form, find the keys first, then test 2NF, then 3NF, in that order.",
+   "intuition_full": "Each rule removes one kind of redundancy. A partial dependency means a fact about part of the key is repeated on every row that shares that part. For example, in enrolments keyed by (student, course), the student's name depends only on the student and repeats for every course. A transitive dependency means a non-key column is decided by another non-key column, so the fact repeats on every row that shares the middle value. 3NF allows one loophole: if the right side is prime, the dependency is let through. This keeps 3NF always achievable without losing dependencies, as the later cards show. A relation fails a level if any single FD breaks it, so you need only one counterexample. To prove a level holds, you must check every FD, using closures for the left sides.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "$R(A,B,C,D,E)$ has $F=\\{AB \\to C,\\ A \\to D,\\ D \\to E\\}$ and atomic cells. Find the key, then check 2NF and 3NF, and name the highest normal form.",
+     "steps": [
+      "$A$ and $B$ are on no right side, and $(AB)^+ = ABCDE$. So the only candidate key is $AB$. Prime attributes: $A, B$.",
+      "$AB \\to C$: the left side is the whole key, so it breaks neither rule.",
+      "$A \\to D$: $A$ is only part of the key and $D$ is non-prime. That is a **partial dependency**, so 2NF fails.",
+      "$D \\to E$: $D$ is not a superkey and $E$ is non-prime. That is a **transitive dependency**, so 3NF fails too.",
+      "2NF already fails, so the highest normal form is 1NF (the cells are atomic)."
+     ],
+     "answer": "Key $AB$. Partial dependency $A \\to D$ breaks 2NF, so the highest normal form is 1NF."
+    },
+    {
+     "level": "gate",
+     "setup": "$R(A,B,C,D)$ has $F=\\{AB \\to CD,\\ D \\to A\\}$. Name the highest normal form.",
+     "steps": [
+      "$B$ is on no right side. $(AB)^+ = ABCD$, so $AB$ is a key. $(BD)^+$: $D$ gives $A$, then $AB$ gives $C$. So $BD$ is a key too.",
+      "Prime attributes: $A, B, D$ (they lie in $AB$ or $BD$). Non-prime: $C$.",
+      "2NF: the only FD with a non-prime right side is $AB \\to CD$, whose left side is a whole key. No partial dependency, so 2NF holds.",
+      "3NF: $AB \\to CD$ has a superkey on the left. $D \\to A$ has a non-superkey on the left, but its right side $A$ is prime. So 3NF allows it.",
+      "BCNF would need $D$ to be a superkey, and $D^+ = AD$ is not. So BCNF fails."
+     ],
+     "answer": "The highest normal form is 3NF."
+    },
+    {
+     "level": "twist",
+     "setup": "$R(A,B,C,D)$ has $F=\\{A \\to B,\\ B \\to C,\\ C \\to D\\}$. Is it in 2NF? In 3NF?",
+     "steps": [
+      "$A$ is on no right side and $A^+ = ABCD$. The only key is $A$.",
+      "A partial dependency needs the left side to be a proper part of a key. A single-attribute key has no proper non-empty part.",
+      "So there can be no partial dependency, and 2NF holds automatically.",
+      "3NF: $B \\to C$ has a non-superkey on the left and a non-prime right side ($C$). That is a transitive dependency, so 3NF fails."
+     ],
+     "answer": "2NF yes, 3NF no. The highest normal form is 2NF."
+    }
+   ],
+   "why": "Normal form questions ask for the highest form or whether a statement is true. In GATE: 'highest normal form of $R$ with these FDs' (2018 CS Q52, 2020 CS Q46, 2025 CS2 Q46, 2003 CS Q85) and true/false statements on 2NF and 3NF.",
+   "how": [
+    "Find all candidate keys and the prime attributes.",
+    "2NF: look for an FD whose left side is a proper subset of a key and whose right side is non-prime.",
+    "3NF: for each FD whose left side is not a superkey, check that the right side is prime.",
+    "The highest form is the last level whose test still passes. Test in order, so 2NF before 3NF."
+   ],
+   "mistake": "Declaring 3NF because every FD 'looks like' it starts at a key. Check each left side by closure, and remember a non-superkey left side is allowed only when the right side is prime. Another slip is calling a table 2NF without noticing a partial dependency on part of a composite key.",
+   "edge_cases": [
+    "A single-attribute key makes 2NF automatic, because a partial dependency needs a composite key.",
+    "If every attribute is prime, the relation is in 3NF whatever the FDs are.",
+    "A table with a repeating group or a comma-separated list is not even 1NF.",
+    "3NF can hold with a non-superkey left side, provided the right side is prime."
+   ],
+   "connections": [
+    "**BCNF** (next card) removes the prime-right-side loophole.",
+    "**Decomposition algorithms** reach 3NF with no loss; the decomposition cards come after BCNF.",
+    "1NF is the starting assumption for relational algebra (`db.relalg`)."
+   ],
+   "check": [
+    {
+     "q": "$R(A,B,C)$ has key $AB$ and the FD $B \\to C$. Which normal form fails first?",
+     "a": "2NF. $B$ is part of the key and $C$ is non-prime."
+    },
+    {
+     "q": "Every attribute of $R$ is prime. Which is the highest normal form guaranteed?",
+     "a": "3NF."
+    },
+    {
+     "q": "A cell holds the list 'phone1, phone2'. Which normal form does that break?",
+     "a": "1NF, because cells must be atomic."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q52, 2020 CS Q46, 2025 CS2 Q46, 2003 CS Q85, 2004 CS Q50, 2009 CS Q56",
+   "try": {
+    "id": "gen.nf.005",
+    "label": "Try: which statement holds for every schema and FD set (L1)"
+   },
+   "scene": "db.nf.n4.checks",
+   "example": {
+    "setup": "$R(A,B,C,D,E)$ has $F=\\{AB \\to C,\\ A \\to D,\\ D \\to E\\}$ and atomic cells. Find the key, then check 2NF and 3NF, and name the highest normal form.",
+    "steps": [
+     "$A$ and $B$ are on no right side, and $(AB)^+ = ABCDE$. So the only candidate key is $AB$. Prime attributes: $A, B$.",
+     "$AB \\to C$: the left side is the whole key, so it breaks neither rule.",
+     "$A \\to D$: $A$ is only part of the key and $D$ is non-prime. That is a **partial dependency**, so 2NF fails.",
+     "$D \\to E$: $D$ is not a superkey and $E$ is non-prime. That is a **transitive dependency**, so 3NF fails too.",
+     "2NF already fails, so the highest normal form is 1NF (the cells are atomic)."
+    ],
+    "answer": "Key $AB$. Partial dependency $A \\to D$ breaks 2NF, so the highest normal form is 1NF."
+   },
+   "what": "The **normal forms** are checks that stop the same fact from being stored many times. 1NF wants one value per cell. 2NF wants every non-key column to depend on the whole key. 3NF wants it to depend on nothing but the key.",
+   "what_full": "The **normal forms** are checks that stop the same fact from being stored many times. 1NF wants one value per cell. 2NF wants every non-key column to depend on the whole key. 3NF wants it to depend on nothing but the key.\n\n**1NF:** every cell holds a single atomic value.\n\n**2NF:** 1NF, and no non-prime attribute depends on a proper part of a candidate key.\n\n**3NF:** for every non-trivial FD $X \\to A$, either $X$ is a superkey or $A$ is prime.\n\nTo name the highest normal form, find the keys first, then test 2NF, then 3NF, in that order.\n\n**Worked example.** $R(A,B,C,D,E)$ has $F=\\{AB \\to C,\\ A \\to D,\\ D \\to E\\}$ and atomic cells. Find the key, then check 2NF and 3NF, and name the highest normal form.\n\n1. $A$ and $B$ are on no right side, and $(AB)^+ = ABCDE$. So the only candidate key is $AB$. Prime attributes: $A, B$.\n2. $AB \\to C$: the left side is the whole key, so it breaks neither rule.\n3. $A \\to D$: $A$ is only part of the key and $D$ is non-prime. That is a **partial dependency**, so 2NF fails.\n4. $D \\to E$: $D$ is not a superkey and $E$ is non-prime. That is a **transitive dependency**, so 3NF fails too.\n5. 2NF already fails, so the highest normal form is 1NF (the cells are atomic).\n\n**Answer:** Key $AB$. Partial dependency $A \\to D$ breaks 2NF, so the highest normal form is 1NF.",
+   "why_full": "Normal form questions ask for the highest form or whether a statement is true. In GATE: 'highest normal form of $R$ with these FDs' (2018 CS Q52, 2020 CS Q46, 2025 CS2 Q46, 2003 CS Q85) and true/false statements on 2NF and 3NF.\n\nAsked: 2018 CS Q52, 2020 CS Q46, 2025 CS2 Q46, 2003 CS Q85, 2004 CS Q50, 2009 CS Q56",
+   "trap": "Declaring 3NF because every FD 'looks like' it starts at a key. Check each left side by closure, and remember a non-superkey left side is allowed only when the right side is prime. Another slip is calling a table 2NF without noticing a partial dependency on part of a composite key."
+  },
+  {
+   "atom_id": "n5",
+   "title": "BCNF",
+   "simple": "Imagine a rule at a library: whenever one column decides another, the deciding column must be able to pick out a single book on its own. If a column decides something but could not pick out a single book, it is a sign that the same fact is repeated in many rows. BCNF is that rule applied without exceptions. It is stricter than 3NF, which lets a few cases through. In exam words: a relation is in BCNF if for every non-trivial FD $X \\to A$, $X$ is a superkey.",
+   "idea": "**BCNF** is the strict version of 3NF. Whenever one set of columns decides another, the deciding set must be a **superkey**. There is no loophole for prime attributes.",
+   "definition": "$R$ is in **BCNF** if for every non-trivial FD $X \\to A$ that holds in $R$, $X$ is a superkey. Here non-trivial means $A \\notin X$.\n\nEvery BCNF relation is in 3NF, and every 3NF relation is in 2NF. The reverse directions fail.",
+   "intuition_full": "3NF accepts $X \\to A$ if $A$ is prime, even when $X$ is not a key. That keeps dependencies preserved but leaves a little redundancy, because the pair $(X, A)$ is repeated on many rows. BCNF refuses the loophole. The price is that some BCNF decompositions lose a dependency, so you can no longer check it inside one table. The test is simple: for each FD, compute the closure of its left side. If it is not the whole relation, the FD is a violation. Because you test every FD, one bad FD is enough to fail. Relations with two attributes, or whose only FDs have keys on the left, always pass.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "$R(A,B,C,D,E)$ has $F=\\{AB \\to CD,\\ C \\to E,\\ D \\to B\\}$ with candidate keys $AB$ and $AD$. Is $R$ in BCNF?",
+     "steps": [
+      "BCNF asks one question of every non-trivial FD: is the left side a superkey? Compute a closure for each left side.",
+      "$AB \\to CD$: $(AB)^+$ gives $C$ and $D$, and $C$ gives $E$. So $(AB)^+ = ABCDE$, a superkey. This FD is fine.",
+      "$C \\to E$: $C^+ = \\{C, E\\}$. That is not all of $R$, so $C$ is not a superkey. Violation.",
+      "$D \\to B$: $D^+ = \\{B, D\\}$, again not all of $R$. Another violation. (It would pass 3NF alone, since $B$ is prime.)",
+      "Two violations, so $R$ is not in BCNF. $C \\to E$ also breaks 3NF because $E$ is non-prime, so the highest form is 2NF."
+     ],
+     "answer": "Not in BCNF. $C \\to E$ and $D \\to B$ both have a left side that is not a superkey. Highest form: 2NF."
+    },
+    {
+     "level": "gate",
+     "setup": "Statement: 'every relation with exactly two attributes is in BCNF'. Check it for every possible FD set on $R(A,B)$.",
+     "steps": [
+      "The non-trivial FDs on two attributes can only be $A \\to B$ and $B \\to A$.",
+      "No FDs: nothing can violate BCNF. Only $A \\to B$: then $A^+ = AB$, so $A$ is a key.",
+      "Only $B \\to A$: $B^+ = AB$, so $B$ is a key. Both FDs: both $A$ and $B$ are keys.",
+      "In every case each non-trivial FD has a key on its left. No violation is possible."
+     ],
+     "answer": "True. Every two-attribute relation is in BCNF."
+    },
+    {
+     "level": "twist",
+     "setup": "$R(A,B,C)$ has $F=\\{A \\to B,\\ B \\to A\\}$. $A$ and $B$ decide each other. Is $R$ in BCNF? In 3NF?",
+     "steps": [
+      "$C$ is on no right side, so $C$ is in every key. $(AC)^+ = ABC$ and $(BC)^+ = ABC$. The keys are $AC$ and $BC$.",
+      "$A \\to B$: $A^+ = \\{A,B\\}$, which is not all of $R$. So $A$ is not a superkey, and BCNF fails.",
+      "3NF: the right side $B$ is prime (it is in the key $BC$). So 3NF lets $A \\to B$ through. The same holds for $B \\to A$."
+     ],
+     "answer": "Not BCNF, but 3NF. Two attributes that determine each other are not a key unless they cover the whole relation."
+    }
+   ],
+   "why": "BCNF is the target of the decomposition algorithm and the usual edge between 'in 3NF' and 'not in BCNF' in true/false questions. In GATE: 'is $R$ in BCNF', and statements such as 'every relation in BCNF is in 3NF' (2018 CS Q52, 2020 CS Q46, 2022 CS Q14, 2024 CS1 Q22).",
+   "how": [
+    "List the non-trivial FDs of $F$ (and implied ones if the relation is a projection).",
+    "For each, compute the closure of its left side.",
+    "If any closure is not the whole relation, BCNF fails.",
+    "Then separate 3NF from BCNF: a violating FD with a prime right side leaves the relation in 3NF."
+   ],
+   "mistake": "Calling a relation BCNF because its FDs 'look like key FDs', without computing closures. Also forgetting that, for a sub-relation, FDs implied through attributes outside it still count.",
+   "edge_cases": [
+    "Two-attribute relations are always BCNF.",
+    "A relation with no non-trivial FDs is in BCNF; its key is all attributes.",
+    "BCNF implies 3NF, but 3NF does not imply BCNF.",
+    "$A \\to B$ and $B \\to A$ with a third attribute $C$ gives a 3NF relation that is not BCNF."
+   ],
+   "connections": [
+    "**Decomposition algorithms** split on a BCNF violation until none is left.",
+    "**Dependency preservation**: a BCNF decomposition may lose an FD.",
+    "The earlier card **1NF, 2NF and 3NF** is the weaker ladder."
+   ],
+   "check": [
+    {
+     "q": "$R(A,B,C)$, $F=\\{A \\to B\\}$. Is it in BCNF?",
+     "a": "No. $A^+ = AB$, not a superkey (the key is $AC$)."
+    },
+    {
+     "q": "Every relation in BCNF is in 3NF. True or false?",
+     "a": "True."
+    },
+    {
+     "q": "$F=\\{A \\to BC\\}$ on $R(A,B,C)$. Is it in BCNF?",
+     "a": "Yes. $A^+ = ABC$, so $A$ is a superkey."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q52, 2020 CS Q46, 2022 CS Q14, 2024 CS1 Q22, 2024 DA sample Q16, 2005 CS Q29",
+   "try": {
+    "id": "gen.nf.005",
+    "label": "Try: which statement holds for every schema and FD set (L1)"
+   },
+   "scene": "db.nf.n5.bcnf",
+   "example": {
+    "setup": "$R(A,B,C,D,E)$ has $F=\\{AB \\to CD,\\ C \\to E,\\ D \\to B\\}$ with candidate keys $AB$ and $AD$. Is $R$ in BCNF?",
+    "steps": [
+     "BCNF asks one question of every non-trivial FD: is the left side a superkey? Compute a closure for each left side.",
+     "$AB \\to CD$: $(AB)^+$ gives $C$ and $D$, and $C$ gives $E$. So $(AB)^+ = ABCDE$, a superkey. This FD is fine.",
+     "$C \\to E$: $C^+ = \\{C, E\\}$. That is not all of $R$, so $C$ is not a superkey. Violation.",
+     "$D \\to B$: $D^+ = \\{B, D\\}$, again not all of $R$. Another violation. (It would pass 3NF alone, since $B$ is prime.)",
+     "Two violations, so $R$ is not in BCNF. $C \\to E$ also breaks 3NF because $E$ is non-prime, so the highest form is 2NF."
+    ],
+    "answer": "Not in BCNF. $C \\to E$ and $D \\to B$ both have a left side that is not a superkey. Highest form: 2NF."
+   },
+   "what": "**BCNF** is the strict version of 3NF. Whenever one set of columns decides another, the deciding set must be a **superkey**. There is no loophole for prime attributes.",
+   "what_full": "**BCNF** is the strict version of 3NF. Whenever one set of columns decides another, the deciding set must be a **superkey**. There is no loophole for prime attributes.\n\n$R$ is in **BCNF** if for every non-trivial FD $X \\to A$ that holds in $R$, $X$ is a superkey. Here non-trivial means $A \\notin X$.\n\nEvery BCNF relation is in 3NF, and every 3NF relation is in 2NF. The reverse directions fail.\n\n**Worked example.** $R(A,B,C,D,E)$ has $F=\\{AB \\to CD,\\ C \\to E,\\ D \\to B\\}$ with candidate keys $AB$ and $AD$. Is $R$ in BCNF?\n\n1. BCNF asks one question of every non-trivial FD: is the left side a superkey? Compute a closure for each left side.\n2. $AB \\to CD$: $(AB)^+$ gives $C$ and $D$, and $C$ gives $E$. So $(AB)^+ = ABCDE$, a superkey. This FD is fine.\n3. $C \\to E$: $C^+ = \\{C, E\\}$. That is not all of $R$, so $C$ is not a superkey. Violation.\n4. $D \\to B$: $D^+ = \\{B, D\\}$, again not all of $R$. Another violation. (It would pass 3NF alone, since $B$ is prime.)\n5. Two violations, so $R$ is not in BCNF. $C \\to E$ also breaks 3NF because $E$ is non-prime, so the highest form is 2NF.\n\n**Answer:** Not in BCNF. $C \\to E$ and $D \\to B$ both have a left side that is not a superkey. Highest form: 2NF.",
+   "why_full": "BCNF is the target of the decomposition algorithm and the usual edge between 'in 3NF' and 'not in BCNF' in true/false questions. In GATE: 'is $R$ in BCNF', and statements such as 'every relation in BCNF is in 3NF' (2018 CS Q52, 2020 CS Q46, 2022 CS Q14, 2024 CS1 Q22).\n\nAsked: 2018 CS Q52, 2020 CS Q46, 2022 CS Q14, 2024 CS1 Q22, 2024 DA sample Q16, 2005 CS Q29",
+   "trap": "Calling a relation BCNF because its FDs 'look like key FDs', without computing closures. Also forgetting that, for a sub-relation, FDs implied through attributes outside it still count."
+  },
+  {
+   "atom_id": "n6",
+   "title": "Minimal cover and equivalence",
+   "simple": "Imagine a packing list where some items are written twice or described in a roundabout way. You tidy it in three moves: write one item per line, remove words that add nothing, and cross out any line that the other lines already imply. What is left is the shortest list that still says the same thing. Two lists are equivalent when each one can produce everything the other says. In exam words: a minimal cover has single-attribute right sides, no extraneous left attributes and no redundant FDs. Two FD sets are equivalent if each implies every FD of the other.",
+   "idea": "A **minimal cover** is the shortest set of FDs that says the same thing as $F$. You split right sides, remove extra left-side attributes, then drop FDs that the others already imply. Two FD sets are **equivalent** if each implies all of the other.",
+   "definition": "A set $F_c$ is a **minimal (canonical) cover** of $F$ if: (1) every right side is a single attribute; (2) no left side has an extraneous attribute, i.e. removing it still leaves an FD implied by $F_c$; (3) no FD is redundant, i.e. removing it changes the closure.\n\n$F \\equiv G$ when every FD of $G$ follows from $F$ and every FD of $F$ follows from $G$ (test with closures).",
+   "intuition_full": "The order of the three steps matters. Split first, so each FD has one target. Then shrink left sides, because a smaller left side makes an FD stronger and can make other FDs redundant. Only then drop redundant FDs. To test whether $B$ is extra in $AB \\to D$, compute $A^+$ under the current set; if it contains $D$ the extra attribute is not needed. To test whether an FD is redundant, remove it and compute the closure of its left side without it; if the right side is still reached, it is redundant. The result is not always unique, because redundancy depends on the order of removal. Equivalence tests are just closures run both ways.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Find a minimal (canonical) cover of $F=\\{A \\to BC,\\ B \\to C,\\ AB \\to D,\\ C \\to D\\}$.",
+     "steps": [
+      "Start from the four given FDs. A minimal cover has three tests: single-attribute right sides, no extra attribute on a left side, and no redundant FD.",
+      "Split the right sides: $A \\to B$, $A \\to C$, $B \\to C$, $AB \\to D$, $C \\to D$. That is five FDs.",
+      "Shrink left sides. In $AB \\to D$, test $B$: $A^+ = \\{A,B,C,D\\}$ already contains $D$, so $B$ is extra. Replace it by $A \\to D$.",
+      "Drop redundant FDs. Without $A \\to D$, $A^+$ still reaches $D$ (via $A \\to C$, $C \\to D$). Without $A \\to C$, $A^+$ still reaches $C$ (via $A \\to B$, $B \\to C$). Remove both.",
+      "What remains, $A \\to B$, $B \\to C$, $C \\to D$, has no extra attribute and no redundant FD. It gives the same closures as $F$."
+     ],
+     "answer": "A minimal cover is $\\{A \\to B,\\ B \\to C,\\ C \\to D\\}$: three FDs."
+    },
+    {
+     "level": "gate",
+     "setup": "Are $F=\\{AB \\to C,\\ A \\to B\\}$ and $G=\\{A \\to B,\\ A \\to C\\}$ equivalent?",
+     "steps": [
+      "Equivalent means each set implies every FD of the other. Check $G$ inside $F^+$ first.",
+      "$A \\to B$ is in $F$. For $A \\to C$: $A^+$ under $F$ is $A \\to B$, then $AB \\to C$, so $\\{A,B,C\\}$. It contains $C$, so $F$ implies $A \\to C$.",
+      "Now check $F$ inside $G^+$. $A \\to B$ is in $G$. For $AB \\to C$: $(AB)^+$ under $G$ is $\\{A,B,C\\}$ (A gives C). It contains $C$.",
+      "Both directions hold."
+     ],
+     "answer": "Yes, $F$ and $G$ are equivalent."
+    },
+    {
+     "level": "twist",
+     "setup": "$F=\\{A \\to B,\\ B \\to A,\\ B \\to C,\\ A \\to C,\\ C \\to A\\}$. Is the minimal cover unique? Give two minimal covers.",
+     "steps": [
+      "Cover 1: $\\{A \\to B,\\ B \\to C,\\ C \\to A\\}$. The cycle $A \\to B \\to C \\to A$ gives $B \\to A$ (via $C$) and $A \\to C$ (via $B$). Every FD of $F$ is implied, and none of the three can be removed.",
+      "Cover 2: $\\{A \\to B,\\ B \\to A,\\ A \\to C,\\ C \\to A\\}$. $B \\to C$ follows from $B \\to A \\to C$, and $F$ is implied. None of the four can be removed.",
+      "Both are minimal and equivalent to $F$, but they have 3 and 4 FDs.",
+      "So a minimal cover is not unique, and not even its size is fixed. A GATE question that asks for the number must say which cover, or have a unique one."
+     ],
+     "answer": "Not unique. Covers of size 3 and size 4 both exist."
+    }
+   ],
+   "why": "Minimal covers feed the 3NF synthesis algorithm and the equivalence questions. In GATE: 'which set is a minimal cover', 'how many FDs in a canonical cover' or 'are $F$ and $G$ equivalent' (2017 CS1 Q16, 2019 CS Q42, 2021 CS1 Q43).",
+   "how": [
+    "Split every right side into single attributes.",
+    "For each FD with a multi-attribute left side, test each attribute: drop it if the rest of the left side already reaches the right side.",
+    "For each FD, remove it and check the closure of its left side. If the right side is still reached, keep it removed.",
+    "For equivalence, check every FD of each set against the closures under the other."
+   ],
+   "mistake": "Dropping FDs before shrinking left sides, or checking redundancy against the original $F$ instead of the current working set. Do the steps in order, and recompute against the set as it stands.",
+   "edge_cases": [
+    "The minimal cover is not unique, and different covers can have different sizes.",
+    "An FD that is trivial after splitting ($A \\to A$) is simply dropped.",
+    "A cover may keep an FD whose left side is a key and drop the others around it.",
+    "A GATE option that merely has fewer FDs is not necessarily a cover; check equivalence."
+   ],
+   "connections": [
+    "**3NF synthesis** (decomposition card) starts from a minimal cover.",
+    "**Attribute closure** does every test in this card.",
+    "Equivalence of FD sets is the FD analogue of equivalence of relational expressions."
+   ],
+   "check": [
+    {
+     "q": "$F=\\{A \\to B,\\ B \\to C,\\ A \\to C\\}$. Which FD is redundant?",
+     "a": "$A \\to C$, since $A \\to B \\to C$."
+    },
+    {
+     "q": "In $AB \\to C$ with $A \\to C$ also given, which attribute of the left side is extraneous?",
+     "a": "$B$. $A \\to C$ already gives it, so the FD reduces to $A \\to C$."
+    },
+    {
+     "q": "Split $A \\to BCD$ into single-attribute right sides. How many FDs?",
+     "a": "3: $A \\to B$, $A \\to C$, $A \\to D$."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q16, 2019 CS Q42, 2021 CS1 Q43, 2024 CS1 Q44",
+   "try": {
+    "id": "gen.nf.013",
+    "label": "Try: minimal cover of a set of FDs (L2)"
+   },
+   "scene": "db.nf.n6.mincover",
+   "example": {
+    "setup": "Find a minimal (canonical) cover of $F=\\{A \\to BC,\\ B \\to C,\\ AB \\to D,\\ C \\to D\\}$.",
+    "steps": [
+     "Start from the four given FDs. A minimal cover has three tests: single-attribute right sides, no extra attribute on a left side, and no redundant FD.",
+     "Split the right sides: $A \\to B$, $A \\to C$, $B \\to C$, $AB \\to D$, $C \\to D$. That is five FDs.",
+     "Shrink left sides. In $AB \\to D$, test $B$: $A^+ = \\{A,B,C,D\\}$ already contains $D$, so $B$ is extra. Replace it by $A \\to D$.",
+     "Drop redundant FDs. Without $A \\to D$, $A^+$ still reaches $D$ (via $A \\to C$, $C \\to D$). Without $A \\to C$, $A^+$ still reaches $C$ (via $A \\to B$, $B \\to C$). Remove both.",
+     "What remains, $A \\to B$, $B \\to C$, $C \\to D$, has no extra attribute and no redundant FD. It gives the same closures as $F$."
+    ],
+    "answer": "A minimal cover is $\\{A \\to B,\\ B \\to C,\\ C \\to D\\}$: three FDs."
+   },
+   "what": "A **minimal cover** is the shortest set of FDs that says the same thing as $F$. You split right sides, remove extra left-side attributes, then drop FDs that the others already imply. Two FD sets are **equivalent** if each implies all of the other.",
+   "what_full": "A **minimal cover** is the shortest set of FDs that says the same thing as $F$. You split right sides, remove extra left-side attributes, then drop FDs that the others already imply. Two FD sets are **equivalent** if each implies all of the other.\n\nA set $F_c$ is a **minimal (canonical) cover** of $F$ if: (1) every right side is a single attribute; (2) no left side has an extraneous attribute, i.e. removing it still leaves an FD implied by $F_c$; (3) no FD is redundant, i.e. removing it changes the closure.\n\n$F \\equiv G$ when every FD of $G$ follows from $F$ and every FD of $F$ follows from $G$ (test with closures).\n\n**Worked example.** Find a minimal (canonical) cover of $F=\\{A \\to BC,\\ B \\to C,\\ AB \\to D,\\ C \\to D\\}$.\n\n1. Start from the four given FDs. A minimal cover has three tests: single-attribute right sides, no extra attribute on a left side, and no redundant FD.\n2. Split the right sides: $A \\to B$, $A \\to C$, $B \\to C$, $AB \\to D$, $C \\to D$. That is five FDs.\n3. Shrink left sides. In $AB \\to D$, test $B$: $A^+ = \\{A,B,C,D\\}$ already contains $D$, so $B$ is extra. Replace it by $A \\to D$.\n4. Drop redundant FDs. Without $A \\to D$, $A^+$ still reaches $D$ (via $A \\to C$, $C \\to D$). Without $A \\to C$, $A^+$ still reaches $C$ (via $A \\to B$, $B \\to C$). Remove both.\n5. What remains, $A \\to B$, $B \\to C$, $C \\to D$, has no extra attribute and no redundant FD. It gives the same closures as $F$.\n\n**Answer:** A minimal cover is $\\{A \\to B,\\ B \\to C,\\ C \\to D\\}$: three FDs.",
+   "why_full": "Minimal covers feed the 3NF synthesis algorithm and the equivalence questions. In GATE: 'which set is a minimal cover', 'how many FDs in a canonical cover' or 'are $F$ and $G$ equivalent' (2017 CS1 Q16, 2019 CS Q42, 2021 CS1 Q43).\n\nAsked: 2017 CS1 Q16, 2019 CS Q42, 2021 CS1 Q43, 2024 CS1 Q44",
+   "trap": "Dropping FDs before shrinking left sides, or checking redundancy against the original $F$ instead of the current working set. Do the steps in order, and recompute against the set as it stands."
+  },
+  {
+   "atom_id": "n7",
+   "title": "Lossless join",
+   "simple": "Cut a photo in two and you can tape it back together only if the cut edges match exactly. Splitting a table works the same way. You split it, then join the pieces on the columns they share. If the shared columns pick out one row in at least one piece, the rows glue back correctly. If they do not, each row may match several partners and you get fake rows that were never in the original. In exam words: a decomposition is lossless if the natural join of the parts equals the original relation. For two parts, $R_1 \\cap R_2$ must be a key of $R_1$ or $R_2$.",
+   "idea": "A decomposition is **lossless** if joining the parts gives back exactly the original table. If it is lossy, the join adds spurious rows. For two parts, the rule is simple: the attributes they share must be a key of one of the parts.",
+   "definition": "For $R$ split into $R_1, R_2$ with FDs $F$, the split is lossless if and only if $R_1 \\cap R_2 \\to R_1$ or $R_1 \\cap R_2 \\to R_2$ is in $F^+$. That is, the shared attributes are a key of one part.\n\nFor three or more parts, run the **chase**: build a row per part, fill in $a$'s and $b$'s, apply the FDs to equate symbols, and look for a row with only $a$'s.",
+   "intuition_full": "A join glues rows that agree on the shared attributes. If the shared attributes are a key of one side, each row on the other side finds exactly one partner, so nothing is lost and nothing is invented. If they are not a key of either side, a shared value can appear in several rows on both sides, and the join produces every combination. Those extra combinations are the spurious rows. The chase is the same idea run mechanically: two rows that agree on the left side of an FD are forced to agree on the right side, so symbols are equated until either one row is fully distinguished (lossless) or no more equating is possible (lossy). Note that lossless depends on $F^+$, not just the written FDs.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "$R(A,B,C,D)$ has $F=\\{AB \\to C,\\ C \\to D\\}$. Is the split $R_1(A,B,C)$, $R_2(C,D)$ lossless? Is $R_1(A,B,D)$, $R_2(C,D)$ lossless?",
+     "steps": [
+      "Lossless means joining the parts gives back exactly the original rows, with no extra ones. For two parts, the test is: the shared attributes must be a key of one part.",
+      "Split 1: $R_1 = ABC$ and $R_2 = CD$. The shared attributes are $R_1 \\cap R_2 = \\{C\\}$.",
+      "$C^+ = \\{C, D\\}$, which is all of $R_2$. So $C$ is a key of $R_2$, and each $R_1$ row matches exactly one $R_2$ row. The split is lossless.",
+      "Split 2: $R_1 = ABD$ and $R_2 = CD$. The shared attribute is $D$.",
+      "$D^+ = \\{D\\}$. It is a key of neither part, so one $D$ value can pair with many $C$ values and the join invents spurious rows. The split is lossy."
+     ],
+     "answer": "Split 1 is lossless. Split 2 is lossy."
+    },
+    {
+     "level": "gate",
+     "setup": "$R(A,B,C,D,E)$ has $F=\\{AB \\to C,\\ C \\to D,\\ D \\to E\\}$. Use the chase to test the decomposition $R_1(A,B,C)$, $R_2(C,D)$, $R_3(D,E)$.",
+     "steps": [
+      "Build a table with one row per part and one column per attribute. Write $a_j$ where the part has that attribute, and $b_{ij}$ where it does not.",
+      "$AB \\to C$: no two rows agree on both $A$ and $B$ (only row 1 has $a_1,a_2$). No change.",
+      "$C \\to D$: rows 1 and 2 both have $a_3$ under $C$, so they must agree on $D$. Row 2 has $a_4$, so $b_{14}$ becomes $a_4$.",
+      "$D \\to E$: rows 1, 2 and 3 all have $a_4$ under $D$, so they must agree on $E$. Row 3 has $a_5$, so $b_{15}$ and $b_{25}$ become $a_5$.",
+      "Row 1 is now $a_1, a_2, a_3, a_4, a_5$ with no $b$'s. A row of all $a$'s means the decomposition is lossless."
+     ],
+     "answer": "Lossless. (Replacing $R_3(D,E)$ by $R_3(B,E)$ would not be: no FD ever ties $E$ to row 1.)"
+    },
+    {
+     "level": "twist",
+     "setup": "$R(A,B,C)$ has $F=\\{A \\to B,\\ B \\to C\\}$. Is the split $R_1(A,B)$, $R_2(A,C)$ lossless, even though $A \\to C$ is not written in $F$?",
+     "steps": [
+      "The shared attribute is $A$.",
+      "Compute $A^+$ under $F$: $A \\to B$, then $B \\to C$. So $A^+ = \\{A,B,C\\}$.",
+      "$A^+$ covers both $R_1$ and $R_2$, so $A$ is a key of $R_1$ and of $R_2$.",
+      "The test must use the closure of $F$, not just the FDs as written. $A \\to C$ is implied, and that is enough."
+     ],
+     "answer": "Lossless."
+    }
+   ],
+   "why": "Losing information through a bad split would silently corrupt data, so every decomposition must be lossless. In GATE: 'which decomposition is lossless', often with three parts, which needs the chase (2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16).",
+   "how": [
+    "Two parts: find $R_1 \\cap R_2$ and compute its closure.",
+    "If the closure contains all of $R_1$ or all of $R_2$, the split is lossless.",
+    "Three or more parts: draw the chase table, apply each FD until nothing changes, and look for an all-$a$ row.",
+    "Also remember the join size bound: if the shared attribute is a key on one side, the join has at most as many rows as the other side."
+   ],
+   "mistake": "Calling a decomposition lossless just because the parts overlap or cover all the attributes. Overlap alone is not enough; the shared attributes must be a key of one part, and you must test it with a closure.",
+   "edge_cases": [
+    "Parts with no shared attribute give a Cartesian product, which is lossy unless one part has a single row.",
+    "A split on a key is always lossless (the key's closure is the whole relation).",
+    "Lossless is independent of dependency preservation; a decomposition can be one without the other.",
+    "The binary test is an iff; the chase is needed only for three or more parts."
+   ],
+   "connections": [
+    "**Dependency preservation** (next card) is the second quality test.",
+    "**Decomposition algorithms** guarantee lossless by construction.",
+    "**Natural join** (`db.relalg`) is the operation the test is about."
+   ],
+   "check": [
+    {
+     "q": "$R(A,B,C)$, $F=\\{A \\to B\\}$. Is $R_1(A,B)$, $R_2(A,C)$ lossless?",
+     "a": "Yes. The shared attribute $A$ is a key of $R_1$."
+    },
+    {
+     "q": "$R(A,B,C)$, $F=\\{A \\to B\\}$. Is $R_1(A,B)$, $R_2(B,C)$ lossless?",
+     "a": "No. $B^+ = B$, a key of neither part."
+    },
+    {
+     "q": "In a chase table, what does a row of all $a$'s prove?",
+     "a": "The decomposition is lossless."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16, 2026 CS1 Q31, 2001 CS Q2_23",
+   "try": {
+    "id": "gen.nf.011",
+    "label": "Try: which decomposition is lossless (L2)"
+   },
+   "scene": "db.nf.n7.lossless",
+   "example": {
+    "setup": "$R(A,B,C,D)$ has $F=\\{AB \\to C,\\ C \\to D\\}$. Is the split $R_1(A,B,C)$, $R_2(C,D)$ lossless? Is $R_1(A,B,D)$, $R_2(C,D)$ lossless?",
+    "steps": [
+     "Lossless means joining the parts gives back exactly the original rows, with no extra ones. For two parts, the test is: the shared attributes must be a key of one part.",
+     "Split 1: $R_1 = ABC$ and $R_2 = CD$. The shared attributes are $R_1 \\cap R_2 = \\{C\\}$.",
+     "$C^+ = \\{C, D\\}$, which is all of $R_2$. So $C$ is a key of $R_2$, and each $R_1$ row matches exactly one $R_2$ row. The split is lossless.",
+     "Split 2: $R_1 = ABD$ and $R_2 = CD$. The shared attribute is $D$.",
+     "$D^+ = \\{D\\}$. It is a key of neither part, so one $D$ value can pair with many $C$ values and the join invents spurious rows. The split is lossy."
+    ],
+    "answer": "Split 1 is lossless. Split 2 is lossy."
+   },
+   "what": "A decomposition is **lossless** if joining the parts gives back exactly the original table. If it is lossy, the join adds spurious rows. For two parts, the rule is simple: the attributes they share must be a key of one of the parts.",
+   "what_full": "A decomposition is **lossless** if joining the parts gives back exactly the original table. If it is lossy, the join adds spurious rows. For two parts, the rule is simple: the attributes they share must be a key of one of the parts.\n\nFor $R$ split into $R_1, R_2$ with FDs $F$, the split is lossless if and only if $R_1 \\cap R_2 \\to R_1$ or $R_1 \\cap R_2 \\to R_2$ is in $F^+$. That is, the shared attributes are a key of one part.\n\nFor three or more parts, run the **chase**: build a row per part, fill in $a$'s and $b$'s, apply the FDs to equate symbols, and look for a row with only $a$'s.\n\n**Worked example.** $R(A,B,C,D)$ has $F=\\{AB \\to C,\\ C \\to D\\}$. Is the split $R_1(A,B,C)$, $R_2(C,D)$ lossless? Is $R_1(A,B,D)$, $R_2(C,D)$ lossless?\n\n1. Lossless means joining the parts gives back exactly the original rows, with no extra ones. For two parts, the test is: the shared attributes must be a key of one part.\n2. Split 1: $R_1 = ABC$ and $R_2 = CD$. The shared attributes are $R_1 \\cap R_2 = \\{C\\}$.\n3. $C^+ = \\{C, D\\}$, which is all of $R_2$. So $C$ is a key of $R_2$, and each $R_1$ row matches exactly one $R_2$ row. The split is lossless.\n4. Split 2: $R_1 = ABD$ and $R_2 = CD$. The shared attribute is $D$.\n5. $D^+ = \\{D\\}$. It is a key of neither part, so one $D$ value can pair with many $C$ values and the join invents spurious rows. The split is lossy.\n\n**Answer:** Split 1 is lossless. Split 2 is lossy.",
+   "why_full": "Losing information through a bad split would silently corrupt data, so every decomposition must be lossless. In GATE: 'which decomposition is lossless', often with three parts, which needs the chase (2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16).\n\nAsked: 2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16, 2026 CS1 Q31, 2001 CS Q2_23",
+   "trap": "Calling a decomposition lossless just because the parts overlap or cover all the attributes. Overlap alone is not enough; the shared attributes must be a key of one part, and you must test it with a closure."
+  },
+  {
+   "atom_id": "n8",
+   "title": "Dependency preservation",
+   "simple": "Suppose your school rules are written in one book, and you cut it into chapters. If every rule still fits wholly inside one chapter, a teacher can check it by opening that chapter. If a rule needs words from two different chapters, nobody can check it without gluing the book back together, which is slow. Dependency preservation asks whether every rule survives the cut. In exam words: a decomposition preserves dependencies if every FD of $F$ follows from the union of the FDs projected onto the parts.",
+   "idea": "A decomposition **preserves dependencies** if every FD can still be enforced by looking at one part at a time. If some FD spans two parts, checking it needs a join, which is expensive on every update.",
+   "definition": "The projection $F_i$ of $F$ onto $R_i$ is the set of FDs $X \\to Y$ in $F^+$ with $X, Y \\subseteq R_i$. A decomposition $\\{R_1,\\dots,R_k\\}$ is **dependency preserving** if $(F_1 \\cup \\dots \\cup F_k)^+ = F^+$.\n\n**Quick test:** grow $Z$ from the left side of each FD by repeatedly adding $(Z \\cap R_i)^+ \\cap R_i$ for every part. If the right side ends up in $Z$, that FD is preserved.",
+   "intuition_full": "An FD is a constraint the database must enforce. If the whole FD fits in one table, the engine checks it with a local scan or a unique index. If the FD spans two tables, the engine must join them to catch a violation, so most systems do not enforce it. That is why preservation matters in practice. The catch is that a spanning FD may still be implied by the FDs inside the parts, which is why the check works with projected FDs and closures. BCNF decomposition can lose FDs because it splits a relation on a key of one part. 3NF synthesis never loses them. A lost FD does not mean data is corrupted yet; it means the DBMS can no longer guard it cheaply.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "$R(A,B,C,D)$ has $F=\\{A \\to B,\\ B \\to C,\\ C \\to D\\}$. Compare the decompositions $D_1=\\{AB, BC, CD\\}$ and $D_2=\\{AB, ACD\\}$ for dependency preservation.",
+     "steps": [
+      "A decomposition is **dependency preserving** if every FD of $F$ can still be checked using only the parts (directly or after projecting $F$ onto each part).",
+      "$D_1$: $A \\to B$ lies inside $AB$, $B \\to C$ inside $BC$, $C \\to D$ inside $CD$. Every FD sits in one part, so $D_1$ preserves all of $F$.",
+      "$D_2$: $A \\to B$ lies inside $AB$, and $C \\to D$ lies inside $ACD$. Those two are kept.",
+      "$B \\to C$ is in no part. Projecting $F$ onto $ACD$ gives $A \\to C$, $C \\to D$, $A \\to D$. In the union of the projections $B^+ = \\{B\\}$, so $B \\to C$ cannot be recovered. It is lost.",
+      "$D_2$ is still lossless (the shared $A$ is a key of $AB$), but it does not preserve dependencies. $D_1$ does both."
+     ],
+     "answer": "$D_1$ preserves dependencies. $D_2$ loses $B \\to C$."
+    },
+    {
+     "level": "gate",
+     "setup": "$R(A,B,C)$ has $F=\\{A \\to B,\\ B \\to C,\\ C \\to A\\}$ and is split into $R_1(A,B)$ and $R_2(B,C)$. Is $C \\to A$ preserved, even though no part contains both $C$ and $A$?",
+     "steps": [
+      "$A \\to B$ lies in $R_1$ and $B \\to C$ lies in $R_2$. $C \\to A$ is in neither part.",
+      "Project $F$ onto each part. On $R_1$: $A \\to B$ and $B \\to A$ (since $B \\to C \\to A$). On $R_2$: $B \\to C$ and $C \\to B$ (since $C \\to A \\to B$).",
+      "Start with $Z=\\{C\\}$. $R_2$ gives $C \\to B$, so $Z=\\{B,C\\}$. $R_1$ gives $B \\to A$, so $Z=\\{A,B,C\\}$. $A$ is reached.",
+      "So $C \\to A$ is enforced by combining the parts' constraints. The decomposition is dependency preserving."
+     ],
+     "answer": "Yes, preserved (and lossless, since $B$ is a key of $R_1$ and $R_2$)."
+    },
+    {
+     "level": "twist",
+     "setup": "$R(S,C,T)$ has $F=\\{SC \\to T,\\ T \\to C\\}$ with keys $SC$ and $ST$. Split on the BCNF violation $T \\to C$ into $R_1(T,C)$ and $R_2(S,T)$. Is $SC \\to T$ preserved?",
+     "steps": [
+      "$T \\to C$ violates BCNF, because $T^+ = TC$ is not a key. So split off $R_1 = TC$ and keep $R_2 = ST$.",
+      "The split is lossless: the shared $T$ is a key of $R_1(T,C)$.",
+      "But $SC \\to T$ needs $S$, $C$ and $T$ together. $S$ is only in $R_2$, $C$ only in $R_1$. No part holds both.",
+      "Closure test from $\\{S,C\\}$: $R_1$ and $R_2$ each see only one of $S$ or $C$, so $T$ is never derived. $SC \\to T$ is lost."
+     ],
+     "answer": "Not preserved. This BCNF split is lossless but loses $SC \\to T$ (the relation was already in 3NF)."
+    }
+   ],
+   "why": "Preservation is the second quality test of any decomposition, and it is the reason 3NF exists alongside BCNF. In GATE: decide whether a decomposition is lossless, dependency preserving, both or neither (2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16).",
+   "how": [
+    "List which FDs of $F$ lie entirely inside a part. Those are preserved for free.",
+    "For each remaining FD, run the grow-$Z$ test with projections, or project $F$ onto each part and compare closures.",
+    "If any FD is not derived, the decomposition is not preserving.",
+    "Check lossless separately; the two tests are independent."
+   ],
+   "mistake": "Concluding that an FD is lost just because no part contains all its attributes. It may still be implied by the projected FDs. The opposite slip is assuming a BCNF split preserves everything.",
+   "edge_cases": [
+    "A decomposition into parts that each contain a whole FD preserves everything.",
+    "Projection must use closures: an FD like $A \\to C$ may hold on $R_i(A,C)$ via a missing $B$.",
+    "3NF synthesis is lossless and dependency preserving; BCNF decomposition is lossless only.",
+    "Trivial FDs never matter."
+   ],
+   "connections": [
+    "**Lossless join** (previous card) is the independent test.",
+    "**BCNF** can fail preservation; **3NF synthesis** (next card) fixes that.",
+    "Foreign key and `UNIQUE` constraints enforce key-based FDs cheaply (next-but-one card)."
+   ],
+   "check": [
+    {
+     "q": "$F=\\{A \\to B,\\ B \\to C\\}$ on $R(A,B,C)$ is split into $R_1(A,B)$ and $R_2(B,C)$. Preserved?",
+     "a": "Yes. Each FD sits inside a part."
+    },
+    {
+     "q": "$F=\\{A \\to B,\\ B \\to C\\}$ on $R(A,B,C)$ is split into $R_1(A,B)$ and $R_2(A,C)$. Preserved?",
+     "a": "No. $B \\to C$ is lost, because $B$ and $C$ are never together."
+    },
+    {
+     "q": "Which is guaranteed to preserve dependencies: BCNF decomposition or 3NF synthesis?",
+     "a": "3NF synthesis."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16, 2026 CS1 Q31",
+   "try": {
+    "id": "gen.nf.012",
+    "label": "Try: decomposition of R(A,B,C) with A → B and B → C (L2)"
+   },
+   "scene": "db.nf.n8.preserve",
+   "example": {
+    "setup": "$R(A,B,C,D)$ has $F=\\{A \\to B,\\ B \\to C,\\ C \\to D\\}$. Compare the decompositions $D_1=\\{AB, BC, CD\\}$ and $D_2=\\{AB, ACD\\}$ for dependency preservation.",
+    "steps": [
+     "A decomposition is **dependency preserving** if every FD of $F$ can still be checked using only the parts (directly or after projecting $F$ onto each part).",
+     "$D_1$: $A \\to B$ lies inside $AB$, $B \\to C$ inside $BC$, $C \\to D$ inside $CD$. Every FD sits in one part, so $D_1$ preserves all of $F$.",
+     "$D_2$: $A \\to B$ lies inside $AB$, and $C \\to D$ lies inside $ACD$. Those two are kept.",
+     "$B \\to C$ is in no part. Projecting $F$ onto $ACD$ gives $A \\to C$, $C \\to D$, $A \\to D$. In the union of the projections $B^+ = \\{B\\}$, so $B \\to C$ cannot be recovered. It is lost.",
+     "$D_2$ is still lossless (the shared $A$ is a key of $AB$), but it does not preserve dependencies. $D_1$ does both."
+    ],
+    "answer": "$D_1$ preserves dependencies. $D_2$ loses $B \\to C$."
+   },
+   "what": "A decomposition **preserves dependencies** if every FD can still be enforced by looking at one part at a time. If some FD spans two parts, checking it needs a join, which is expensive on every update.",
+   "what_full": "A decomposition **preserves dependencies** if every FD can still be enforced by looking at one part at a time. If some FD spans two parts, checking it needs a join, which is expensive on every update.\n\nThe projection $F_i$ of $F$ onto $R_i$ is the set of FDs $X \\to Y$ in $F^+$ with $X, Y \\subseteq R_i$. A decomposition $\\{R_1,\\dots,R_k\\}$ is **dependency preserving** if $(F_1 \\cup \\dots \\cup F_k)^+ = F^+$.\n\n**Quick test:** grow $Z$ from the left side of each FD by repeatedly adding $(Z \\cap R_i)^+ \\cap R_i$ for every part. If the right side ends up in $Z$, that FD is preserved.\n\n**Worked example.** $R(A,B,C,D)$ has $F=\\{A \\to B,\\ B \\to C,\\ C \\to D\\}$. Compare the decompositions $D_1=\\{AB, BC, CD\\}$ and $D_2=\\{AB, ACD\\}$ for dependency preservation.\n\n1. A decomposition is **dependency preserving** if every FD of $F$ can still be checked using only the parts (directly or after projecting $F$ onto each part).\n2. $D_1$: $A \\to B$ lies inside $AB$, $B \\to C$ inside $BC$, $C \\to D$ inside $CD$. Every FD sits in one part, so $D_1$ preserves all of $F$.\n3. $D_2$: $A \\to B$ lies inside $AB$, and $C \\to D$ lies inside $ACD$. Those two are kept.\n4. $B \\to C$ is in no part. Projecting $F$ onto $ACD$ gives $A \\to C$, $C \\to D$, $A \\to D$. In the union of the projections $B^+ = \\{B\\}$, so $B \\to C$ cannot be recovered. It is lost.\n5. $D_2$ is still lossless (the shared $A$ is a key of $AB$), but it does not preserve dependencies. $D_1$ does both.\n\n**Answer:** $D_1$ preserves dependencies. $D_2$ loses $B \\to C$.",
+   "why_full": "Preservation is the second quality test of any decomposition, and it is the reason 3NF exists alongside BCNF. In GATE: decide whether a decomposition is lossless, dependency preserving, both or neither (2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16).\n\nAsked: 2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2025 DA Q16, 2026 CS1 Q31",
+   "trap": "Concluding that an FD is lost just because no part contains all its attributes. It may still be implied by the projected FDs. The opposite slip is assuming a BCNF split preserves everything."
+  },
+  {
+   "atom_id": "n9",
+   "title": "Decomposition algorithms",
+   "simple": "Suppose a messy spreadsheet mixes facts about students and facts about courses. You fix it by splitting it into smaller sheets, each about one thing, until no sheet has a column that decides another without being able to identify a row. The BCNF way keeps cutting at every broken rule, and always keeps the pieces joinable, but a rule may end up split between sheets. The 3NF way builds one sheet per rule, adds a sheet for the key if needed, and never loses a rule. In exam words: BCNF decomposition is lossless but may lose dependencies; 3NF synthesis is lossless and dependency preserving.",
+   "idea": "Two recipes fix a bad schema. **BCNF decomposition** keeps splitting on any violating FD until none is left. It is lossless but may lose an FD. **3NF synthesis** builds one relation per FD of the minimal cover and adds a key relation. It is lossless and preserves dependencies.",
+   "definition": "**BCNF split:** if $X \\to Y$ violates BCNF in $R$, replace $R$ by $R_1 = X^+$ and $R_2 = (R - X^+) \\cup X$. Repeat on each part (using projected FDs).\n\n**3NF synthesis:** (1) compute a minimal cover; (2) group FDs with the same left side and make a relation $X \\cup Y_1 \\cup \\dots$ for each group; (3) if no relation contains a candidate key of $R$, add one that does; (4) delete any relation contained in another.",
+   "intuition_full": "Splitting on $X \\to Y$ puts the determined attributes next to their determinant in a small table where $X$ is a key. The other table keeps $X$ so the two can be joined back, which is why the split is always lossless. The price: attributes from one FD may end up in different tables. 3NF synthesis avoids that by building the tables from the FDs themselves, so each FD lives in some relation by construction. The key relation is added so that the parts can still be joined back to the original: without it the decomposition could be lossy. Because 3NF allows a prime right side, it can keep FDs that BCNF would have to break.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Decompose $R(A,B,C,D,E)$ with $F=\\{A \\to B,\\ C \\to D,\\ AC \\to E\\}$ into BCNF by splitting on violations.",
+     "steps": [
+      "The only key is $AC$ (they are on no right side and $(AC)^+ = ABCDE$). Look for an FD whose left side is not a superkey.",
+      "$A \\to B$ violates BCNF, since $A^+ = AB$. Split into $R_1 = A^+ = AB$ and $R_2 = (R - A^+) \\cup A = ACDE$.",
+      "$R_1(A,B)$ has two attributes, so it is in BCNF. In $R_2$ the FDs are $C \\to D$ and $AC \\to E$. $C \\to D$ violates ($C^+ = CD$ inside $R_2$).",
+      "Split $R_2$ on $C \\to D$ into $R_{21} = CD$ and $R_{22} = (ACDE - CD) \\cup C = ACE$.",
+      "$AB$, $CD$ and $ACE$ are all in BCNF ($AC$ is a key of $ACE$). The result has 3 relations, is lossless, and keeps all three FDs."
+     ],
+     "answer": "$\\{AB,\\ CD,\\ ACE\\}$: three relations."
+    },
+    {
+     "level": "gate",
+     "setup": "$R(A,B,C,D,E,F)$ has $F=\\{AB \\to C,\\ C \\to D,\\ E \\to F\\}$. How many relations does the 3NF synthesis algorithm produce?",
+     "steps": [
+      "Minimal cover: the set is already minimal (single right sides, no extra left attributes, nothing redundant).",
+      "One relation per FD (grouping equal left sides): $R_1(A,B,C)$ from $AB \\to C$, $R_2(C,D)$ from $C \\to D$, $R_3(E,F)$ from $E \\to F$.",
+      "Find a key of $R$: $A$, $B$, $E$ are on no right side and $(ABE)^+ = ABCDEF$. So $ABE$ is the key.",
+      "No relation contains $ABE$, so add a key relation $R_4(A,B,E)$."
+     ],
+     "answer": "4 relations: $ABC$, $CD$, $EF$, $ABE$."
+    },
+    {
+     "level": "twist",
+     "setup": "$R(A,B,C)$ has $F=\\{AB \\to C,\\ C \\to B\\}$. What does 3NF synthesis give?",
+     "steps": [
+      "The cover is already minimal. One relation per left side: $R_1(A,B,C)$ and $R_2(C,B)$.",
+      "$R_2$ is a subset of $R_1$, so drop it.",
+      "Does some relation contain a key? $AB$ is a key and sits inside $R_1$. So no extra key relation.",
+      "The result is the single relation $R(A,B,C)$: it was already in 3NF."
+     ],
+     "answer": "One relation, $R(A,B,C)$ itself."
+    }
+   ],
+   "why": "These are the standard 'how would you decompose' questions. In GATE: count the relations in a decomposition, or state which properties a given algorithm guarantees (2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2026 CS1 Q31).",
+   "how": [
+    "BCNF: find a violating FD $X \\to Y$, split into $X^+$ and $(R - X^+) \\cup X$, then repeat in each part with projected FDs.",
+    "3NF: minimal cover, one relation per left side, add a key relation if none contains a key, remove subsumed relations.",
+    "Count the relations or list their attribute sets.",
+    "State the guarantees: BCNF gives lossless only; 3NF gives lossless and dependency preserving."
+   ],
+   "mistake": "Assuming BCNF decomposition preserves dependencies. It can lose them, as the $SC \\to T$ example shows. Another slip is forgetting the key relation in 3NF synthesis, which can make the result lossy.",
+   "edge_cases": [
+    "If the relation is already in BCNF, the algorithm returns it unchanged.",
+    "BCNF decomposition can give different results depending on which violation is split first.",
+    "3NF synthesis may return a single relation if one FD set covers everything.",
+    "A subsumed relation (contained in another) is dropped."
+   ],
+   "connections": [
+    "**Lossless join** and **dependency preservation** (previous cards) are the guarantees.",
+    "**Minimal cover** (earlier card) is the first step of 3NF synthesis.",
+    "The target forms are **BCNF** and **3NF** from the cards above."
+   ],
+   "check": [
+    {
+     "q": "Which algorithm can lose a dependency: BCNF decomposition or 3NF synthesis?",
+     "a": "BCNF decomposition."
+    },
+    {
+     "q": "Why does 3NF synthesis add a key relation?",
+     "a": "So that the join of the parts is lossless."
+    },
+    {
+     "q": "Split $R(A,B,C)$ with $F=\\{A \\to B\\}$ on the violation $A \\to B$. What are the parts?",
+     "a": "$AB$ and $AC$."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2026 CS1 Q31, 2022 CS Q14",
+   "try": {
+    "id": "gen.nf.005",
+    "label": "Try: which statement holds for every schema and FD set (L1)"
+   },
+   "scene": "db.nf.n9.bcnf_split",
+   "example": {
+    "setup": "Decompose $R(A,B,C,D,E)$ with $F=\\{A \\to B,\\ C \\to D,\\ AC \\to E\\}$ into BCNF by splitting on violations.",
+    "steps": [
+     "The only key is $AC$ (they are on no right side and $(AC)^+ = ABCDE$). Look for an FD whose left side is not a superkey.",
+     "$A \\to B$ violates BCNF, since $A^+ = AB$. Split into $R_1 = A^+ = AB$ and $R_2 = (R - A^+) \\cup A = ACDE$.",
+     "$R_1(A,B)$ has two attributes, so it is in BCNF. In $R_2$ the FDs are $C \\to D$ and $AC \\to E$. $C \\to D$ violates ($C^+ = CD$ inside $R_2$).",
+     "Split $R_2$ on $C \\to D$ into $R_{21} = CD$ and $R_{22} = (ACDE - CD) \\cup C = ACE$.",
+     "$AB$, $CD$ and $ACE$ are all in BCNF ($AC$ is a key of $ACE$). The result has 3 relations, is lossless, and keeps all three FDs."
+    ],
+    "answer": "$\\{AB,\\ CD,\\ ACE\\}$: three relations."
+   },
+   "what": "Two recipes fix a bad schema. **BCNF decomposition** keeps splitting on any violating FD until none is left. It is lossless but may lose an FD. **3NF synthesis** builds one relation per FD of the minimal cover and adds a key relation. It is lossless and preserves dependencies.",
+   "what_full": "Two recipes fix a bad schema. **BCNF decomposition** keeps splitting on any violating FD until none is left. It is lossless but may lose an FD. **3NF synthesis** builds one relation per FD of the minimal cover and adds a key relation. It is lossless and preserves dependencies.\n\n**BCNF split:** if $X \\to Y$ violates BCNF in $R$, replace $R$ by $R_1 = X^+$ and $R_2 = (R - X^+) \\cup X$. Repeat on each part (using projected FDs).\n\n**3NF synthesis:** (1) compute a minimal cover; (2) group FDs with the same left side and make a relation $X \\cup Y_1 \\cup \\dots$ for each group; (3) if no relation contains a candidate key of $R$, add one that does; (4) delete any relation contained in another.\n\n**Worked example.** Decompose $R(A,B,C,D,E)$ with $F=\\{A \\to B,\\ C \\to D,\\ AC \\to E\\}$ into BCNF by splitting on violations.\n\n1. The only key is $AC$ (they are on no right side and $(AC)^+ = ABCDE$). Look for an FD whose left side is not a superkey.\n2. $A \\to B$ violates BCNF, since $A^+ = AB$. Split into $R_1 = A^+ = AB$ and $R_2 = (R - A^+) \\cup A = ACDE$.\n3. $R_1(A,B)$ has two attributes, so it is in BCNF. In $R_2$ the FDs are $C \\to D$ and $AC \\to E$. $C \\to D$ violates ($C^+ = CD$ inside $R_2$).\n4. Split $R_2$ on $C \\to D$ into $R_{21} = CD$ and $R_{22} = (ACDE - CD) \\cup C = ACE$.\n5. $AB$, $CD$ and $ACE$ are all in BCNF ($AC$ is a key of $ACE$). The result has 3 relations, is lossless, and keeps all three FDs.\n\n**Answer:** $\\{AB,\\ CD,\\ ACE\\}$: three relations.",
+   "why_full": "These are the standard 'how would you decompose' questions. In GATE: count the relations in a decomposition, or state which properties a given algorithm guarantees (2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2026 CS1 Q31).\n\nAsked: 2019 CS Q42, 2021 CS1 Q43, 2025 CS1 Q47, 2026 CS1 Q31, 2022 CS Q14",
+   "trap": "Assuming BCNF decomposition preserves dependencies. It can lose them, as the $SC \\to T$ example shows. Another slip is forgetting the key relation in 3NF synthesis, which can make the result lossy."
+  },
+  {
+   "atom_id": "n10",
+   "title": "Integrity constraints",
+   "simple": "Think of a class register and a list of clubs. A student can only be marked as belonging to a club that exists. If the club is closed, the school must decide what happens to its members: remove them too, mark them as having no club, or refuse to close the club while it has members. Those three choices are the delete actions of a foreign key. A primary key is the roll number: it must exist and cannot repeat. In exam words: a foreign key must match a parent key or be NULL; `ON DELETE CASCADE`, `SET NULL` and `NO ACTION` decide what happens to the child rows.",
+   "idea": "**Integrity constraints** keep a table honest. A primary key is unique and never NULL. A foreign key must match a parent key, or be NULL. When a parent row is deleted, the foreign key's **action** says what happens to the children.",
+   "definition": "**Primary key:** unique, not NULL. **Foreign key** $c \\to P.k$: every non-NULL value of $c$ must appear in the parent key $P.k$; NULL is allowed and duplicates are allowed.\n\n**Actions on deleting a parent:** `CASCADE` deletes the child rows; `SET NULL` sets the child's foreign key to NULL; `NO ACTION` / `RESTRICT` rejects the delete while children exist. `ON UPDATE` works the same way for key changes.",
+   "intuition_full": "A foreign key is a pointer that must never dangle. The database defends it at two moments. When a child row is inserted or updated, the parent must exist. When a parent row is deleted or its key changed, the database must decide what to do with the children. CASCADE spreads the delete down a chain, so one delete can remove rows in several tables. SET NULL stops the chain, because the child is kept and only its pointer is cleared, so grandchildren are untouched. A NOT NULL foreign key cannot be set to NULL, so SET NULL on it makes the delete impossible. GATE questions walk through such a chain and ask how many rows remain.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Dept holds $D1$ and $D2$. Emp has $E1 \\to D1$, $E2 \\to D1$, $E3 \\to D2$, with a foreign key $d$ referencing Dept `ON DELETE CASCADE`. Task has $T1 \\to E1$, $T2 \\to E2$, $T3 \\to E3$, $T4 \\to E1$, with a foreign key $e$ referencing Emp `ON DELETE SET NULL`. Delete $D1$ from Dept. What remains?",
+     "steps": [
+      "A foreign key must point to an existing parent row, or be NULL. The action tells the database what to do when the parent row is deleted.",
+      "Delete $D1$ from Dept. Two Emp rows ($E1$, $E2$) reference it.",
+      "`ON DELETE CASCADE` on Emp.d: the referencing rows $E1$ and $E2$ are deleted too.",
+      "Task rows $T1$, $T2$, $T4$ referenced the deleted employees. `SET NULL` does not delete them; it sets their $e$ column to NULL. $T3$ references $E3$, which still exists, so it is unchanged.",
+      "Dept has $D2$. Emp has $E3$. Task has $T1$, $T2$, $T4$ (all with $e$ = NULL) and $T3 \\to E3$."
+     ],
+     "answer": "Dept: 1 row. Emp: 1 row. Task: 4 rows, three of them with NULL."
+    },
+    {
+     "level": "gate",
+     "setup": "Emp($e$ primary key, $d$ foreign key to Dept, default `NO ACTION`) holds $E1 \\to D1$, $E3 \\to D2$; Dept holds $D1$, $D2$. Which operations are rejected? (1) insert Emp($E9$, $D7$) (2) insert Emp($E9$, NULL) (3) insert Emp($E4$, $D2$) (4) insert Emp($E1$, $D2$) (5) delete $D2$ from Dept.",
+     "steps": [
+      "(1) $D7$ is not in Dept and is not NULL, so the foreign key is violated. Rejected.",
+      "(2) A foreign key column may be NULL. $E9$ is a new primary key. Accepted.",
+      "(3) Many Emp rows may reference the same parent, so a repeated $D2$ is fine. $E4$ is new. Accepted.",
+      "(4) $E1$ already exists, so the primary key is duplicated. Rejected.",
+      "(5) $E3$ still references $D2$, and `NO ACTION` forbids deleting a referenced parent. Rejected."
+     ],
+     "answer": "Rejected: (1), (4), (5). Accepted: (2), (3)."
+    },
+    {
+     "level": "twist",
+     "setup": "Emp.d is declared `NOT NULL` and is a foreign key to Dept with `ON DELETE SET NULL`. What happens when a Dept row with referencing Emp rows is deleted?",
+     "steps": [
+      "`SET NULL` tries to write NULL into $d$ of each referencing row.",
+      "But $d$ is `NOT NULL`, so that write is illegal.",
+      "The database rejects the whole `DELETE` and leaves Dept unchanged.",
+      "The same happens if $d$ is part of the primary key, since key columns cannot be NULL."
+     ],
+     "answer": "The delete fails with an error. Nothing is deleted."
+    }
+   ],
+   "why": "Constraint questions are mechanical once you know the three delete actions. In GATE: which operation is rejected, how many rows remain after a cascading delete, and true/false on keys (2017 CS2 Q19, 2021 CS2 Q16, 2025 DA Q56, 2026 DA Q26).",
+   "how": [
+    "List the tables and their foreign key actions.",
+    "Apply the delete to the parent, then follow each foreign key one table down.",
+    "CASCADE deletes and continues; SET NULL keeps the row and stops; NO ACTION rejects the whole statement.",
+    "Count the rows left in each table."
+   ],
+   "mistake": "Treating SET NULL like CASCADE in a chain. SET NULL keeps the child row, so rows that reference the child are unaffected. Another slip is thinking a foreign key must be unique or not NULL; it may repeat and may be NULL.",
+   "edge_cases": [
+    "A foreign key may reference a candidate key, not only the primary key.",
+    "A self-referencing foreign key (employee to manager) can cascade within one table.",
+    "`SET NULL` on a `NOT NULL` column rejects the delete.",
+    "If any action in the chain is `NO ACTION`/`RESTRICT` and a child exists, the whole delete fails and nothing changes."
+   ],
+   "connections": [
+    "**SQL DDL and DML** (`db.sql`) is where these clauses are written.",
+    "A primary key is a candidate key chosen to identify rows (see **Superkeys and candidate keys**).",
+    "**Transactions** make a cascading delete atomic."
+   ],
+   "check": [
+    {
+     "q": "Can a foreign key column hold duplicate values?",
+     "a": "Yes. Many children can reference one parent."
+    },
+    {
+     "q": "A parent row is deleted with `ON DELETE SET NULL`. Are the child rows deleted?",
+     "a": "No. Only the foreign key column is set to NULL."
+    },
+    {
+     "q": "Can a primary key column be NULL?",
+     "a": "No."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q19, 2021 CS2 Q16, 2025 DA Q56, 2026 DA Q26",
+   "try": {
+    "id": "gen.nf.006",
+    "label": "Try: foreign key column in a child table (L1)"
+   },
+   "scene": "db.nf.n10.referential",
+   "example": {
+    "setup": "Dept holds $D1$ and $D2$. Emp has $E1 \\to D1$, $E2 \\to D1$, $E3 \\to D2$, with a foreign key $d$ referencing Dept `ON DELETE CASCADE`. Task has $T1 \\to E1$, $T2 \\to E2$, $T3 \\to E3$, $T4 \\to E1$, with a foreign key $e$ referencing Emp `ON DELETE SET NULL`. Delete $D1$ from Dept. What remains?",
+    "steps": [
+     "A foreign key must point to an existing parent row, or be NULL. The action tells the database what to do when the parent row is deleted.",
+     "Delete $D1$ from Dept. Two Emp rows ($E1$, $E2$) reference it.",
+     "`ON DELETE CASCADE` on Emp.d: the referencing rows $E1$ and $E2$ are deleted too.",
+     "Task rows $T1$, $T2$, $T4$ referenced the deleted employees. `SET NULL` does not delete them; it sets their $e$ column to NULL. $T3$ references $E3$, which still exists, so it is unchanged.",
+     "Dept has $D2$. Emp has $E3$. Task has $T1$, $T2$, $T4$ (all with $e$ = NULL) and $T3 \\to E3$."
+    ],
+    "answer": "Dept: 1 row. Emp: 1 row. Task: 4 rows, three of them with NULL."
+   },
+   "what": "**Integrity constraints** keep a table honest. A primary key is unique and never NULL. A foreign key must match a parent key, or be NULL. When a parent row is deleted, the foreign key's **action** says what happens to the children.",
+   "what_full": "**Integrity constraints** keep a table honest. A primary key is unique and never NULL. A foreign key must match a parent key, or be NULL. When a parent row is deleted, the foreign key's **action** says what happens to the children.\n\n**Primary key:** unique, not NULL. **Foreign key** $c \\to P.k$: every non-NULL value of $c$ must appear in the parent key $P.k$; NULL is allowed and duplicates are allowed.\n\n**Actions on deleting a parent:** `CASCADE` deletes the child rows; `SET NULL` sets the child's foreign key to NULL; `NO ACTION` / `RESTRICT` rejects the delete while children exist. `ON UPDATE` works the same way for key changes.\n\n**Worked example.** Dept holds $D1$ and $D2$. Emp has $E1 \\to D1$, $E2 \\to D1$, $E3 \\to D2$, with a foreign key $d$ referencing Dept `ON DELETE CASCADE`. Task has $T1 \\to E1$, $T2 \\to E2$, $T3 \\to E3$, $T4 \\to E1$, with a foreign key $e$ referencing Emp `ON DELETE SET NULL`. Delete $D1$ from Dept. What remains?\n\n1. A foreign key must point to an existing parent row, or be NULL. The action tells the database what to do when the parent row is deleted.\n2. Delete $D1$ from Dept. Two Emp rows ($E1$, $E2$) reference it.\n3. `ON DELETE CASCADE` on Emp.d: the referencing rows $E1$ and $E2$ are deleted too.\n4. Task rows $T1$, $T2$, $T4$ referenced the deleted employees. `SET NULL` does not delete them; it sets their $e$ column to NULL. $T3$ references $E3$, which still exists, so it is unchanged.\n5. Dept has $D2$. Emp has $E3$. Task has $T1$, $T2$, $T4$ (all with $e$ = NULL) and $T3 \\to E3$.\n\n**Answer:** Dept: 1 row. Emp: 1 row. Task: 4 rows, three of them with NULL.",
+   "why_full": "Constraint questions are mechanical once you know the three delete actions. In GATE: which operation is rejected, how many rows remain after a cascading delete, and true/false on keys (2017 CS2 Q19, 2021 CS2 Q16, 2025 DA Q56, 2026 DA Q26).\n\nAsked: 2017 CS2 Q19, 2021 CS2 Q16, 2025 DA Q56, 2026 DA Q26",
+   "trap": "Treating SET NULL like CASCADE in a chain. SET NULL keeps the child row, so rows that reference the child are unaffected. Another slip is thinking a foreign key must be unique or not NULL; it may repeat and may be NULL."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "db.nf.n1.instance",
+   "title": "Testing FDs on a four-row instance",
+   "viewBox": [
+    0,
+    0,
+    360,
+    236
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 105,
+     "y": 62,
+     "rows": 4,
+     "cols": 3,
+     "cw": 50,
+     "ch": 30,
+     "cells": [
+      [
+       1,
+       "p",
+       "x"
+      ],
+      [
+       2,
+       "p",
+       "x"
+      ],
+      [
+       3,
+       "q",
+       "y"
+      ],
+      [
+       4,
+       "q",
+       "z"
+      ]
+     ],
+     "colLabels": [
+      "A",
+      "B",
+      "C"
+     ],
+     "rowLabels": [
+      "row 1",
+      "row 2",
+      "row 3",
+      "row 4"
+     ]
+    },
+    {
+     "id": "q",
+     "kind": "text",
+     "x": 180,
+     "y": 24,
+     "text": "R(A, B, C): 4 rows",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "Group rows by the left side",
+     "size": 13,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "To test $X \\to Y$, group the rows by their $X$ value. Each group may show only one $Y$ value.",
+     "set": [
+      {
+       "id": "q",
+       "text": "Test X → Y: group by X"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ]
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Test $B \\to C$. Group $p$ is rows 1 and 2, and $C$ is $x$ and $x$. So far this is consistent.",
+     "set": [
+      {
+       "id": "q",
+       "text": "Test B → C"
+      },
+      {
+       "id": "res",
+       "text": "group p: C = x, x   consistent",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Group $q$ is rows 3 and 4, and $C$ is $y$ and $z$. One $B$ value gives two $C$ values, so $B \\to C$ fails on this instance.",
+     "set": [
+      {
+       "id": "res",
+       "text": "group q: C = y, z   B → C fails",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ]
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Test $C \\to B$. $x$ appears only with $p$, $y$ only with $q$, $z$ only with $q$. Every $C$ value has one $B$ value, so $C \\to B$ holds here.",
+     "set": [
+      {
+       "id": "q",
+       "text": "Test C → B"
+      },
+      {
+       "id": "res",
+       "text": "x → p, y → q, z → q   C → B holds",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "$A \\to B$ holds because $A$ is different in every row. $B \\to A$ fails, since $p$ goes with $A = 1$ and $A = 2$. Data can refute an FD, but never prove it for the schema.",
+     "set": [
+      {
+       "id": "q",
+       "text": "Test A → B and B → A"
+      },
+      {
+       "id": "res",
+       "text": "A → B holds   B → A fails (p: A = 1, 2)",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         3,
+         0
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n2.closure",
+   "title": "Growing the closure of AC",
+   "viewBox": [
+    0,
+    0,
+    360,
+    268
+   ],
+   "objects": [
+    {
+     "id": "f0",
+     "kind": "box",
+     "x": 14,
+     "y": 30,
+     "w": 118,
+     "h": 26,
+     "label": "A → B"
+    },
+    {
+     "id": "f1",
+     "kind": "box",
+     "x": 14,
+     "y": 62,
+     "w": 118,
+     "h": 26,
+     "label": "BC → D"
+    },
+    {
+     "id": "f2",
+     "kind": "box",
+     "x": 14,
+     "y": 94,
+     "w": 118,
+     "h": 26,
+     "label": "D → E"
+    },
+    {
+     "id": "f3",
+     "kind": "box",
+     "x": 14,
+     "y": 126,
+     "w": 118,
+     "h": 26,
+     "label": "CE → F"
+    },
+    {
+     "id": "f4",
+     "kind": "box",
+     "x": 14,
+     "y": 158,
+     "w": 118,
+     "h": 26,
+     "label": "G → A"
+    },
+    {
+     "id": "cl",
+     "kind": "array",
+     "x": 14,
+     "y": 222,
+     "cells": [
+      "A",
+      "C"
+     ],
+     "cw": 36,
+     "ch": 32,
+     "slots": 7,
+     "indices": false,
+     "label": "X⁺ so far"
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 250,
+     "y": 96,
+     "text": "X⁺ starts as {A, C}",
+     "size": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "nsz",
+     "kind": "text",
+     "x": 250,
+     "y": 122,
+     "text": "size 2 of 7",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start with $X^+ = \\{A, C\\}$. Look for an FD whose left side lies inside $X^+$.",
+     "highlight": [
+      "cl"
+     ]
+    },
+    {
+     "caption": "$A \\to B$: $A$ is inside, so add $B$. Now $X^+ = \\{A,B,C\\}$.",
+     "highlight": [
+      {
+       "id": "f0",
+       "tone": "good"
+      }
+     ],
+     "push": {
+      "id": "cl",
+      "value": "B"
+     },
+     "set": [
+      {
+       "id": "note",
+       "text": "A is inside → add B"
+      },
+      {
+       "id": "nsz",
+       "text": "size 3 of 7"
+      }
+     ]
+    },
+    {
+     "caption": "$BC \\to D$: $B$ and $C$ are now inside, so add $D$. Now $X^+ = \\{A,B,C,D\\}$.",
+     "highlight": [
+      {
+       "id": "f1",
+       "tone": "good"
+      }
+     ],
+     "push": {
+      "id": "cl",
+      "value": "D"
+     },
+     "set": [
+      {
+       "id": "note",
+       "text": "B, C inside → add D"
+      },
+      {
+       "id": "nsz",
+       "text": "size 4 of 7"
+      }
+     ]
+    },
+    {
+     "caption": "$D \\to E$: $D$ is inside, so add $E$.",
+     "highlight": [
+      {
+       "id": "f2",
+       "tone": "good"
+      }
+     ],
+     "push": {
+      "id": "cl",
+      "value": "E"
+     },
+     "set": [
+      {
+       "id": "note",
+       "text": "D is inside → add E"
+      },
+      {
+       "id": "nsz",
+       "text": "size 5 of 7"
+      }
+     ]
+    },
+    {
+     "caption": "$CE \\to F$: $C$ and $E$ are inside, so add $F$. Now $X^+ = \\{A,B,C,D,E,F\\}$.",
+     "highlight": [
+      {
+       "id": "f3",
+       "tone": "good"
+      }
+     ],
+     "push": {
+      "id": "cl",
+      "value": "F"
+     },
+     "set": [
+      {
+       "id": "note",
+       "text": "C, E inside → add F"
+      },
+      {
+       "id": "nsz",
+       "text": "size 6 of 7"
+      }
+     ]
+    },
+    {
+     "caption": "$G \\to A$: $G$ is not inside, so this FD never fires. A full pass adds nothing new, so stop.",
+     "highlight": [
+      {
+       "id": "f4",
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "G is not inside: no change",
+       "tone": "bad"
+      },
+      {
+       "id": "nsz",
+       "text": "stop: G never reached"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n3.keys",
+   "title": "Finding the candidate keys of R(A,B,C,D,E)",
+   "viewBox": [
+    0,
+    0,
+    360,
+    244
+   ],
+   "objects": [
+    {
+     "id": "fds",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "A → B     BC → D     D → C",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "a",
+     "kind": "box",
+     "x": 20,
+     "y": 40,
+     "w": 44,
+     "h": 30,
+     "label": "A"
+    },
+    {
+     "id": "b",
+     "kind": "box",
+     "x": 78,
+     "y": 40,
+     "w": 44,
+     "h": 30,
+     "label": "B"
+    },
+    {
+     "id": "c",
+     "kind": "box",
+     "x": 136,
+     "y": 40,
+     "w": 44,
+     "h": 30,
+     "label": "C"
+    },
+    {
+     "id": "d",
+     "kind": "box",
+     "x": 194,
+     "y": 40,
+     "w": 44,
+     "h": 30,
+     "label": "D"
+    },
+    {
+     "id": "e",
+     "kind": "box",
+     "x": 252,
+     "y": 40,
+     "w": 44,
+     "h": 30,
+     "label": "E"
+    },
+    {
+     "id": "never",
+     "kind": "text",
+     "x": 180,
+     "y": 96,
+     "text": "A and E are on no right side",
+     "size": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "cl",
+     "kind": "array",
+     "x": 20,
+     "y": 162,
+     "cells": [
+      "A",
+      "E"
+     ],
+     "cw": 36,
+     "ch": 32,
+     "slots": 5,
+     "indices": false,
+     "label": "closure of the candidate set"
+    },
+    {
+     "id": "verdict",
+     "kind": "text",
+     "x": 180,
+     "y": 222,
+     "text": "AE⁺ not yet computed",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "List the attributes that never appear on a right side. Right sides are $B$, $D$, $C$, so $A$ and $E$ appear on none.",
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "accent"
+      },
+      {
+       "id": "e",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "verdict",
+       "text": "find attributes on no right side"
+      }
+     ]
+    },
+    {
+     "caption": "Nothing can produce $A$ or $E$, so they are in every key. Start with $AE$ and compute $(AE)^+ = \\{A,B,E\\}$. C and D are missing, so $AE$ is not a key.",
+     "highlight": [
+      {
+       "id": "cl",
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "cl",
+       "cells": [
+        "A",
+        "E",
+        "B"
+       ]
+      },
+      {
+       "id": "verdict",
+       "text": "AE⁺ = {A, B, E}: not a key",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Add $C$: $(ACE)^+$ gives $B$ from $A$, then $D$ from $BC$. That is all of $ABCDE$. Dropping any attribute breaks it, so $ACE$ is a candidate key.",
+     "highlight": [
+      {
+       "id": "c",
+       "tone": "good"
+      },
+      {
+       "id": "cl",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "cl",
+       "cells": [
+        "A",
+        "C",
+        "E",
+        "B",
+        "D"
+       ]
+      },
+      {
+       "id": "verdict",
+       "text": "ACE⁺ = ABCDE: candidate key",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Add $D$ instead: $(ADE)^+$ gives $B$ from $A$ and $C$ from $D$. All five again, so $ADE$ is a second candidate key.",
+     "highlight": [
+      {
+       "id": "d",
+       "tone": "good"
+      },
+      {
+       "id": "cl",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "cl",
+       "cells": [
+        "A",
+        "D",
+        "E",
+        "B",
+        "C"
+       ]
+      },
+      {
+       "id": "verdict",
+       "text": "ADE⁺ = ABCDE: second key",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Prime attributes are those in some key: $A, C, D, E$. Only $B$ is non-prime. Superkeys are supersets of a key: $ACE$, $ADE$, $ABCE$, $ABDE$, $ACDE$, $ABCDE$.",
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "good"
+      },
+      {
+       "id": "c",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "tone": "good"
+      },
+      {
+       "id": "e",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "verdict",
+       "text": "prime: A C D E   non-prime: B   superkeys: 6",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n4.checks",
+   "title": "Checking 2NF and 3NF against the key AB",
+   "viewBox": [
+    0,
+    0,
+    360,
+    272
+   ],
+   "objects": [
+    {
+     "id": "key",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "key AB   prime: A, B   non-prime: C, D, E",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "f1",
+     "kind": "box",
+     "x": 14,
+     "y": 44,
+     "w": 88,
+     "h": 30,
+     "label": "AB → C"
+    },
+    {
+     "id": "f2",
+     "kind": "box",
+     "x": 14,
+     "y": 86,
+     "w": 88,
+     "h": 30,
+     "label": "A → D"
+    },
+    {
+     "id": "f3",
+     "kind": "box",
+     "x": 14,
+     "y": 128,
+     "w": 88,
+     "h": 30,
+     "label": "D → E"
+    },
+    {
+     "id": "v1",
+     "kind": "text",
+     "x": 116,
+     "y": 59,
+     "text": "whole key on the left: ok",
+     "size": 13,
+     "anchor": "start",
+     "tone": "good"
+    },
+    {
+     "id": "v2",
+     "kind": "text",
+     "x": 116,
+     "y": 101,
+     "text": "partial: A is part of key AB",
+     "size": 13,
+     "anchor": "start",
+     "tone": "bad"
+    },
+    {
+     "id": "v3",
+     "kind": "text",
+     "x": 116,
+     "y": 143,
+     "text": "transitive: D not a superkey",
+     "size": 13,
+     "anchor": "start",
+     "tone": "bad"
+    },
+    {
+     "id": "n1",
+     "kind": "box",
+     "x": 40,
+     "y": 196,
+     "w": 80,
+     "h": 34,
+     "label": "1NF"
+    },
+    {
+     "id": "n2",
+     "kind": "box",
+     "x": 140,
+     "y": 196,
+     "w": 80,
+     "h": 34,
+     "label": "2NF"
+    },
+    {
+     "id": "n3",
+     "kind": "box",
+     "x": 240,
+     "y": 196,
+     "w": 80,
+     "h": 34,
+     "label": "3NF"
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 256,
+     "text": "highest: 1NF",
+     "size": 14,
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "$A$ and $B$ are on no right side, and $(AB)^+ = ABCDE$. So the only candidate key is $AB$. Prime attributes: $A, B$.",
+     "highlight": [
+      {
+       "id": "key",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "$AB \\to C$: the left side is the whole key, so it breaks neither rule.",
+     "show": [
+      "f1",
+      "v1"
+     ],
+     "highlight": [
+      {
+       "id": "f1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "$A \\to D$: $A$ is only part of the key and $D$ is non-prime. That is a **partial dependency**, so 2NF fails.",
+     "show": [
+      "f2",
+      "v2"
+     ],
+     "highlight": [
+      {
+       "id": "f2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "$D \\to E$: $D$ is not a superkey and $E$ is non-prime. That is a **transitive dependency**, so 3NF fails too.",
+     "show": [
+      "f3",
+      "v3"
+     ],
+     "highlight": [
+      {
+       "id": "f3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "2NF already fails, so the highest normal form is 1NF (the cells are atomic).",
+     "show": [
+      "n1",
+      "n2",
+      "n3",
+      "out"
+     ],
+     "highlight": [
+      {
+       "id": "n1",
+       "tone": "good"
+      },
+      {
+       "id": "n2",
+       "tone": "bad"
+      },
+      {
+       "id": "n3",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n5.bcnf",
+   "title": "BCNF: is every left side a superkey?",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "hdr",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "keys: AB, AD   test each left side",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "f1",
+     "kind": "box",
+     "x": 12,
+     "y": 44,
+     "w": 84,
+     "h": 32,
+     "label": "AB → CD"
+    },
+    {
+     "id": "c1",
+     "kind": "box",
+     "x": 104,
+     "y": 44,
+     "w": 130,
+     "h": 32,
+     "label": "(AB)⁺ = ABCDE"
+    },
+    {
+     "id": "v1",
+     "kind": "box",
+     "x": 242,
+     "y": 44,
+     "w": 106,
+     "h": 32,
+     "label": "superkey: ok"
+    },
+    {
+     "id": "f2",
+     "kind": "box",
+     "x": 12,
+     "y": 92,
+     "w": 84,
+     "h": 32,
+     "label": "C → E"
+    },
+    {
+     "id": "c2",
+     "kind": "box",
+     "x": 104,
+     "y": 92,
+     "w": 130,
+     "h": 32,
+     "label": "C⁺ = CE"
+    },
+    {
+     "id": "v2",
+     "kind": "box",
+     "x": 242,
+     "y": 92,
+     "w": 106,
+     "h": 32,
+     "label": "not a key"
+    },
+    {
+     "id": "f3",
+     "kind": "box",
+     "x": 12,
+     "y": 140,
+     "w": 84,
+     "h": 32,
+     "label": "D → B"
+    },
+    {
+     "id": "c3",
+     "kind": "box",
+     "x": 104,
+     "y": 140,
+     "w": 130,
+     "h": 32,
+     "label": "D⁺ = BD"
+    },
+    {
+     "id": "v3",
+     "kind": "box",
+     "x": 242,
+     "y": 140,
+     "w": 106,
+     "h": 32,
+     "label": "not a key"
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "not BCNF: 2 violations",
+     "size": 14,
+     "bold": true,
+     "tone": "bad"
+    },
+    {
+     "id": "out2",
+     "kind": "text",
+     "x": 180,
+     "y": 240,
+     "text": "C → E breaks 3NF too: highest form 2NF",
+     "size": 13,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "BCNF asks one question of every non-trivial FD: is the left side a superkey? Compute a closure for each left side.",
+     "show": [
+      "f1",
+      "f2",
+      "f3"
+     ],
+     "highlight": [
+      "hdr"
+     ]
+    },
+    {
+     "caption": "$AB \\to CD$: $(AB)^+$ gives $C$ and $D$, and $C$ gives $E$. So $(AB)^+ = ABCDE$, a superkey. This FD is fine.",
+     "show": [
+      "c1",
+      "v1"
+     ],
+     "highlight": [
+      {
+       "id": "f1",
+       "tone": "good"
+      },
+      {
+       "id": "v1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "$C \\to E$: $C^+ = \\{C, E\\}$. That is not all of $R$, so $C$ is not a superkey. Violation.",
+     "show": [
+      "c2",
+      "v2"
+     ],
+     "highlight": [
+      {
+       "id": "f2",
+       "tone": "bad"
+      },
+      {
+       "id": "v2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "$D \\to B$: $D^+ = \\{B, D\\}$, again not all of $R$. Another violation. (It would pass 3NF alone, since $B$ is prime.)",
+     "show": [
+      "c3",
+      "v3"
+     ],
+     "highlight": [
+      {
+       "id": "f3",
+       "tone": "bad"
+      },
+      {
+       "id": "v3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Two violations, so $R$ is not in BCNF. $C \\to E$ also breaks 3NF because $E$ is non-prime, so the highest form is 2NF.",
+     "show": [
+      "out",
+      "out2"
+     ],
+     "highlight": [
+      {
+       "id": "v2",
+       "tone": "bad"
+      },
+      {
+       "id": "v3",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n6.mincover",
+   "title": "Minimal cover in three moves",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "tag",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "given F",
+     "size": 13,
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "g1",
+     "kind": "box",
+     "x": 12,
+     "y": 32,
+     "w": 76,
+     "h": 28,
+     "label": "A → BC"
+    },
+    {
+     "id": "g2",
+     "kind": "box",
+     "x": 98,
+     "y": 32,
+     "w": 76,
+     "h": 28,
+     "label": "B → C"
+    },
+    {
+     "id": "g3",
+     "kind": "box",
+     "x": 184,
+     "y": 32,
+     "w": 76,
+     "h": 28,
+     "label": "AB → D"
+    },
+    {
+     "id": "g4",
+     "kind": "box",
+     "x": 270,
+     "y": 32,
+     "w": 76,
+     "h": 28,
+     "label": "C → D"
+    },
+    {
+     "id": "s1",
+     "kind": "box",
+     "x": 10,
+     "y": 96,
+     "w": 62,
+     "h": 28,
+     "label": "A → B"
+    },
+    {
+     "id": "s2",
+     "kind": "box",
+     "x": 78,
+     "y": 96,
+     "w": 62,
+     "h": 28,
+     "label": "A → C"
+    },
+    {
+     "id": "s3",
+     "kind": "box",
+     "x": 146,
+     "y": 96,
+     "w": 62,
+     "h": 28,
+     "label": "B → C"
+    },
+    {
+     "id": "s4",
+     "kind": "box",
+     "x": 214,
+     "y": 96,
+     "w": 62,
+     "h": 28,
+     "label": "AB → D"
+    },
+    {
+     "id": "s5",
+     "kind": "box",
+     "x": 282,
+     "y": 96,
+     "w": 62,
+     "h": 28,
+     "label": "C → D",
+     "text": " "
+    },
+    {
+     "id": "how",
+     "kind": "text",
+     "x": 180,
+     "y": 156,
+     "text": "",
+     "size": 13
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "minimal cover: A → B, B → C, C → D",
+     "size": 14,
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start from the four given FDs. A minimal cover has three tests: single-attribute right sides, no extra attribute on a left side, and no redundant FD.",
+     "set": [
+      {
+       "id": "tag",
+       "text": "given F: 4 FDs"
+      }
+     ],
+     "highlight": [
+      "g1",
+      "g2",
+      "g3",
+      "g4"
+     ]
+    },
+    {
+     "caption": "Split the right sides: $A \\to B$, $A \\to C$, $B \\to C$, $AB \\to D$, $C \\to D$. That is five FDs.",
+     "show": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+     ],
+     "set": [
+      {
+       "id": "tag",
+       "text": "1. split right sides"
+      },
+      {
+       "id": "how",
+       "text": "A → BC became A → B and A → C"
+      }
+     ],
+     "highlight": [
+      "s1",
+      "s2"
+     ]
+    },
+    {
+     "caption": "Shrink left sides. In $AB \\to D$, test $B$: $A^+ = \\{A,B,C,D\\}$ already contains $D$, so $B$ is extra. Replace it by $A \\to D$.",
+     "set": [
+      {
+       "id": "tag",
+       "text": "2. shrink left sides"
+      },
+      {
+       "id": "s4",
+       "label": "A → D"
+      },
+      {
+       "id": "how",
+       "text": "A⁺ = ABCD contains D, so B is extra"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "s4",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Drop redundant FDs. Without $A \\to D$, $A^+$ still reaches $D$ (via $A \\to C$, $C \\to D$). Without $A \\to C$, $A^+$ still reaches $C$ (via $A \\to B$, $B \\to C$). Remove both.",
+     "dim": [
+      "s4",
+      "s2"
+     ],
+     "set": [
+      {
+       "id": "tag",
+       "text": "3. drop redundant FDs"
+      },
+      {
+       "id": "how",
+       "text": "A → D and A → C are implied by the rest",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "s4",
+       "tone": "bad"
+      },
+      {
+       "id": "s2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "What remains, $A \\to B$, $B \\to C$, $C \\to D$, has no extra attribute and no redundant FD. It gives the same closures as $F$.",
+     "show": [
+      "res"
+     ],
+     "set": [
+      {
+       "id": "tag",
+       "text": "done: same closures as F"
+      },
+      {
+       "id": "how",
+       "text": ""
+      }
+     ],
+     "highlight": [
+      {
+       "id": "s1",
+       "tone": "good"
+      },
+      {
+       "id": "s3",
+       "tone": "good"
+      },
+      {
+       "id": "s5",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n7.lossless",
+   "title": "Lossless or lossy? Overlap of two parts",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "c1",
+     "kind": "circle",
+     "cx": 140,
+     "cy": 104,
+     "r": 70,
+     "tone": "accent",
+     "fillOpacity": 0.22
+    },
+    {
+     "id": "c2",
+     "kind": "circle",
+     "cx": 222,
+     "cy": 104,
+     "r": 70,
+     "tone": "mid",
+     "fillOpacity": 0.22
+    },
+    {
+     "id": "t1",
+     "kind": "text",
+     "x": 108,
+     "y": 106,
+     "text": "A, B",
+     "size": 15,
+     "bold": true
+    },
+    {
+     "id": "tm",
+     "kind": "text",
+     "x": 181,
+     "y": 106,
+     "text": "C",
+     "size": 17,
+     "bold": true
+    },
+    {
+     "id": "t2",
+     "kind": "text",
+     "x": 252,
+     "y": 106,
+     "text": "D",
+     "size": 15,
+     "bold": true
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 96,
+     "y": 24,
+     "text": "R1 = ABC",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 262,
+     "y": 24,
+     "text": "R2 = CD",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "test",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "test2",
+     "kind": "text",
+     "x": 180,
+     "y": 232,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Lossless means joining the parts gives back exactly the original rows, with no extra ones. For two parts, the test is: the shared attributes must be a key of one part.",
+     "set": [
+      {
+       "id": "test",
+       "text": "R(A,B,C,D)   F = {AB→C, C→D}",
+       "tone": "muted"
+      },
+      {
+       "id": "test2",
+       "text": "lossless iff the overlap is a key of one part"
+      }
+     ],
+     "highlight": [
+      "c1",
+      "c2"
+     ]
+    },
+    {
+     "caption": "Split 1: $R_1 = ABC$ and $R_2 = CD$. The shared attributes are $R_1 \\cap R_2 = \\{C\\}$.",
+     "set": [
+      {
+       "id": "test",
+       "text": "overlap R1 ∩ R2 = {C}",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tm",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "$C^+ = \\{C, D\\}$, which is all of $R_2$. So $C$ is a key of $R_2$, and each $R_1$ row matches exactly one $R_2$ row. The split is lossless.",
+     "set": [
+      {
+       "id": "test",
+       "text": "C⁺ = {C, D} = R2: C is a key of R2",
+       "tone": "good"
+      },
+      {
+       "id": "test2",
+       "text": "lossless: the join returns exactly R"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "c2",
+       "tone": "good"
+      },
+      {
+       "id": "tm",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Split 2: $R_1 = ABD$ and $R_2 = CD$. The shared attribute is $D$.",
+     "set": [
+      {
+       "id": "t1",
+       "text": "A, B"
+      },
+      {
+       "id": "tm",
+       "text": "D"
+      },
+      {
+       "id": "t2",
+       "text": "C"
+      },
+      {
+       "id": "n1",
+       "text": "R1 = ABD"
+      },
+      {
+       "id": "n2",
+       "text": "R2 = CD"
+      },
+      {
+       "id": "test",
+       "text": "overlap R1 ∩ R2 = {D}",
+       "tone": "accent"
+      },
+      {
+       "id": "test2",
+       "text": ""
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tm",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "$D^+ = \\{D\\}$. It is a key of neither part, so one $D$ value can pair with many $C$ values and the join invents spurious rows. The split is lossy.",
+     "set": [
+      {
+       "id": "test",
+       "text": "D⁺ = {D}: a key of neither part",
+       "tone": "bad"
+      },
+      {
+       "id": "test2",
+       "text": "lossy: one D matches many C values, spurious rows"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "c1",
+       "tone": "bad"
+      },
+      {
+       "id": "c2",
+       "tone": "bad"
+      },
+      {
+       "id": "tm",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n8.preserve",
+   "title": "Which decomposition keeps A→B, B→C, C→D checkable?",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 50,
+     "y": 34,
+     "label": "A",
+     "r": 16
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 130,
+     "y": 34,
+     "label": "B",
+     "r": 16
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 210,
+     "y": 34,
+     "label": "C",
+     "r": 16
+    },
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 290,
+     "y": 34,
+     "label": "D",
+     "r": 16
+    },
+    {
+     "id": "ea",
+     "kind": "arrow",
+     "from": "nA",
+     "to": "nB"
+    },
+    {
+     "id": "eb",
+     "kind": "arrow",
+     "from": "nB",
+     "to": "nC"
+    },
+    {
+     "id": "ec",
+     "kind": "arrow",
+     "from": "nC",
+     "to": "nD"
+    },
+    {
+     "id": "a1",
+     "kind": "box",
+     "x": 20,
+     "y": 92,
+     "w": 96,
+     "h": 30,
+     "label": "AB: A→B"
+    },
+    {
+     "id": "a2",
+     "kind": "box",
+     "x": 132,
+     "y": 92,
+     "w": 96,
+     "h": 30,
+     "label": "BC: B→C"
+    },
+    {
+     "id": "a3",
+     "kind": "box",
+     "x": 244,
+     "y": 92,
+     "w": 96,
+     "h": 30,
+     "label": "CD: C→D"
+    },
+    {
+     "id": "l1",
+     "kind": "text",
+     "x": 180,
+     "y": 80,
+     "text": "D1 = {AB, BC, CD}",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "l2",
+     "kind": "text",
+     "x": 180,
+     "y": 150,
+     "text": "D2 = {AB, ACD}",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "b1",
+     "kind": "box",
+     "x": 20,
+     "y": 162,
+     "w": 96,
+     "h": 30,
+     "label": "AB: A→B"
+    },
+    {
+     "id": "b2",
+     "kind": "box",
+     "x": 132,
+     "y": 162,
+     "w": 170,
+     "h": 30,
+     "label": "ACD: A→C, C→D"
+    },
+    {
+     "id": "lost",
+     "kind": "text",
+     "x": 180,
+     "y": 228,
+     "text": "B → C lost: B⁺ = {B} in the parts",
+     "size": 14,
+     "bold": true,
+     "tone": "bad"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A decomposition is **dependency preserving** if every FD of $F$ can still be checked using only the parts (directly or after projecting $F$ onto each part).",
+     "highlight": [
+      "ea",
+      "eb",
+      "ec"
+     ]
+    },
+    {
+     "caption": "$D_1$: $A \\to B$ lies inside $AB$, $B \\to C$ inside $BC$, $C \\to D$ inside $CD$. Every FD sits in one part, so $D_1$ preserves all of $F$.",
+     "show": [
+      "l1",
+      "a1",
+      "a2",
+      "a3"
+     ],
+     "highlight": [
+      {
+       "id": "ea",
+       "tone": "good"
+      },
+      {
+       "id": "eb",
+       "tone": "good"
+      },
+      {
+       "id": "ec",
+       "tone": "good"
+      },
+      {
+       "id": "a1",
+       "tone": "good"
+      },
+      {
+       "id": "a2",
+       "tone": "good"
+      },
+      {
+       "id": "a3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "$D_2$: $A \\to B$ lies inside $AB$, and $C \\to D$ lies inside $ACD$. Those two are kept.",
+     "show": [
+      "l2",
+      "b1",
+      "b2"
+     ],
+     "highlight": [
+      {
+       "id": "ea",
+       "tone": "good"
+      },
+      {
+       "id": "ec",
+       "tone": "good"
+      },
+      {
+       "id": "b1",
+       "tone": "good"
+      },
+      {
+       "id": "b2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "$B \\to C$ is in no part. Projecting $F$ onto $ACD$ gives $A \\to C$, $C \\to D$, $A \\to D$. In the union of the projections $B^+ = \\{B\\}$, so $B \\to C$ cannot be recovered. It is lost.",
+     "show": [
+      "lost"
+     ],
+     "highlight": [
+      {
+       "id": "eb",
+       "tone": "bad"
+      },
+      {
+       "id": "lost",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "$D_2$ is still lossless (the shared $A$ is a key of $AB$), but it does not preserve dependencies. $D_1$ does both.",
+     "highlight": [
+      {
+       "id": "a1",
+       "tone": "good"
+      },
+      {
+       "id": "a2",
+       "tone": "good"
+      },
+      {
+       "id": "a3",
+       "tone": "good"
+      },
+      {
+       "id": "b2",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n9.bcnf_split",
+   "title": "BCNF decomposition of R(A,B,C,D,E)",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "r0",
+     "kind": "box",
+     "x": 118,
+     "y": 12,
+     "w": 124,
+     "h": 28,
+     "label": "ABCDE   key AC"
+    },
+    {
+     "id": "r1",
+     "kind": "box",
+     "x": 30,
+     "y": 96,
+     "w": 64,
+     "h": 28,
+     "label": "AB"
+    },
+    {
+     "id": "r2",
+     "kind": "box",
+     "x": 170,
+     "y": 96,
+     "w": 100,
+     "h": 28,
+     "label": "ACDE"
+    },
+    {
+     "id": "r3",
+     "kind": "box",
+     "x": 132,
+     "y": 170,
+     "w": 64,
+     "h": 28,
+     "label": "CD"
+    },
+    {
+     "id": "r4",
+     "kind": "box",
+     "x": 240,
+     "y": 170,
+     "w": 84,
+     "h": 28,
+     "label": "ACE"
+    },
+    {
+     "id": "e1",
+     "kind": "arrow",
+     "from": "r0",
+     "to": "r1"
+    },
+    {
+     "id": "e2",
+     "kind": "arrow",
+     "from": "r0",
+     "to": "r2"
+    },
+    {
+     "id": "e3",
+     "kind": "arrow",
+     "from": "r2",
+     "to": "r3"
+    },
+    {
+     "id": "e4",
+     "kind": "arrow",
+     "from": "r2",
+     "to": "r4"
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 234,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The only key is $AC$ (they are on no right side and $(AC)^+ = ABCDE$). Look for an FD whose left side is not a superkey.",
+     "set": [
+      {
+       "id": "note",
+       "text": "F = {A→B, C→D, AC→E}"
+      }
+     ],
+     "highlight": [
+      "r0"
+     ]
+    },
+    {
+     "caption": "$A \\to B$ violates BCNF, since $A^+ = AB$. Split into $R_1 = A^+ = AB$ and $R_2 = (R - A^+) \\cup A = ACDE$.",
+     "show": [
+      "r1",
+      "r2",
+      "e1",
+      "e2"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "A → B violates: split off A⁺ = AB",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "r1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "$R_1(A,B)$ has two attributes, so it is in BCNF. In $R_2$ the FDs are $C \\to D$ and $AC \\to E$. $C \\to D$ violates ($C^+ = CD$ inside $R_2$).",
+     "set": [
+      {
+       "id": "note",
+       "text": "in ACDE: C → D violates (C⁺ = CD)",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "r2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Split $R_2$ on $C \\to D$ into $R_{21} = CD$ and $R_{22} = (ACDE - CD) \\cup C = ACE$.",
+     "show": [
+      "r3",
+      "r4",
+      "e3",
+      "e4"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "split ACDE into CD and ACE"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "r3",
+       "tone": "good"
+      },
+      {
+       "id": "r4",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "$AB$, $CD$ and $ACE$ are all in BCNF ($AC$ is a key of $ACE$). The result has 3 relations, is lossless, and keeps all three FDs.",
+     "set": [
+      {
+       "id": "note",
+       "text": "AB, CD, ACE: all BCNF, 3 relations",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "r1",
+       "tone": "good"
+      },
+      {
+       "id": "r3",
+       "tone": "good"
+      },
+      {
+       "id": "r4",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.nf.n10.referential",
+   "title": "Deleting D1: CASCADE then SET NULL",
+   "viewBox": [
+    0,
+    0,
+    360,
+    260
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 44,
+     "y": 20,
+     "text": "Dept",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "h2",
+     "kind": "text",
+     "x": 172,
+     "y": 20,
+     "text": "Emp",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "h3",
+     "kind": "text",
+     "x": 300,
+     "y": 20,
+     "text": "Task",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "d1",
+     "kind": "box",
+     "x": 14,
+     "y": 34,
+     "w": 60,
+     "h": 26,
+     "label": "D1"
+    },
+    {
+     "id": "d2",
+     "kind": "box",
+     "x": 14,
+     "y": 66,
+     "w": 60,
+     "h": 26,
+     "label": "D2"
+    },
+    {
+     "id": "e1",
+     "kind": "box",
+     "x": 122,
+     "y": 34,
+     "w": 100,
+     "h": 26,
+     "label": "E1 → D1"
+    },
+    {
+     "id": "e2",
+     "kind": "box",
+     "x": 122,
+     "y": 66,
+     "w": 100,
+     "h": 26,
+     "label": "E2 → D1"
+    },
+    {
+     "id": "e3",
+     "kind": "box",
+     "x": 122,
+     "y": 98,
+     "w": 100,
+     "h": 26,
+     "label": "E3 → D2"
+    },
+    {
+     "id": "t1",
+     "kind": "box",
+     "x": 240,
+     "y": 34,
+     "w": 108,
+     "h": 26,
+     "label": "T1 → E1"
+    },
+    {
+     "id": "t2",
+     "kind": "box",
+     "x": 240,
+     "y": 66,
+     "w": 108,
+     "h": 26,
+     "label": "T2 → E2"
+    },
+    {
+     "id": "t3",
+     "kind": "box",
+     "x": 240,
+     "y": 98,
+     "w": 108,
+     "h": 26,
+     "label": "T3 → E3"
+    },
+    {
+     "id": "t4",
+     "kind": "box",
+     "x": 240,
+     "y": 130,
+     "w": 108,
+     "h": 26,
+     "label": "T4 → E1"
+    },
+    {
+     "id": "p1",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "Emp.d → Dept: ON DELETE CASCADE",
+     "size": 13
+    },
+    {
+     "id": "p2",
+     "kind": "text",
+     "x": 180,
+     "y": 220,
+     "text": "Task.e → Emp: ON DELETE SET NULL",
+     "size": 13
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 246,
+     "text": "",
+     "size": 13,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A foreign key must point to an existing parent row, or be NULL. The action tells the database what to do when the parent row is deleted.",
+     "highlight": [
+      "p1",
+      "p2"
+     ]
+    },
+    {
+     "caption": "Delete $D1$ from Dept. Two Emp rows ($E1$, $E2$) reference it.",
+     "hide": [
+      "d1"
+     ],
+     "highlight": [
+      {
+       "id": "e1",
+       "tone": "bad"
+      },
+      {
+       "id": "e2",
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "out",
+       "text": "delete D1",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "`ON DELETE CASCADE` on Emp.d: the referencing rows $E1$ and $E2$ are deleted too.",
+     "hide": [
+      "e1",
+      "e2"
+     ],
+     "highlight": [
+      {
+       "id": "t1",
+       "tone": "bad"
+      },
+      {
+       "id": "t2",
+       "tone": "bad"
+      },
+      {
+       "id": "t4",
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "out",
+       "text": "CASCADE: E1 and E2 deleted",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Task rows $T1$, $T2$, $T4$ referenced the deleted employees. `SET NULL` does not delete them; it sets their $e$ column to NULL. $T3$ references $E3$, which still exists, so it is unchanged.",
+     "set": [
+      {
+       "id": "t1",
+       "label": "T1 → NULL"
+      },
+      {
+       "id": "t2",
+       "label": "T2 → NULL"
+      },
+      {
+       "id": "t4",
+       "label": "T4 → NULL"
+      },
+      {
+       "id": "out",
+       "text": "SET NULL: T1, T2, T4 survive",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "t1",
+       "tone": "accent"
+      },
+      {
+       "id": "t2",
+       "tone": "accent"
+      },
+      {
+       "id": "t4",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Dept has $D2$. Emp has $E3$. Task has $T1$, $T2$, $T4$ (all with $e$ = NULL) and $T3 \\to E3$.",
+     "set": [
+      {
+       "id": "out",
+       "text": "left: Dept 1 row, Emp 1 row, Task 4 rows",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d2",
+       "tone": "good"
+      },
+      {
+       "id": "e3",
+       "tone": "good"
+      },
+      {
+       "id": "t3",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

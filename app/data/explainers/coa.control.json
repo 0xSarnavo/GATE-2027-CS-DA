@@ -1,0 +1,2598 @@
+{
+  "topic_id": "coa.control",
+  "title": "Control unit",
+  "chapter_note": {
+    "about": "The control unit turns each instruction into a timed sequence of control signals. This chapter starts with what those signals do: the fetch micro-operations and the single-bus datapath. It then compares the two ways of generating the signals, hardwired gates and a microprogram stored in a control store. It ends with the numbers: how wide and how large the microcode is, how the micro-program counter picks its next value, and how mutually exclusive signals are encoded. GATE asks about this chapter rarely, mostly as one definition question or one sizing question.",
+    "simple": "The control unit is the conductor of the processor. For every instruction it sends out the right switch signals, one beat at a time, so that registers load and the ALU adds at the right moments. There are two ways to build it. One uses a fixed pattern of logic gates, which is quick but cannot be changed. The other keeps the beats in a table, like a music roll, which is slower but easy to edit. For the table version you must be able to work out how wide each line is and how long the table is, which is just counting bits with powers of two. In exam words: fetch micro-operations, datapath sequencing, hardwired and microprogrammed control, horizontal and vertical microcode, control-store size, micro-sequencing and field encoding.",
+    "concept_map": [
+      {
+        "atom_id": "c1",
+        "title": "Fetch and micro-operations",
+        "one_line": "MAR ← PC; MBR ← M[MAR] with PC ← PC + 1; IR ← MBR."
+      },
+      {
+        "atom_id": "c2",
+        "title": "Datapath sequencing",
+        "one_line": "One bus value per step; operands wait in Y; result goes to Z."
+      },
+      {
+        "atom_id": "c3",
+        "title": "Hardwired control",
+        "one_line": "Signals are gates of opcode, step and flags: fast, rigid, RISC."
+      },
+      {
+        "atom_id": "c4",
+        "title": "Microprogrammed control",
+        "one_line": "A control store of microroutines found by a mapping ROM: flexible, slower, CISC."
+      },
+      {
+        "atom_id": "c5",
+        "title": "Horizontal versus vertical microinstructions",
+        "one_line": "One bit per signal, or encoded fields for exclusive signals."
+      },
+      {
+        "atom_id": "c6",
+        "title": "Control word and store size",
+        "one_line": "Width = control + select + next address; size = words × width."
+      },
+      {
+        "atom_id": "c7",
+        "title": "Micro-sequencing",
+        "one_line": "μPC takes μPC + 1, the next-address field or the mapping ROM."
+      },
+      {
+        "atom_id": "c8",
+        "title": "Field encoding",
+        "one_line": "k exclusive signals plus none need ⌈log₂(k+1)⌉ bits."
+      }
+    ],
+    "gate_patterns": [
+      "Ordering datapath steps: fetch first, load the first operand into the holding register, then the ALU step, then write back (2020 CS Q14, 2025 CS1 Q27).",
+      "Control styles: hardwired is fast and RISC-like, microprogrammed has a control store, horizontal means one bit per signal (2018 CS Q15, 2002 CS Q2_7).",
+      "Microinstruction sizing: select bits are log₂ of the conditions, the next address is the remainder, and the words are 2 to that power (2004 CS Q67). Weightage: about 0.1 marks per CS paper."
+    ]
+  },
+  "cards": [
+    {
+      "atom_id": "c1",
+      "title": "Fetch and micro-operations",
+      "simple": "Before a processor can do an instruction it has to fetch it, just like going to the shelf and picking up a recipe card. The program counter holds the number of the next card. The processor first copies that number into a register that talks to memory, then memory hands back the card, which is kept in a holding register, and finally the card is moved to the register where it will be read and obeyed. The counter moves on to the next card at the same time. Each tiny copy step is called a micro-operation and takes one clock tick. In exam words: fetch is MAR ← PC; MBR ← M[MAR] with PC ← PC + 1; IR ← MBR, and the arrow shows the direction and the order of the micro-operations matters.",
+      "idea": "Every instruction starts with a **fetch**: **MAR ← PC**, then **MBR ← M[MAR]** (with **PC ← PC + 1** in parallel), then **IR ← MBR**. Each register transfer is a **micro-operation**, done in one clock step, and the **order** is forced by the data flow.",
+      "definition": "Fetch micro-operations:\n\n1. $MAR\\leftarrow PC$\n2. $MBR\\leftarrow M[MAR]$, and in parallel $PC\\leftarrow PC+1$\n3. $IR\\leftarrow MBR$\n\n- PC = program counter, MAR = memory address register, MBR (or MDR) = memory data register, IR = instruction register.\n- $X\\leftarrow Y$ means: copy the value of $Y$ into $X$.",
+      "intuition_full": "Memory is accessed only through two registers: the MAR holds the address going out, and the MBR holds the data coming in or going out. So to read an instruction you must first place the address in the MAR, because the memory reads the address from there. Only then can the data appear in the MBR, and only after that can the IR be loaded. That fixes the order: each step needs the result of the one before. The PC increment does not depend on the read result, so it can happen in the same step as the memory read, as long as the datapath has the hardware for it (a separate incrementer or a spare adder). Because the PC is incremented during the fetch, any instruction that uses PC-relative addressing sees the address of the next instruction. Interrupts and calls are the same pattern with other registers: the PC is saved to memory through MBR and MAR, and then loaded with a new address.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "PC = 200 and memory word M[200] holds the instruction ADD R1,R2. Show the three micro-operations of the fetch cycle and the register contents after each.",
+          "steps": [
+            "Start: PC = 200 and M[200] = ADD R1,R2. The fetch takes three micro-operations, one per clock step.",
+            "T1: MAR ← PC. The address 200 is copied into the memory address register: MAR = 200.",
+            "T2: MBR ← M[MAR] and PC ← PC + 1 together (different registers, so they can run in parallel). MBR = ADD R1,R2 and PC = 201.",
+            "T3: IR ← MBR. The instruction register now holds ADD R1,R2.",
+            "The control unit now decodes IR. PC = 201 already points to the next instruction, so a branch will overwrite PC, not IR."
+          ],
+          "answer": "Fetch: MAR ← PC; MBR ← M[MAR], PC ← PC + 1; IR ← MBR. After it PC = 201 and IR = ADD R1,R2."
+        },
+        {
+          "level": "gate",
+          "setup": "A processor performs these micro-operations in order: MBR ← PC; MAR ← 0010 (hex); M[MAR] ← MBR; PC ← 0100 (hex). What is the sequence doing?",
+          "steps": [
+            "MBR ← PC copies the current program counter (the return address) into the data register.",
+            "MAR ← 0010 sets the memory address to a fixed location. M[MAR] ← MBR then stores the old PC at address 0010.",
+            "PC ← 0100 loads a new program address.",
+            "Saving the return address and loading a new PC is the entry to an interrupt or a call: the old PC is kept, and control goes to the handler at 0100."
+          ],
+          "answer": "It is an interrupt (or call) entry: it saves the PC at 0010 and jumps to 0100."
+        },
+        {
+          "level": "twist",
+          "setup": "Why can the PC increment run in the same step as MBR ← M[MAR], but IR ← MBR cannot run in that step?",
+          "steps": [
+            "The PC increment needs only the PC, which is already valid, and a free incrementer, so it can start with the read.",
+            "IR ← MBR needs the value in MBR, which only appears at the end of the memory read.",
+            "So IR ← MBR must wait for the next step."
+          ],
+          "answer": "PC ← PC + 1 is independent of the read result. IR ← MBR depends on it."
+        }
+      ],
+      "why": "Fetch is the first thing the control unit does for every instruction, and the register names recur in all control questions. In GATE: order the micro-operations of a fetch, or identify what a given sequence of transfers does.",
+      "how": [
+        "Write the address first: MAR ← PC.",
+        "Then read: MBR ← M[MAR], with PC ← PC + 1 in parallel.",
+        "Then move the instruction to IR.",
+        "For other sequences, follow where the data goes: source, MAR or MBR, memory, destination."
+      ],
+      "mistake": "Ordering IR ← MBR before MBR ← M[MAR], or loading MAR after the memory read. Each step needs the result of the previous one.",
+      "edge_cases": [
+        "If the PC points at bytes, PC ← PC + the instruction length instead of + 1.",
+        "A memory that takes several clocks adds wait steps to the read.",
+        "A branch overwrites the PC after the fetch has already incremented it.",
+        "An interrupt entry uses the same MAR and MBR path with the stack pointer."
+      ],
+      "connections": [
+        "Datapath sequencing (card c2) shows how each micro-operation uses the bus.",
+        "coa.isa (card i7) explains why the PC is already incremented when a branch executes.",
+        "Microprogrammed control (card c4) stores these micro-operations as microinstructions."
+      ],
+      "check": [
+        {
+          "q": "Which register holds the address that is sent to memory?",
+          "a": "The MAR."
+        },
+        {
+          "q": "Which register holds the instruction being decoded?",
+          "a": "The IR."
+        },
+        {
+          "q": "Can PC ← PC + 1 share a step with MBR ← M[MAR]?",
+          "a": "Yes, they use different registers and are independent."
+        }
+      ],
+      "asked": "Asked: 2020 CS Q14, 2013 CS Q28.",
+      "try": {
+        "id": "gen.coa.control.004",
+        "label": "Which register transfer is the first step of an instruction fetch? (L1)"
+      },
+      "scene": "coa.control.c1.fetch",
+      "example": {
+        "setup": "PC = 200 and memory word M[200] holds the instruction ADD R1,R2. Show the three micro-operations of the fetch cycle and the register contents after each.",
+        "steps": [
+          "Start: PC = 200 and M[200] = ADD R1,R2. The fetch takes three micro-operations, one per clock step.",
+          "T1: MAR ← PC. The address 200 is copied into the memory address register: MAR = 200.",
+          "T2: MBR ← M[MAR] and PC ← PC + 1 together (different registers, so they can run in parallel). MBR = ADD R1,R2 and PC = 201.",
+          "T3: IR ← MBR. The instruction register now holds ADD R1,R2.",
+          "The control unit now decodes IR. PC = 201 already points to the next instruction, so a branch will overwrite PC, not IR."
+        ],
+        "answer": "Fetch: MAR ← PC; MBR ← M[MAR], PC ← PC + 1; IR ← MBR. After it PC = 201 and IR = ADD R1,R2."
+      },
+      "what": "Every instruction starts with a **fetch**: **MAR ← PC**, then **MBR ← M[MAR]** (with **PC ← PC + 1** in parallel), then **IR ← MBR**. Each register transfer is a **micro-operation**, done in one clock step, and the **order** is forced by the data flow.",
+      "what_full": "Every instruction starts with a **fetch**: **MAR ← PC**, then **MBR ← M[MAR]** (with **PC ← PC + 1** in parallel), then **IR ← MBR**. Each register transfer is a **micro-operation**, done in one clock step, and the **order** is forced by the data flow.\n\nFetch micro-operations:\n\n1. $MAR\\leftarrow PC$\n2. $MBR\\leftarrow M[MAR]$, and in parallel $PC\\leftarrow PC+1$\n3. $IR\\leftarrow MBR$\n\n- PC = program counter, MAR = memory address register, MBR (or MDR) = memory data register, IR = instruction register.\n- $X\\leftarrow Y$ means: copy the value of $Y$ into $X$.\n\n**Worked example.** PC = 200 and memory word M[200] holds the instruction ADD R1,R2. Show the three micro-operations of the fetch cycle and the register contents after each.\n\n1. Start: PC = 200 and M[200] = ADD R1,R2. The fetch takes three micro-operations, one per clock step.\n2. T1: MAR ← PC. The address 200 is copied into the memory address register: MAR = 200.\n3. T2: MBR ← M[MAR] and PC ← PC + 1 together (different registers, so they can run in parallel). MBR = ADD R1,R2 and PC = 201.\n4. T3: IR ← MBR. The instruction register now holds ADD R1,R2.\n5. The control unit now decodes IR. PC = 201 already points to the next instruction, so a branch will overwrite PC, not IR.\n\n**Answer:** Fetch: MAR ← PC; MBR ← M[MAR], PC ← PC + 1; IR ← MBR. After it PC = 201 and IR = ADD R1,R2.",
+      "why_full": "Fetch is the first thing the control unit does for every instruction, and the register names recur in all control questions. In GATE: order the micro-operations of a fetch, or identify what a given sequence of transfers does.\n\nAsked: 2020 CS Q14, 2013 CS Q28.",
+      "trap": "Ordering IR ← MBR before MBR ← M[MAR], or loading MAR after the memory read. Each step needs the result of the previous one."
+    },
+    {
+      "atom_id": "c2",
+      "title": "Datapath sequencing",
+      "simple": "Inside the processor all registers share one road, called the bus, and only one value can drive the road at a time. The ALU has two inputs but only one comes from the road. The other comes from a holding register Y that was filled earlier. The ALU result is kept in another holding register, Z, because it cannot go straight back onto the busy road. So even a simple sum needs a little choreography: put the first number into Y, put the second on the road while the ALU adds, save the result in Z, and finally put Z on the road to its destination. Each of these moves takes one clock tick. In exam words: on a single bus, one register drives the bus per step; the ALU takes Y and the bus and writes Z; the order follows data dependence.",
+      "idea": "On a **single bus**, only one value travels per clock step. The ALU adds the holding register **Y** and the bus, and its result goes to **Z**. A sum needs: first operand into Y, second operand on the bus with the ALU operation into Z, then Z to the destination.",
+      "definition": "Control signals per step, written as register transfers:\n\n- $X_{out}$ puts register $X$ on the bus. $X_{in}$ loads $X$ from the bus.\n- A sum follows the pattern: first operand to $Y$ ($X_{out},Y_{in}$); second operand on the bus with $Add,\\ Z_{in}$; then $Z_{out}$ and the destination's in signal.\n- A memory read adds a wait step: the data arrives in MDR at the end of the step after MAR is loaded.",
+      "intuition_full": "The bus is a shared wire, so two registers cannot drive it in the same step. The ALU needs both operands at the same time, but only one can come from the bus. That is why the first operand waits in Y: it is parked in an earlier step. The second operand arrives on the bus during the step in which the ALU works. The ALU output cannot return to the bus in the same step, because the bus is busy with the second operand, so it lands in Z and is moved on in the next step. The order is therefore fixed by what each step needs. A longer expression just repeats the pattern: after each addition, the partial sum in Z must be moved into Y before the next operand is placed on the bus. Memory adds delay. After MAR is loaded and Read is issued, the data is not in MDR until the end of the next step, so the CPU waits one step.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A single-bus datapath has registers R0, R1, R2, a register Y that feeds the ALU's left input, the bus as the ALU's right input, and an output register Z. R0 = 4, R1 = 10, R2 = 7. One clock step performs one set of non-conflicting transfers. Compute R0 ← R0 + R1 + R2 and count the steps.",
+          "steps": [
+            "Step 1: R0out, Yin. R0 puts 4 on the bus and Y stores it: Y = 4.",
+            "Step 2: R1out, Add, Zin. R1 puts 10 on the bus, the ALU adds Y + bus = 4 + 10, and Z stores 14.",
+            "Step 3: Zout, Yin. Z puts 14 on the bus and Y stores it. The bus carries only one value per step, so Z cannot also feed the ALU in the same step.",
+            "Step 4: R2out, Add, Zin. R2 puts 7 on the bus, the ALU adds 14 + 7, and Z stores 21.",
+            "Step 5: Zout, R0in. Z puts 21 on the bus and R0 stores it: R0 = 21."
+          ],
+          "answer": "R0 = 21 after 5 clock steps."
+        },
+        {
+          "level": "gate",
+          "setup": "Three steps are given for R3 ← R1 − R2 on the same datapath: (a) Zout, R3in; (b) R2out, Sub, Zin; (c) R1out, Yin. In what order must they run?",
+          "steps": [
+            "The ALU's left input is Y, so R1 must be loaded into Y first: step (c) comes first.",
+            "Then R2 goes on the bus and the ALU subtracts: Y − bus = R1 − R2, stored in Z: step (b).",
+            "Last, the result moves from Z to R3: step (a)."
+          ],
+          "answer": "Order c, b, a. Swapping the operands would compute R2 − R1."
+        },
+        {
+          "level": "twist",
+          "setup": "R1 ← M[R2] on the same datapath. MAR is loaded from the bus and the read is started in one step, and the data appears in MDR at the end of the following step. How many steps are needed, and what happens if the wait is forgotten?",
+          "steps": [
+            "Step 1: R2out, MARin, Read. The address goes to MAR and the read starts.",
+            "Step 2: wait. The memory is working and MDR is not valid yet.",
+            "Step 3: MDRout, R1in. MDR puts the data on the bus and R1 loads it."
+          ],
+          "answer": "3 steps. If the wait is forgotten, R1 loads stale data from MDR at step 2."
+        }
+      ],
+      "why": "Datapath sequencing is how GATE tests the order of control steps. In GATE: arrange micro-operations in a correct order, or count the clock steps for an instruction.",
+      "how": [
+        "List the operands and the ALU: left input is Y, right input is the bus.",
+        "Step 1: first operand to Y. Step 2: second operand on the bus, ALU operation, Zin.",
+        "Then move Z to the destination (Zout and the destination's in signal).",
+        "Add a wait step after every memory read."
+      ],
+      "mistake": "Running the ALU step before the first operand is in the holding register Y. The ALU would add the wrong value.",
+      "edge_cases": [
+        "A result that is needed again as an operand goes Z → bus → Y first.",
+        "Only one register can output to the bus per step.",
+        "A three-register sum R0 + R1 + R2 takes 5 steps on one bus.",
+        "Two buses or three buses cut the number of steps."
+      ],
+      "connections": [
+        "Fetch (card c1) is the same pattern with PC, MAR, MBR and IR.",
+        "Hardwired control (card c3) generates these signals from gates.",
+        "coa.pipeline replaces this one-bus sequence with separate pipeline stages."
+      ],
+      "check": [
+        {
+          "q": "Which register feeds the ALU's left input?",
+          "a": "Y."
+        },
+        {
+          "q": "R0 ← R0 + R1 + R2 takes 5 steps. How many does R0 ← R0 + R1 + R2 + R3 take?",
+          "a": "7: each extra operand adds 2 steps (Zout, Yin and then the Add step)."
+        },
+        {
+          "q": "Can two registers put values on the bus in the same step?",
+          "a": "No."
+        }
+      ],
+      "asked": "Asked: 2020 CS Q14, 2025 CS1 Q27.",
+      "try": {
+        "id": "gen.coa.control.010",
+        "label": "A single-bus datapath has registers R1 to R3, an ALU whose left input is register Y and right input is the bus, and an output register Z. One set of non-conflicting transfers happens per clock. Evaluating $R3 \\leftarrow R1 + R2$ needs how many clock steps? (R1 out, Y in; R2 out, Add, Z in; Z out, R3 in.) (L2)"
+      },
+      "scene": "coa.control.c2.bus",
+      "example": {
+        "setup": "A single-bus datapath has registers R0, R1, R2, a register Y that feeds the ALU's left input, the bus as the ALU's right input, and an output register Z. R0 = 4, R1 = 10, R2 = 7. One clock step performs one set of non-conflicting transfers. Compute R0 ← R0 + R1 + R2 and count the steps.",
+        "steps": [
+          "Step 1: R0out, Yin. R0 puts 4 on the bus and Y stores it: Y = 4.",
+          "Step 2: R1out, Add, Zin. R1 puts 10 on the bus, the ALU adds Y + bus = 4 + 10, and Z stores 14.",
+          "Step 3: Zout, Yin. Z puts 14 on the bus and Y stores it. The bus carries only one value per step, so Z cannot also feed the ALU in the same step.",
+          "Step 4: R2out, Add, Zin. R2 puts 7 on the bus, the ALU adds 14 + 7, and Z stores 21.",
+          "Step 5: Zout, R0in. Z puts 21 on the bus and R0 stores it: R0 = 21."
+        ],
+        "answer": "R0 = 21 after 5 clock steps."
+      },
+      "what": "On a **single bus**, only one value travels per clock step. The ALU adds the holding register **Y** and the bus, and its result goes to **Z**. A sum needs: first operand into Y, second operand on the bus with the ALU operation into Z, then Z to the destination.",
+      "what_full": "On a **single bus**, only one value travels per clock step. The ALU adds the holding register **Y** and the bus, and its result goes to **Z**. A sum needs: first operand into Y, second operand on the bus with the ALU operation into Z, then Z to the destination.\n\nControl signals per step, written as register transfers:\n\n- $X_{out}$ puts register $X$ on the bus. $X_{in}$ loads $X$ from the bus.\n- A sum follows the pattern: first operand to $Y$ ($X_{out},Y_{in}$); second operand on the bus with $Add,\\ Z_{in}$; then $Z_{out}$ and the destination's in signal.\n- A memory read adds a wait step: the data arrives in MDR at the end of the step after MAR is loaded.\n\n**Worked example.** A single-bus datapath has registers R0, R1, R2, a register Y that feeds the ALU's left input, the bus as the ALU's right input, and an output register Z. R0 = 4, R1 = 10, R2 = 7. One clock step performs one set of non-conflicting transfers. Compute R0 ← R0 + R1 + R2 and count the steps.\n\n1. Step 1: R0out, Yin. R0 puts 4 on the bus and Y stores it: Y = 4.\n2. Step 2: R1out, Add, Zin. R1 puts 10 on the bus, the ALU adds Y + bus = 4 + 10, and Z stores 14.\n3. Step 3: Zout, Yin. Z puts 14 on the bus and Y stores it. The bus carries only one value per step, so Z cannot also feed the ALU in the same step.\n4. Step 4: R2out, Add, Zin. R2 puts 7 on the bus, the ALU adds 14 + 7, and Z stores 21.\n5. Step 5: Zout, R0in. Z puts 21 on the bus and R0 stores it: R0 = 21.\n\n**Answer:** R0 = 21 after 5 clock steps.",
+      "why_full": "Datapath sequencing is how GATE tests the order of control steps. In GATE: arrange micro-operations in a correct order, or count the clock steps for an instruction.\n\nAsked: 2020 CS Q14, 2025 CS1 Q27.",
+      "trap": "Running the ALU step before the first operand is in the holding register Y. The ALU would add the wrong value."
+    },
+    {
+      "atom_id": "c3",
+      "title": "Hardwired control",
+      "simple": "A hardwired control unit is like a music box with the tune built into its pins. The instruction decides which row of pins is active and the step counter says which beat we are at. Where an active row meets an active beat, a pin pushes a lever, and that lever is a control signal telling a register to load or the ALU to add. All of this is done with fixed logic gates, so it is very fast, but changing the tune means rebuilding the box. This suits simple instruction sets with few instructions that all look alike. In exam words: hardwired control generates each signal as a gate-level function of the opcode, the time step and the flags; it is fast but hard to change, and typical of RISC.",
+      "idea": "In **hardwired control** each control signal is a fixed Boolean function of the **instruction**, the **time step** and the **flags**, built from gates. It is **fast** and **hard to change**. It is typical of RISC.",
+      "definition": "Each signal is a sum of products of step lines $T_k$, instruction lines and flags, for example\n\n$$Z_{in}=T_5\\cdot(ADD+SUB),\\qquad PC_{in}=T_4\\cdot BRZ\\cdot Z$$\n\n- $T_k$ = 1 only in time step $k$ (a one-hot decoded counter).\n- Instruction lines come from decoding the opcode in the IR.\n- Flags such as $Z$ make a signal depend on data (conditional branches).",
+      "intuition_full": "At any instant the control unit knows three things: which instruction it is running, which step it is in, and the flags. The signals needed at that instant are a fixed function of those three. The designer writes one equation per signal, listing all the (instruction, step) pairs in which it must fire, and builds it with AND gates for each pair and an OR gate to collect them. Speed comes from the fact that nothing has to be looked up: the signals appear after a few gate delays. The cost is flexibility. The number of equations and gates grows with the number of instructions and steps, and any change to an instruction means redesigning the logic. This is why hardwired control suits RISC, where there are few instructions of regular shape, and why CISC machines with hundreds of complex instructions use microprogrammed control (card c4).",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A hardwired control unit has instruction lines ADD and SUB (from the IR decoder) and step lines T4, T5, T6 (from the step counter). The signal equations are: R2out = T4·(ADD+SUB), Yin = T4·(ADD+SUB), R1out = T5·(ADD+SUB), Add = T5·ADD, Sub = T5·SUB, Zin = T5·(ADD+SUB). The IR holds ADD and the counter is at T5. Which signals are asserted?",
+          "steps": [
+            "A hardwired control unit has two kinds of inputs: the decoded instruction (lines ADD, SUB) and the step counter lines (T4, T5, T6). Fixed AND-OR gates combine them into control signals.",
+            "The IR holds ADD, so the ADD line is 1 and the SUB line is 0.",
+            "The step counter is at T5, so T5 = 1 and T4 = T6 = 0.",
+            "Evaluate each equation: R2out = 0·1 = 0 and Yin = 0 (they need T4). R1out = 1·(1+0) = 1. Add = 1·1 = 1. Sub = 1·0 = 0. Zin = 1·(1+0) = 1.",
+            "Active signals now: R1out, Add and Zin. R2out, Yin and Sub stay 0. At the next clock the counter moves to T6 and a new set of signals fires."
+          ],
+          "answer": "R1out, Add and Zin are asserted; the others are 0."
+        },
+        {
+          "level": "gate",
+          "setup": "A hardwired CPU has 8 instructions and at most 6 time steps per instruction. How many instruction lines and step lines does the control logic need, and how many AND terms can one control signal need at most?",
+          "steps": [
+            "8 instructions need a 3-to-8 decoder on the opcode: 8 instruction lines.",
+            "6 steps need ⌈log₂ 6⌉ = 3 counter bits, decoded into step lines T1 to T6 (6 lines used).",
+            "A signal can fire in any (instruction, step) pair: at most 8 × 6 = 48 AND terms."
+          ],
+          "answer": "8 instruction lines, 6 step lines, and at most 48 AND terms per signal."
+        },
+        {
+          "level": "twist",
+          "setup": "The branch-if-zero signal is PCin = T4·BRZ·Z. What is PCin at step T4 of a BRZ instruction when the flag Z is 0 and when Z is 1?",
+          "steps": [
+            "Z = 0: PCin = 1·1·0 = 0. The branch is not taken and PC is not loaded.",
+            "Z = 1: PCin = 1·1·1 = 1. The branch is taken and PC is loaded with the target.",
+            "A flag in the equation makes the control signal depend on data."
+          ],
+          "answer": "Z = 0 gives PCin = 0, Z = 1 gives PCin = 1. Hardwired logic can use flags directly."
+        }
+      ],
+      "why": "Hardwired and microprogrammed control are the two designs GATE compares. In GATE: choose the true statement about speed, flexibility and typical use, or evaluate a signal equation.",
+      "how": [
+        "List the (instruction, step) pairs in which a signal must fire.",
+        "Write the signal as a sum of products of instruction lines and step lines.",
+        "To evaluate, set the active instruction and step lines to 1 and the rest to 0.",
+        "Remember the summary: fast, inflexible, no control store, typical of RISC."
+      ],
+      "mistake": "Giving the hardwired design a control store. A hardwired unit uses gates only; the control store belongs to microprogrammed control.",
+      "edge_cases": [
+        "Flags such as Z or carry can appear in the equations.",
+        "The step counter is usually decoded to one-hot lines.",
+        "Adding an instruction means adding terms to many equations.",
+        "Hardwired control is also called 'random logic'."
+      ],
+      "connections": [
+        "Microprogrammed control (card c4) replaces the gates by a stored table.",
+        "coa.isa (card i9) links RISC to hardwired control and CISC to microcode.",
+        "coa.pipeline relies on the simple, regular control that hardwiring allows."
+      ],
+      "check": [
+        {
+          "q": "Which is faster: hardwired or microprogrammed control?",
+          "a": "Hardwired."
+        },
+        {
+          "q": "Which style is typical of RISC?",
+          "a": "Hardwired control."
+        },
+        {
+          "q": "How many step lines does a 7-step instruction need after decoding the counter?",
+          "a": "7 lines, from a 3-bit counter."
+        }
+      ],
+      "asked": "Asked: 2018 CS Q15, 2002 CS Q2_7.",
+      "try": {
+        "id": "gen.coa.control.001",
+        "label": "Which statement about a hardwired control unit is correct? (L1)"
+      },
+      "scene": "coa.control.c3.hardwired",
+      "example": {
+        "setup": "A hardwired control unit has instruction lines ADD and SUB (from the IR decoder) and step lines T4, T5, T6 (from the step counter). The signal equations are: R2out = T4·(ADD+SUB), Yin = T4·(ADD+SUB), R1out = T5·(ADD+SUB), Add = T5·ADD, Sub = T5·SUB, Zin = T5·(ADD+SUB). The IR holds ADD and the counter is at T5. Which signals are asserted?",
+        "steps": [
+          "A hardwired control unit has two kinds of inputs: the decoded instruction (lines ADD, SUB) and the step counter lines (T4, T5, T6). Fixed AND-OR gates combine them into control signals.",
+          "The IR holds ADD, so the ADD line is 1 and the SUB line is 0.",
+          "The step counter is at T5, so T5 = 1 and T4 = T6 = 0.",
+          "Evaluate each equation: R2out = 0·1 = 0 and Yin = 0 (they need T4). R1out = 1·(1+0) = 1. Add = 1·1 = 1. Sub = 1·0 = 0. Zin = 1·(1+0) = 1.",
+          "Active signals now: R1out, Add and Zin. R2out, Yin and Sub stay 0. At the next clock the counter moves to T6 and a new set of signals fires."
+        ],
+        "answer": "R1out, Add and Zin are asserted; the others are 0."
+      },
+      "what": "In **hardwired control** each control signal is a fixed Boolean function of the **instruction**, the **time step** and the **flags**, built from gates. It is **fast** and **hard to change**. It is typical of RISC.",
+      "what_full": "In **hardwired control** each control signal is a fixed Boolean function of the **instruction**, the **time step** and the **flags**, built from gates. It is **fast** and **hard to change**. It is typical of RISC.\n\nEach signal is a sum of products of step lines $T_k$, instruction lines and flags, for example\n\n$$Z_{in}=T_5\\cdot(ADD+SUB),\\qquad PC_{in}=T_4\\cdot BRZ\\cdot Z$$\n\n- $T_k$ = 1 only in time step $k$ (a one-hot decoded counter).\n- Instruction lines come from decoding the opcode in the IR.\n- Flags such as $Z$ make a signal depend on data (conditional branches).\n\n**Worked example.** A hardwired control unit has instruction lines ADD and SUB (from the IR decoder) and step lines T4, T5, T6 (from the step counter). The signal equations are: R2out = T4·(ADD+SUB), Yin = T4·(ADD+SUB), R1out = T5·(ADD+SUB), Add = T5·ADD, Sub = T5·SUB, Zin = T5·(ADD+SUB). The IR holds ADD and the counter is at T5. Which signals are asserted?\n\n1. A hardwired control unit has two kinds of inputs: the decoded instruction (lines ADD, SUB) and the step counter lines (T4, T5, T6). Fixed AND-OR gates combine them into control signals.\n2. The IR holds ADD, so the ADD line is 1 and the SUB line is 0.\n3. The step counter is at T5, so T5 = 1 and T4 = T6 = 0.\n4. Evaluate each equation: R2out = 0·1 = 0 and Yin = 0 (they need T4). R1out = 1·(1+0) = 1. Add = 1·1 = 1. Sub = 1·0 = 0. Zin = 1·(1+0) = 1.\n5. Active signals now: R1out, Add and Zin. R2out, Yin and Sub stay 0. At the next clock the counter moves to T6 and a new set of signals fires.\n\n**Answer:** R1out, Add and Zin are asserted; the others are 0.",
+      "why_full": "Hardwired and microprogrammed control are the two designs GATE compares. In GATE: choose the true statement about speed, flexibility and typical use, or evaluate a signal equation.\n\nAsked: 2018 CS Q15, 2002 CS Q2_7.",
+      "trap": "Giving the hardwired design a control store. A hardwired unit uses gates only; the control store belongs to microprogrammed control."
+    },
+    {
+      "atom_id": "c4",
+      "title": "Microprogrammed control",
+      "simple": "A microprogrammed control unit is like a player piano with a paper roll. The roll holds the tune as a long list of simple instructions, and a pointer walks down it one line at a time. Each line says which control signals to switch on for one clock tick. Every machine instruction has its own short piece of roll, called a microroutine. To find where a piece starts, a small lookup table is consulted. Changing or adding an instruction only means changing the roll, not rebuilding the machine. The price is speed, because every step must read a line from the roll first. In exam words: a control store holds microinstructions; each machine instruction has a microroutine located through a mapping ROM; microprogramming is flexible but slower and typical of CISC.",
+      "idea": "In **microprogrammed control** the control signals are stored as **microinstructions** in a **control store**. Each machine instruction has a **microroutine**. A **micro-program counter (μPC)** steps through it. It is **flexible but slower**, and typical of CISC.",
+      "definition": "- **Microinstruction:** one word of the control store, holding the control signals for one clock step and the information to find the next one.\n- **Microroutine:** the sequence of microinstructions for one machine instruction.\n- **Mapping ROM:** opcode → start address of the microroutine.\n- **μPC:** address of the next microinstruction (it is not the PC of the machine program).\n- Every step costs one read of the control store.",
+      "intuition_full": "Hardwired control spends gates to produce signals directly. Microprogramming spends memory instead. The signals for every instruction and every step are written into a table, and the control unit simply reads the table row by row. The row's bits connect straight to the control lines of the datapath. Everything specific to the instruction set lives in the contents of the table. That makes the design regular and easy to correct or extend: a bug fix is a new table, and a new instruction is a new microroutine plus one entry in the mapping ROM. The same flexibility lets a CISC machine implement complex instructions as a loop of microinstructions. The disadvantage is speed. Each clock step needs a read of the control store before the signals can be applied. A fast control store (ROM or a small RAM) is therefore essential, and a simple RISC pipeline avoids this layer entirely.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A microprogrammed unit has a mapping ROM that gives the start address of each instruction's microroutine. The opcode of ADD is 1 and the mapping ROM returns 40. The control store holds: 40: R2out, Yin. 41: R1out, Add, Zin. 42: Zout, R1in, END. Follow the execution of ADD.",
+          "steps": [
+            "The opcode ADD = 1 goes to the mapping ROM, which returns the start address 40. The micro-program counter μPC is loaded with 40.",
+            "μPC = 40: the control store word at address 40 asserts R2out and Yin. Then μPC increments.",
+            "μPC = 41: the word asserts R1out, Add and Zin.",
+            "μPC = 42: the word asserts Zout and R1in. This word is marked END.",
+            "END: the μPC is loaded with 0, the start of the fetch microroutine, so the next instruction begins."
+          ],
+          "answer": "ADD runs as three microinstructions (addresses 40, 41, 42), then control returns to the fetch routine at 0."
+        },
+        {
+          "level": "gate",
+          "setup": "A CISC processor has 120 opcodes. Each instruction's microroutine takes 6 microinstructions on average, and all instructions share one 4-word fetch routine. How many control store words are needed, and how many address bits?",
+          "steps": [
+            "Instruction routines: 120 × 6 = 720 words.",
+            "The shared fetch routine adds 4 words: 720 + 4 = 724 words.",
+            "Address bits: ⌈log₂ 724⌉ = 10, since 2⁹ = 512 < 724 ≤ 1024 = 2¹⁰."
+          ],
+          "answer": "724 words, so a 10-bit microaddress (room for 1024 words)."
+        },
+        {
+          "level": "twist",
+          "setup": "A new instruction must be added to a microprogrammed processor and to a hardwired processor. What is changed in each?",
+          "steps": [
+            "Microprogrammed: write a new microroutine into free control store words and add one entry for the new opcode in the mapping ROM. No gates change.",
+            "Hardwired: add the new instruction line and change many signal equations, which means redesigning the logic."
+          ],
+          "answer": "Microprogrammed: edit the contents of the control store. Hardwired: rebuild the gates."
+        }
+      ],
+      "why": "The comparison of the two control styles is a regular true-or-false question. In GATE: say which statement about speed, flexibility or use is correct, and size the control store.",
+      "how": [
+        "The opcode goes to the mapping ROM, which gives the start address.",
+        "μPC steps through the microroutine; each microinstruction asserts its signals.",
+        "The last microinstruction sends μPC back to the fetch routine.",
+        "Remember: flexible, slower, CISC, control store."
+      ],
+      "mistake": "Mixing up the PC (an address in main memory) and the micro-program counter (an address in the control store). One machine instruction advances the PC once but the μPC many times.",
+      "edge_cases": [
+        "All instructions share the same fetch microroutine.",
+        "A microinstruction may contain a branch address for conditional microcode.",
+        "Some processors keep the control store in writable memory so microcode can be patched.",
+        "A microprogrammed unit needs no instruction-by-instruction gate design."
+      ],
+      "connections": [
+        "Hardwired control (card c3) is the alternative design.",
+        "Control word and store size (card c6) sizes the control store.",
+        "Micro-sequencing (card c7) shows how the μPC picks its next value."
+      ],
+      "check": [
+        {
+          "q": "What does the mapping ROM output?",
+          "a": "The start address of the microroutine for the opcode."
+        },
+        {
+          "q": "Is microprogrammed control faster than hardwired?",
+          "a": "No. Each step reads the control store."
+        },
+        {
+          "q": "Which is easier to change: gates or microcode?",
+          "a": "Microcode."
+        }
+      ],
+      "asked": "Asked: 2018 CS Q15, 2002 CS Q2_7, 2004 CS Q67.",
+      "try": {
+        "id": "gen.coa.control.002",
+        "label": "In a microprogrammed control unit, what does the control store hold? (L1)"
+      },
+      "scene": "coa.control.c4.microcode",
+      "example": {
+        "setup": "A microprogrammed unit has a mapping ROM that gives the start address of each instruction's microroutine. The opcode of ADD is 1 and the mapping ROM returns 40. The control store holds: 40: R2out, Yin. 41: R1out, Add, Zin. 42: Zout, R1in, END. Follow the execution of ADD.",
+        "steps": [
+          "The opcode ADD = 1 goes to the mapping ROM, which returns the start address 40. The micro-program counter μPC is loaded with 40.",
+          "μPC = 40: the control store word at address 40 asserts R2out and Yin. Then μPC increments.",
+          "μPC = 41: the word asserts R1out, Add and Zin.",
+          "μPC = 42: the word asserts Zout and R1in. This word is marked END.",
+          "END: the μPC is loaded with 0, the start of the fetch microroutine, so the next instruction begins."
+        ],
+        "answer": "ADD runs as three microinstructions (addresses 40, 41, 42), then control returns to the fetch routine at 0."
+      },
+      "what": "In **microprogrammed control** the control signals are stored as **microinstructions** in a **control store**. Each machine instruction has a **microroutine**. A **micro-program counter (μPC)** steps through it. It is **flexible but slower**, and typical of CISC.",
+      "what_full": "In **microprogrammed control** the control signals are stored as **microinstructions** in a **control store**. Each machine instruction has a **microroutine**. A **micro-program counter (μPC)** steps through it. It is **flexible but slower**, and typical of CISC.\n\n- **Microinstruction:** one word of the control store, holding the control signals for one clock step and the information to find the next one.\n- **Microroutine:** the sequence of microinstructions for one machine instruction.\n- **Mapping ROM:** opcode → start address of the microroutine.\n- **μPC:** address of the next microinstruction (it is not the PC of the machine program).\n- Every step costs one read of the control store.\n\n**Worked example.** A microprogrammed unit has a mapping ROM that gives the start address of each instruction's microroutine. The opcode of ADD is 1 and the mapping ROM returns 40. The control store holds: 40: R2out, Yin. 41: R1out, Add, Zin. 42: Zout, R1in, END. Follow the execution of ADD.\n\n1. The opcode ADD = 1 goes to the mapping ROM, which returns the start address 40. The micro-program counter μPC is loaded with 40.\n2. μPC = 40: the control store word at address 40 asserts R2out and Yin. Then μPC increments.\n3. μPC = 41: the word asserts R1out, Add and Zin.\n4. μPC = 42: the word asserts Zout and R1in. This word is marked END.\n5. END: the μPC is loaded with 0, the start of the fetch microroutine, so the next instruction begins.\n\n**Answer:** ADD runs as three microinstructions (addresses 40, 41, 42), then control returns to the fetch routine at 0.",
+      "why_full": "The comparison of the two control styles is a regular true-or-false question. In GATE: say which statement about speed, flexibility or use is correct, and size the control store.\n\nAsked: 2018 CS Q15, 2002 CS Q2_7, 2004 CS Q67.",
+      "trap": "Mixing up the PC (an address in main memory) and the micro-program counter (an address in the control store). One machine instruction advances the PC once but the μPC many times."
+    },
+    {
+      "atom_id": "c5",
+      "title": "Horizontal versus vertical microinstructions",
+      "simple": "Think of a control panel with one switch for every light in a building. That is a horizontal microinstruction: lots of switches, but you can flip any set of them at the same moment, and no extra wiring is needed. A vertical microinstruction is like a keypad: for each group of lights that can never be on together, you type the number of the one you want, and a small decoder lights it. You need far fewer wires, but a decoder per group, and you can only pick one light per group per tick. In exam words: horizontal microinstructions have one bit per control signal (wide, parallel, no decoding); vertical microinstructions encode mutually exclusive signals into fields (narrow, need decoders, less parallelism).",
+      "idea": "**Horizontal:** one bit per control signal. It is wide and fast, and many signals can fire together. **Vertical:** mutually exclusive signals share an **encoded field**. It is narrow but needs decoders, and one signal per field per step.",
+      "definition": "- Horizontal word width = number of control signals.\n- Vertical field for $k$ mutually exclusive signals (plus 'none'): $\\lceil\\log_2(k+1)\\rceil$ bits.\n- Vertical word width = sum of field widths (independent signals keep one bit each).\n- Only mutually exclusive signals may share a field.",
+      "intuition_full": "Both formats carry the same information. They differ in how much of the decoding is done by the designer and how much by hardware. In a horizontal word, every signal has its own bit, so the datapath receives signals directly. Many signals can be on in one step, so the machine can do things in parallel, but the control store is wide and expensive. In a vertical word, a few bits name which signal in a group is active. A decoder turns that number into the individual signal, which costs gates and a little time. Only signals that can never be on together may share a field, for example the many registers that could put data on a bus, since only one can drive it at once. Independent signals, such as two that can fire together, cannot share a field without losing the ability to fire them in the same step.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A control unit has three groups of mutually exclusive signals: 5 source signals (R0out, R1out, R2out, R3out, PCout), 4 ALU signals (Add, Sub, And, Or) and 3 destination signals (R0in, R1in, Zin). Encode the microinstruction {R1out, Add, Zin} in a horizontal word and in a vertical word. How many bits does each use?",
+          "steps": [
+            "The wanted microinstruction asserts R1out (source), Add (ALU) and Zin (destination). The groups have 5, 4 and 3 signals.",
+            "Horizontal: one bit per signal, so 5 + 4 + 3 = 12 bits. Set the bit of R1out, Add and Zin: 01000 1000 001.",
+            "Vertical: the signals of one group are mutually exclusive, so each group becomes a field that holds the number of the active signal (0 means none). Field widths: ⌈log₂(5+1)⌉ = 3, ⌈log₂(4+1)⌉ = 3, ⌈log₂(3+1)⌉ = 2 bits.",
+            "Fill the fields: R1out is source number 2 = 010, Add is ALU number 1 = 001, Zin is destination number 3 = 11. The vertical word is 010 001 11.",
+            "The vertical word has 8 bits against 12. The price: each field needs a decoder, and only one signal per group can be active in a step."
+          ],
+          "answer": "Horizontal: 01000 1000 001 (12 bits). Vertical: 010 001 11 (8 bits)."
+        },
+        {
+          "level": "gate",
+          "setup": "Three groups of mutually exclusive signals have 6, 11 and 30 signals. Compare the horizontal width with the vertical width.",
+          "steps": [
+            "Horizontal: one bit per signal: 6 + 11 + 30 = 47 bits.",
+            "Vertical field widths: ⌈log₂ 7⌉ = 3, ⌈log₂ 12⌉ = 4, ⌈log₂ 31⌉ = 5.",
+            "Vertical total: 3 + 4 + 5 = 12 bits.",
+            "Saving: 47 − 12 = 35 bits per microinstruction."
+          ],
+          "answer": "47 bits horizontal, 12 bits vertical, 35 bits saved."
+        },
+        {
+          "level": "twist",
+          "setup": "Two independent signals, Zin and Read, can be on in the same step. A designer puts them in one vertical field with a 'none' code. How many bits does the field use, and what is lost?",
+          "steps": [
+            "Signals Zin, Read and none make 3 codes, so the field has ⌈log₂ 3⌉ = 2 bits.",
+            "Two separate horizontal bits also use 2 bits, so nothing is saved.",
+            "The field can name only one signal per step, so Zin and Read can no longer be asserted together."
+          ],
+          "answer": "No saving and less parallelism. Independent signals must not share a field."
+        }
+      ],
+      "why": "Horizontal versus vertical is a standard definition question and the basis of control-store sizing. In GATE: recognise the properties of each format, or compute the width of a vertical microinstruction.",
+      "how": [
+        "Group the signals into sets that are mutually exclusive.",
+        "Horizontal width = total number of signals.",
+        "Each vertical field = ⌈log₂(k+1)⌉ bits, including the 'none' code.",
+        "Compare widths. Vertical is narrower but needs decoders."
+      ],
+      "mistake": "Treating a horizontal microinstruction as encoded. Horizontal means one bit per signal and no decoding.",
+      "edge_cases": [
+        "Independent signals cannot share a vertical field.",
+        "A group with a single signal needs 1 bit either way.",
+        "Vertical encoding adds the decoder delay to each step.",
+        "Real machines often mix the two: encoded fields plus a few direct bits."
+      ],
+      "connections": [
+        "Field encoding (card c8) works out the field width for one group.",
+        "Control word and store size (card c6) uses the widths to size the control store.",
+        "Microprogrammed control (card c4) is the setting where these formats are used."
+      ],
+      "check": [
+        {
+          "q": "Which format needs no decoder: horizontal or vertical?",
+          "a": "Horizontal."
+        },
+        {
+          "q": "A vertical field for 7 mutually exclusive signals (and none): how many bits?",
+          "a": "3, since ⌈log₂ 8⌉ = 3."
+        },
+        {
+          "q": "Which format allows more parallel signals in one step?",
+          "a": "Horizontal."
+        }
+      ],
+      "asked": "Asked: 2002 CS Q2_7, 2018 CS Q15.",
+      "try": {
+        "id": "gen.coa.control.003",
+        "label": "What is a horizontal microinstruction? (L1)"
+      },
+      "scene": "coa.control.c5.formats",
+      "example": {
+        "setup": "A control unit has three groups of mutually exclusive signals: 5 source signals (R0out, R1out, R2out, R3out, PCout), 4 ALU signals (Add, Sub, And, Or) and 3 destination signals (R0in, R1in, Zin). Encode the microinstruction {R1out, Add, Zin} in a horizontal word and in a vertical word. How many bits does each use?",
+        "steps": [
+          "The wanted microinstruction asserts R1out (source), Add (ALU) and Zin (destination). The groups have 5, 4 and 3 signals.",
+          "Horizontal: one bit per signal, so 5 + 4 + 3 = 12 bits. Set the bit of R1out, Add and Zin: 01000 1000 001.",
+          "Vertical: the signals of one group are mutually exclusive, so each group becomes a field that holds the number of the active signal (0 means none). Field widths: ⌈log₂(5+1)⌉ = 3, ⌈log₂(4+1)⌉ = 3, ⌈log₂(3+1)⌉ = 2 bits.",
+          "Fill the fields: R1out is source number 2 = 010, Add is ALU number 1 = 001, Zin is destination number 3 = 11. The vertical word is 010 001 11.",
+          "The vertical word has 8 bits against 12. The price: each field needs a decoder, and only one signal per group can be active in a step."
+        ],
+        "answer": "Horizontal: 01000 1000 001 (12 bits). Vertical: 010 001 11 (8 bits)."
+      },
+      "what": "**Horizontal:** one bit per control signal. It is wide and fast, and many signals can fire together. **Vertical:** mutually exclusive signals share an **encoded field**. It is narrow but needs decoders, and one signal per field per step.",
+      "what_full": "**Horizontal:** one bit per control signal. It is wide and fast, and many signals can fire together. **Vertical:** mutually exclusive signals share an **encoded field**. It is narrow but needs decoders, and one signal per field per step.\n\n- Horizontal word width = number of control signals.\n- Vertical field for $k$ mutually exclusive signals (plus 'none'): $\\lceil\\log_2(k+1)\\rceil$ bits.\n- Vertical word width = sum of field widths (independent signals keep one bit each).\n- Only mutually exclusive signals may share a field.\n\n**Worked example.** A control unit has three groups of mutually exclusive signals: 5 source signals (R0out, R1out, R2out, R3out, PCout), 4 ALU signals (Add, Sub, And, Or) and 3 destination signals (R0in, R1in, Zin). Encode the microinstruction {R1out, Add, Zin} in a horizontal word and in a vertical word. How many bits does each use?\n\n1. The wanted microinstruction asserts R1out (source), Add (ALU) and Zin (destination). The groups have 5, 4 and 3 signals.\n2. Horizontal: one bit per signal, so 5 + 4 + 3 = 12 bits. Set the bit of R1out, Add and Zin: 01000 1000 001.\n3. Vertical: the signals of one group are mutually exclusive, so each group becomes a field that holds the number of the active signal (0 means none). Field widths: ⌈log₂(5+1)⌉ = 3, ⌈log₂(4+1)⌉ = 3, ⌈log₂(3+1)⌉ = 2 bits.\n4. Fill the fields: R1out is source number 2 = 010, Add is ALU number 1 = 001, Zin is destination number 3 = 11. The vertical word is 010 001 11.\n5. The vertical word has 8 bits against 12. The price: each field needs a decoder, and only one signal per group can be active in a step.\n\n**Answer:** Horizontal: 01000 1000 001 (12 bits). Vertical: 010 001 11 (8 bits).",
+      "why_full": "Horizontal versus vertical is a standard definition question and the basis of control-store sizing. In GATE: recognise the properties of each format, or compute the width of a vertical microinstruction.\n\nAsked: 2002 CS Q2_7, 2018 CS Q15.",
+      "trap": "Treating a horizontal microinstruction as encoded. Horizontal means one bit per signal and no decoding."
+    },
+    {
+      "atom_id": "c6",
+      "title": "Control word and store size",
+      "simple": "Each line of the control store is a microinstruction made of three parts. One part holds the actual control signals. One part says which condition to test, if any. One part says where to go next. To work out the size of the whole store you need two things: how wide a line is, and how many lines there are. The number of lines fixes how many bits the 'where next' part needs, because it must be able to name every line. The condition part must be able to name every condition, plus one more choice for 'always'. Then size is lines times width. In exam words: width = control field + condition select + next address; the next-address field is log₂ of the number of words; store size = words × width.",
+      "idea": "A **microinstruction** = control field + condition-select field + next-address field. The next-address field has **log₂(words)** bits, the select field has **⌈log₂(conditions + 1)⌉** bits, and the control store holds **words × width** bits.",
+      "definition": "$$\\text{width}=C+\\lceil\\log_2(m+1)\\rceil+\\log_2 N,\\qquad \\text{size}=N\\times\\text{width}$$\n\n- $C$ = control bits, $m$ = number of conditions (the +1 is the 'always' choice).\n- $N$ = number of control store words (a power of two).\n- Mapping ROM: one word per opcode value, each word holds a control-store address.",
+      "intuition_full": "The next-address field must be able to point at any word of the store, so its width is the log of the number of words. If the store has 1024 words, 10 bits are needed. The condition-select field drives a multiplexer that picks which flag decides the branch, so it must name each condition. An unconditional jump or a plain 'go on to the next word' needs its own code, which is why one extra choice, 'always', is added to the count of conditions. Sometimes a question gives the total width and asks you to work backwards: subtract the control bits and the select bits from the width to get the next-address bits, and take 2 to that power for the number of words. The total store size then follows by multiplication. Convert bits to bytes by dividing by 8, and to KiB by dividing by 1024.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A control store has 1024 words. Each microinstruction has 24 control bits, a condition-select field that picks one of 6 conditions or 'always', and a next-address field. Find the width of a microinstruction and the size of the control store.",
+          "steps": [
+            "1024 words need ⌈log₂ 1024⌉ = 10 address bits, so the next-address field has 10 bits.",
+            "The condition MUX picks one of 6 conditions or 'always': 7 choices. ⌈log₂ 7⌉ = 3 bits.",
+            "Width = 24 + 3 + 10 = 37 bits per microinstruction.",
+            "Control store size = 1024 words × 37 bits = 37,888 bits.",
+            "In bytes: 37,888 ÷ 8 = 4,736 bytes = 4.625 KiB (4736 ÷ 1024)."
+          ],
+          "answer": "Width 37 bits and control store 37,888 bits = 4,736 bytes."
+        },
+        {
+          "level": "gate",
+          "setup": "A microinstruction is 30 bits wide: 14 bits of micro-operations, X bits of next address and Y bits of MUX select. The MUX picks one of 12 status bits. Find X, Y and the number of words in the control memory.",
+          "steps": [
+            "The MUX chooses one of 12 status bits, so Y = ⌈log₂ 12⌉ = 4, since 2³ = 8 < 12 ≤ 16.",
+            "X = 30 − 14 − 4 = 12 bits of next address.",
+            "A 12-bit address names 2¹² = 4096 words."
+          ],
+          "answer": "X = 12, Y = 4, and the control memory has 4096 words."
+        },
+        {
+          "level": "twist",
+          "setup": "A condition MUX must choose among 16 conditions or 'always'. How many select bits are needed, and how many with 15 conditions plus 'always'?",
+          "steps": [
+            "16 conditions plus 'always' is 17 choices. 2⁴ = 16 < 17, so ⌈log₂ 17⌉ = 5 bits.",
+            "15 conditions plus 'always' is 16 choices. ⌈log₂ 16⌉ = 4 bits.",
+            "Ignoring 'always' would give 4 bits for 16 conditions, which is one too few."
+          ],
+          "answer": "5 select bits for 16 conditions plus 'always', and 4 bits for 15 plus 'always'."
+        }
+      ],
+      "why": "Control-store sizing is the numerical question in this chapter. In GATE: find the width of a microinstruction, a field size, the number of words or the total bits.",
+      "how": [
+        "Next-address bits = log₂(number of words).",
+        "Select bits = ⌈log₂(conditions + 1)⌉, including 'always'.",
+        "Width = control bits + select bits + next-address bits.",
+        "Size = words × width, then convert to bytes or KiB if asked."
+      ],
+      "mistake": "Using the number of conditions as the width of the MUX select field instead of its logarithm. Also forgetting the 'always' choice.",
+      "edge_cases": [
+        "When the width is given, the next-address field is what is left after the other two fields.",
+        "The mapping ROM has one word per opcode value, not one per control-store word.",
+        "1 KiB = 1024 bytes, not 1000.",
+        "A word count that is not a power of two still needs ⌈log₂ N⌉ address bits."
+      ],
+      "connections": [
+        "Horizontal versus vertical (card c5) gives the width of the control field.",
+        "Micro-sequencing (card c7) uses the select and next-address fields.",
+        "Foundations: **Binary** (found.binary) covers powers of two and the unit conversions used here."
+      ],
+      "check": [
+        {
+          "q": "A control store has 4096 words. How many next-address bits?",
+          "a": "12."
+        },
+        {
+          "q": "How many select bits for 12 conditions plus 'always'?",
+          "a": "4, since 13 choices need ⌈log₂ 13⌉ = 4."
+        },
+        {
+          "q": "A store has 512 words of 20 bits. How many bits in all?",
+          "a": "512 × 20 = 10,240."
+        }
+      ],
+      "asked": "Asked: 2004 CS Q67.",
+      "try": {
+        "id": "gen.coa.control.008",
+        "label": "A control store has 2048 words. How many address bits does the next-address field need? (L2)"
+      },
+      "scene": "coa.control.c6.sizing",
+      "example": {
+        "setup": "A control store has 1024 words. Each microinstruction has 24 control bits, a condition-select field that picks one of 6 conditions or 'always', and a next-address field. Find the width of a microinstruction and the size of the control store.",
+        "steps": [
+          "1024 words need ⌈log₂ 1024⌉ = 10 address bits, so the next-address field has 10 bits.",
+          "The condition MUX picks one of 6 conditions or 'always': 7 choices. ⌈log₂ 7⌉ = 3 bits.",
+          "Width = 24 + 3 + 10 = 37 bits per microinstruction.",
+          "Control store size = 1024 words × 37 bits = 37,888 bits.",
+          "In bytes: 37,888 ÷ 8 = 4,736 bytes = 4.625 KiB (4736 ÷ 1024)."
+        ],
+        "answer": "Width 37 bits and control store 37,888 bits = 4,736 bytes."
+      },
+      "what": "A **microinstruction** = control field + condition-select field + next-address field. The next-address field has **log₂(words)** bits, the select field has **⌈log₂(conditions + 1)⌉** bits, and the control store holds **words × width** bits.",
+      "what_full": "A **microinstruction** = control field + condition-select field + next-address field. The next-address field has **log₂(words)** bits, the select field has **⌈log₂(conditions + 1)⌉** bits, and the control store holds **words × width** bits.\n\n$$\\text{width}=C+\\lceil\\log_2(m+1)\\rceil+\\log_2 N,\\qquad \\text{size}=N\\times\\text{width}$$\n\n- $C$ = control bits, $m$ = number of conditions (the +1 is the 'always' choice).\n- $N$ = number of control store words (a power of two).\n- Mapping ROM: one word per opcode value, each word holds a control-store address.\n\n**Worked example.** A control store has 1024 words. Each microinstruction has 24 control bits, a condition-select field that picks one of 6 conditions or 'always', and a next-address field. Find the width of a microinstruction and the size of the control store.\n\n1. 1024 words need ⌈log₂ 1024⌉ = 10 address bits, so the next-address field has 10 bits.\n2. The condition MUX picks one of 6 conditions or 'always': 7 choices. ⌈log₂ 7⌉ = 3 bits.\n3. Width = 24 + 3 + 10 = 37 bits per microinstruction.\n4. Control store size = 1024 words × 37 bits = 37,888 bits.\n5. In bytes: 37,888 ÷ 8 = 4,736 bytes = 4.625 KiB (4736 ÷ 1024).\n\n**Answer:** Width 37 bits and control store 37,888 bits = 4,736 bytes.",
+      "why_full": "Control-store sizing is the numerical question in this chapter. In GATE: find the width of a microinstruction, a field size, the number of words or the total bits.\n\nAsked: 2004 CS Q67.",
+      "trap": "Using the number of conditions as the width of the MUX select field instead of its logarithm. Also forgetting the 'always' choice."
+    },
+    {
+      "atom_id": "c7",
+      "title": "Micro-sequencing",
+      "simple": "The micro-program counter is like a finger on the control store. Most of the time the finger just moves down one line. Sometimes the current line says: if this condition is true, jump to line 23 instead. At the start of a new instruction the finger jumps to wherever the lookup table says the instruction's microroutine begins. At the end of the instruction it jumps back to the fetch routine. So the finger can get its next position from three places: plus one, the jump address on the current line, or the lookup table. A small switch chooses which one to use. In exam words: the μPC takes its next value from μPC + 1, the next-address field or the mapping ROM; a condition-select MUX of ⌈log₂ (conditions+1)⌉ bits picks the flag that decides a branch.",
+      "idea": "The **μPC** gets its next value from **μPC + 1**, the **next-address field** (a jump) or the **mapping ROM** (start of a new instruction). A **condition-select MUX** picks the flag that decides whether the jump is taken.",
+      "definition": "Next μPC =\n\n- $\\mu PC+1$ if the condition is false (or no jump),\n- next-address field if the selected condition is true,\n- mapping ROM output at the start of an instruction.\n\nMapping ROM size = $2^{\\text{opcode bits}}$ words × control-store address bits.",
+      "intuition_full": "Straight-line microcode needs only an incrementer. Real instructions need three more things. A conditional instruction needs to choose between continuing and jumping, so each microinstruction carries a condition select and a jump address, and a multiplexer picks one flag to test. Decoding a new instruction needs an entry into the right microroutine, so the opcode is looked up in a mapping ROM that holds one start address per opcode value. And the end of a routine has to return to the fetch routine, which is just an unconditional jump to address 0. Putting these together, the sequencing hardware is a multiplexer with three inputs in front of the μPC. This makes the μPC quite different from the ordinary PC, which holds an address in main memory. One machine instruction moves the PC once but the μPC many times.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A micro-sequencer picks the next μPC from three sources: μPC + 1, the next-address field of the current word, and the mapping ROM. A branch-if-zero instruction BRZ has its microroutine at address 20. The microinstruction at 20 has condition select = Z and next-address field = 23. Follow what happens for Z = 0 and for Z = 1.",
+          "steps": [
+            "The opcode BRZ goes to the mapping ROM, which returns the start address 20. The MUX passes the ROM output and the μPC becomes 20.",
+            "The word at 20 holds condition select = Z and next-address = 23. The condition MUX will test the flag Z.",
+            "Z = 0: the branch is not taken. The sequencer loads μPC + 1 = 21 and execution continues with the next word.",
+            "Z = 1: the branch is taken. The sequencer loads the next-address field, so μPC = 23.",
+            "At the end of the routine, the last word's next-address field points to 0, the fetch routine, and the next instruction begins through the mapping ROM."
+          ],
+          "answer": "Z = 0 gives μPC = 21 and Z = 1 gives μPC = 23. Three sources feed the μPC: increment, next-address field and mapping ROM."
+        },
+        {
+          "level": "gate",
+          "setup": "A processor has a 7-bit opcode and a control store of 2048 words. How many bits does the mapping ROM contain?",
+          "steps": [
+            "A 7-bit opcode has 2⁷ = 128 values, so the mapping ROM has 128 words.",
+            "Each word holds a control-store address: ⌈log₂ 2048⌉ = 11 bits.",
+            "ROM bits = 128 × 11 = 1408."
+          ],
+          "answer": "1408 bits. The ROM is indexed by opcode, so its size does not depend on the control store size except through the word width."
+        },
+        {
+          "level": "twist",
+          "setup": "A program executes the machine instruction at PC = 5000, which is a 12-step microroutine. How many times does the PC change and how many times does the μPC change?",
+          "steps": [
+            "The PC is the machine-program counter. It advances once for the instruction fetched: 5000 becomes 5001 (or more bytes).",
+            "The μPC steps through the microinstructions: about 12 changes for the routine, plus the fetch routine's steps.",
+            "They live in different memories: PC addresses main memory, μPC addresses the control store."
+          ],
+          "answer": "PC changes once; μPC changes many times. Never mix them up."
+        }
+      ],
+      "why": "Sequencing explains how a microprogrammed unit branches and how it starts each instruction. In GATE: size the mapping ROM, size the select field, or say what the μPC holds.",
+      "how": [
+        "Opcode → mapping ROM → start address of the microroutine.",
+        "Each microinstruction carries a condition select and a next address.",
+        "If the selected condition is true, μPC = next-address; else μPC + 1.",
+        "Mapping ROM bits = 2^(opcode bits) × address bits of the control store."
+      ],
+      "mistake": "Sizing the mapping ROM by the control-store size instead of by the number of opcodes. The ROM has one word per opcode value.",
+      "edge_cases": [
+        "An 'always' condition makes the jump unconditional.",
+        "Fetch is a shared microroutine entered by every instruction.",
+        "The last microinstruction of a routine jumps to the fetch routine.",
+        "A conditional jump needs both the select field and the address field."
+      ],
+      "connections": [
+        "Microprogrammed control (card c4) is the setting for this circuit.",
+        "Control word and store size (card c6) sizes the select and next-address fields.",
+        "coa.pipeline avoids this sequencer by using fixed stages."
+      ],
+      "check": [
+        {
+          "q": "What gives the next μPC when a conditional jump is not taken?",
+          "a": "μPC + 1."
+        },
+        {
+          "q": "How many words has the mapping ROM for a 6-bit opcode?",
+          "a": "2⁶ = 64."
+        },
+        {
+          "q": "What loads the μPC at the start of a new instruction?",
+          "a": "The mapping ROM output."
+        }
+      ],
+      "asked": "Asked: 2004 CS Q67, 2013 CS Q28.",
+      "try": {
+        "id": "gen.coa.control.006",
+        "label": "In a microprogrammed control unit, what does the microprogram counter ($\\mu$PC) hold? (L1)"
+      },
+      "scene": "coa.control.c7.sequencer",
+      "example": {
+        "setup": "A micro-sequencer picks the next μPC from three sources: μPC + 1, the next-address field of the current word, and the mapping ROM. A branch-if-zero instruction BRZ has its microroutine at address 20. The microinstruction at 20 has condition select = Z and next-address field = 23. Follow what happens for Z = 0 and for Z = 1.",
+        "steps": [
+          "The opcode BRZ goes to the mapping ROM, which returns the start address 20. The MUX passes the ROM output and the μPC becomes 20.",
+          "The word at 20 holds condition select = Z and next-address = 23. The condition MUX will test the flag Z.",
+          "Z = 0: the branch is not taken. The sequencer loads μPC + 1 = 21 and execution continues with the next word.",
+          "Z = 1: the branch is taken. The sequencer loads the next-address field, so μPC = 23.",
+          "At the end of the routine, the last word's next-address field points to 0, the fetch routine, and the next instruction begins through the mapping ROM."
+        ],
+        "answer": "Z = 0 gives μPC = 21 and Z = 1 gives μPC = 23. Three sources feed the μPC: increment, next-address field and mapping ROM."
+      },
+      "what": "The **μPC** gets its next value from **μPC + 1**, the **next-address field** (a jump) or the **mapping ROM** (start of a new instruction). A **condition-select MUX** picks the flag that decides whether the jump is taken.",
+      "what_full": "The **μPC** gets its next value from **μPC + 1**, the **next-address field** (a jump) or the **mapping ROM** (start of a new instruction). A **condition-select MUX** picks the flag that decides whether the jump is taken.\n\nNext μPC =\n\n- $\\mu PC+1$ if the condition is false (or no jump),\n- next-address field if the selected condition is true,\n- mapping ROM output at the start of an instruction.\n\nMapping ROM size = $2^{\\text{opcode bits}}$ words × control-store address bits.\n\n**Worked example.** A micro-sequencer picks the next μPC from three sources: μPC + 1, the next-address field of the current word, and the mapping ROM. A branch-if-zero instruction BRZ has its microroutine at address 20. The microinstruction at 20 has condition select = Z and next-address field = 23. Follow what happens for Z = 0 and for Z = 1.\n\n1. The opcode BRZ goes to the mapping ROM, which returns the start address 20. The MUX passes the ROM output and the μPC becomes 20.\n2. The word at 20 holds condition select = Z and next-address = 23. The condition MUX will test the flag Z.\n3. Z = 0: the branch is not taken. The sequencer loads μPC + 1 = 21 and execution continues with the next word.\n4. Z = 1: the branch is taken. The sequencer loads the next-address field, so μPC = 23.\n5. At the end of the routine, the last word's next-address field points to 0, the fetch routine, and the next instruction begins through the mapping ROM.\n\n**Answer:** Z = 0 gives μPC = 21 and Z = 1 gives μPC = 23. Three sources feed the μPC: increment, next-address field and mapping ROM.",
+      "why_full": "Sequencing explains how a microprogrammed unit branches and how it starts each instruction. In GATE: size the mapping ROM, size the select field, or say what the μPC holds.\n\nAsked: 2004 CS Q67, 2013 CS Q28.",
+      "trap": "Sizing the mapping ROM by the control-store size instead of by the number of opcodes. The ROM has one word per opcode value."
+    },
+    {
+      "atom_id": "c8",
+      "title": "Field encoding",
+      "simple": "Suppose you want to store which one of 12 buttons is pressed, or that none is pressed. That is 13 different answers. With n bits you can write 2ⁿ different patterns. 3 bits give 8 patterns, which is not enough. 4 bits give 16, which is enough, with a few left over. So the field is 4 bits wide. The extra 'none' answer is the trap: many people forget it and count 12 instead of 13, which can make the answer one bit too small. In exam words: a field that encodes k mutually exclusive signals and a 'none' code needs ⌈log₂(k + 1)⌉ bits.",
+      "idea": "A field encoding **k mutually exclusive signals** also needs a code for **none**, so it must hold k + 1 values: **⌈log₂(k + 1)⌉ bits**. Only signals that can never be on together may share a field.",
+      "definition": "$$b=\\lceil\\log_2(k+1)\\rceil\\iff 2^{b-1}<k+1\\le 2^b$$\n\n- $k$ = number of mutually exclusive signals in the field.\n- The code $0$ means no signal; codes $1\\dots k$ select a signal.\n- Total bits of a vertical word = sum of $b$ over all fields, plus one bit for each independent signal.",
+      "intuition_full": "A field is a number. If it must be able to say 'signal 1', 'signal 2' up to 'signal k', that is k different values, and if the step sometimes needs no signal from this group, there is one more value. Counting k + 1 values, the width is the smallest b with 2ᵇ ≥ k + 1. The case k = 7 gives exactly 8 values and 3 bits with nothing wasted. The case k = 8 needs 9 values, so 4 bits, and the extra bit is the price of the 'none' code. Without 'none', 8 signals would fit in 3 bits, but then every step would have to fire one of them, which is rarely true. Groups of signals that can fire together cannot share a field at all. For these the horizontal bit per signal is the right choice. This is the calculation behind the comparison of vertical and horizontal widths in card c5.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "One field of a vertical microinstruction must select at most one of 12 mutually exclusive control signals, or none of them. How many bits does the field need, and how does that compare with a horizontal design?",
+          "steps": [
+            "12 signals plus 'none' make 13 different values to store.",
+            "3 bits give 2³ = 8 codes (0 to 7). That is fewer than 13, so 3 bits are not enough.",
+            "4 bits give 2⁴ = 16 codes (0 to 15). That is enough, since 13 ≤ 16.",
+            "Assign the codes: 0 = none, 1 to 12 = the twelve signals. Codes 13, 14 and 15 are unused.",
+            "The encoded field uses 4 bits against 12 for a horizontal design, saving 8 bits per microinstruction."
+          ],
+          "answer": "4 bits. The rule is ⌈log₂(k + 1)⌉ with k = 12."
+        },
+        {
+          "level": "gate",
+          "setup": "Three fields encode groups of 7, 15 and 16 mutually exclusive signals, each with a 'none' code. Find the three field widths, the vertical width and the horizontal width.",
+          "steps": [
+            "7 signals + none = 8 values: ⌈log₂ 8⌉ = 3 bits (exact fit).",
+            "15 signals + none = 16 values: ⌈log₂ 16⌉ = 4 bits (exact fit).",
+            "16 signals + none = 17 values: ⌈log₂ 17⌉ = 5 bits. This is one more than 4: the 'none' code pushes it over.",
+            "Vertical total: 3 + 4 + 5 = 12 bits. Horizontal: 7 + 15 + 16 = 38 bits. Saving: 26 bits."
+          ],
+          "answer": "Widths 3, 4, 5. Vertical 12 bits against horizontal 38 bits."
+        },
+        {
+          "level": "twist",
+          "setup": "Two independent signals (they can be on together) are encoded in one field with a 'none' code, instead of two single bits. How many bits does each design use, and which design is more flexible?",
+          "steps": [
+            "Encoded field: Zin, Read and none are 3 values, so ⌈log₂ 3⌉ = 2 bits.",
+            "Two separate bits: 2 bits as well. There is no saving.",
+            "The field cannot name Zin and Read together, so the two single bits are more flexible."
+          ],
+          "answer": "Both use 2 bits. The separate bits can fire together; the shared field cannot."
+        }
+      ],
+      "why": "This one-line formula turns up in every vertical-microcode sizing question. In GATE: find the number of bits in an encoded field or in a whole vertical microinstruction.",
+      "how": [
+        "Count the mutually exclusive signals k in the field.",
+        "Add one for the 'none' code: k + 1 values.",
+        "Width = smallest b with 2^b ≥ k + 1.",
+        "Add up all fields (and one bit per independent signal)."
+      ],
+      "mistake": "Forgetting the 'none' code when sizing an encoded field. With k = 15 you still need 4 bits (16 values), but with k = 16 you need 5, not 4.",
+      "edge_cases": [
+        "k = 2^b − 1 fits exactly in b bits with 'none'.",
+        "k = 2^b needs b + 1 bits once 'none' is counted.",
+        "A field that must always select one signal (no 'none') needs ⌈log₂ k⌉ bits.",
+        "The decoder at the output of each field turns b bits back into k+1 lines."
+      ],
+      "connections": [
+        "Horizontal versus vertical (card c5) sums these widths over all groups.",
+        "Control word and store size (card c6) uses the total width to size the store.",
+        "dl.comb (card c1) is the decoder that expands each field."
+      ],
+      "check": [
+        {
+          "q": "How many bits encode 7 mutually exclusive signals plus none?",
+          "a": "3, since 8 values fit exactly."
+        },
+        {
+          "q": "How many bits encode 8 signals plus none?",
+          "a": "4, since 9 values need ⌈log₂ 9⌉ = 4."
+        },
+        {
+          "q": "Can two signals that fire together share a field?",
+          "a": "No."
+        }
+      ],
+      "asked": "Asked: 2002 CS Q2_7, 2004 CS Q67.",
+      "try": {
+        "id": "gen.coa.control.007",
+        "label": "A microinstruction field selects at most one of 10 mutually exclusive control signals, or none of them. How many bits does this encoded field need? (L2)"
+      },
+      "scene": "coa.control.c8.encode",
+      "example": {
+        "setup": "One field of a vertical microinstruction must select at most one of 12 mutually exclusive control signals, or none of them. How many bits does the field need, and how does that compare with a horizontal design?",
+        "steps": [
+          "12 signals plus 'none' make 13 different values to store.",
+          "3 bits give 2³ = 8 codes (0 to 7). That is fewer than 13, so 3 bits are not enough.",
+          "4 bits give 2⁴ = 16 codes (0 to 15). That is enough, since 13 ≤ 16.",
+          "Assign the codes: 0 = none, 1 to 12 = the twelve signals. Codes 13, 14 and 15 are unused.",
+          "The encoded field uses 4 bits against 12 for a horizontal design, saving 8 bits per microinstruction."
+        ],
+        "answer": "4 bits. The rule is ⌈log₂(k + 1)⌉ with k = 12."
+      },
+      "what": "A field encoding **k mutually exclusive signals** also needs a code for **none**, so it must hold k + 1 values: **⌈log₂(k + 1)⌉ bits**. Only signals that can never be on together may share a field.",
+      "what_full": "A field encoding **k mutually exclusive signals** also needs a code for **none**, so it must hold k + 1 values: **⌈log₂(k + 1)⌉ bits**. Only signals that can never be on together may share a field.\n\n$$b=\\lceil\\log_2(k+1)\\rceil\\iff 2^{b-1}<k+1\\le 2^b$$\n\n- $k$ = number of mutually exclusive signals in the field.\n- The code $0$ means no signal; codes $1\\dots k$ select a signal.\n- Total bits of a vertical word = sum of $b$ over all fields, plus one bit for each independent signal.\n\n**Worked example.** One field of a vertical microinstruction must select at most one of 12 mutually exclusive control signals, or none of them. How many bits does the field need, and how does that compare with a horizontal design?\n\n1. 12 signals plus 'none' make 13 different values to store.\n2. 3 bits give 2³ = 8 codes (0 to 7). That is fewer than 13, so 3 bits are not enough.\n3. 4 bits give 2⁴ = 16 codes (0 to 15). That is enough, since 13 ≤ 16.\n4. Assign the codes: 0 = none, 1 to 12 = the twelve signals. Codes 13, 14 and 15 are unused.\n5. The encoded field uses 4 bits against 12 for a horizontal design, saving 8 bits per microinstruction.\n\n**Answer:** 4 bits. The rule is ⌈log₂(k + 1)⌉ with k = 12.",
+      "why_full": "This one-line formula turns up in every vertical-microcode sizing question. In GATE: find the number of bits in an encoded field or in a whole vertical microinstruction.\n\nAsked: 2002 CS Q2_7, 2004 CS Q67.",
+      "trap": "Forgetting the 'none' code when sizing an encoded field. With k = 15 you still need 4 bits (16 values), but with k = 16 you need 5, not 4."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "coa.control.c1.fetch",
+      "title": "Instruction fetch in three micro-operations",
+      "viewBox": [
+        0,
+        0,
+        400,
+        240
+      ],
+      "objects": [
+        {
+          "id": "PC",
+          "kind": "box",
+          "x": 14,
+          "y": 30,
+          "w": 82,
+          "h": 36,
+          "label": "PC=200"
+        },
+        {
+          "id": "MAR",
+          "kind": "box",
+          "x": 112,
+          "y": 30,
+          "w": 82,
+          "h": 36,
+          "label": "MAR=?"
+        },
+        {
+          "id": "MBR",
+          "kind": "box",
+          "x": 210,
+          "y": 30,
+          "w": 82,
+          "h": 36,
+          "label": "MBR=?"
+        },
+        {
+          "id": "IR",
+          "kind": "box",
+          "x": 308,
+          "y": 30,
+          "w": 82,
+          "h": 36,
+          "label": "IR=?"
+        },
+        {
+          "id": "mem",
+          "kind": "box",
+          "x": 90,
+          "y": 130,
+          "w": 210,
+          "h": 36,
+          "label": "M[200] = ADD R1,R2"
+        },
+        {
+          "id": "t1",
+          "kind": "arrow",
+          "from": "PC",
+          "to": "MAR"
+        },
+        {
+          "id": "t3",
+          "kind": "arrow",
+          "from": "MBR",
+          "to": "IR"
+        },
+        {
+          "id": "am",
+          "kind": "arrow",
+          "from": "MAR",
+          "to": "mem"
+        },
+        {
+          "id": "bm",
+          "kind": "arrow",
+          "from": "mem",
+          "to": "MBR"
+        },
+        {
+          "id": "s",
+          "kind": "text",
+          "x": 200,
+          "y": 216,
+          "text": "T1: MAR ← PC",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Start: PC = 200 and M[200] = ADD R1,R2. The fetch takes three micro-operations, one per clock step.",
+          "highlight": [
+            "PC",
+            "mem"
+          ]
+        },
+        {
+          "caption": "T1: MAR ← PC. The address 200 is copied into the memory address register: MAR = 200.",
+          "set": [
+            {
+              "id": "MAR",
+              "label": "MAR=200"
+            },
+            {
+              "id": "s",
+              "text": "T1: MAR ← PC"
+            }
+          ],
+          "highlight": [
+            "PC",
+            "MAR",
+            "t1"
+          ]
+        },
+        {
+          "caption": "T2: MBR ← M[MAR] and PC ← PC + 1 together (different registers, so they can run in parallel). MBR = ADD R1,R2 and PC = 201.",
+          "set": [
+            {
+              "id": "MBR",
+              "label": "MBR=ADD"
+            },
+            {
+              "id": "PC",
+              "label": "PC=201"
+            },
+            {
+              "id": "s",
+              "text": "T2: MBR ← M[MAR], PC ← PC + 1"
+            }
+          ],
+          "highlight": [
+            "MAR",
+            "mem",
+            "MBR",
+            "am",
+            "bm",
+            "PC"
+          ]
+        },
+        {
+          "caption": "T3: IR ← MBR. The instruction register now holds ADD R1,R2.",
+          "set": [
+            {
+              "id": "IR",
+              "label": "IR=ADD"
+            },
+            {
+              "id": "s",
+              "text": "T3: IR ← MBR"
+            }
+          ],
+          "highlight": [
+            "MBR",
+            "IR",
+            "t3"
+          ]
+        },
+        {
+          "caption": "The control unit now decodes IR. PC = 201 already points to the next instruction, so a branch will overwrite PC, not IR.",
+          "set": {
+            "id": "s",
+            "text": "decode IR; PC already = 201"
+          },
+          "highlight": [
+            "IR",
+            "PC"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.control.c2.bus",
+      "title": "R0 + R1 + R2 on a single bus in five steps",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "bus",
+          "kind": "edge",
+          "x1": 10,
+          "y1": 126,
+          "x2": 390,
+          "y2": 126,
+          "dash": false
+        },
+        {
+          "id": "bl",
+          "kind": "text",
+          "x": 200,
+          "y": 112,
+          "text": "single bus",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "R0",
+          "kind": "box",
+          "x": 10,
+          "y": 40,
+          "w": 70,
+          "h": 36,
+          "label": "R0=4"
+        },
+        {
+          "id": "R1",
+          "kind": "box",
+          "x": 90,
+          "y": 40,
+          "w": 70,
+          "h": 36,
+          "label": "R1=10"
+        },
+        {
+          "id": "R2",
+          "kind": "box",
+          "x": 170,
+          "y": 40,
+          "w": 70,
+          "h": 36,
+          "label": "R2=7"
+        },
+        {
+          "id": "Y",
+          "kind": "box",
+          "x": 250,
+          "y": 40,
+          "w": 60,
+          "h": 36,
+          "label": "Y=?"
+        },
+        {
+          "id": "ALU",
+          "kind": "box",
+          "x": 200,
+          "y": 160,
+          "w": 70,
+          "h": 36,
+          "label": "ALU"
+        },
+        {
+          "id": "Z",
+          "kind": "box",
+          "x": 300,
+          "y": 160,
+          "w": 60,
+          "h": 36,
+          "label": "Z=?"
+        },
+        {
+          "id": "sg",
+          "kind": "text",
+          "x": 200,
+          "y": 232,
+          "text": "step 1: R0out, Yin",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Step 1: R0out, Yin. R0 puts 4 on the bus and Y stores it: Y = 4.",
+          "set": {
+            "id": "Y",
+            "label": "Y=4"
+          },
+          "highlight": [
+            "R0",
+            "Y"
+          ]
+        },
+        {
+          "caption": "Step 2: R1out, Add, Zin. R1 puts 10 on the bus, the ALU adds Y + bus = 4 + 10, and Z stores 14.",
+          "set": [
+            {
+              "id": "Z",
+              "label": "Z=14"
+            },
+            {
+              "id": "sg",
+              "text": "step 2: R1out, Add, Zin"
+            }
+          ],
+          "highlight": [
+            "R1",
+            "ALU",
+            "Z"
+          ]
+        },
+        {
+          "caption": "Step 3: Zout, Yin. Z puts 14 on the bus and Y stores it. The bus carries only one value per step, so Z cannot also feed the ALU in the same step.",
+          "set": [
+            {
+              "id": "Y",
+              "label": "Y=14"
+            },
+            {
+              "id": "sg",
+              "text": "step 3: Zout, Yin"
+            }
+          ],
+          "highlight": [
+            "Z",
+            "Y"
+          ]
+        },
+        {
+          "caption": "Step 4: R2out, Add, Zin. R2 puts 7 on the bus, the ALU adds 14 + 7, and Z stores 21.",
+          "set": [
+            {
+              "id": "Z",
+              "label": "Z=21"
+            },
+            {
+              "id": "sg",
+              "text": "step 4: R2out, Add, Zin"
+            }
+          ],
+          "highlight": [
+            "R2",
+            "ALU",
+            "Z"
+          ]
+        },
+        {
+          "caption": "Step 5: Zout, R0in. Z puts 21 on the bus and R0 stores it: R0 = 21.",
+          "set": [
+            {
+              "id": "R0",
+              "label": "R0=21"
+            },
+            {
+              "id": "sg",
+              "text": "step 5: Zout, R0in"
+            }
+          ],
+          "highlight": [
+            "Z",
+            "R0"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.control.c3.hardwired",
+      "title": "Hardwired signals: instruction line x step line",
+      "viewBox": [
+        0,
+        0,
+        420,
+        276
+      ],
+      "objects": [
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 49,
+          "y": 8,
+          "text": "IR decoder",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "ADD",
+          "kind": "box",
+          "x": 14,
+          "y": 24,
+          "w": 70,
+          "h": 28,
+          "label": "ADD=?"
+        },
+        {
+          "id": "SUB",
+          "kind": "box",
+          "x": 14,
+          "y": 60,
+          "w": 70,
+          "h": 28,
+          "label": "SUB=?"
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 49,
+          "y": 108,
+          "text": "step counter",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "T4",
+          "kind": "box",
+          "x": 14,
+          "y": 132,
+          "w": 70,
+          "h": 28,
+          "label": "T4=?"
+        },
+        {
+          "id": "T5",
+          "kind": "box",
+          "x": 14,
+          "y": 168,
+          "w": 70,
+          "h": 28,
+          "label": "T5=?"
+        },
+        {
+          "id": "T6",
+          "kind": "box",
+          "x": 14,
+          "y": 204,
+          "w": 70,
+          "h": 28,
+          "label": "T6=?"
+        },
+        {
+          "id": "logic",
+          "kind": "box",
+          "x": 140,
+          "y": 24,
+          "w": 110,
+          "h": 208,
+          "label": "AND-OR gates"
+        },
+        {
+          "id": "s_R2out",
+          "kind": "box",
+          "x": 310,
+          "y": 24,
+          "w": 100,
+          "h": 28,
+          "label": "R2out=?"
+        },
+        {
+          "id": "s_Yin",
+          "kind": "box",
+          "x": 310,
+          "y": 58,
+          "w": 100,
+          "h": 28,
+          "label": "Yin=?"
+        },
+        {
+          "id": "s_R1out",
+          "kind": "box",
+          "x": 310,
+          "y": 92,
+          "w": 100,
+          "h": 28,
+          "label": "R1out=?"
+        },
+        {
+          "id": "s_Add",
+          "kind": "box",
+          "x": 310,
+          "y": 126,
+          "w": 100,
+          "h": 28,
+          "label": "Add=?"
+        },
+        {
+          "id": "s_Sub",
+          "kind": "box",
+          "x": 310,
+          "y": 160,
+          "w": 100,
+          "h": 28,
+          "label": "Sub=?"
+        },
+        {
+          "id": "s_Zin",
+          "kind": "box",
+          "x": 310,
+          "y": 194,
+          "w": 100,
+          "h": 28,
+          "label": "Zin=?"
+        },
+        {
+          "id": "a1",
+          "kind": "arrow",
+          "from": "ADD",
+          "to": "logic"
+        },
+        {
+          "id": "a2",
+          "kind": "arrow",
+          "from": "SUB",
+          "to": "logic"
+        },
+        {
+          "id": "a3",
+          "kind": "arrow",
+          "from": "T4",
+          "to": "logic"
+        },
+        {
+          "id": "a4",
+          "kind": "arrow",
+          "from": "T5",
+          "to": "logic"
+        },
+        {
+          "id": "a5",
+          "kind": "arrow",
+          "from": "T6",
+          "to": "logic"
+        },
+        {
+          "id": "o0",
+          "kind": "edge",
+          "x1": 250,
+          "y1": 128,
+          "x2": 310,
+          "y2": 38
+        },
+        {
+          "id": "o1",
+          "kind": "edge",
+          "x1": 250,
+          "y1": 128,
+          "x2": 310,
+          "y2": 72
+        },
+        {
+          "id": "o2",
+          "kind": "edge",
+          "x1": 250,
+          "y1": 128,
+          "x2": 310,
+          "y2": 106
+        },
+        {
+          "id": "o3",
+          "kind": "edge",
+          "x1": 250,
+          "y1": 128,
+          "x2": 310,
+          "y2": 140
+        },
+        {
+          "id": "o4",
+          "kind": "edge",
+          "x1": 250,
+          "y1": 128,
+          "x2": 310,
+          "y2": 174
+        },
+        {
+          "id": "o5",
+          "kind": "edge",
+          "x1": 250,
+          "y1": 128,
+          "x2": 310,
+          "y2": 208
+        },
+        {
+          "id": "eq",
+          "kind": "text",
+          "x": 200,
+          "y": 252,
+          "text": "R1out = T5·(ADD+SUB)   Add = T5·ADD\nZin = T5·(ADD+SUB)   R2out = T4·(ADD+SUB)",
+          "size": 12,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "A hardwired control unit has two kinds of inputs: the decoded instruction (lines ADD, SUB) and the step counter lines (T4, T5, T6). Fixed AND-OR gates combine them into control signals.",
+          "highlight": [
+            "logic"
+          ]
+        },
+        {
+          "caption": "The IR holds ADD, so the ADD line is 1 and the SUB line is 0.",
+          "set": [
+            {
+              "id": "ADD",
+              "label": "ADD=1",
+              "tone": "good"
+            },
+            {
+              "id": "SUB",
+              "label": "SUB=0"
+            }
+          ],
+          "highlight": [
+            "ADD"
+          ]
+        },
+        {
+          "caption": "The step counter is at T5, so T5 = 1 and T4 = T6 = 0.",
+          "set": [
+            {
+              "id": "T4",
+              "label": "T4=0"
+            },
+            {
+              "id": "T5",
+              "label": "T5=1",
+              "tone": "good"
+            },
+            {
+              "id": "T6",
+              "label": "T6=0"
+            }
+          ],
+          "highlight": [
+            "T5"
+          ]
+        },
+        {
+          "caption": "Evaluate each equation: R2out = 0·1 = 0 and Yin = 0 (they need T4). R1out = 1·(1+0) = 1. Add = 1·1 = 1. Sub = 1·0 = 0. Zin = 1·(1+0) = 1.",
+          "show": "eq",
+          "highlight": [
+            "eq",
+            "logic"
+          ]
+        },
+        {
+          "caption": "Active signals now: R1out, Add and Zin. R2out, Yin and Sub stay 0. At the next clock the counter moves to T6 and a new set of signals fires.",
+          "set": [
+            {
+              "id": "s_R2out",
+              "label": "R2out=0"
+            },
+            {
+              "id": "s_Yin",
+              "label": "Yin=0"
+            },
+            {
+              "id": "s_R1out",
+              "label": "R1out=1",
+              "tone": "good"
+            },
+            {
+              "id": "s_Add",
+              "label": "Add=1",
+              "tone": "good"
+            },
+            {
+              "id": "s_Sub",
+              "label": "Sub=0"
+            },
+            {
+              "id": "s_Zin",
+              "label": "Zin=1",
+              "tone": "good"
+            }
+          ],
+          "highlight": [
+            "s_R1out",
+            "s_Add",
+            "s_Zin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.control.c4.microcode",
+      "title": "A microroutine for ADD read from the control store",
+      "viewBox": [
+        0,
+        0,
+        420,
+        240
+      ],
+      "objects": [
+        {
+          "id": "rom",
+          "kind": "box",
+          "x": 14,
+          "y": 20,
+          "w": 150,
+          "h": 38,
+          "label": "ROM: ADD → 40"
+        },
+        {
+          "id": "upc",
+          "kind": "box",
+          "x": 14,
+          "y": 90,
+          "w": 150,
+          "h": 38,
+          "label": "μPC = ?"
+        },
+        {
+          "id": "u40",
+          "kind": "box",
+          "x": 210,
+          "y": 20,
+          "w": 190,
+          "h": 34,
+          "label": "40: R2out, Yin"
+        },
+        {
+          "id": "u41",
+          "kind": "box",
+          "x": 210,
+          "y": 62,
+          "w": 190,
+          "h": 34,
+          "label": "41: R1out, Add, Zin"
+        },
+        {
+          "id": "u42",
+          "kind": "box",
+          "x": 210,
+          "y": 104,
+          "w": 190,
+          "h": 34,
+          "label": "42: Zout, R1in, END"
+        },
+        {
+          "id": "u0",
+          "kind": "box",
+          "x": 210,
+          "y": 146,
+          "w": 190,
+          "h": 34,
+          "tone": "muted",
+          "label": "0: fetch routine"
+        },
+        {
+          "id": "r1",
+          "kind": "arrow",
+          "from": "rom",
+          "to": "upc"
+        },
+        {
+          "id": "sig",
+          "kind": "text",
+          "x": 200,
+          "y": 214,
+          "text": "opcode 1 = ADD",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The opcode ADD = 1 goes to the mapping ROM, which returns the start address 40. The micro-program counter μPC is loaded with 40.",
+          "set": [
+            {
+              "id": "upc",
+              "label": "μPC = 40"
+            },
+            {
+              "id": "sig",
+              "text": "mapping ROM gives 40"
+            }
+          ],
+          "highlight": [
+            "rom",
+            "upc"
+          ]
+        },
+        {
+          "caption": "μPC = 40: the control store word at address 40 asserts R2out and Yin. Then μPC increments.",
+          "set": [
+            {
+              "id": "sig",
+              "text": "asserts R2out, Yin"
+            }
+          ],
+          "highlight": [
+            "u40",
+            "upc"
+          ]
+        },
+        {
+          "caption": "μPC = 41: the word asserts R1out, Add and Zin.",
+          "set": [
+            {
+              "id": "upc",
+              "label": "μPC = 41"
+            },
+            {
+              "id": "sig",
+              "text": "asserts R1out, Add, Zin"
+            }
+          ],
+          "highlight": [
+            "u41",
+            "upc"
+          ]
+        },
+        {
+          "caption": "μPC = 42: the word asserts Zout and R1in. This word is marked END.",
+          "set": [
+            {
+              "id": "upc",
+              "label": "μPC = 42"
+            },
+            {
+              "id": "sig",
+              "text": "asserts Zout, R1in"
+            }
+          ],
+          "highlight": [
+            "u42",
+            "upc"
+          ]
+        },
+        {
+          "caption": "END: the μPC is loaded with 0, the start of the fetch microroutine, so the next instruction begins.",
+          "set": [
+            {
+              "id": "upc",
+              "label": "μPC = 0"
+            },
+            {
+              "id": "sig",
+              "text": "END: back to fetch"
+            }
+          ],
+          "highlight": [
+            "u0",
+            "upc"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.control.c5.formats",
+      "title": "The same microinstruction, horizontal and vertical",
+      "viewBox": [
+        0,
+        0,
+        400,
+        256
+      ],
+      "objects": [
+        {
+          "id": "hh",
+          "kind": "text",
+          "x": 200,
+          "y": 22,
+          "text": "horizontal: 12 bits",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "hz",
+          "kind": "array",
+          "x": 40,
+          "y": 40,
+          "cw": 28,
+          "ch": 30,
+          "cells": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "indices": false
+        },
+        {
+          "id": "g1",
+          "kind": "text",
+          "x": 110,
+          "y": 92,
+          "text": "source (5)",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "g2",
+          "kind": "text",
+          "x": 236,
+          "y": 92,
+          "text": "ALU (4)",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "g3",
+          "kind": "text",
+          "x": 334,
+          "y": 92,
+          "text": "dest (3)",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "vh",
+          "kind": "text",
+          "x": 200,
+          "y": 138,
+          "text": "vertical: 8 bits",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "vt",
+          "kind": "array",
+          "x": 104,
+          "y": 156,
+          "cw": 28,
+          "ch": 30,
+          "cells": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "indices": false
+        },
+        {
+          "id": "f1",
+          "kind": "text",
+          "x": 146,
+          "y": 206,
+          "text": "source",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "f2",
+          "kind": "text",
+          "x": 230,
+          "y": 206,
+          "text": "ALU",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "f3",
+          "kind": "text",
+          "x": 286,
+          "y": 206,
+          "text": "dest",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "cnt",
+          "kind": "text",
+          "x": 200,
+          "y": 238,
+          "text": "12 bits against 8 bits",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The wanted microinstruction asserts R1out (source), Add (ALU) and Zin (destination). The groups have 5, 4 and 3 signals.",
+          "highlight": [
+            "hz"
+          ]
+        },
+        {
+          "caption": "Horizontal: one bit per signal, so 5 + 4 + 3 = 12 bits. Set the bit of R1out, Add and Zin: 01000 1000 001.",
+          "set": {
+            "id": "hz",
+            "cells": [
+              0,
+              1,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1
+            ]
+          },
+          "highlight": [
+            {
+              "id": "hz",
+              "tone": "good",
+              "cells": [
+                1,
+                5,
+                11
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "Vertical: the signals of one group are mutually exclusive, so each group becomes a field that holds the number of the active signal (0 means none). Field widths: ⌈log₂(5+1)⌉ = 3, ⌈log₂(4+1)⌉ = 3, ⌈log₂(3+1)⌉ = 2 bits.",
+          "highlight": [
+            "vt",
+            "f1",
+            "f2",
+            "f3"
+          ]
+        },
+        {
+          "caption": "Fill the fields: R1out is source number 2 = 010, Add is ALU number 1 = 001, Zin is destination number 3 = 11. The vertical word is 010 001 11.",
+          "set": {
+            "id": "vt",
+            "cells": [
+              0,
+              1,
+              0,
+              0,
+              0,
+              1,
+              1,
+              1
+            ]
+          },
+          "highlight": [
+            {
+              "id": "vt",
+              "tone": "good",
+              "cells": [
+                1,
+                5,
+                6,
+                7
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "The vertical word has 8 bits against 12. The price: each field needs a decoder, and only one signal per group can be active in a step.",
+          "show": "cnt",
+          "highlight": [
+            "cnt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.control.c6.sizing",
+      "title": "Width of a microinstruction and the size of the store",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "ctl",
+          "kind": "box",
+          "x": 50,
+          "y": 70,
+          "w": 192,
+          "h": 44,
+          "label": "control 24"
+        },
+        {
+          "id": "sel",
+          "kind": "box",
+          "x": 242,
+          "y": 70,
+          "w": 24,
+          "h": 44
+        },
+        {
+          "id": "nxt",
+          "kind": "box",
+          "x": 266,
+          "y": 70,
+          "w": 80,
+          "h": 44,
+          "label": "next 10"
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 306,
+          "y": 130,
+          "text": "10 bits: 2^10 = 1024",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 254,
+          "y": 50,
+          "text": "select 3 bits",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "t3",
+          "kind": "text",
+          "x": 200,
+          "y": 160,
+          "text": "width = 24 + 3 + 10 = 37 bits",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t4",
+          "kind": "text",
+          "x": 200,
+          "y": 196,
+          "text": "size = 1024 x 37 = 37,888 bits",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "accent"
+        },
+        {
+          "id": "t5",
+          "kind": "text",
+          "x": 200,
+          "y": 232,
+          "text": "= 4,736 bytes = 4.625 KiB",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "1024 words need ⌈log₂ 1024⌉ = 10 address bits, so the next-address field has 10 bits.",
+          "show": [
+            "nxt",
+            "t1"
+          ],
+          "highlight": [
+            "nxt"
+          ]
+        },
+        {
+          "caption": "The condition MUX picks one of 6 conditions or 'always': 7 choices. ⌈log₂ 7⌉ = 3 bits.",
+          "show": [
+            "sel",
+            "t2"
+          ],
+          "highlight": [
+            "sel"
+          ]
+        },
+        {
+          "caption": "Width = 24 + 3 + 10 = 37 bits per microinstruction.",
+          "show": "t3",
+          "highlight": [
+            "ctl",
+            "sel",
+            "nxt",
+            "t3"
+          ]
+        },
+        {
+          "caption": "Control store size = 1024 words × 37 bits = 37,888 bits.",
+          "show": "t4",
+          "highlight": [
+            "t4"
+          ]
+        },
+        {
+          "caption": "In bytes: 37,888 ÷ 8 = 4,736 bytes = 4.625 KiB (4736 ÷ 1024).",
+          "show": "t5",
+          "highlight": [
+            "t5"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.control.c7.sequencer",
+      "title": "The micro-sequencer chooses the next μPC",
+      "viewBox": [
+        0,
+        0,
+        400,
+        262
+      ],
+      "objects": [
+        {
+          "id": "inc",
+          "kind": "box",
+          "x": 14,
+          "y": 20,
+          "w": 110,
+          "h": 36,
+          "label": "μPC + 1"
+        },
+        {
+          "id": "nxa",
+          "kind": "box",
+          "x": 14,
+          "y": 90,
+          "w": 110,
+          "h": 36,
+          "label": "next = 23"
+        },
+        {
+          "id": "map",
+          "kind": "box",
+          "x": 14,
+          "y": 160,
+          "w": 110,
+          "h": 36,
+          "label": "ROM(BRZ) = 20"
+        },
+        {
+          "id": "mux",
+          "kind": "box",
+          "x": 170,
+          "y": 30,
+          "w": 60,
+          "h": 166,
+          "label": "MUX"
+        },
+        {
+          "id": "upc",
+          "kind": "box",
+          "x": 290,
+          "y": 88,
+          "w": 100,
+          "h": 40,
+          "label": "μPC = ?"
+        },
+        {
+          "id": "i1",
+          "kind": "arrow",
+          "from": "inc",
+          "to": "mux"
+        },
+        {
+          "id": "i2",
+          "kind": "arrow",
+          "from": "nxa",
+          "to": "mux"
+        },
+        {
+          "id": "i3",
+          "kind": "arrow",
+          "from": "map",
+          "to": "mux"
+        },
+        {
+          "id": "i4",
+          "kind": "arrow",
+          "from": "mux",
+          "to": "upc"
+        },
+        {
+          "id": "sl",
+          "kind": "text",
+          "x": 200,
+          "y": 216,
+          "text": "condition select: Z",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "res",
+          "kind": "text",
+          "x": 200,
+          "y": 244,
+          "text": " ",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The opcode BRZ goes to the mapping ROM, which returns the start address 20. The MUX passes the ROM output and the μPC becomes 20.",
+          "set": [
+            {
+              "id": "upc",
+              "label": "μPC = 20"
+            },
+            {
+              "id": "res",
+              "text": "start: μPC = 20"
+            }
+          ],
+          "highlight": [
+            "map",
+            "i3",
+            "upc"
+          ]
+        },
+        {
+          "caption": "The word at 20 holds condition select = Z and next-address = 23. The condition MUX will test the flag Z.",
+          "set": {
+            "id": "res",
+            "text": "word 20: select Z, next = 23"
+          },
+          "highlight": [
+            "sl",
+            "nxa"
+          ]
+        },
+        {
+          "caption": "Z = 0: the branch is not taken. The sequencer loads μPC + 1 = 21 and execution continues with the next word.",
+          "set": [
+            {
+              "id": "upc",
+              "label": "μPC = 21"
+            },
+            {
+              "id": "res",
+              "text": "Z = 0: μPC + 1 = 21"
+            }
+          ],
+          "highlight": [
+            "inc",
+            "i1",
+            "upc"
+          ]
+        },
+        {
+          "caption": "Z = 1: the branch is taken. The sequencer loads the next-address field, so μPC = 23.",
+          "set": [
+            {
+              "id": "upc",
+              "label": "μPC = 23"
+            },
+            {
+              "id": "res",
+              "text": "Z = 1: next-address = 23"
+            }
+          ],
+          "highlight": [
+            "nxa",
+            "i2",
+            "upc"
+          ]
+        },
+        {
+          "caption": "At the end of the routine, the last word's next-address field points to 0, the fetch routine, and the next instruction begins through the mapping ROM.",
+          "set": [
+            {
+              "id": "nxa",
+              "label": "next = 0"
+            },
+            {
+              "id": "upc",
+              "label": "μPC = 0"
+            },
+            {
+              "id": "res",
+              "text": "END: back to fetch at 0"
+            }
+          ],
+          "highlight": [
+            "nxa",
+            "upc"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.control.c8.encode",
+      "title": "13 values need 4 bits",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "G",
+          "kind": "grid",
+          "x": 112,
+          "y": 54,
+          "rows": 4,
+          "cols": 4,
+          "cw": 44,
+          "ch": 34,
+          "cells": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ],
+            [
+              "4",
+              "5",
+              "6",
+              "7"
+            ],
+            [
+              "8",
+              "9",
+              "10",
+              "11"
+            ],
+            [
+              "12",
+              "13",
+              "14",
+              "15"
+            ]
+          ]
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 200,
+          "y": 26,
+          "text": "4-bit codes 0 to 15",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 200,
+          "y": 222,
+          "text": "need 13 values (12 + none)",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "accent"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "12 signals plus 'none' make 13 different values to store.",
+          "highlight": [
+            {
+              "id": "G",
+              "tone": "accent",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  0,
+                  3
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  2
+                ],
+                [
+                  1,
+                  3
+                ],
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  2,
+                  3
+                ],
+                [
+                  3,
+                  0
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "3 bits give 2³ = 8 codes (0 to 7). That is fewer than 13, so 3 bits are not enough.",
+          "highlight": [
+            {
+              "id": "G",
+              "tone": "bad",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  0,
+                  3
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  2
+                ],
+                [
+                  1,
+                  3
+                ]
+              ]
+            }
+          ],
+          "dim": [
+            {
+              "id": "G",
+              "cells": [
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  2,
+                  3
+                ],
+                [
+                  3,
+                  0
+                ],
+                [
+                  3,
+                  1
+                ],
+                [
+                  3,
+                  2
+                ],
+                [
+                  3,
+                  3
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "4 bits give 2⁴ = 16 codes (0 to 15). That is enough, since 13 ≤ 16.",
+          "undim": "G",
+          "highlight": [
+            {
+              "id": "G",
+              "tone": "good",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  0,
+                  3
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  2
+                ],
+                [
+                  1,
+                  3
+                ],
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  2,
+                  3
+                ],
+                [
+                  3,
+                  0
+                ],
+                [
+                  3,
+                  1
+                ],
+                [
+                  3,
+                  2
+                ],
+                [
+                  3,
+                  3
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "Assign the codes: 0 = none, 1 to 12 = the twelve signals. Codes 13, 14 and 15 are unused.",
+          "set": {
+            "id": "G",
+            "cells": [
+              [
+                "none",
+                "S1",
+                "S2",
+                "S3"
+              ],
+              [
+                "S4",
+                "S5",
+                "S6",
+                "S7"
+              ],
+              [
+                "S8",
+                "S9",
+                "S10",
+                "S11"
+              ],
+              [
+                "S12",
+                "-",
+                "-",
+                "-"
+              ]
+            ]
+          },
+          "highlight": [
+            {
+              "id": "G",
+              "tone": "good",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  0,
+                  3
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  2
+                ],
+                [
+                  1,
+                  3
+                ],
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  2,
+                  3
+                ],
+                [
+                  3,
+                  0
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "The encoded field uses 4 bits against 12 for a horizontal design, saving 8 bits per microinstruction.",
+          "set": {
+            "id": "t2",
+            "text": "4 bits instead of 12"
+          },
+          "highlight": [
+            "t2"
+          ]
+        }
+      ]
+    }
+  ]
+}

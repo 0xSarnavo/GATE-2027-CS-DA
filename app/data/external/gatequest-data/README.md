@@ -1,0 +1,2 @@
+# GateQuest_Data (shallow clone, .git removed)
+Source: https://github.com/gloooomed/GateQuest_Data (fetched 2026-10-06). Per-subject JSON chunks of GATE CSE questions scraped from GATE Overflow, schema: year, questionNumber, subject, topic, options, correctAnswer, tags, sourceURL. README states data is still being cleaned (mixed question/options, missing answers). No license file. Community, unverified; kept as raw reference only, not used for cross-check.

@@ -1,0 +1,2713 @@
+{
+  "topic_id": "db.hierarchy",
+  "title": "Concept hierarchies and OLAP",
+  "chapter_note": {
+    "about": "A data cube lets you view the same facts at many levels of detail. This chapter covers the levels of a dimension (concept hierarchies), the operations that move between levels (roll-up, drill-down, slice, dice), how many cuboids and cells a cube has, and how measures such as SUM, AVG and MEDIAN combine when you go up a level. GATE DA asks you to name the operation that connects two views, to count cuboids with hierarchies, or to say what can be computed from stored values.",
+    "simple": "Picture a spreadsheet of sales that you can zoom, like a map. Zoomed in you see every shop and every day; zoomed out you see only states and years. Zooming out adds the numbers up, and zooming in splits them back. The zoom levels are the hierarchy, and every mix of levels is one view (a cuboid) of the data. Adding up works easily for totals and counts, but averages need the number of items behind them, and a middle value needs all the raw numbers. The exam asks you to name the zoom move, count the views, or combine numbers correctly.",
+    "concept_map": [
+      {
+        "atom_id": "h1",
+        "title": "Concept hierarchies",
+        "one_line": "Levels from specific to general, each child with one parent, ALL at the top."
+      },
+      {
+        "atom_id": "h2",
+        "title": "Roll-up and drill-down",
+        "one_line": "Coarser is roll-up, finer is drill-down; slice and dice keep levels."
+      },
+      {
+        "atom_id": "h3",
+        "title": "Cuboid count with hierarchies",
+        "one_line": "Product of (levels + 1) over the dimensions."
+      },
+      {
+        "atom_id": "h4",
+        "title": "Cells in a cuboid",
+        "one_line": "Multiply distinct values at the chosen levels; ALL counts 1."
+      },
+      {
+        "atom_id": "h5",
+        "title": "Measure categories",
+        "one_line": "Distributive, algebraic, holistic."
+      },
+      {
+        "atom_id": "h6",
+        "title": "Computing measures from partial aggregates",
+        "one_line": "AVG from sum and count; variance from count, sum and sum of squares."
+      },
+      {
+        "atom_id": "h7",
+        "title": "Aggregating along a hierarchy",
+        "one_line": "Sums roll up directly; averages need weights; medians need raw data."
+      },
+      {
+        "atom_id": "h8",
+        "title": "Measures versus dimension attributes",
+        "one_line": "Measures are aggregated; dimension attributes group."
+      }
+    ],
+    "gate_patterns": [
+      "Name the OLAP operation when a cube view changes from one level to another: finer is drill-down, coarser is roll-up (2026 DA Q18).",
+      "Count cuboids when dimensions have concept hierarchies: the product of (levels + 1), not 2^n (2026 DA Q43).",
+      "Reason about measures: which aggregates roll up directly, and why averages need weights. Weightage: about 0.67 marks per DA paper, a small chapter."
+    ]
+  },
+  "cards": [
+    {
+      "atom_id": "h1",
+      "title": "Concept hierarchies",
+      "simple": "Think of your home address. You live in a flat, which is in a city, which is in a state, which is in a country. Each step up is a bigger box that holds the smaller ones. A concept hierarchy is the same idea for the data in a warehouse: the levels of one way of looking at the data, from very detailed to very general. Every small thing has exactly one bigger thing it belongs to, so you can add up the small things to get the big thing's total. At the very top there is one box called ALL that means 'everything together'. In exam words: the levels of a dimension are ordered from specific to general (City, State, Country), each child value has one parent value, and ALL is the single top value.",
+      "idea": "A **concept hierarchy** orders the levels of one dimension from specific to general, such as City, State, Country. Each value at a lower level belongs to exactly **one** value at the level above. Above the top real level sits **ALL**, a single value that means 'ignore this dimension'.",
+      "definition": "A dimension has levels $L_1 < L_2 < \\dots < L_m$, from finest to coarsest.\n\n- Every value at level $L_i$ has exactly one parent value at level $L_{i+1}$ (a many-to-one link).\n- ALL is one extra top value above $L_m$.\n- Some dimensions have a partial order (Day $\\to$ Week and Day $\\to$ Month $\\to$ Year): then a level can have more than one coarser level above it.",
+      "intuition_full": "A warehouse stores facts at the finest level it can: one sale in one city on one day. Analysts rarely want that detail, so they need a map from fine to coarse. The hierarchy is that map. Because each city has only one state, you can sum city sales into state sales without counting anything twice. If a value had two parents, a roll-up would double-count it, which is why the many-to-one rule is part of the definition. ALL is the coarsest possible level: one value, the grand total. It also matters for counting cuboids later, since leaving a dimension out of a group-by is the same as grouping at ALL. Some hierarchies are not a single chain. Days roll up to months and also to weeks, but a week can straddle two months, so Week and Month are side-by-side levels rather than one above the other.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Sales are recorded for four cities: Mumbai, Pune, Chennai, Madurai. Build the location hierarchy bottom-up.",
+          "steps": [
+            "The facts are stored per city: Mumbai, Pune, Chennai, Madurai. City is the finest level of the location dimension.",
+            "Mumbai and Pune belong to Maharashtra. Chennai and Madurai belong to Tamil Nadu. State is the next level up.",
+            "Both states belong to India. Country is the level above State.",
+            "Read the levels from specific to general: City, State, Country. Each city has exactly one state and each state exactly one country.",
+            "Above Country is one more value, ALL, which means 'everything together'. It stands for ignoring the dimension."
+          ],
+          "answer": "City (finest) → State → Country → ALL (coarsest)."
+        },
+        {
+          "level": "gate",
+          "setup": "A time dimension has the levels Day, Week, Month and Year. Days roll up to weeks, and days roll up to months, and months roll up to years. Can Week roll up to Month?",
+          "steps": [
+            "Test the rule: every child value must have exactly one parent value at the next level.",
+            "Day 2025-01-01 → Month January has one parent. Day → Week also has one parent.",
+            "Take the week 29 Dec to 4 Jan. Its days lie in two different months, December and January. The week has two possible parents.",
+            "So Week does not roll up to Month. Day has two separate paths: Day → Week and Day → Month → Year.",
+            "Such a hierarchy is a partial order, not a chain. This matters when counting cuboids."
+          ],
+          "answer": "No. Week and Month are side-by-side levels; both sit above Day."
+        },
+        {
+          "level": "twist",
+          "setup": "Two different towns are both called Aurangabad: one in Maharashtra, one in Bihar. A table stores city names only. What goes wrong when you roll up?",
+          "steps": [
+            "Group by the city name 'Aurangabad': both towns fall into one group, say sales 30 (Maharashtra) and 20 (Bihar) merge into 50.",
+            "The parent is also unknown: is that group in Maharashtra or Bihar?",
+            "A city value must identify its parent. Use (State, City) as the key, or give each city an id.",
+            "Then roll-up gives Maharashtra 30 and Bihar 20 from these two towns."
+          ],
+          "answer": "The name alone is ambiguous. Identify a city by (State, City), so every child has one parent."
+        }
+      ],
+      "why": "Every OLAP operation (roll-up, drill-down) and every cuboid count is defined on the levels of a hierarchy. In GATE: DA questions give a cube over several named levels and ask which operation moves between them (2026 DA Q18).",
+      "how": [
+        "List the levels of the dimension from finest to coarsest.",
+        "Check that each value has exactly one parent at the next level.",
+        "Add ALL on top as the last level.",
+        "For a partial order, list each path from the finest level separately."
+      ],
+      "mistake": "Putting levels in the wrong order, or thinking ALL is a level with several values. State is coarser than City, and ALL has exactly one value. Always ask 'which one contains the other?'. The container is the coarser level.",
+      "edge_cases": [
+        "A dimension with one level (just Store) still has the ALL level above it.",
+        "Partial orders (Day → Week, Day → Month → Year) have levels that are not comparable with each other.",
+        "A value with two parents breaks roll-up: it would be counted twice.",
+        "A level name can repeat across parents (two cities named Aurangabad), so identify values by their full path."
+      ],
+      "connections": [
+        "Foundations: **Sets and logic** (found.sets_logic) covers sets and the idea of grouping: each level is a partition of the level below.",
+        "Roll-up and drill-down move along these levels (next card h2).",
+        "The star-schema side of the warehouse is in db.warehouse; this chapter is about the levels and the numbers."
+      ],
+      "check": [
+        {
+          "q": "Order these from coarsest to finest: City, Country, State.",
+          "a": "Country, State, City."
+        },
+        {
+          "q": "How many values does the ALL level have?",
+          "a": "Exactly one."
+        },
+        {
+          "q": "Can one city belong to two states in a concept hierarchy?",
+          "a": "No. Each child has exactly one parent, so the roll-up counts it once."
+        }
+      ],
+      "asked": "Asked (name the OLAP operation along a hierarchy): 2026 DA Q18.",
+      "try": {
+        "id": "gen.hierarchy.001",
+        "label": "A time dimension has the concept hierarchy Day, Month, Quarter, Year. Which level is the most general? (L1)"
+      },
+      "scene": "db.hierarchy.h1.levels",
+      "example": {
+        "setup": "Sales are recorded for four cities: Mumbai, Pune, Chennai, Madurai. Build the location hierarchy bottom-up.",
+        "steps": [
+          "The facts are stored per city: Mumbai, Pune, Chennai, Madurai. City is the finest level of the location dimension.",
+          "Mumbai and Pune belong to Maharashtra. Chennai and Madurai belong to Tamil Nadu. State is the next level up.",
+          "Both states belong to India. Country is the level above State.",
+          "Read the levels from specific to general: City, State, Country. Each city has exactly one state and each state exactly one country.",
+          "Above Country is one more value, ALL, which means 'everything together'. It stands for ignoring the dimension."
+        ],
+        "answer": "City (finest) → State → Country → ALL (coarsest)."
+      },
+      "what": "A **concept hierarchy** orders the levels of one dimension from specific to general, such as City, State, Country. Each value at a lower level belongs to exactly **one** value at the level above. Above the top real level sits **ALL**, a single value that means 'ignore this dimension'.",
+      "what_full": "A **concept hierarchy** orders the levels of one dimension from specific to general, such as City, State, Country. Each value at a lower level belongs to exactly **one** value at the level above. Above the top real level sits **ALL**, a single value that means 'ignore this dimension'.\n\nA dimension has levels $L_1 < L_2 < \\dots < L_m$, from finest to coarsest.\n\n- Every value at level $L_i$ has exactly one parent value at level $L_{i+1}$ (a many-to-one link).\n- ALL is one extra top value above $L_m$.\n- Some dimensions have a partial order (Day $\\to$ Week and Day $\\to$ Month $\\to$ Year): then a level can have more than one coarser level above it.\n\n**Worked example.** Sales are recorded for four cities: Mumbai, Pune, Chennai, Madurai. Build the location hierarchy bottom-up.\n\n1. The facts are stored per city: Mumbai, Pune, Chennai, Madurai. City is the finest level of the location dimension.\n2. Mumbai and Pune belong to Maharashtra. Chennai and Madurai belong to Tamil Nadu. State is the next level up.\n3. Both states belong to India. Country is the level above State.\n4. Read the levels from specific to general: City, State, Country. Each city has exactly one state and each state exactly one country.\n5. Above Country is one more value, ALL, which means 'everything together'. It stands for ignoring the dimension.\n\n**Answer:** City (finest) → State → Country → ALL (coarsest).",
+      "why_full": "Every OLAP operation (roll-up, drill-down) and every cuboid count is defined on the levels of a hierarchy. In GATE: DA questions give a cube over several named levels and ask which operation moves between them (2026 DA Q18).\n\nAsked (name the OLAP operation along a hierarchy): 2026 DA Q18.",
+      "trap": "Putting levels in the wrong order, or thinking ALL is a level with several values. State is coarser than City, and ALL has exactly one value. Always ask 'which one contains the other?'. The container is the coarser level."
+    },
+    {
+      "atom_id": "h2",
+      "title": "Roll-up and drill-down",
+      "simple": "Think of a map app. Zoomed in, you see every street. Zoom out and the streets merge into neighbourhoods, then into the city. Zooming out is roll-up: you add things up and see fewer, bigger pieces. Zooming in is drill-down: the big piece splits back into its smaller pieces. Slicing is different. You stay at the same zoom level and just look at part of the map, like only one neighbourhood. In exam words: roll-up goes to a coarser level or drops a dimension, drill-down goes to a finer level, and slice and dice select values without changing any level.",
+      "idea": "**Roll-up** moves to a coarser level (Item to Type) and adds up the children. **Drill-down** moves to a finer level and splits the totals back into details. **Slice and dice** keep the levels and only choose which values to show. **Pivot** rotates the view.",
+      "definition": "Compare the old and new level of each dimension.\n\n- Level goes up (finer to coarser) or the dimension is dropped to ALL: **roll-up**. The cube gets smaller.\n- Level goes down (coarser to finer): **drill-down**. The cube gets bigger.\n- Same levels, fewer values: **slice** (one value of one dimension) or **dice** (several values on two or more dimensions).\n- Same data, axes swapped: **pivot (rotate)**.",
+      "intuition_full": "Think of the hierarchy as a staircase. Roll-up climbs one step, using the aggregate function to merge the children into their parent. Drill-down descends one step and needs the finer data (or a stored finer cuboid) to show the pieces again. Neither changes the facts, only the level at which you view them. The shape of the result gives it away: if the view has fewer cells, it was rolled up. Slice and dice are more like a filter. The levels are untouched, so the cell count shrinks only because some values are hidden. In exam questions the trick is almost always to name the levels before and after, and to compare them using the hierarchy order. If two dimensions change in opposite directions, the view change is a drill-down on one dimension combined with a roll-up on another.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Sales in thousand rupees by Item: Laptop 70, Phone 50, Pen 5, Notebook 15. Items belong to types: Laptop and Phone are Tech; Pen and Notebook are Office.",
+          "steps": [
+            "The cube is at the Item level: Laptop 70, Phone 50, Pen 5, Notebook 15.",
+            "Roll-up from Item to Type: add the children. Tech = 70 + 50 = 120 and Office = 5 + 15 = 20. Four rows become two.",
+            "Drill-down from Type back to Item: Tech splits into Laptop 70 and Phone 50. Two rows become four.",
+            "Slice Type = Tech: keep only the Laptop and Phone rows. The level is still Item, only some values remain.",
+            "So roll-up is coarser and smaller, drill-down is finer and bigger, and slice keeps the level."
+          ],
+          "answer": "Roll-up: Tech 120, Office 20. Drill-down restores the 4 item rows. Slice keeps Laptop and Phone."
+        },
+        {
+          "level": "gate",
+          "setup": "A cube is viewed by (Supplier, Day, Type). The analyst changes the view to (Supplier, Month, Type). Which operation is this?",
+          "steps": [
+            "Compare dimension by dimension. Supplier: unchanged. Type: unchanged.",
+            "Time: Day → Month. In the time hierarchy Month is coarser than Day, so the level goes up.",
+            "Exactly one dimension moved, and it moved to a coarser level.",
+            "Trap avoided: nothing was filtered, so this is not a slice or dice; the axes are not swapped, so it is not a pivot."
+          ],
+          "answer": "Roll-up on the time dimension."
+        },
+        {
+          "level": "twist",
+          "setup": "The view changes from (Item, Quarter, City) to (Item, Month, State). Name the operation.",
+          "steps": [
+            "Item: unchanged.",
+            "Time: Quarter → Month. Month is finer than Quarter, so this is a drill-down.",
+            "Location: City → State. State is coarser than City, so this is a roll-up.",
+            "One dimension went down and another went up, so no single name fits. It is a drill-down on time combined with a roll-up on location."
+          ],
+          "answer": "A drill-down on Time and a roll-up on Location, done together."
+        }
+      ],
+      "why": "OLAP is the everyday use of a cube, and these four verbs are its vocabulary. In GATE: DA gives two views of a cube and asks which operation turns one into the other (2026 DA Q18).",
+      "how": [
+        "Write the level of each dimension before and after.",
+        "For each dimension that changed, compare the levels using the hierarchy order.",
+        "Finer is drill-down, coarser (or dropped to ALL) is roll-up.",
+        "If no level changed but values were chosen, it is slice (one value) or dice (a range or several)."
+      ],
+      "mistake": "Calling a move to a coarser level 'drill-down' because the word sounds like going deeper into the data, or treating slice as roll-up because the result has fewer rows. Judge by the level, not by the row count. Slice keeps the level and picks values.",
+      "edge_cases": [
+        "Dropping a dimension entirely (to ALL) is a roll-up.",
+        "A slice fixes one value of one dimension; a dice restricts two or more dimensions.",
+        "Pivot changes the presentation only; the data and levels stay the same.",
+        "Mixed changes (one dimension finer, another coarser) are two operations at once."
+      ],
+      "connections": [
+        "The levels come from the concept hierarchy (card h1).",
+        "How many cuboids a cube offers is counted in card h3.",
+        "Roll-up uses the aggregate function; whether it works depends on the measure type (cards h5 to h7)."
+      ],
+      "check": [
+        {
+          "q": "A view moves from Country totals to State totals. Which operation?",
+          "a": "Drill-down. State is finer than Country."
+        },
+        {
+          "q": "You keep only the year 2023 in a sales cube. Which operation?",
+          "a": "Slice."
+        },
+        {
+          "q": "Does drill-down make the cube bigger or smaller?",
+          "a": "Bigger, because there are more, finer cells."
+        }
+      ],
+      "asked": "Asked (name the OLAP operation along a hierarchy): 2026 DA Q18.",
+      "try": {
+        "id": "gen.hierarchy.002",
+        "label": "A sales cube is viewed by City. The analyst now wants totals by State instead. This operation is (L1)"
+      },
+      "scene": "db.hierarchy.h2.rollup",
+      "example": {
+        "setup": "Sales in thousand rupees by Item: Laptop 70, Phone 50, Pen 5, Notebook 15. Items belong to types: Laptop and Phone are Tech; Pen and Notebook are Office.",
+        "steps": [
+          "The cube is at the Item level: Laptop 70, Phone 50, Pen 5, Notebook 15.",
+          "Roll-up from Item to Type: add the children. Tech = 70 + 50 = 120 and Office = 5 + 15 = 20. Four rows become two.",
+          "Drill-down from Type back to Item: Tech splits into Laptop 70 and Phone 50. Two rows become four.",
+          "Slice Type = Tech: keep only the Laptop and Phone rows. The level is still Item, only some values remain.",
+          "So roll-up is coarser and smaller, drill-down is finer and bigger, and slice keeps the level."
+        ],
+        "answer": "Roll-up: Tech 120, Office 20. Drill-down restores the 4 item rows. Slice keeps Laptop and Phone."
+      },
+      "what": "**Roll-up** moves to a coarser level (Item to Type) and adds up the children. **Drill-down** moves to a finer level and splits the totals back into details. **Slice and dice** keep the levels and only choose which values to show. **Pivot** rotates the view.",
+      "what_full": "**Roll-up** moves to a coarser level (Item to Type) and adds up the children. **Drill-down** moves to a finer level and splits the totals back into details. **Slice and dice** keep the levels and only choose which values to show. **Pivot** rotates the view.\n\nCompare the old and new level of each dimension.\n\n- Level goes up (finer to coarser) or the dimension is dropped to ALL: **roll-up**. The cube gets smaller.\n- Level goes down (coarser to finer): **drill-down**. The cube gets bigger.\n- Same levels, fewer values: **slice** (one value of one dimension) or **dice** (several values on two or more dimensions).\n- Same data, axes swapped: **pivot (rotate)**.\n\n**Worked example.** Sales in thousand rupees by Item: Laptop 70, Phone 50, Pen 5, Notebook 15. Items belong to types: Laptop and Phone are Tech; Pen and Notebook are Office.\n\n1. The cube is at the Item level: Laptop 70, Phone 50, Pen 5, Notebook 15.\n2. Roll-up from Item to Type: add the children. Tech = 70 + 50 = 120 and Office = 5 + 15 = 20. Four rows become two.\n3. Drill-down from Type back to Item: Tech splits into Laptop 70 and Phone 50. Two rows become four.\n4. Slice Type = Tech: keep only the Laptop and Phone rows. The level is still Item, only some values remain.\n5. So roll-up is coarser and smaller, drill-down is finer and bigger, and slice keeps the level.\n\n**Answer:** Roll-up: Tech 120, Office 20. Drill-down restores the 4 item rows. Slice keeps Laptop and Phone.",
+      "why_full": "OLAP is the everyday use of a cube, and these four verbs are its vocabulary. In GATE: DA gives two views of a cube and asks which operation turns one into the other (2026 DA Q18).\n\nAsked (name the OLAP operation along a hierarchy): 2026 DA Q18.",
+      "trap": "Calling a move to a coarser level 'drill-down' because the word sounds like going deeper into the data, or treating slice as roll-up because the result has fewer rows. Judge by the level, not by the row count. Slice keeps the level and picks values."
+    },
+    {
+      "atom_id": "h3",
+      "title": "Cuboid count with hierarchies",
+      "simple": "Imagine ordering a thali where you choose one option from each section. In the first section you may pick Day, Month or Year, or skip that section (that is ALL). In the second you pick Item or Type, or skip. In the third you pick Store or skip. Every different combination of choices is a different 'cuboid', which is one way of grouping the data. To count the combinations you multiply the number of choices in each section. A section with 3 levels has 3 plus 1 skip option, so 4 choices. In exam words: a dimension with L levels offers L + 1 choices including ALL, and the number of cuboids is the product of (L + 1) over all dimensions.",
+      "idea": "A **cuboid** is one way to group the cube: pick one level (or ALL) for every dimension. A dimension with $L$ levels gives $L+1$ choices. The number of cuboids is the **product** of these choices, not $2^n$.",
+      "definition": "For $n$ dimensions with $L_1, L_2, \\dots, L_n$ levels (not counting ALL):\n\n$$\\text{cuboids}=\\prod_{i=1}^{n}(L_i+1)$$\n\n- $L_i+1$ counts the $L_i$ levels plus ALL.\n- With one level per dimension every factor is 2, which gives the familiar $2^n$.\n- For a partial order, count every level once: a dimension with 4 levels still gives 5 choices.",
+      "intuition_full": "A cuboid is defined by a group-by: for each dimension you either group at one particular level or leave the dimension out. Leaving it out is the same as grouping at ALL, so each dimension offers one choice per real level plus one for ALL. The choices for different dimensions are independent, so the counts multiply, the same way 3 shirts and 2 trousers give 6 outfits. The base cuboid uses the finest level of every dimension; the apex uses ALL everywhere and is a single grand total. The classic formula 2^n only counts the case where every dimension has a single level, so it undercounts as soon as a dimension has a hierarchy. For a partial order such as Day to Week and Day to Month to Year, one group-by picks only one level per dimension, so Week and Month are two separate options and each still counts once.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A cube has three dimensions. Time has the levels Day, Month, Year. Product has Item, Type. Store has just Store. How many cuboids does it have?",
+          "steps": [
+            "Time has 3 levels. A cuboid shows Time at Day, Month or Year, or drops it (ALL): 3 + 1 = 4 choices.",
+            "Product has 2 levels: Item, Type, or ALL: 2 + 1 = 3 choices.",
+            "Store has 1 level: Store, or ALL: 1 + 1 = 2 choices.",
+            "A cuboid takes one choice per dimension, for example (Month, Type, ALL). Every combination is a different cuboid: 4 × 3 × 2 = 24.",
+            "Without hierarchies the count would be 2^3 = 8. Hierarchies multiply the choices instead."
+          ],
+          "answer": "24 cuboids."
+        },
+        {
+          "level": "gate",
+          "setup": "A cube has four dimensions with 1, 2, 2 and 3 levels (not counting ALL). How many cuboids are there? How many of them use an actual level (no ALL) in every dimension?",
+          "steps": [
+            "Choices per dimension: 1 + 1 = 2, 2 + 1 = 3, 2 + 1 = 3, 3 + 1 = 4.",
+            "Total cuboids = 2 × 3 × 3 × 4 = 72.",
+            "No ALL anywhere: each dimension must choose a real level, so the factors are 1, 2, 2, 3. That gives 1 × 2 × 2 × 3 = 12.",
+            "The apex cuboid (ALL in every dimension) is exactly one of the 72.",
+            "Trap avoided: 2^4 = 16 would be wrong, because the dimensions have hierarchies."
+          ],
+          "answer": "72 cuboids in all; 12 of them have no ALL."
+        },
+        {
+          "level": "twist",
+          "setup": "Time has the levels Day, Week, Month, Year, where Day → Week and Day → Month → Year. Customer has one level. How many cuboids?",
+          "steps": [
+            "Time has 4 distinct levels. A group-by uses only one level of a dimension, so Week and Month are two separate choices.",
+            "Time choices: 4 + 1 = 5 (Day, Week, Month, Year, ALL).",
+            "Customer choices: 1 + 1 = 2.",
+            "Total = 5 × 2 = 10."
+          ],
+          "answer": "10 cuboids."
+        }
+      ],
+      "why": "This is the standard counting question for data cubes, and the mistake 2^n is easy to make. In GATE: DA gives the number of levels in each dimension and asks for the number of cuboids (2026 DA Q43).",
+      "how": [
+        "For each dimension, count its levels L.",
+        "Add 1 for ALL: that dimension offers L + 1 choices.",
+        "Multiply the (L + 1) over all dimensions.",
+        "For 'no ALL anywhere' multiply the plain L values; for 'ALL in exactly some dimensions' choose which ones, then multiply the rest."
+      ],
+      "mistake": "Using 2^n, or forgetting the +1 for ALL. 2^n holds only when each dimension has exactly one level. With hierarchies, each dimension contributes (levels + 1).",
+      "edge_cases": [
+        "Dimensions with one level contribute a factor of 2.",
+        "The apex cuboid (ALL in all dimensions) is always counted.",
+        "In a partial order, count each level once; levels that are not comparable are separate choices.",
+        "If the question says the levels include ALL already, do not add 1 again."
+      ],
+      "connections": [
+        "Each cuboid is one group-by. Counting its cells is the next card (h4).",
+        "Cubes and cuboids are introduced in db.warehouse.",
+        "Foundations: **Sets and logic** (found.sets_logic): choosing one option from each of several lists, then multiplying, is the product rule of counting."
+      ],
+      "check": [
+        {
+          "q": "Dimensions with 2 and 4 levels (not counting ALL). How many cuboids?",
+          "a": "(2 + 1)(4 + 1) = 15."
+        },
+        {
+          "q": "One dimension, 5 levels. How many cuboids?",
+          "a": "6."
+        },
+        {
+          "q": "Why is 2^n wrong when a dimension has 3 levels?",
+          "a": "Because that dimension offers 4 choices (3 levels plus ALL), not 2."
+        }
+      ],
+      "asked": "Asked (count cuboids from concept hierarchies): 2026 DA Q43.",
+      "try": {
+        "id": "gen.hierarchy.005",
+        "label": "A location dimension has the hierarchy City, State, Country. Including the option of leaving the dimension out entirely (ALL), how many different ways can this dimension appear in a group-by? (L1)"
+      },
+      "scene": "db.hierarchy.h3.cuboids",
+      "example": {
+        "setup": "A cube has three dimensions. Time has the levels Day, Month, Year. Product has Item, Type. Store has just Store. How many cuboids does it have?",
+        "steps": [
+          "Time has 3 levels. A cuboid shows Time at Day, Month or Year, or drops it (ALL): 3 + 1 = 4 choices.",
+          "Product has 2 levels: Item, Type, or ALL: 2 + 1 = 3 choices.",
+          "Store has 1 level: Store, or ALL: 1 + 1 = 2 choices.",
+          "A cuboid takes one choice per dimension, for example (Month, Type, ALL). Every combination is a different cuboid: 4 × 3 × 2 = 24.",
+          "Without hierarchies the count would be 2^3 = 8. Hierarchies multiply the choices instead."
+        ],
+        "answer": "24 cuboids."
+      },
+      "what": "A **cuboid** is one way to group the cube: pick one level (or ALL) for every dimension. A dimension with $L$ levels gives $L+1$ choices. The number of cuboids is the **product** of these choices, not $2^n$.",
+      "what_full": "A **cuboid** is one way to group the cube: pick one level (or ALL) for every dimension. A dimension with $L$ levels gives $L+1$ choices. The number of cuboids is the **product** of these choices, not $2^n$.\n\nFor $n$ dimensions with $L_1, L_2, \\dots, L_n$ levels (not counting ALL):\n\n$$\\text{cuboids}=\\prod_{i=1}^{n}(L_i+1)$$\n\n- $L_i+1$ counts the $L_i$ levels plus ALL.\n- With one level per dimension every factor is 2, which gives the familiar $2^n$.\n- For a partial order, count every level once: a dimension with 4 levels still gives 5 choices.\n\n**Worked example.** A cube has three dimensions. Time has the levels Day, Month, Year. Product has Item, Type. Store has just Store. How many cuboids does it have?\n\n1. Time has 3 levels. A cuboid shows Time at Day, Month or Year, or drops it (ALL): 3 + 1 = 4 choices.\n2. Product has 2 levels: Item, Type, or ALL: 2 + 1 = 3 choices.\n3. Store has 1 level: Store, or ALL: 1 + 1 = 2 choices.\n4. A cuboid takes one choice per dimension, for example (Month, Type, ALL). Every combination is a different cuboid: 4 × 3 × 2 = 24.\n5. Without hierarchies the count would be 2^3 = 8. Hierarchies multiply the choices instead.\n\n**Answer:** 24 cuboids.",
+      "why_full": "This is the standard counting question for data cubes, and the mistake 2^n is easy to make. In GATE: DA gives the number of levels in each dimension and asks for the number of cuboids (2026 DA Q43).\n\nAsked (count cuboids from concept hierarchies): 2026 DA Q43.",
+      "trap": "Using 2^n, or forgetting the +1 for ALL. 2^n holds only when each dimension has exactly one level. With hierarchies, each dimension contributes (levels + 1)."
+    },
+    {
+      "atom_id": "h4",
+      "title": "Cells in a cuboid",
+      "simple": "A cuboid is a table, and its cells are the boxes in the table. Say you group sales by shirt type (3 kinds), by year (2 years) and by region (2 regions). That makes 3 rows by 2 columns for each region, and there are 2 regions, so 3 × 2 × 2 = 12 boxes. You count the boxes by multiplying how many values each chosen level has. If a dimension is left out (ALL), it has just one value, so it multiplies by 1. In exam words: the number of cells in a dense cuboid is the product of the number of distinct values at the chosen level of each dimension, and ALL contributes 1.",
+      "idea": "The **cells** of a cuboid are all combinations of one value per dimension, at the chosen levels. Count them by **multiplying** the number of distinct values at each chosen level. A dimension at ALL contributes **1**.",
+      "definition": "For a dense cuboid with levels $\\ell_1,\\dots,\\ell_n$ and $|\\ell_i|$ distinct values at the chosen level of dimension $i$:\n\n$$\\text{cells}=\\prod_{i=1}^{n}|\\ell_i|$$\n\n- $|\\text{ALL}|=1$.\n- Dense means every combination exists. A real (sparse) cube has at most as many non-empty cells as it has fact rows.\n- Total cells over all cuboids factor by dimension: $\\prod_i\\bigl(1+\\sum_{\\ell\\in i}|\\ell|\\bigr)$.",
+      "intuition_full": "A cell is a spot in the grid where you can store one aggregate, such as the total sales for (Type A, 2023, East). The grid has one axis per dimension, and the length of an axis is the number of values at the level you chose. The number of grid spots is the product of the axis lengths, like the number of squares in a multi-layer chessboard. A finer level means a longer axis, so the base cuboid (finest everywhere) is the biggest. ALL is an axis of length 1: a single position that holds the grand total for that dimension. Summing the cells over every cuboid is easier by dimension: the choices of different dimensions are independent, so the total factors into one bracket per dimension, with a 1 for ALL and then each level's size.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Product: Item has 6 values, Type has 3. Time: Quarter has 8 values, Year has 2. Location: City has 4 values, Region has 2. How many cells does the cuboid (Type, Year, Region) have?",
+          "steps": [
+            "The cuboid is at the levels Type, Year and Region. Count the values at those levels only: Type 3, Year 2, Region 2. Item, Quarter and City are not used.",
+            "Type gives 3 rows (A, B, C).",
+            "Year adds 2 columns: 3 × 2 = 6 cells in one layer.",
+            "Region adds 2 layers (East and West): 6 × 2 = 12 cells.",
+            "Cells = 3 × 2 × 2 = 12. For comparison, the base cuboid (Item, Quarter, City) has 6 × 8 × 4 = 192 cells."
+          ],
+          "answer": "12 cells."
+        },
+        {
+          "level": "gate",
+          "setup": "Time has the levels Year (5 values) and Month (60 values). Customer has the levels Region (4 values) and Customer (200 values). The cube is dense. How many cells in (Month, Region), in (Year, ALL), and in (ALL, ALL)?",
+          "steps": [
+            "(Month, Region): 60 × 4 = 240.",
+            "(Year, ALL): ALL contributes 1, so 5 × 1 = 5.",
+            "(ALL, ALL): 1 × 1 = 1, the single grand total.",
+            "Trap avoided: do not use the sizes of unused levels (Month and Customer in the last two cuboids)."
+          ],
+          "answer": "240, 5 and 1."
+        },
+        {
+          "level": "twist",
+          "setup": "The cuboid (Month, Customer) is dense-sized at 60 × 200 cells, but the fact table has only 900 sales rows. How many cells can be non-empty?",
+          "steps": [
+            "Dense size = 60 × 200 = 12000 possible cells.",
+            "Each fact row falls in exactly one cell, so at most 900 cells can be non-empty.",
+            "A real cube is sparse: most cells are empty. The formula counts possible cells, not filled cells."
+          ],
+          "answer": "At most 900 non-empty cells out of 12000 possible."
+        }
+      ],
+      "why": "The number of cells measures the size of a cuboid, which is what makes some cuboids worth precomputing and others not. In GATE: DA gives the value counts at each level and asks for the cells of one cuboid, or the difference between two cuboids.",
+      "how": [
+        "Write down the chosen level of each dimension.",
+        "Look up the number of distinct values at exactly that level.",
+        "Replace any ALL by 1.",
+        "Multiply. For a total over every cuboid, multiply per-dimension brackets (1 + sum of that dimension's level sizes)."
+      ],
+      "mistake": "Using the size of the finest level of a dimension when the cuboid uses a coarser one, or forgetting that ALL counts as 1, not 0. The cells depend only on the levels the cuboid names. A factor of 0 would wrongly erase the cuboid.",
+      "edge_cases": [
+        "ALL contributes 1, so rolling a dimension to ALL divides the cell count by that dimension's size.",
+        "Total cells over all cuboids: for Time (5, 60) and Customer (4, 200) it is (1 + 5 + 60) × (1 + 4 + 200) = 13530.",
+        "Sparse cubes have far fewer non-empty cells than the dense formula.",
+        "If a level has a partial-order sibling (Week), each level still counts on its own."
+      ],
+      "connections": [
+        "Which cuboids exist is counted in card h3; this card sizes one of them.",
+        "Larger cuboids are costly to store, which is why warehouses materialise only some (db.warehouse).",
+        "Foundations: **Sets and logic** (found.sets_logic): the cells of a cuboid are the Cartesian product of the value sets, so their count is the product of the set sizes."
+      ],
+      "check": [
+        {
+          "q": "Country has 3 values and Item has 50. How many cells in (Country, Item)?",
+          "a": "3 × 50 = 150."
+        },
+        {
+          "q": "How many cells in the apex cuboid (ALL in every dimension)?",
+          "a": "1."
+        },
+        {
+          "q": "A cuboid has Type (10 values) and ALL for time. If time is rolled to ALL from Year (4 values), how do the cells change?",
+          "a": "From 10 × 4 = 40 down to 10 × 1 = 10."
+        }
+      ],
+      "asked": "Asked: no direct past question in the blueprint; the ladder covers this shape.",
+      "try": {
+        "id": "gen.hierarchy.006",
+        "label": "A dense sales cube has a location hierarchy Country (3 values), State (12 values), City (60 values) and a time hierarchy Year (4 values), Month (48 values). How many cells does the cuboid (State, Year) have? (L2)"
+      },
+      "scene": "db.hierarchy.h4.cells",
+      "example": {
+        "setup": "Product: Item has 6 values, Type has 3. Time: Quarter has 8 values, Year has 2. Location: City has 4 values, Region has 2. How many cells does the cuboid (Type, Year, Region) have?",
+        "steps": [
+          "The cuboid is at the levels Type, Year and Region. Count the values at those levels only: Type 3, Year 2, Region 2. Item, Quarter and City are not used.",
+          "Type gives 3 rows (A, B, C).",
+          "Year adds 2 columns: 3 × 2 = 6 cells in one layer.",
+          "Region adds 2 layers (East and West): 6 × 2 = 12 cells.",
+          "Cells = 3 × 2 × 2 = 12. For comparison, the base cuboid (Item, Quarter, City) has 6 × 8 × 4 = 192 cells."
+        ],
+        "answer": "12 cells."
+      },
+      "what": "The **cells** of a cuboid are all combinations of one value per dimension, at the chosen levels. Count them by **multiplying** the number of distinct values at each chosen level. A dimension at ALL contributes **1**.",
+      "what_full": "The **cells** of a cuboid are all combinations of one value per dimension, at the chosen levels. Count them by **multiplying** the number of distinct values at each chosen level. A dimension at ALL contributes **1**.\n\nFor a dense cuboid with levels $\\ell_1,\\dots,\\ell_n$ and $|\\ell_i|$ distinct values at the chosen level of dimension $i$:\n\n$$\\text{cells}=\\prod_{i=1}^{n}|\\ell_i|$$\n\n- $|\\text{ALL}|=1$.\n- Dense means every combination exists. A real (sparse) cube has at most as many non-empty cells as it has fact rows.\n- Total cells over all cuboids factor by dimension: $\\prod_i\\bigl(1+\\sum_{\\ell\\in i}|\\ell|\\bigr)$.\n\n**Worked example.** Product: Item has 6 values, Type has 3. Time: Quarter has 8 values, Year has 2. Location: City has 4 values, Region has 2. How many cells does the cuboid (Type, Year, Region) have?\n\n1. The cuboid is at the levels Type, Year and Region. Count the values at those levels only: Type 3, Year 2, Region 2. Item, Quarter and City are not used.\n2. Type gives 3 rows (A, B, C).\n3. Year adds 2 columns: 3 × 2 = 6 cells in one layer.\n4. Region adds 2 layers (East and West): 6 × 2 = 12 cells.\n5. Cells = 3 × 2 × 2 = 12. For comparison, the base cuboid (Item, Quarter, City) has 6 × 8 × 4 = 192 cells.\n\n**Answer:** 12 cells.",
+      "why_full": "The number of cells measures the size of a cuboid, which is what makes some cuboids worth precomputing and others not. In GATE: DA gives the value counts at each level and asks for the cells of one cuboid, or the difference between two cuboids.\n\nAsked: no direct past question in the blueprint; the ladder covers this shape.",
+      "trap": "Using the size of the finest level of a dimension when the cuboid uses a coarser one, or forgetting that ALL counts as 1, not 0. The cells depend only on the levels the cuboid names. A factor of 0 would wrongly erase the cuboid."
+    },
+    {
+      "atom_id": "h5",
+      "title": "Measure categories",
+      "simple": "Say two friends each count the money in their piggy bank, and you want the total for both. Easy: add the two totals. You can also find the richest of the two by comparing their biggest coins. But the 'typical' coin value is trickier. You cannot just average the two averages, because one friend may have many more coins. You need each friend's total and coin count. And the middle coin of everyone together cannot be found from each friend's middle coin at all; you need all the coins. In exam words: distributive measures (SUM, COUNT, MIN, MAX) combine directly, algebraic ones (AVG, standard deviation) combine from a few stored numbers, and holistic ones (MEDIAN, MODE, RANK) need the raw data.",
+      "idea": "A cube combines partial results, so it matters how a measure combines. **Distributive**: combine the pieces' results with a simple function (SUM, COUNT, MIN, MAX). **Algebraic**: needs a fixed few pieces, such as (sum, count) for AVG. **Holistic**: no fixed-size summary works (MEDIAN, MODE, RANK).",
+      "definition": "Split the data into partitions and compute the measure on each.\n\n- **Distributive**: $F(\\text{all})=G(F(\\text{part}_1),F(\\text{part}_2),\\dots)$ for a simple combining function $G$ (for SUM, MIN, MAX it is $F$ itself; for COUNT it is SUM). Examples: SUM, COUNT, MIN, MAX.\n- **Algebraic**: $F(\\text{all})$ is a function of a fixed number of distributive results. AVG from (SUM, COUNT); variance from (COUNT, SUM, SUM of squares).\n- **Holistic**: there is no fixed-size summary per partition that gives $F(\\text{all})$. Examples: MEDIAN, MODE, RANK.",
+      "intuition_full": "Think about what the cube stores. If each cell stores one number per measure, the roll-up must rebuild the parent from the children's numbers alone. For SUM that works because sums add. For MAX it works because the biggest of the pieces' maxima is the overall max. AVG fails if you store only the average: the parent average depends on how many values each child had, so you must also store the count. Two numbers are enough, so AVG is algebraic. Standard deviation needs three: count, sum and sum of squares. MEDIAN fails for every fixed-size summary: the middle of everything depends on the exact positions of all the values, so you must keep the raw data (or a sketch that is only approximate). That is what holistic means. A quick test: could someone with only the stored numbers of each piece compute the answer for the union?",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Split the data 1, 2, 4, 5, 9 into P1 = {2, 4, 9} and P2 = {1, 5}. Try to rebuild SUM, MAX, AVG and MEDIAN of the whole from the pieces.",
+          "steps": [
+            "Whole data: 1, 2, 4, 5, 9. True SUM = 21, MAX = 9, AVG = 21/5 = 4.2, MEDIAN = 4.",
+            "SUM: the partial sums are 15 and 6. Combine: 15 + 6 = 21, equal to the true sum. Distributive.",
+            "MAX: the partial maxima are 9 and 5. Combine: max(9, 5) = 9, the true max. Distributive.",
+            "AVG: partial averages 5 and 3 give (5 + 3)/2 = 4, not 4.2. But the pairs (sum, count) = (15, 3) and (6, 2) give (15 + 6)/(3 + 2) = 4.2. Algebraic.",
+            "MEDIAN: partial medians 4 and 3 cannot give the true median 4 (averaging them gives 3.5). No fixed-size summary works. Holistic."
+          ],
+          "answer": "SUM and MAX are distributive, AVG is algebraic, MEDIAN is holistic."
+        },
+        {
+          "level": "gate",
+          "setup": "Each cell stores (count, sum, sum of squares) of its values. Which of COUNT, SUM, AVG, VARIANCE, MEDIAN and MAX can be computed exactly for the union of cells?",
+          "steps": [
+            "COUNT and SUM are the stored count and sum: add them across cells.",
+            "AVG = total sum / total count: computable.",
+            "VARIANCE = (sum of squares)/count − (mean)²: computable from the three stored numbers.",
+            "MAX is not among the stored numbers and cannot be recovered from them.",
+            "MEDIAN needs the exact positions of the values: not recoverable."
+          ],
+          "answer": "COUNT, SUM, AVG and VARIANCE yes; MAX and MEDIAN no."
+        },
+        {
+          "level": "twist",
+          "setup": "Two stores report profit margin = profit / sales. Store 1: profit 50 on sales 100 (50%). Store 2: profit 80 on sales 400 (20%). What is the combined margin? Can margins simply be averaged?",
+          "steps": [
+            "Average the two margins: (50% + 20%)/2 = 35%. This is wrong.",
+            "Add the underlying measures first: profit 50 + 80 = 130, sales 100 + 400 = 500.",
+            "Combined margin = 130 / 500 = 26%.",
+            "A ratio is non-additive. Store profit and sales (both additive) and divide at the end."
+          ],
+          "answer": "26%, not 35%."
+        }
+      ],
+      "why": "Which measures roll up decides what a cube can store and answer cheaply. In GATE: DA asks you to classify aggregate functions, or to say which one can be computed at a coarser level from the stored values.",
+      "how": [
+        "Split the data in two and try to rebuild the answer from the pieces' results alone.",
+        "Works with the same function: distributive (SUM, COUNT, MIN, MAX).",
+        "Works with a fixed few extra numbers: algebraic (AVG, standard deviation).",
+        "Needs all the data: holistic (MEDIAN, MODE, RANK)."
+      ],
+      "mistake": "Treating AVG as distributive (averaging averages) or MEDIAN as algebraic. AVG needs the count as well as the sum, and MEDIAN cannot be rebuilt from any fixed set of numbers. A quick sanity check: unequal partition sizes break the shortcuts.",
+      "edge_cases": [
+        "COUNT is distributive: the parent count is the sum of the child counts.",
+        "MIN and MAX are distributive even though they are not 'additive'.",
+        "Approximate sketches can estimate holistic measures but not give exact answers.",
+        "Ratios and percentages are non-additive: store the numerator and denominator."
+      ],
+      "connections": [
+        "Computing algebraic measures from stored pieces is the next card (h6).",
+        "Rolling a measure up the hierarchy is card h7.",
+        "Foundations: **Sets and logic** (found.sets_logic): 'the function of a union' ties to set union; partitions here are disjoint subsets."
+      ],
+      "check": [
+        {
+          "q": "Is COUNT distributive, algebraic or holistic?",
+          "a": "Distributive: the parent count is the sum of child counts."
+        },
+        {
+          "q": "What two numbers per cell let you rebuild AVG?",
+          "a": "The sum and the count."
+        },
+        {
+          "q": "Is MODE distributive?",
+          "a": "No. MODE is holistic: the most frequent value of the union cannot be found from the pieces' modes."
+        }
+      ],
+      "asked": "Asked: no direct past question in the blueprint; the ladder covers each measure type.",
+      "try": {
+        "id": "gen.hierarchy.003",
+        "label": "Which of the following aggregate functions is distributive? (L1)"
+      },
+      "scene": "db.hierarchy.h5.measures",
+      "example": {
+        "setup": "Split the data 1, 2, 4, 5, 9 into P1 = {2, 4, 9} and P2 = {1, 5}. Try to rebuild SUM, MAX, AVG and MEDIAN of the whole from the pieces.",
+        "steps": [
+          "Whole data: 1, 2, 4, 5, 9. True SUM = 21, MAX = 9, AVG = 21/5 = 4.2, MEDIAN = 4.",
+          "SUM: the partial sums are 15 and 6. Combine: 15 + 6 = 21, equal to the true sum. Distributive.",
+          "MAX: the partial maxima are 9 and 5. Combine: max(9, 5) = 9, the true max. Distributive.",
+          "AVG: partial averages 5 and 3 give (5 + 3)/2 = 4, not 4.2. But the pairs (sum, count) = (15, 3) and (6, 2) give (15 + 6)/(3 + 2) = 4.2. Algebraic.",
+          "MEDIAN: partial medians 4 and 3 cannot give the true median 4 (averaging them gives 3.5). No fixed-size summary works. Holistic."
+        ],
+        "answer": "SUM and MAX are distributive, AVG is algebraic, MEDIAN is holistic."
+      },
+      "what": "A cube combines partial results, so it matters how a measure combines. **Distributive**: combine the pieces' results with a simple function (SUM, COUNT, MIN, MAX). **Algebraic**: needs a fixed few pieces, such as (sum, count) for AVG. **Holistic**: no fixed-size summary works (MEDIAN, MODE, RANK).",
+      "what_full": "A cube combines partial results, so it matters how a measure combines. **Distributive**: combine the pieces' results with a simple function (SUM, COUNT, MIN, MAX). **Algebraic**: needs a fixed few pieces, such as (sum, count) for AVG. **Holistic**: no fixed-size summary works (MEDIAN, MODE, RANK).\n\nSplit the data into partitions and compute the measure on each.\n\n- **Distributive**: $F(\\text{all})=G(F(\\text{part}_1),F(\\text{part}_2),\\dots)$ for a simple combining function $G$ (for SUM, MIN, MAX it is $F$ itself; for COUNT it is SUM). Examples: SUM, COUNT, MIN, MAX.\n- **Algebraic**: $F(\\text{all})$ is a function of a fixed number of distributive results. AVG from (SUM, COUNT); variance from (COUNT, SUM, SUM of squares).\n- **Holistic**: there is no fixed-size summary per partition that gives $F(\\text{all})$. Examples: MEDIAN, MODE, RANK.\n\n**Worked example.** Split the data 1, 2, 4, 5, 9 into P1 = {2, 4, 9} and P2 = {1, 5}. Try to rebuild SUM, MAX, AVG and MEDIAN of the whole from the pieces.\n\n1. Whole data: 1, 2, 4, 5, 9. True SUM = 21, MAX = 9, AVG = 21/5 = 4.2, MEDIAN = 4.\n2. SUM: the partial sums are 15 and 6. Combine: 15 + 6 = 21, equal to the true sum. Distributive.\n3. MAX: the partial maxima are 9 and 5. Combine: max(9, 5) = 9, the true max. Distributive.\n4. AVG: partial averages 5 and 3 give (5 + 3)/2 = 4, not 4.2. But the pairs (sum, count) = (15, 3) and (6, 2) give (15 + 6)/(3 + 2) = 4.2. Algebraic.\n5. MEDIAN: partial medians 4 and 3 cannot give the true median 4 (averaging them gives 3.5). No fixed-size summary works. Holistic.\n\n**Answer:** SUM and MAX are distributive, AVG is algebraic, MEDIAN is holistic.",
+      "why_full": "Which measures roll up decides what a cube can store and answer cheaply. In GATE: DA asks you to classify aggregate functions, or to say which one can be computed at a coarser level from the stored values.\n\nAsked: no direct past question in the blueprint; the ladder covers each measure type.",
+      "trap": "Treating AVG as distributive (averaging averages) or MEDIAN as algebraic. AVG needs the count as well as the sum, and MEDIAN cannot be rebuilt from any fixed set of numbers. A quick sanity check: unequal partition sizes break the shortcuts."
+    },
+    {
+      "atom_id": "h6",
+      "title": "Computing measures from partial aggregates",
+      "simple": "Say two classes sent you only three numbers each about their test marks: how many students, the total of all marks, and the total of every mark squared. You never see the individual marks. Can you still work out the average and how spread out the marks are for both classes together? Yes. Add the counts, add the totals and add the squared totals. The average is the total divided by the count. The spread comes from a small formula using the squared totals. In exam words: AVG = total sum / total count, and variance = (sum of squares)/n − mean², where n, the sum and the sum of squares are added across cells.",
+      "idea": "Algebraic measures roll up if each cell stores a few **distributive pieces**. AVG needs the **count and sum**. Variance needs the count, the sum and the **sum of squares**. Add each piece across cells, then compute the measure once at the end.",
+      "definition": "With $n=\\sum n_i$, $S=\\sum s_i$ and $Q=\\sum q_i$ added over the cells:\n\n$$\\text{AVG}=\\frac{S}{n},\\qquad \\sigma^2=\\frac{Q}{n}-\\left(\\frac{S}{n}\\right)^2$$\n\n- $n_i$, $s_i$, $q_i$ are the count, sum and sum of squares of cell $i$.\n- This is the population variance. The sample variance is $\\dfrac{Q-S^2/n}{n-1}$.",
+      "intuition_full": "The trick is to store things that add. A mean does not add, but the pair (sum, count) does. A variance does not add either, but (count, sum, sum of squares) does. Once the three numbers are added across cells, the formulas turn them back into the measure for the combined data. The variance formula comes from expanding the definition: the mean of the squared deviations equals the mean of the squares minus the square of the mean, E[x²] − (E[x])². Each of the two terms can be rebuilt from Q, S and n. That is why storing only the variance of each cell is not enough: you could not combine two variances without also knowing the means and counts. The standard deviation is the square root of the final variance, computed last, because square roots do not add.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Cell X summarises the values 2, 4, 9 and cell Y summarises 1, 5. Only the summaries (n, sum, sum of squares) are stored: X = (3, 15, 101), Y = (2, 6, 26). Find the mean and population variance of the combined data.",
+          "steps": [
+            "X = (3, 15, 101) and Y = (2, 6, 26). The raw values are not available, only these three numbers each.",
+            "Add the pieces: n = 3 + 2 = 5, sum = 15 + 6 = 21, sum of squares = 101 + 26 = 127.",
+            "Mean = 21 / 5 = 4.2.",
+            "Mean of squares = 127 / 5 = 25.4.",
+            "Variance = 25.4 − 4.2² = 25.4 − 17.64 = 7.76."
+          ],
+          "answer": "Mean 4.2, population variance 7.76."
+        },
+        {
+          "level": "gate",
+          "setup": "Partition P1 has 6 values with average 25. Partition P2 has 4 values with average 40. What is the average of all 10 values?",
+          "steps": [
+            "Rebuild the sums: P1 sum = 6 × 25 = 150, P2 sum = 4 × 40 = 160.",
+            "Total sum = 310, total count = 10.",
+            "Average = 310 / 10 = 31.",
+            "Trap avoided: (25 + 40) / 2 = 32.5 ignores that P1 has more values."
+          ],
+          "answer": "31."
+        },
+        {
+          "level": "twist",
+          "setup": "Using the combined summary (n, S, Q) = (5, 21, 127) from the first example, find the SAMPLE variance.",
+          "steps": [
+            "Sum of squared deviations = Q − S² / n = 127 − 441 / 5 = 127 − 88.2 = 38.8.",
+            "Sample variance divides by n − 1 = 4: 38.8 / 4 = 9.7.",
+            "The population variance divided the same 38.8 by n = 5 and gave 7.76."
+          ],
+          "answer": "9.7 (sample) against 7.76 (population)."
+        }
+      ],
+      "why": "Cubes cannot keep raw data at every level, so the stored pieces must be enough to answer the common measures. In GATE: DA gives partial results of two or three cells and asks for the combined average or variance.",
+      "how": [
+        "Write each cell's stored pieces: count, sum and (for variance) sum of squares.",
+        "Add every piece across the cells.",
+        "AVG = total sum / total count.",
+        "Variance = total sum of squares / n − mean². Read whether the question wants population or sample."
+      ],
+      "mistake": "Averaging the cell averages or adding the cell variances. Averages must be weighted by counts, and variances cannot be added without the means. Combine the stored sums first, then compute.",
+      "edge_cases": [
+        "If a cell stores the average instead of the sum, recover the sum as count × average.",
+        "Variance from (n, S, Q) can lose precision for huge values; real systems store a shifted sum.",
+        "Sample and population variance differ by the divisor: n − 1 against n.",
+        "Standard deviation is the square root of the final variance."
+      ],
+      "connections": [
+        "Which measures can be rolled up at all is card h5; weighting along a hierarchy is card h7.",
+        "Mean and variance formulas are the ones from descriptive statistics (prob.desc).",
+        "Foundations: **Sets and logic** (found.sets_logic): adding pieces across cells is a sum over a partition of the data."
+      ],
+      "check": [
+        {
+          "q": "Cells (count, sum): (4, 20) and (6, 60). Combined average?",
+          "a": "(20 + 60) / (4 + 6) = 8."
+        },
+        {
+          "q": "A cell has count 3, sum 12, sum of squares 56. Population variance?",
+          "a": "Mean 4; 56/3 − 16 = 18.67 − 16 = 2.67."
+        },
+        {
+          "q": "Why can't you add two variances to get the combined variance?",
+          "a": "The combined variance also depends on the means and the counts of the pieces."
+        }
+      ],
+      "asked": "Asked: no direct past question in the blueprint; the ladder covers each shape.",
+      "try": {
+        "id": "gen.hierarchy.007",
+        "label": "Two partitions of the data give partial results (sum = 120, count = 4) and (sum = 90, count = 6). The average of the combined data is ______. (L2)"
+      },
+      "scene": "db.hierarchy.h6.partial",
+      "example": {
+        "setup": "Cell X summarises the values 2, 4, 9 and cell Y summarises 1, 5. Only the summaries (n, sum, sum of squares) are stored: X = (3, 15, 101), Y = (2, 6, 26). Find the mean and population variance of the combined data.",
+        "steps": [
+          "X = (3, 15, 101) and Y = (2, 6, 26). The raw values are not available, only these three numbers each.",
+          "Add the pieces: n = 3 + 2 = 5, sum = 15 + 6 = 21, sum of squares = 101 + 26 = 127.",
+          "Mean = 21 / 5 = 4.2.",
+          "Mean of squares = 127 / 5 = 25.4.",
+          "Variance = 25.4 − 4.2² = 25.4 − 17.64 = 7.76."
+        ],
+        "answer": "Mean 4.2, population variance 7.76."
+      },
+      "what": "Algebraic measures roll up if each cell stores a few **distributive pieces**. AVG needs the **count and sum**. Variance needs the count, the sum and the **sum of squares**. Add each piece across cells, then compute the measure once at the end.",
+      "what_full": "Algebraic measures roll up if each cell stores a few **distributive pieces**. AVG needs the **count and sum**. Variance needs the count, the sum and the **sum of squares**. Add each piece across cells, then compute the measure once at the end.\n\nWith $n=\\sum n_i$, $S=\\sum s_i$ and $Q=\\sum q_i$ added over the cells:\n\n$$\\text{AVG}=\\frac{S}{n},\\qquad \\sigma^2=\\frac{Q}{n}-\\left(\\frac{S}{n}\\right)^2$$\n\n- $n_i$, $s_i$, $q_i$ are the count, sum and sum of squares of cell $i$.\n- This is the population variance. The sample variance is $\\dfrac{Q-S^2/n}{n-1}$.\n\n**Worked example.** Cell X summarises the values 2, 4, 9 and cell Y summarises 1, 5. Only the summaries (n, sum, sum of squares) are stored: X = (3, 15, 101), Y = (2, 6, 26). Find the mean and population variance of the combined data.\n\n1. X = (3, 15, 101) and Y = (2, 6, 26). The raw values are not available, only these three numbers each.\n2. Add the pieces: n = 3 + 2 = 5, sum = 15 + 6 = 21, sum of squares = 101 + 26 = 127.\n3. Mean = 21 / 5 = 4.2.\n4. Mean of squares = 127 / 5 = 25.4.\n5. Variance = 25.4 − 4.2² = 25.4 − 17.64 = 7.76.\n\n**Answer:** Mean 4.2, population variance 7.76.",
+      "why_full": "Cubes cannot keep raw data at every level, so the stored pieces must be enough to answer the common measures. In GATE: DA gives partial results of two or three cells and asks for the combined average or variance.\n\nAsked: no direct past question in the blueprint; the ladder covers each shape.",
+      "trap": "Averaging the cell averages or adding the cell variances. Averages must be weighted by counts, and variances cannot be added without the means. Combine the stored sums first, then compute."
+    },
+    {
+      "atom_id": "h7",
+      "title": "Aggregating along a hierarchy",
+      "simple": "Say three shops in one town report 'we sold 4 items at an average price of 50', '1 item at 80' and '5 items at 30'. What is the town's average price? Do not add 50, 80 and 30 and divide by 3, because the shop that sold only one item would count as much as the shop that sold five. Turn each average back into a total (4 times 50 and so on), add the totals, and divide by the total number of items sold. Sums and biggest values are easier: just add the sums, or take the biggest of the biggest. In exam words: distributive measures roll up directly, averages roll up weighted by counts (or from sum and count), and medians cannot be rolled up without the raw data.",
+      "idea": "Going up a hierarchy, **SUM, COUNT, MIN and MAX** combine directly (sums add, counts add, the largest of the maxima wins). An **average** must be weighted by the counts. A **median** cannot be rebuilt from the children's medians; it needs the raw data.",
+      "definition": "For a parent $P$ with children $c=1..k$ having counts $n_c$, sums $s_c$, averages $a_c=s_c/n_c$:\n\n- $\\text{SUM}_P=\\sum s_c$, $\\text{COUNT}_P=\\sum n_c$, $\\text{MAX}_P=\\max_c \\text{MAX}_c$.\n- $\\text{AVG}_P=\\dfrac{\\sum n_c a_c}{\\sum n_c}$, a weighted average with weights $n_c$.\n- $\\text{MEDIAN}_P$ has no formula in the children's medians.",
+      "intuition_full": "A parent value is the union of its children's data, so the question is always: what must each child tell me so that I can answer for the union? For a sum, one number per child is enough. For an average, the child's average alone hides how many values it stands for, so a big child must pull the parent average more than a small one. That is exactly what weighting by the count does. It is the same as recovering each child's total (count × average), adding the totals, and dividing by the total count. The weights matter at every level: when going from state to country, use the state counts, not the number of cities. If you store (sum, count) at every level, the arithmetic is always the same simple division, and no information is lost on the way up.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Three cities in a state hold (count, average sale): Pune (4, 50), Nashik (1, 80), Nagpur (5, 30). Find the state's average sale.",
+          "steps": [
+            "Each city cell holds (count, average): Pune (4, 50), Nashik (1, 80), Nagpur (5, 30). The state needs the average over all sales.",
+            "Rebuild each city's total: 4 × 50 = 200, 1 × 80 = 80, 5 × 30 = 150.",
+            "Add the totals and the counts: sum = 200 + 80 + 150 = 430, count = 4 + 1 + 5 = 10.",
+            "State average = 430 / 10 = 43.",
+            "The shortcut (50 + 80 + 30) / 3 = 53.33 is wrong: it treats Nashik's single sale like Pune's four."
+          ],
+          "answer": "43."
+        },
+        {
+          "level": "gate",
+          "setup": "The same city cells also store the sum and the maximum: Pune (sum 200, max 90), Nashik (80, 80), Nagpur (150, 60); counts 4, 1, 5. What are SUM, COUNT, MAX and AVG at state level? Can MEDIAN be found?",
+          "steps": [
+            "SUM = 200 + 80 + 150 = 430.",
+            "COUNT = 4 + 1 + 5 = 10.",
+            "MAX = max(90, 80, 60) = 90.",
+            "AVG = 430 / 10 = 43.",
+            "MEDIAN: the city medians do not determine the state median. It needs the raw sales."
+          ],
+          "answer": "SUM 430, COUNT 10, MAX 90, AVG 43; the median cannot be found from city values."
+        },
+        {
+          "level": "twist",
+          "setup": "Go one level up. State 1 has 10 sales with average 43. State 2 has 30 sales with average 20. What is the country average?",
+          "steps": [
+            "Totals: 10 × 43 = 430 and 30 × 20 = 600.",
+            "Country sum = 430 + 600 = 1030, count = 10 + 30 = 40.",
+            "Average = 1030 / 40 = 25.75.",
+            "The unweighted average (43 + 20) / 2 = 31.5 is wrong. The weights are the state counts at every level."
+          ],
+          "answer": "25.75."
+        }
+      ],
+      "why": "Cubes pre-aggregate at each level, and a wrong roll-up gives a wrong answer silently. In GATE: DA gives (count, average) pairs for a few cells and asks for the parent average, or asks which measures can be derived at the coarser level.",
+      "how": [
+        "Write (count, sum) for every child; if only the average is given, sum = count × average.",
+        "For SUM, COUNT, MIN, MAX: apply the same function to the children's values.",
+        "For AVG: total sum / total count.",
+        "For MEDIAN or MODE: you need the raw data, so say it cannot be derived."
+      ],
+      "mistake": "Averaging the children's averages without weights, or assuming MEDIAN rolls up like MAX. The simple mean of the children is right only if every child has the same count.",
+      "edge_cases": [
+        "If all children have equal counts, the plain mean of the children's averages is correct.",
+        "A child with count 0 contributes nothing; skip it.",
+        "MIN and MAX roll up directly even when the counts differ.",
+        "Weights are counts of facts, not counts of child cells."
+      ],
+      "connections": [
+        "The measure types are in card h5; the formulas for variance are in card h6.",
+        "The levels come from the concept hierarchy (card h1).",
+        "Weighted averages are also how AVG works inside GROUP BY queries (db.sql)."
+      ],
+      "check": [
+        {
+          "q": "Two cells: (count 2, avg 10) and (count 8, avg 20). Combined average?",
+          "a": "(20 + 160) / 10 = 18."
+        },
+        {
+          "q": "State max from city maxima 40, 70, 55?",
+          "a": "70."
+        },
+        {
+          "q": "Can you get a state median from the city medians?",
+          "a": "No. It needs the raw data."
+        }
+      ],
+      "asked": "Asked: no direct past question in the blueprint; the ladder covers each shape.",
+      "try": {
+        "id": "gen.hierarchy.008",
+        "label": "In month 1 there was one transaction, with average sale 10. In month 2 there were three transactions with average sale 20. The overall average sale over both months is (L2)"
+      },
+      "scene": "db.hierarchy.h7.weighted",
+      "example": {
+        "setup": "Three cities in a state hold (count, average sale): Pune (4, 50), Nashik (1, 80), Nagpur (5, 30). Find the state's average sale.",
+        "steps": [
+          "Each city cell holds (count, average): Pune (4, 50), Nashik (1, 80), Nagpur (5, 30). The state needs the average over all sales.",
+          "Rebuild each city's total: 4 × 50 = 200, 1 × 80 = 80, 5 × 30 = 150.",
+          "Add the totals and the counts: sum = 200 + 80 + 150 = 430, count = 4 + 1 + 5 = 10.",
+          "State average = 430 / 10 = 43.",
+          "The shortcut (50 + 80 + 30) / 3 = 53.33 is wrong: it treats Nashik's single sale like Pune's four."
+        ],
+        "answer": "43."
+      },
+      "what": "Going up a hierarchy, **SUM, COUNT, MIN and MAX** combine directly (sums add, counts add, the largest of the maxima wins). An **average** must be weighted by the counts. A **median** cannot be rebuilt from the children's medians; it needs the raw data.",
+      "what_full": "Going up a hierarchy, **SUM, COUNT, MIN and MAX** combine directly (sums add, counts add, the largest of the maxima wins). An **average** must be weighted by the counts. A **median** cannot be rebuilt from the children's medians; it needs the raw data.\n\nFor a parent $P$ with children $c=1..k$ having counts $n_c$, sums $s_c$, averages $a_c=s_c/n_c$:\n\n- $\\text{SUM}_P=\\sum s_c$, $\\text{COUNT}_P=\\sum n_c$, $\\text{MAX}_P=\\max_c \\text{MAX}_c$.\n- $\\text{AVG}_P=\\dfrac{\\sum n_c a_c}{\\sum n_c}$, a weighted average with weights $n_c$.\n- $\\text{MEDIAN}_P$ has no formula in the children's medians.\n\n**Worked example.** Three cities in a state hold (count, average sale): Pune (4, 50), Nashik (1, 80), Nagpur (5, 30). Find the state's average sale.\n\n1. Each city cell holds (count, average): Pune (4, 50), Nashik (1, 80), Nagpur (5, 30). The state needs the average over all sales.\n2. Rebuild each city's total: 4 × 50 = 200, 1 × 80 = 80, 5 × 30 = 150.\n3. Add the totals and the counts: sum = 200 + 80 + 150 = 430, count = 4 + 1 + 5 = 10.\n4. State average = 430 / 10 = 43.\n5. The shortcut (50 + 80 + 30) / 3 = 53.33 is wrong: it treats Nashik's single sale like Pune's four.\n\n**Answer:** 43.",
+      "why_full": "Cubes pre-aggregate at each level, and a wrong roll-up gives a wrong answer silently. In GATE: DA gives (count, average) pairs for a few cells and asks for the parent average, or asks which measures can be derived at the coarser level.\n\nAsked: no direct past question in the blueprint; the ladder covers each shape.",
+      "trap": "Averaging the children's averages without weights, or assuming MEDIAN rolls up like MAX. The simple mean of the children is right only if every child has the same count."
+    },
+    {
+      "atom_id": "h8",
+      "title": "Measures versus dimension attributes",
+      "simple": "Look at one line of a shop bill: the date, the product name, the town, how many were sold and the amount. Some columns tell you the situation: when, what, where. You use those to group the bills, like 'all bills in Pune'. Other columns are numbers you add up: how many, how much money. Those are the things you measure. The groups come from the first kind, the totals come from the second. A percentage like a discount is a number too, but adding up percentages of different bills makes no sense, so it needs care. In exam words: dimension attributes describe context and are used to group and filter; measures are numeric facts that are aggregated.",
+      "idea": "A **measure** is a number you aggregate (sale amount, quantity). A **dimension attribute** describes context (date, product, city) and is used to **group** and filter. The fact table holds the measures plus keys that point to the dimensions.",
+      "definition": "- **Measure**: a numeric fact stored in the fact table, aggregated with SUM, COUNT, AVG, and so on.\n- **Dimension attribute**: a descriptive value (a level of a hierarchy, such as month or city) used in GROUP BY and WHERE.\n- Test: *would I add this column up across rows?* If yes it is a measure. If I would group by it, it is a dimension attribute.\n- Additivity: **additive** measures add across every dimension; **semi-additive** ones (balances) do not add across time; **non-additive** ones (ratios, prices) never add.",
+      "intuition_full": "A data cube answers questions of the form 'total of this number, broken down by those descriptions'. The number is the measure; the descriptions are the dimension attributes. Mixing them up produces nonsense, like summing dates or grouping by amount. The fact table stores one row per event with the numeric facts and keys; the dimension tables hold the descriptions and the hierarchies. Measures differ in how safely they add. Quantity and revenue add across everything. An account balance adds across accounts at one date, but adding balances across months is meaningless, so it is semi-additive. A unit price or a percentage never adds; store the pieces you can add (revenue and quantity) and divide at the end, which is the same logic as the weighted average of the previous cards.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "One sale row: date 14 Mar, product Laptop, city Pune, quantity 2, amount 70000, discount 10 (percent). Which columns are dimension attributes and which are measures?",
+          "steps": [
+            "One sale: date 14 Mar, product Laptop, city Pune, quantity 2, amount 70000, discount 10 percent.",
+            "Ask of each column: do I add it up, or do I group by it? Date, product and city are used to group and filter. They describe context: dimension attributes.",
+            "Quantity and amount are numbers I add across rows (total amount by city, total quantity by month). They are measures, and additive ones.",
+            "Discount percent is a number too, but adding discount percentages from different bills is meaningless. It is a non-additive measure.",
+            "Check by trying: SUM(amount) grouped by city makes sense. SUM(date) does not. So group-by columns are dimensions, aggregated numbers are measures."
+          ],
+          "answer": "Dimensions: date, product, city. Measures: quantity and amount (additive), discount percent (non-additive)."
+        },
+        {
+          "level": "gate",
+          "setup": "A fact table has the columns order_id, customer_key, date_key, product_key, units, unit_price and revenue = units × unit_price. Two rows: (units 2, unit_price 500, revenue 1000) and (units 3, unit_price 400, revenue 1200). Classify the columns and say which measures add.",
+          "steps": [
+            "customer_key, date_key and product_key are keys to dimension tables. They give the context. order_id only identifies the row.",
+            "units and revenue are additive: total units = 2 + 3 = 5 and total revenue = 1000 + 1200 = 2200.",
+            "unit_price is non-additive. Summing gives 500 + 400 = 900, which means nothing.",
+            "Overall average price = total revenue / total units = 2200 / 5 = 440. The plain average of the two prices is 450, which ignores the quantities."
+          ],
+          "answer": "Keys are dimension links; units and revenue are additive measures; unit_price is non-additive (use 2200 / 5 = 440)."
+        },
+        {
+          "level": "twist",
+          "setup": "End-of-month balance of one account over three months: 100, 120, 90. Can you add the balances across months?",
+          "steps": [
+            "A balance is a snapshot at a moment, not an amount that accumulates.",
+            "Adding across accounts at one date is fine. Adding across months gives 100 + 120 + 90 = 310, which is not any balance.",
+            "Across time use the last value (90) or the average (310 / 3 = 103.33), depending on the question."
+          ],
+          "answer": "No. A balance is semi-additive: it adds across accounts but not across time."
+        }
+      ],
+      "why": "Knowing which column is the measure and which is a dimension decides what a query groups by and what it aggregates. In GATE: DA asks which of several columns is best stored as a measure, and which measures behave badly under SUM.",
+      "how": [
+        "Look at each column and ask: do I sum it, or group by it?",
+        "Numeric facts you aggregate are measures; descriptive values you group by are dimension attributes.",
+        "Keys in the fact table point to dimension tables.",
+        "Check additivity before summing: ratios, prices and balances need care."
+      ],
+      "mistake": "Treating any number column as a measure. A zip code, a customer id or a year is a number, but you group by it and never sum it. Ask what the column describes: an event's size (measure) or its context (dimension).",
+      "edge_cases": [
+        "Ids and codes stored as numbers are dimension attributes.",
+        "Counts of facts (COUNT(*)) are measures that need no column.",
+        "A year or month is a dimension attribute even though it is numeric.",
+        "Ratios are non-additive: store numerator and denominator separately."
+      ],
+      "connections": [
+        "Measures roll up differently depending on their category (cards h5 to h7).",
+        "Fact and dimension tables, and the star schema, are covered in db.warehouse.",
+        "Foundations: **Sets and logic** (found.sets_logic): a dimension attribute names a set of possible values; a measure is a number you compute over a subset."
+      ],
+      "check": [
+        {
+          "q": "Is 'sale amount in rupees' a measure or a dimension attribute?",
+          "a": "A measure."
+        },
+        {
+          "q": "Is 'product category' a measure or a dimension attribute?",
+          "a": "A dimension attribute. You group by it."
+        },
+        {
+          "q": "Can you sum a unit price across orders?",
+          "a": "Not meaningfully. Unit price is non-additive; divide total revenue by total units instead."
+        }
+      ],
+      "asked": "Asked: no direct past question in the blueprint; the ladder covers this idea.",
+      "try": {
+        "id": "gen.hierarchy.009",
+        "label": "In a warehouse, which of the following is best stored as a measure in the fact table? (L2)"
+      },
+      "scene": "db.hierarchy.h8.facts",
+      "example": {
+        "setup": "One sale row: date 14 Mar, product Laptop, city Pune, quantity 2, amount 70000, discount 10 (percent). Which columns are dimension attributes and which are measures?",
+        "steps": [
+          "One sale: date 14 Mar, product Laptop, city Pune, quantity 2, amount 70000, discount 10 percent.",
+          "Ask of each column: do I add it up, or do I group by it? Date, product and city are used to group and filter. They describe context: dimension attributes.",
+          "Quantity and amount are numbers I add across rows (total amount by city, total quantity by month). They are measures, and additive ones.",
+          "Discount percent is a number too, but adding discount percentages from different bills is meaningless. It is a non-additive measure.",
+          "Check by trying: SUM(amount) grouped by city makes sense. SUM(date) does not. So group-by columns are dimensions, aggregated numbers are measures."
+        ],
+        "answer": "Dimensions: date, product, city. Measures: quantity and amount (additive), discount percent (non-additive)."
+      },
+      "what": "A **measure** is a number you aggregate (sale amount, quantity). A **dimension attribute** describes context (date, product, city) and is used to **group** and filter. The fact table holds the measures plus keys that point to the dimensions.",
+      "what_full": "A **measure** is a number you aggregate (sale amount, quantity). A **dimension attribute** describes context (date, product, city) and is used to **group** and filter. The fact table holds the measures plus keys that point to the dimensions.\n\n- **Measure**: a numeric fact stored in the fact table, aggregated with SUM, COUNT, AVG, and so on.\n- **Dimension attribute**: a descriptive value (a level of a hierarchy, such as month or city) used in GROUP BY and WHERE.\n- Test: *would I add this column up across rows?* If yes it is a measure. If I would group by it, it is a dimension attribute.\n- Additivity: **additive** measures add across every dimension; **semi-additive** ones (balances) do not add across time; **non-additive** ones (ratios, prices) never add.\n\n**Worked example.** One sale row: date 14 Mar, product Laptop, city Pune, quantity 2, amount 70000, discount 10 (percent). Which columns are dimension attributes and which are measures?\n\n1. One sale: date 14 Mar, product Laptop, city Pune, quantity 2, amount 70000, discount 10 percent.\n2. Ask of each column: do I add it up, or do I group by it? Date, product and city are used to group and filter. They describe context: dimension attributes.\n3. Quantity and amount are numbers I add across rows (total amount by city, total quantity by month). They are measures, and additive ones.\n4. Discount percent is a number too, but adding discount percentages from different bills is meaningless. It is a non-additive measure.\n5. Check by trying: SUM(amount) grouped by city makes sense. SUM(date) does not. So group-by columns are dimensions, aggregated numbers are measures.\n\n**Answer:** Dimensions: date, product, city. Measures: quantity and amount (additive), discount percent (non-additive).",
+      "why_full": "Knowing which column is the measure and which is a dimension decides what a query groups by and what it aggregates. In GATE: DA asks which of several columns is best stored as a measure, and which measures behave badly under SUM.\n\nAsked: no direct past question in the blueprint; the ladder covers this idea.",
+      "trap": "Treating any number column as a measure. A zip code, a customer id or a year is a number, but you group by it and never sum it. Ask what the column describes: an event's size (measure) or its context (dimension)."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "db.hierarchy.h1.levels",
+      "title": "A location hierarchy built from the bottom up",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "c1",
+          "kind": "box",
+          "x": 68,
+          "y": 180,
+          "w": 60,
+          "h": 30,
+          "label": "Mumbai"
+        },
+        {
+          "id": "c2",
+          "kind": "box",
+          "x": 138,
+          "y": 180,
+          "w": 60,
+          "h": 30,
+          "label": "Pune"
+        },
+        {
+          "id": "c3",
+          "kind": "box",
+          "x": 238,
+          "y": 180,
+          "w": 60,
+          "h": 30,
+          "label": "Chennai"
+        },
+        {
+          "id": "c4",
+          "kind": "box",
+          "x": 308,
+          "y": 180,
+          "w": 60,
+          "h": 30,
+          "label": "Madurai"
+        },
+        {
+          "id": "s1",
+          "kind": "box",
+          "x": 78,
+          "y": 120,
+          "w": 110,
+          "h": 30,
+          "label": "Maharashtra"
+        },
+        {
+          "id": "s2",
+          "kind": "box",
+          "x": 258,
+          "y": 120,
+          "w": 90,
+          "h": 30,
+          "label": "Tamil Nadu"
+        },
+        {
+          "id": "k1",
+          "kind": "box",
+          "x": 178,
+          "y": 64,
+          "w": 80,
+          "h": 30,
+          "label": "India"
+        },
+        {
+          "id": "a1",
+          "kind": "box",
+          "x": 188,
+          "y": 10,
+          "w": 60,
+          "h": 30,
+          "label": "ALL"
+        },
+        {
+          "id": "e1",
+          "kind": "edge",
+          "from": "s1",
+          "to": "c1"
+        },
+        {
+          "id": "e2",
+          "kind": "edge",
+          "from": "s1",
+          "to": "c2"
+        },
+        {
+          "id": "e3",
+          "kind": "edge",
+          "from": "s2",
+          "to": "c3"
+        },
+        {
+          "id": "e4",
+          "kind": "edge",
+          "from": "s2",
+          "to": "c4"
+        },
+        {
+          "id": "e5",
+          "kind": "edge",
+          "from": "k1",
+          "to": "s1"
+        },
+        {
+          "id": "e6",
+          "kind": "edge",
+          "from": "k1",
+          "to": "s2"
+        },
+        {
+          "id": "e7",
+          "kind": "edge",
+          "from": "a1",
+          "to": "k1"
+        },
+        {
+          "id": "lc",
+          "kind": "text",
+          "x": 8,
+          "y": 195,
+          "text": "City",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "ls",
+          "kind": "text",
+          "x": 8,
+          "y": 135,
+          "text": "State",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "lk",
+          "kind": "text",
+          "x": 8,
+          "y": 79,
+          "text": "Country",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "la",
+          "kind": "text",
+          "x": 8,
+          "y": 25,
+          "text": "ALL",
+          "size": 12,
+          "anchor": "start"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Facts are stored per city. City is the finest level of the location dimension.",
+          "show": [
+            "c1",
+            "c2",
+            "c3",
+            "c4",
+            "lc"
+          ],
+          "highlight": [
+            "c1",
+            "c2",
+            "c3",
+            "c4"
+          ]
+        },
+        {
+          "caption": "Mumbai and Pune belong to Maharashtra; Chennai and Madurai belong to Tamil Nadu. State is one level up.",
+          "show": [
+            "s1",
+            "s2",
+            "e1",
+            "e2",
+            "e3",
+            "e4",
+            "ls"
+          ],
+          "highlight": [
+            "s1",
+            "s2"
+          ]
+        },
+        {
+          "caption": "Both states belong to India. Country is the next level up.",
+          "show": [
+            "k1",
+            "e5",
+            "e6",
+            "lk"
+          ],
+          "highlight": [
+            "k1"
+          ]
+        },
+        {
+          "caption": "Each city has one state and each state one country: a single chain of parents, here Pune → Maharashtra → India.",
+          "highlight": [
+            "c2",
+            "s1",
+            "k1",
+            "e2",
+            "e5"
+          ]
+        },
+        {
+          "caption": "Above Country sits ALL, one value meaning 'everything together'. Ignoring the dimension means grouping at ALL.",
+          "show": [
+            "a1",
+            "e7",
+            "la"
+          ],
+          "highlight": [
+            "a1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db.hierarchy.h2.rollup",
+      "title": "Roll-up, drill-down and slice on a small sales cube",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "GI",
+          "kind": "grid",
+          "x": 14,
+          "y": 64,
+          "rows": 4,
+          "cols": 2,
+          "cw": 72,
+          "ch": 30,
+          "cells": [
+            [
+              "Laptop",
+              70
+            ],
+            [
+              "Phone",
+              50
+            ],
+            [
+              "Pen",
+              5
+            ],
+            [
+              "Notebook",
+              15
+            ]
+          ],
+          "colLabels": [
+            "item",
+            "sales"
+          ],
+          "colTitle": "by Item"
+        },
+        {
+          "id": "GT",
+          "kind": "grid",
+          "x": 262,
+          "y": 64,
+          "rows": 2,
+          "cols": 2,
+          "cw": 60,
+          "ch": 30,
+          "cells": [
+            [
+              "Tech",
+              120
+            ],
+            [
+              "Office",
+              20
+            ]
+          ],
+          "colLabels": [
+            "type",
+            "sales"
+          ],
+          "colTitle": "by Type"
+        },
+        {
+          "id": "ar1",
+          "kind": "arrow",
+          "x1": 170,
+          "y1": 88,
+          "x2": 254,
+          "y2": 88,
+          "label": "roll-up"
+        },
+        {
+          "id": "ar2",
+          "kind": "arrow",
+          "x1": 254,
+          "y1": 144,
+          "x2": 170,
+          "y2": 144,
+          "label": "drill-down"
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 200,
+          "y": 224,
+          "text": "level: Item (finest)",
+          "size": 13,
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Sales per item in thousand rupees: Laptop 70, Phone 50, Pen 5, Notebook 15.",
+          "highlight": "GI"
+        },
+        {
+          "caption": "Roll-up from Item to Type: add the children. Tech = 70 + 50 = 120, Office = 5 + 15 = 20. Four rows become two.",
+          "show": [
+            "GT",
+            "ar1"
+          ],
+          "highlight": [
+            {
+              "id": "GI",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "tone": "accent"
+            },
+            "GT"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "roll-up: coarser, fewer rows"
+          }
+        },
+        {
+          "caption": "Drill-down from Type back to Item: Tech splits into Laptop 70 and Phone 50. Two rows become four.",
+          "hide": "ar1",
+          "show": "ar2",
+          "highlight": [
+            {
+              "id": "GT",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ]
+              ],
+              "tone": "mid"
+            },
+            {
+              "id": "GI",
+              "tone": "mid"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "drill-down: finer, more rows"
+          }
+        },
+        {
+          "caption": "Slice Type = Tech: keep only the Laptop and Phone rows. The level is still Item; only some values remain.",
+          "hide": [
+            "GT",
+            "ar2"
+          ],
+          "dim": [
+            {
+              "id": "GI",
+              "cells": [
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ],
+                [
+                  3,
+                  0
+                ],
+                [
+                  3,
+                  1
+                ]
+              ]
+            }
+          ],
+          "highlight": [
+            {
+              "id": "GI",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "slice: same level, fewer values"
+          }
+        },
+        {
+          "caption": "Roll-up: coarser and smaller. Drill-down: finer and bigger. Slice and dice: same level, fewer values.",
+          "undim": "GI",
+          "set": {
+            "id": "calc",
+            "text": "judge by the level, not by the row count",
+            "tone": "good"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db.hierarchy.h3.cuboids",
+      "title": "Counting cuboids: one choice per dimension, then multiply",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "T",
+          "kind": "array",
+          "x": 115,
+          "y": 36,
+          "cw": 52,
+          "ch": 30,
+          "cells": [
+            "Day",
+            "Month",
+            "Year",
+            "ALL"
+          ],
+          "indices": false
+        },
+        {
+          "id": "nT",
+          "kind": "text",
+          "x": 104,
+          "y": 51,
+          "text": "Time",
+          "size": 13,
+          "anchor": "end",
+          "bold": true
+        },
+        {
+          "id": "cT",
+          "kind": "text",
+          "x": 331,
+          "y": 51,
+          "text": "= 4",
+          "size": 14,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "P",
+          "kind": "array",
+          "x": 115,
+          "y": 86,
+          "cw": 52,
+          "ch": 30,
+          "cells": [
+            "Item",
+            "Type",
+            "ALL"
+          ],
+          "indices": false
+        },
+        {
+          "id": "nP",
+          "kind": "text",
+          "x": 104,
+          "y": 101,
+          "text": "Product",
+          "size": 13,
+          "anchor": "end",
+          "bold": true
+        },
+        {
+          "id": "cP",
+          "kind": "text",
+          "x": 279,
+          "y": 101,
+          "text": "= 3",
+          "size": 14,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "S",
+          "kind": "array",
+          "x": 115,
+          "y": 136,
+          "cw": 52,
+          "ch": 30,
+          "cells": [
+            "Store",
+            "ALL"
+          ],
+          "indices": false
+        },
+        {
+          "id": "nS",
+          "kind": "text",
+          "x": 104,
+          "y": 151,
+          "text": "Store",
+          "size": 13,
+          "anchor": "end",
+          "bold": true
+        },
+        {
+          "id": "cS",
+          "kind": "text",
+          "x": 227,
+          "y": 151,
+          "text": "= 2",
+          "size": 14,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 200,
+          "y": 196,
+          "text": "",
+          "size": 14,
+          "bold": true
+        },
+        {
+          "id": "calc2",
+          "kind": "text",
+          "x": 200,
+          "y": 226,
+          "text": "",
+          "size": 13
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Time has 3 levels. A cuboid shows Time at one of them, or leaves it out (ALL): 3 + 1 = 4 choices.",
+          "show": [
+            "T",
+            "nT",
+            "cT"
+          ],
+          "highlight": "T",
+          "set": {
+            "id": "calc",
+            "text": "Time: 3 levels + ALL = 4"
+          }
+        },
+        {
+          "caption": "Product has 2 levels: Item or Type, or ALL. That is 2 + 1 = 3 choices.",
+          "show": [
+            "P",
+            "nP",
+            "cP"
+          ],
+          "highlight": "P",
+          "set": {
+            "id": "calc",
+            "text": "Product: 2 levels + ALL = 3"
+          }
+        },
+        {
+          "caption": "Store has one level, so Store or ALL: 1 + 1 = 2 choices.",
+          "show": [
+            "S",
+            "nS",
+            "cS"
+          ],
+          "highlight": "S",
+          "set": {
+            "id": "calc",
+            "text": "Store: 1 level + ALL = 2"
+          }
+        },
+        {
+          "caption": "A cuboid is one choice per dimension, for example (Month, Type, ALL). Every combination is a different cuboid.",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                1
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "P",
+              "cells": [
+                1
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "S",
+              "cells": [
+                1
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "calc",
+              "text": "(Month, Type, ALL) is one cuboid"
+            },
+            {
+              "id": "calc2",
+              "text": "4 × 3 × 2 = 24 cuboids"
+            }
+          ]
+        },
+        {
+          "caption": "Without hierarchies each dimension has one level and offers 2 choices, giving 2^3 = 8. Hierarchies multiply the choices.",
+          "set": [
+            {
+              "id": "calc",
+              "text": "no hierarchies: 2 × 2 × 2 = 8"
+            },
+            {
+              "id": "calc2",
+              "text": "with hierarchies: 4 × 3 × 2 = 24",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db.hierarchy.h4.cells",
+      "title": "Counting cells: values per axis, multiplied",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "ttl",
+          "kind": "text",
+          "x": 14,
+          "y": 18,
+          "text": "cuboid (Type, Year, Region)",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 14,
+          "y": 84,
+          "text": "Type: 3 values",
+          "size": 13,
+          "anchor": "start"
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 14,
+          "y": 116,
+          "text": "Year: 2 values",
+          "size": 13,
+          "anchor": "start"
+        },
+        {
+          "id": "t3",
+          "kind": "text",
+          "x": 14,
+          "y": 148,
+          "text": "Region: 2 values",
+          "size": 13,
+          "anchor": "start"
+        },
+        {
+          "id": "Ga",
+          "kind": "grid",
+          "x": 196,
+          "y": 76,
+          "rows": 3,
+          "cols": 1,
+          "cw": 44,
+          "ch": 30,
+          "cells": [
+            [
+              1
+            ],
+            [
+              2
+            ],
+            [
+              3
+            ]
+          ],
+          "rowLabels": [
+            "A",
+            "B",
+            "C"
+          ],
+          "colTitle": "East"
+        },
+        {
+          "id": "G1",
+          "kind": "grid",
+          "x": 196,
+          "y": 76,
+          "rows": 3,
+          "cols": 2,
+          "cw": 44,
+          "ch": 30,
+          "cells": [
+            [
+              1,
+              2
+            ],
+            [
+              3,
+              4
+            ],
+            [
+              5,
+              6
+            ]
+          ],
+          "rowLabels": [
+            "A",
+            "B",
+            "C"
+          ],
+          "colLabels": [
+            "2023",
+            "2024"
+          ],
+          "colTitle": "East"
+        },
+        {
+          "id": "G2",
+          "kind": "grid",
+          "x": 306,
+          "y": 76,
+          "rows": 3,
+          "cols": 2,
+          "cw": 44,
+          "ch": 30,
+          "cells": [
+            [
+              7,
+              8
+            ],
+            [
+              9,
+              10
+            ],
+            [
+              11,
+              12
+            ]
+          ],
+          "colLabels": [
+            "2023",
+            "2024"
+          ],
+          "colTitle": "West"
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 200,
+          "y": 216,
+          "text": "",
+          "size": 14,
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Count the values at the chosen levels only: Type 3, Year 2, Region 2. Item, Quarter and City are not used.",
+          "show": [
+            "ttl",
+            "t1",
+            "t2",
+            "t3"
+          ],
+          "highlight": [
+            "t1",
+            "t2",
+            "t3"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "cells = 3 × 2 × 2"
+          }
+        },
+        {
+          "caption": "Type gives 3 rows: A, B and C.",
+          "show": "Ga",
+          "highlight": [
+            "Ga",
+            "t1"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "3 cells so far"
+          }
+        },
+        {
+          "caption": "Year adds 2 columns: 3 × 2 = 6 cells in one layer.",
+          "hide": "Ga",
+          "show": "G1",
+          "highlight": [
+            "G1",
+            "t2"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "3 × 2 = 6 cells"
+          }
+        },
+        {
+          "caption": "Region adds 2 layers, East and West: 6 × 2 = 12 cells.",
+          "show": "G2",
+          "highlight": [
+            "G2",
+            "t3"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "6 × 2 = 12 cells"
+          }
+        },
+        {
+          "caption": "Total = 3 × 2 × 2 = 12 cells. The base cuboid (Item, Quarter, City) would have 6 × 8 × 4 = 192.",
+          "highlight": [
+            {
+              "id": "G1",
+              "tone": "good"
+            },
+            {
+              "id": "G2",
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "12 cells (base cuboid: 192)",
+            "tone": "good"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db.hierarchy.h5.measures",
+      "title": "Which measures can be rebuilt from two partitions?",
+      "viewBox": [
+        0,
+        0,
+        400,
+        260
+      ],
+      "objects": [
+        {
+          "id": "P1",
+          "kind": "array",
+          "x": 40,
+          "y": 34,
+          "cw": 36,
+          "ch": 32,
+          "cells": [
+            2,
+            4,
+            9
+          ],
+          "indices": false,
+          "label": "P1"
+        },
+        {
+          "id": "P2",
+          "kind": "array",
+          "x": 190,
+          "y": 34,
+          "cw": 36,
+          "ch": 32,
+          "cells": [
+            1,
+            5
+          ],
+          "indices": false,
+          "label": "P2"
+        },
+        {
+          "id": "whole",
+          "kind": "text",
+          "x": 200,
+          "y": 86,
+          "text": "whole: 1, 2, 4, 5, 9   sum 21, avg 4.2, median 4",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "T",
+          "kind": "grid",
+          "x": 70,
+          "y": 124,
+          "rows": 4,
+          "cols": 4,
+          "cw": 56,
+          "ch": 26,
+          "cells": [
+            [
+              "",
+              "",
+              "",
+              ""
+            ],
+            [
+              "",
+              "",
+              "",
+              ""
+            ],
+            [
+              "",
+              "",
+              "",
+              ""
+            ],
+            [
+              "",
+              "",
+              "",
+              ""
+            ]
+          ],
+          "colLabels": [
+            "part 1",
+            "part 2",
+            "combine",
+            "true"
+          ],
+          "rowLabels": [
+            "SUM",
+            "MAX",
+            "AVG",
+            "MEDIAN"
+          ]
+        },
+        {
+          "id": "v0",
+          "kind": "text",
+          "x": 300,
+          "y": 137,
+          "text": "distributive",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "v1",
+          "kind": "text",
+          "x": 300,
+          "y": 163,
+          "text": "distributive",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "v2",
+          "kind": "text",
+          "x": 300,
+          "y": 189,
+          "text": "algebraic",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "v3",
+          "kind": "text",
+          "x": 300,
+          "y": 215,
+          "text": "holistic",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 200,
+          "y": 246,
+          "text": "",
+          "size": 13,
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Split the data 1, 2, 4, 5, 9 into P1 = 2, 4, 9 and P2 = 1, 5. Can we rebuild the whole's answers from the pieces' answers?",
+          "highlight": [
+            "P1",
+            "P2"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "pieces only, no raw data"
+          }
+        },
+        {
+          "caption": "SUM: 15 + 6 = 21, which equals the true sum. The same function on the pieces works: distributive.",
+          "show": "v0",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  0,
+                  3
+                ]
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  15,
+                  6,
+                  21,
+                  21
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ]
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "combine = 15 + 6"
+            }
+          ]
+        },
+        {
+          "caption": "MAX: the larger of 9 and 5 is 9, the true max. Distributive.",
+          "show": "v1",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  2
+                ],
+                [
+                  1,
+                  3
+                ]
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  15,
+                  6,
+                  21,
+                  21
+                ],
+                [
+                  9,
+                  5,
+                  9,
+                  9
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ]
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "combine = max(9, 5)"
+            }
+          ]
+        },
+        {
+          "caption": "AVG: averaging 5 and 3 gives 4, not 4.2. Keep (sum, count) = (15, 3) and (6, 2): 21 / 5 = 4.2. Two numbers suffice: algebraic.",
+          "show": "v2",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  2,
+                  2
+                ]
+              ],
+              "tone": "bad"
+            },
+            {
+              "id": "T",
+              "cells": [
+                [
+                  2,
+                  3
+                ]
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  15,
+                  6,
+                  21,
+                  21
+                ],
+                [
+                  9,
+                  5,
+                  9,
+                  9
+                ],
+                [
+                  5,
+                  3,
+                  "4 ✗",
+                  4.2
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ]
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "(15 + 6) / (3 + 2) = 4.2"
+            }
+          ]
+        },
+        {
+          "caption": "MEDIAN: the partial medians 4 and 3 cannot give the true median 4 (their average is 3.5). No fixed-size summary works: holistic.",
+          "show": "v3",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  3,
+                  2
+                ]
+              ],
+              "tone": "bad"
+            }
+          ],
+          "set": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  15,
+                  6,
+                  21,
+                  21
+                ],
+                [
+                  9,
+                  5,
+                  9,
+                  9
+                ],
+                [
+                  5,
+                  3,
+                  "4 ✗",
+                  4.2
+                ],
+                [
+                  4,
+                  3,
+                  "3.5 ✗",
+                  4
+                ]
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "needs the raw data",
+              "tone": "bad"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db.hierarchy.h6.partial",
+      "title": "Variance from stored (count, sum, sum of squares)",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "S",
+          "kind": "grid",
+          "x": 100,
+          "y": 60,
+          "rows": 3,
+          "cols": 3,
+          "cw": 60,
+          "ch": 30,
+          "cells": [
+            [
+              3,
+              15,
+              101
+            ],
+            [
+              2,
+              6,
+              26
+            ],
+            [
+              "",
+              "",
+              ""
+            ]
+          ],
+          "colLabels": [
+            "n",
+            "Σx",
+            "Σx²"
+          ],
+          "rowLabels": [
+            "cell X",
+            "cell Y",
+            "X + Y"
+          ],
+          "colTitle": "stored summaries"
+        },
+        {
+          "id": "m1",
+          "kind": "text",
+          "x": 200,
+          "y": 168,
+          "text": "mean = 21 / 5 = 4.2",
+          "size": 13
+        },
+        {
+          "id": "m2",
+          "kind": "text",
+          "x": 200,
+          "y": 196,
+          "text": "mean of squares = 127 / 5 = 25.4",
+          "size": 13
+        },
+        {
+          "id": "m3",
+          "kind": "text",
+          "x": 200,
+          "y": 224,
+          "text": "variance = 25.4 − 4.2² = 7.76",
+          "size": 13,
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Cell X (values 2, 4, 9) stores (3, 15, 101). Cell Y (values 1, 5) stores (2, 6, 26). The raw values are gone.",
+          "highlight": [
+            {
+              "id": "S",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  2
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "Add the pieces across cells: n = 3 + 2 = 5, sum = 15 + 6 = 21, sum of squares = 101 + 26 = 127.",
+          "set": {
+            "id": "S",
+            "cells": [
+              [
+                3,
+                15,
+                101
+              ],
+              [
+                2,
+                6,
+                26
+              ],
+              [
+                5,
+                21,
+                127
+              ]
+            ]
+          },
+          "highlight": [
+            {
+              "id": "S",
+              "cells": [
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ]
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Mean = sum / count = 21 / 5 = 4.2.",
+          "show": "m1",
+          "highlight": [
+            {
+              "id": "S",
+              "cells": [
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              "tone": "good"
+            },
+            "m1"
+          ]
+        },
+        {
+          "caption": "Mean of squares = 127 / 5 = 25.4.",
+          "show": "m2",
+          "highlight": [
+            {
+              "id": "S",
+              "cells": [
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  2
+                ]
+              ],
+              "tone": "good"
+            },
+            "m2"
+          ]
+        },
+        {
+          "caption": "Variance = mean of squares − mean² = 25.4 − 17.64 = 7.76.",
+          "show": "m3",
+          "highlight": [
+            {
+              "id": "m3",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db.hierarchy.h7.weighted",
+      "title": "State average from city counts and averages",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "st",
+          "kind": "box",
+          "x": 125,
+          "y": 20,
+          "w": 150,
+          "h": 46,
+          "label": "State\n?"
+        },
+        {
+          "id": "p",
+          "kind": "box",
+          "x": 10,
+          "y": 118,
+          "w": 114,
+          "h": 46,
+          "label": "Pune\nn=4, avg 50"
+        },
+        {
+          "id": "n",
+          "kind": "box",
+          "x": 143,
+          "y": 118,
+          "w": 114,
+          "h": 46,
+          "label": "Nashik\nn=1, avg 80"
+        },
+        {
+          "id": "g",
+          "kind": "box",
+          "x": 276,
+          "y": 118,
+          "w": 114,
+          "h": 46,
+          "label": "Nagpur\nn=5, avg 30"
+        },
+        {
+          "id": "e1",
+          "kind": "edge",
+          "from": "st",
+          "to": "p"
+        },
+        {
+          "id": "e2",
+          "kind": "edge",
+          "from": "st",
+          "to": "n"
+        },
+        {
+          "id": "e3",
+          "kind": "edge",
+          "from": "st",
+          "to": "g"
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 67,
+          "y": 184,
+          "text": "4 × 50 = 200",
+          "size": 12
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 200,
+          "y": 184,
+          "text": "1 × 80 = 80",
+          "size": 12
+        },
+        {
+          "id": "t3",
+          "kind": "text",
+          "x": 333,
+          "y": 184,
+          "text": "5 × 30 = 150",
+          "size": 12
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 200,
+          "y": 224,
+          "text": "",
+          "size": 13,
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Each city cell holds (count, average): Pune (4, 50), Nashik (1, 80), Nagpur (5, 30). We want the state average.",
+          "highlight": [
+            "p",
+            "n",
+            "g"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "average of what?"
+          }
+        },
+        {
+          "caption": "Rebuild each city's total from count × average: 200, 80 and 150.",
+          "show": [
+            "t1",
+            "t2",
+            "t3"
+          ],
+          "highlight": [
+            "t1",
+            "t2",
+            "t3"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "total = count × average"
+          }
+        },
+        {
+          "caption": "Add the totals and the counts: sum = 430, count = 10.",
+          "set": [
+            {
+              "id": "st",
+              "label": "State\nn=10, sum 430"
+            },
+            {
+              "id": "calc",
+              "text": "200 + 80 + 150 = 430;  4 + 1 + 5 = 10"
+            }
+          ],
+          "highlight": [
+            "st"
+          ]
+        },
+        {
+          "caption": "State average = 430 / 10 = 43.",
+          "set": [
+            {
+              "id": "st",
+              "label": "State\navg 43",
+              "tone": "good"
+            },
+            {
+              "id": "calc",
+              "text": "430 / 10 = 43",
+              "tone": "good"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "st",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "The shortcut (50 + 80 + 30) / 3 = 53.33 lets Nashik's single sale weigh as much as Pune's four. Weights must be the counts.",
+          "set": {
+            "id": "calc",
+            "text": "wrong: (50 + 80 + 30) / 3 = 53.3",
+            "tone": "bad"
+          },
+          "highlight": [
+            {
+              "id": "n",
+              "tone": "bad"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db.hierarchy.h8.facts",
+      "title": "Sorting the columns of a sale into dimensions and measures",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "R",
+          "kind": "grid",
+          "x": 26,
+          "y": 84,
+          "rows": 1,
+          "cols": 6,
+          "cw": 58,
+          "ch": 34,
+          "cells": [
+            [
+              "14 Mar",
+              "Laptop",
+              "Pune",
+              2,
+              70000,
+              10
+            ]
+          ],
+          "colLabels": [
+            "date",
+            "product",
+            "city",
+            "qty",
+            "amount",
+            "disc %"
+          ],
+          "colTitle": "one sale row"
+        },
+        {
+          "id": "Bd",
+          "kind": "box",
+          "x": 28,
+          "y": 132,
+          "w": 170,
+          "h": 30,
+          "label": "dimensions",
+          "fill": false,
+          "tone": "accent"
+        },
+        {
+          "id": "Bm",
+          "kind": "box",
+          "x": 202,
+          "y": 132,
+          "w": 112,
+          "h": 30,
+          "label": "measures",
+          "fill": false,
+          "tone": "good"
+        },
+        {
+          "id": "Br",
+          "kind": "box",
+          "x": 318,
+          "y": 132,
+          "w": 54,
+          "h": 30,
+          "label": "ratio",
+          "fill": false,
+          "tone": "mid"
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 200,
+          "y": 206,
+          "text": "",
+          "size": 13,
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "One sale: date 14 Mar, product Laptop, city Pune, quantity 2, amount 70000, discount 10 percent.",
+          "highlight": "R"
+        },
+        {
+          "caption": "Date, product and city describe the context. We group and filter by them: dimension attributes.",
+          "show": "Bd",
+          "highlight": [
+            {
+              "id": "R",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ]
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "group by these"
+          }
+        },
+        {
+          "caption": "Quantity and amount are numbers we add across rows. They are additive measures.",
+          "show": "Bm",
+          "highlight": [
+            {
+              "id": "R",
+              "cells": [
+                [
+                  0,
+                  3
+                ],
+                [
+                  0,
+                  4
+                ]
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "add these up"
+          }
+        },
+        {
+          "caption": "Discount percent is a number too, but adding percentages from different bills means nothing: a non-additive measure.",
+          "show": "Br",
+          "highlight": [
+            {
+              "id": "R",
+              "cells": [
+                [
+                  0,
+                  5
+                ]
+              ],
+              "tone": "mid"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "do not simply add"
+          }
+        },
+        {
+          "caption": "Test it: SUM(amount) grouped by city makes sense; SUM(date) does not. Group-by columns are dimensions, aggregated numbers are measures.",
+          "highlight": [
+            "Bd",
+            "Bm",
+            "Br"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "SUM(amount) BY city: yes.   SUM(date): no.",
+            "tone": "good"
+          }
+        }
+      ]
+    }
+  ]
+}

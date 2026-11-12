@@ -1,0 +1,3110 @@
+{
+ "topic_id": "db.index",
+ "title": "Indexing and B+ trees",
+ "chapter_note": {
+  "about": "An index is a small sorted structure that tells you which data block to read. GATE asks you to size index files from block, key and pointer sizes, to count block accesses, and to trace insertions into a B+ tree. This chapter starts with file organisations and index types, then the arithmetic of blocks and search cost. After that come B and B+ tree order, height, insertion with splits, how B trees differ from B+ trees, and finally which index suits which query.",
+  "simple": "A big table is like a huge book, and reading it page by page is slow. An index is the small guide at the back that says which page to open. For a guide to work on a very long list, you stack guides: a guide of guides, until the top one fits on a single page. A B+ tree is exactly that, kept tidy as new items are added by splitting full pages in two. Every size and cost question is just counting how many items fit on a page and how many pages each guide takes. In exam words: file organisations, sparse and dense indexes, block counts, B+ tree order, height and splits.",
+  "concept_map": [
+   {
+    "atom_id": "x1",
+    "title": "File organisations",
+    "one_line": "Heap b/2, sorted log2 b, hash about 1; only ordered files serve ranges."
+   },
+   {
+    "atom_id": "x2",
+    "title": "Index types",
+    "one_line": "Primary (sparse), clustering, secondary (dense)."
+   },
+   {
+    "atom_id": "x3",
+    "title": "Blocking factor and index size",
+    "one_line": "Floor entries per block, ceiling blocks."
+   },
+   {
+    "atom_id": "x4",
+    "title": "Index search cost",
+    "one_line": "Binary search ⌈log2 b⌉ against one read per level."
+   },
+   {
+    "atom_id": "x5",
+    "title": "B and B+ tree order",
+    "one_line": "p pointers, p−1 keys; leaf pairs plus a next pointer."
+   },
+   {
+    "atom_id": "x6",
+    "title": "Height and node counts",
+    "one_line": "Full nodes give the shortest tree; half-full nodes the tallest."
+   },
+   {
+    "atom_id": "x7",
+    "title": "Insertion and splits",
+    "one_line": "Leaf split copies up, internal split pushes up."
+   },
+   {
+    "atom_id": "x8",
+    "title": "B tree versus B+ tree",
+    "one_line": "B+ keeps data in linked leaves, so fan-out is higher."
+   },
+   {
+    "atom_id": "x9",
+    "title": "Choosing an index",
+    "one_line": "Hash for equality, B+ for ranges; composite needs a leading prefix."
+   }
+  ],
+  "gate_patterns": [
+   "Order, size and cost: compute the B+ tree order from block, key and pointer sizes, the index blocks, or the block accesses for a search (2017 CS2 Q49, 2026 DA Q32, 2015 CS3 Q46, 2021 CS2 Q31, 2023 CS Q62).",
+   "Height and insertion: minimum or maximum height for n keys, or insert a sequence and give the final tree or the number of splits (2020 CS Q64, 2025 CS1 Q21, 2025 CS2 Q57, 2026 DA Q41, 2009 CS Q44).",
+   "Properties and choice: B versus B+ statements, file organisation and index terminology, which index speeds up a query (2019 CS Q24, 2024 CS1 Q21, 2024 CS2 Q26, 2024 DA Q55). Weightage: about 1.0 marks per CS paper and 1.7 per DA paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "x1",
+   "title": "File organisations",
+   "simple": "Think of finding a name in three kinds of notebooks. In a messy notebook you read page after page until you hit it. In an alphabetical notebook you open the middle, then the middle of the half that is left, and so on. In a notebook where a formula tells you the page number from the name, you open one page. But that formula gives no help for 'all names from M to P', because neighbouring names land on pages far apart. In exam words: heap needs about $b/2$ blocks, a sorted file needs $\\lceil\\log_2 b\\rceil$, a hash file about 1; only ordered files answer ranges well.",
+   "idea": "A file can store records in no order (**heap**), in key order (**sorted**), or by a hash of the key (**hash**). The choice decides how many blocks you read to find a record. Hash is best for one exact key, and sorted is best for ranges.",
+   "definition": "With $b$ data blocks and $r$ records: heap equality search averages $b/2$ blocks (worst $b$); sorted file binary search costs $\\lceil \\log_2 b \\rceil$; a hash file costs about 1 block (plus overflow). A range query is cheap only on an ordered organisation: search once, then read adjacent blocks.",
+   "intuition_full": "The number of block reads is the price you pay, because disk reads dominate everything else. A heap keeps no information about where a key might be, so every block is a candidate. A sorted file lets each comparison discard half the blocks, which gives the logarithm. A hash function computes the answer in one step, but it deliberately scatters neighbouring keys, so no order survives. That is why hashing cannot serve a range. A failed search in a heap must scan every block, while a successful one stops early. These three numbers are the baseline for everything else in this chapter: an index is a way to turn a heap into something that behaves like a sorted file.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A file has 2,400 records, 12 records per block, so $b = 2400/12 = 200$ blocks. Count the block accesses to find one record by its key in a heap file, a sorted file and a hash file. Then repeat for a range query that returns 36 consecutive records.",
+     "steps": [
+      "Blocks: $b = 2400 / 12 = 200$. We count block accesses to fetch one record by key.",
+      "Heap file (no order): scan from the start. On average half the blocks are read, $200/2 = 100$ (worst case 200).",
+      "Sorted file: binary search over blocks costs $\\lceil \\log_2 200 \\rceil = 8$, since $2^7 = 128 < 200 \\le 256$.",
+      "Hash file on the key: the hash function names the bucket, so about 1 block access.",
+      "Range query (36 records = 3 blocks): sorted file reads 8 + 2 = 10 blocks. Hash scatters neighbouring keys, so it needs all 200. A heap needs all 200."
+     ],
+     "answer": "Equality: heap 100 (average), sorted 8, hash about 1. Range of 3 blocks: sorted 10, hash 200, heap 200."
+    },
+    {
+     "level": "gate",
+     "setup": "A sorted file occupies 6,000 blocks. A query returns 40 consecutive records stored in 4 whole blocks. How many block accesses with binary search for the first block and then a sequential read?",
+     "steps": [
+      "Binary search to the first matching block: $\\lceil \\log_2 6000 \\rceil = 13$, since $2^{12} = 4096 < 6000 \\le 8192 = 2^{13}$. This read already includes the first matching block.",
+      "The remaining 3 blocks are adjacent, so we read them one after the other: 3 more accesses.",
+      "Total $13 + 3 = 16$. A hash file would need all 6,000 for this range, and a heap file the same."
+     ],
+     "answer": "16 block accesses."
+    },
+    {
+     "level": "twist",
+     "setup": "The key being searched is **not in** the 200-block heap file. How many blocks does a heap scan read, and what do a sorted file and a hash file read?",
+     "steps": [
+      "A successful heap search stops when it finds the record, about $b/2$ blocks on average. An unsuccessful search cannot stop early.",
+      "So the heap scan reads all $b = 200$ blocks.",
+      "The sorted file still takes $\\lceil \\log_2 200 \\rceil = 8$ reads, and the hash file about 1 read (the bucket is empty or full of other keys)."
+     ],
+     "answer": "Heap 200, sorted 8, hash about 1."
+    }
+   ],
+   "why": "These costs are the starting point of every index cost question. In GATE: choose the organisation that serves a query, or count block accesses (2024 CS2 Q26, 2026 CS2 Q46, 2008 CS Q16, 2013 CS Q15).",
+   "how": [
+    "Compute $b = \\lceil r / \\text{bfr} \\rceil$ first.",
+    "Equality search: heap $b/2$ (average) or $b$ (not found), sorted $\\lceil\\log_2 b\\rceil$, hash about 1.",
+    "Range search: sorted = binary search plus the adjacent blocks; hash and heap = all blocks.",
+    "Pick hash only for exact-match predicates."
+   ],
+   "mistake": "Using a hash file for a range query, or quoting $b/2$ for a search that fails. A hash file gives no order, and an unsuccessful heap scan reads every block.",
+   "edge_cases": [
+    "Hash buckets that overflow add extra block reads, so 'about 1' is an average.",
+    "Binary search on blocks assumes the file is sorted on the search key; a different key falls back to a scan.",
+    "If the file has one block, every organisation costs 1.",
+    "For $b$ a power of two, $\\lceil\\log_2 b\\rceil = \\log_2 b$ exactly."
+   ],
+   "connections": [
+    "**Index types** (next card) add a small sorted structure on top of a file.",
+    "**Choosing an index** (last card) uses these costs to pick hash or B+.",
+    "Hashing as a data structure is in `algo.hashing`."
+   ],
+   "check": [
+    {
+     "q": "A heap file has 500 blocks. How many blocks does a successful search read on average?",
+     "a": "About 250."
+    },
+    {
+     "q": "A sorted file has 1,024 blocks. How many reads does binary search need?",
+     "a": "10, because $\\log_2 1024 = 10$."
+    },
+    {
+     "q": "Can a hash file answer 'key between 10 and 20' efficiently?",
+     "a": "No. Hashing scatters neighbouring keys."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q26, 2026 CS2 Q46, 2008 CS Q16, 2013 CS Q15, 2015 CS1 Q24",
+   "try": {
+    "id": "gen.index.001",
+    "label": "Try: which organisation serves an equality lookup (L1)"
+   },
+   "scene": "db.index.x1.organisations",
+   "example": {
+    "setup": "A file has 2,400 records, 12 records per block, so $b = 2400/12 = 200$ blocks. Count the block accesses to find one record by its key in a heap file, a sorted file and a hash file. Then repeat for a range query that returns 36 consecutive records.",
+    "steps": [
+     "Blocks: $b = 2400 / 12 = 200$. We count block accesses to fetch one record by key.",
+     "Heap file (no order): scan from the start. On average half the blocks are read, $200/2 = 100$ (worst case 200).",
+     "Sorted file: binary search over blocks costs $\\lceil \\log_2 200 \\rceil = 8$, since $2^7 = 128 < 200 \\le 256$.",
+     "Hash file on the key: the hash function names the bucket, so about 1 block access.",
+     "Range query (36 records = 3 blocks): sorted file reads 8 + 2 = 10 blocks. Hash scatters neighbouring keys, so it needs all 200. A heap needs all 200."
+    ],
+    "answer": "Equality: heap 100 (average), sorted 8, hash about 1. Range of 3 blocks: sorted 10, hash 200, heap 200."
+   },
+   "what": "A file can store records in no order (**heap**), in key order (**sorted**), or by a hash of the key (**hash**). The choice decides how many blocks you read to find a record. Hash is best for one exact key, and sorted is best for ranges.",
+   "what_full": "A file can store records in no order (**heap**), in key order (**sorted**), or by a hash of the key (**hash**). The choice decides how many blocks you read to find a record. Hash is best for one exact key, and sorted is best for ranges.\n\nWith $b$ data blocks and $r$ records: heap equality search averages $b/2$ blocks (worst $b$); sorted file binary search costs $\\lceil \\log_2 b \\rceil$; a hash file costs about 1 block (plus overflow). A range query is cheap only on an ordered organisation: search once, then read adjacent blocks.\n\n**Worked example.** A file has 2,400 records, 12 records per block, so $b = 2400/12 = 200$ blocks. Count the block accesses to find one record by its key in a heap file, a sorted file and a hash file. Then repeat for a range query that returns 36 consecutive records.\n\n1. Blocks: $b = 2400 / 12 = 200$. We count block accesses to fetch one record by key.\n2. Heap file (no order): scan from the start. On average half the blocks are read, $200/2 = 100$ (worst case 200).\n3. Sorted file: binary search over blocks costs $\\lceil \\log_2 200 \\rceil = 8$, since $2^7 = 128 < 200 \\le 256$.\n4. Hash file on the key: the hash function names the bucket, so about 1 block access.\n5. Range query (36 records = 3 blocks): sorted file reads 8 + 2 = 10 blocks. Hash scatters neighbouring keys, so it needs all 200. A heap needs all 200.\n\n**Answer:** Equality: heap 100 (average), sorted 8, hash about 1. Range of 3 blocks: sorted 10, hash 200, heap 200.",
+   "why_full": "These costs are the starting point of every index cost question. In GATE: choose the organisation that serves a query, or count block accesses (2024 CS2 Q26, 2026 CS2 Q46, 2008 CS Q16, 2013 CS Q15).\n\nAsked: 2024 CS2 Q26, 2026 CS2 Q46, 2008 CS Q16, 2013 CS Q15, 2015 CS1 Q24",
+   "trap": "Using a hash file for a range query, or quoting $b/2$ for a search that fails. A hash file gives no order, and an unsuccessful heap scan reads every block."
+  },
+  {
+   "atom_id": "x2",
+   "title": "Index types",
+   "simple": "Think of the index at the back of a textbook. A dense index lists every single word and its page. A sparse index lists only the first word on each page, so you jump to a page and read down it. That only works because the book is already in a sensible order. If the pages were shuffled, you would need an entry for every word. In exam words: a primary index is on the ordering key (sparse), a clustering index is on an ordered non-key field, and a secondary index is on an unordered field (dense).",
+   "idea": "An **index** is a small sorted table of (key, pointer) entries that tells you which block to read. A **sparse** index has one entry per data block, so it needs sorted data. A **dense** index has one entry per record, so it works on any file.",
+   "definition": "**Primary index:** on the ordering key field of a sorted file; sparse, one entry per block.\n\n**Clustering index:** on an ordered non-key field; one entry per distinct value.\n\n**Secondary index:** on a non-ordering field (key or non-key); dense.\n\nDense = $r$ entries; sparse = $b$ entries; clustering = number of distinct values.",
+   "intuition_full": "An index trades space for time: it replaces a scan of a big data file by a search of a much smaller index file. How small depends on how much of the file's order you can exploit. If the data is sorted on the key, one entry per block is enough, because inside a block you can read all records. If the data is not sorted on that field, nothing can be inferred, so every record needs its own entry. A file can have only one ordering, so it has at most one primary or clustering index, but any number of secondary ones. A clustering index is sparse in the sense that it has one entry per distinct value, however many records share that value.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A data file has 12 records with keys 1 to 12, sorted on the key, 3 records per block, so 4 blocks. Build a sparse index and a dense index. How many entries does each have, and how do you find key 8?",
+     "steps": [
+      "The data file is sorted on the key: blocks hold keys (1,2,3), (4,5,6), (7,8,9) and (10,11,12).",
+      "A **sparse** index has one entry per block, holding the first key of the block. That gives 4 entries: 1, 4, 7, 10.",
+      "A **dense** index has one entry for every record. That gives 12 entries.",
+      "Find key 8 with the sparse index: take the largest entry $\\le 8$, which is 7. Read that block (7, 8, 9) and scan it.",
+      "The sparse index has $b$ entries (4) and the dense index has $r$ entries (12). For 3,000 records at 10 per block it is 300 versus 3,000. A sparse index needs the data sorted."
+     ],
+     "answer": "Sparse: 4 entries. Dense: 12 entries. Key 8 is found in the block starting with 7."
+    },
+    {
+     "level": "gate",
+     "setup": "A file of 600 records, 15 per block, is sorted on key $K$. Index entries are 12 bytes and a block is 240 bytes. How many blocks does each index take: a sparse primary index on $K$, and a dense secondary index on $K$? A second copy of the file is ordered on a non-key field $D$ with 6 distinct values. How many blocks does its clustering index on $D$ take?",
+     "steps": [
+      "Entries per index block: $240 / 12 = 20$. Data blocks: $600 / 15 = 40$.",
+      "Sparse primary index on $K$: one entry per data block, 40 entries, so $\\lceil 40/20 \\rceil = 2$ blocks.",
+      "Dense index on $K$: one entry per record, 600 entries, so $\\lceil 600/20 \\rceil = 30$ blocks.",
+      "Clustering index on $D$: one entry per distinct value, 6 entries, so 1 block."
+     ],
+     "answer": "Sparse primary: 2 blocks. Dense: 30 blocks. Clustering: 1 block."
+    },
+    {
+     "level": "twist",
+     "setup": "Can you build a sparse index on a field by which the data file is **not** ordered? What kind of index must it be?",
+     "steps": [
+      "A sparse index records only the first key of each block, and it relies on the data being in key order to know that the other keys lie between consecutive entries.",
+      "If the file is not ordered on the field, the missing keys could be in any block. The index can't tell where to look.",
+      "So an index on an unordered field must be **dense** and is called a **secondary** index: one entry per record (or per value)."
+     ],
+     "answer": "No. It must be a dense secondary index."
+    }
+   ],
+   "why": "Almost every index question starts with 'how many entries'. In GATE: sparse or dense, primary or secondary, and how many blocks the index needs (2024 CS2 Q26, 2026 CS2 Q46, 2008 CS Q16, 2013 CS Q15).",
+   "how": [
+    "Check whether the file is ordered on the indexed field.",
+    "Ordered on a key: primary (sparse, $b$ entries). Ordered on a non-key: clustering (one per value). Not ordered: secondary (dense, $r$ entries).",
+    "Entries per index block is $\\lfloor B / \\text{entry size} \\rfloor$.",
+    "Index blocks are $\\lceil \\text{entries} / \\text{entries per block} \\rceil$."
+   ],
+   "mistake": "Calling an index sparse or primary when the file is not sorted on that field. A sparse index needs the data in the indexed order. Also, counting records instead of blocks for a sparse index.",
+   "edge_cases": [
+    "A file can have at most one primary or clustering index, because it can be ordered on only one field.",
+    "A secondary index on a non-key field may use an extra level of pointer blocks.",
+    "A dense index on the ordering field is allowed, but wasteful.",
+    "If all keys fit in one index block, there is nothing more to build."
+   ],
+   "connections": [
+    "**Blocking factor and index size** (next card) turns these entry counts into blocks.",
+    "**B+ trees** are multi-level indexes that stay balanced under updates.",
+    "Clustering relates to the SQL idea of a **clustered index** in database design."
+   ],
+   "check": [
+    {
+     "q": "A sorted file has 800 blocks. How many entries does its sparse primary index have?",
+     "a": "800, one per block."
+    },
+    {
+     "q": "A file with 5,000 records has a dense index. How many entries?",
+     "a": "5,000."
+    },
+    {
+     "q": "An index on a field that the file is not sorted on is called?",
+     "a": "A secondary index."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q26, 2026 CS2 Q46, 2008 CS Q16, 2013 CS Q15, 2015 CS1 Q24",
+   "try": {
+    "id": "gen.index.002",
+    "label": "Try: entries of a sparse index on a sorted file (L1)"
+   },
+   "scene": "db.index.x2.sparse_dense",
+   "example": {
+    "setup": "A data file has 12 records with keys 1 to 12, sorted on the key, 3 records per block, so 4 blocks. Build a sparse index and a dense index. How many entries does each have, and how do you find key 8?",
+    "steps": [
+     "The data file is sorted on the key: blocks hold keys (1,2,3), (4,5,6), (7,8,9) and (10,11,12).",
+     "A **sparse** index has one entry per block, holding the first key of the block. That gives 4 entries: 1, 4, 7, 10.",
+     "A **dense** index has one entry for every record. That gives 12 entries.",
+     "Find key 8 with the sparse index: take the largest entry $\\le 8$, which is 7. Read that block (7, 8, 9) and scan it.",
+     "The sparse index has $b$ entries (4) and the dense index has $r$ entries (12). For 3,000 records at 10 per block it is 300 versus 3,000. A sparse index needs the data sorted."
+    ],
+    "answer": "Sparse: 4 entries. Dense: 12 entries. Key 8 is found in the block starting with 7."
+   },
+   "what": "An **index** is a small sorted table of (key, pointer) entries that tells you which block to read. A **sparse** index has one entry per data block, so it needs sorted data. A **dense** index has one entry per record, so it works on any file.",
+   "what_full": "An **index** is a small sorted table of (key, pointer) entries that tells you which block to read. A **sparse** index has one entry per data block, so it needs sorted data. A **dense** index has one entry per record, so it works on any file.\n\n**Primary index:** on the ordering key field of a sorted file; sparse, one entry per block.\n\n**Clustering index:** on an ordered non-key field; one entry per distinct value.\n\n**Secondary index:** on a non-ordering field (key or non-key); dense.\n\nDense = $r$ entries; sparse = $b$ entries; clustering = number of distinct values.\n\n**Worked example.** A data file has 12 records with keys 1 to 12, sorted on the key, 3 records per block, so 4 blocks. Build a sparse index and a dense index. How many entries does each have, and how do you find key 8?\n\n1. The data file is sorted on the key: blocks hold keys (1,2,3), (4,5,6), (7,8,9) and (10,11,12).\n2. A **sparse** index has one entry per block, holding the first key of the block. That gives 4 entries: 1, 4, 7, 10.\n3. A **dense** index has one entry for every record. That gives 12 entries.\n4. Find key 8 with the sparse index: take the largest entry $\\le 8$, which is 7. Read that block (7, 8, 9) and scan it.\n5. The sparse index has $b$ entries (4) and the dense index has $r$ entries (12). For 3,000 records at 10 per block it is 300 versus 3,000. A sparse index needs the data sorted.\n\n**Answer:** Sparse: 4 entries. Dense: 12 entries. Key 8 is found in the block starting with 7.",
+   "why_full": "Almost every index question starts with 'how many entries'. In GATE: sparse or dense, primary or secondary, and how many blocks the index needs (2024 CS2 Q26, 2026 CS2 Q46, 2008 CS Q16, 2013 CS Q15).\n\nAsked: 2024 CS2 Q26, 2026 CS2 Q46, 2008 CS Q16, 2013 CS Q15, 2015 CS1 Q24",
+   "trap": "Calling an index sparse or primary when the file is not sorted on that field. A sparse index needs the data in the indexed order. Also, counting records instead of blocks for a sparse index."
+  },
+  {
+   "atom_id": "x3",
+   "title": "Blocking factor and index size",
+   "simple": "A block is like a lunch box that holds whole sandwiches only. If the box is 1,024 units wide and a sandwich is 150, you fit 6 and waste the leftover. You never cut a sandwich in half, so you round the number per box down. Then, to pack 7,000 sandwiches, you count the boxes and round up, because a part-filled box still counts as a box. An index is a second set of boxes holding small entries, so the same two roundings apply. In exam words: records per block $=\\lfloor B/R\\rfloor$, blocks $=\\lceil r/\\text{bfr}\\rceil$.",
+   "idea": "**Blocking factor** is how many whole records fit in a block: round **down**. The number of blocks is the record count divided by that, rounded **up**. The same two steps size an index file, where an entry is a key plus a pointer.",
+   "definition": "$\\text{bfr} = \\lfloor B / R \\rfloor$ for block size $B$ and record size $R$ (unspanned). Data blocks $b = \\lceil r / \\text{bfr} \\rceil$.\n\nIndex entry size $e = K + P$ (key plus pointer). Entries per block $= \\lfloor B / e \\rfloor$. Dense index blocks $= \\lceil r / \\lfloor B/e \\rfloor \\rceil$; sparse index blocks $= \\lceil b / \\lfloor B/e \\rfloor \\rceil$.",
+   "intuition_full": "Rounding directions are the whole game. Records per block must be a whole number, and a partly used slot is wasted, so it is floored. Blocks needed is a count of containers, and a half-empty container still has to be stored, so it is ceiled. If you flip either one, your answer is off by a few blocks and the option does not match. For an index, replace the record by an entry and the record count by the number of entries. A sparse index has far fewer entries than a dense one, so it is much smaller. The savings are why a sparse index can be searched with a handful of block reads.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A file has 7,000 records of 150 bytes each in 1,024-byte blocks (no spanning). An index entry is a 12-byte key plus an 8-byte pointer. Find the number of data blocks, the dense index blocks and the sparse index blocks.",
+     "steps": [
+      "Records per block: $\\lfloor 1024/150 \\rfloor = 6$, because $7 \\times 150 = 1050 > 1024$. The last $1024 - 900 = 124$ bytes of each block are unused.",
+      "Data blocks: $\\lceil 7000/6 \\rceil = 1167$.",
+      "Index entry size: $12 + 8 = 20$ bytes. Entries per block: $\\lfloor 1024/20 \\rfloor = 51$.",
+      "Dense index: one entry per record, $\\lceil 7000/51 \\rceil = 138$ blocks.",
+      "Sparse index: one entry per data block, $\\lceil 1167/51 \\rceil = 23$ blocks."
+     ],
+     "answer": "Data 1,167 blocks, dense index 138 blocks, sparse index 23 blocks."
+    },
+    {
+     "level": "gate",
+     "setup": "A dense index has 10,000 entries. Each entry is a 9-byte key and a 7-byte record pointer, and a block is 512 bytes. How many index blocks?",
+     "steps": [
+      "Entry size: $9 + 7 = 16$ bytes.",
+      "Entries per block: $\\lfloor 512/16 \\rfloor = 32$ (exact, no waste).",
+      "Blocks: $\\lceil 10000/32 \\rceil = \\lceil 312.5 \\rceil = 313$. Round blocks **up**, entries per block **down**."
+     ],
+     "answer": "313 blocks."
+    },
+    {
+     "level": "twist",
+     "setup": "2,500 records of 400 bytes go into 1,000-byte blocks. Compare unspanned storage (a record sits in one block) with spanned storage (a record may continue into the next block).",
+     "steps": [
+      "Unspanned: $\\lfloor 1000/400 \\rfloor = 2$ records per block, so $\\lceil 2500/2 \\rceil = 1250$ blocks. Each block wastes 200 bytes.",
+      "Spanned: no space is wasted, so the file takes $\\lceil 2500 \\times 400 / 1000 \\rceil = 1000$ blocks.",
+      "Spanning saves blocks but a record may need two block reads. Use the spanned formula only if the question says records may span."
+     ],
+     "answer": "Unspanned 1,250 blocks; spanned 1,000 blocks."
+    }
+   ],
+   "why": "Size calculations are the most mechanical marks in this chapter. In GATE: number of data blocks, number of index blocks, and sometimes the search cost that follows (2021 CS2 Q31, 2023 CS Q62, 2008 CS Q70).",
+   "how": [
+    "Compute bfr $= \\lfloor B/R \\rfloor$, then $b = \\lceil r/\\text{bfr} \\rceil$.",
+    "Compute entry size $K + P$ and entries per block $\\lfloor B/(K+P) \\rfloor$.",
+    "Dense: divide $r$ by entries per block (round up). Sparse: divide $b$ by it (round up).",
+    "If records may span blocks, use $\\lceil rR/B \\rceil$ instead."
+   ],
+   "mistake": "Rounding blocks down or entries per block up. Always floor the number that fits in a block and ceil the number of blocks. Another slip is using the record count for a sparse index, which has one entry per block.",
+   "edge_cases": [
+    "If the record is larger than the block, records must span.",
+    "Exact fits (e.g. $512/16 = 32$) have no rounding.",
+    "Block pointers and record pointers may differ in size; the question states which one the index uses.",
+    "A one-entry-per-value clustering index uses the number of distinct values, not $r$ or $b$."
+   ],
+   "connections": [
+    "**Index search cost** (next card) uses these block counts.",
+    "**B+ tree order** applies the same floor idea to a tree node.",
+    "File blocking is the same idea as page size in `os.memory`."
+   ],
+   "check": [
+    {
+     "q": "Block 1,000 B, record 300 B, 100 records. How many blocks (no spanning)?",
+     "a": "bfr = 3, so $\\lceil 100/3 \\rceil = 34$."
+    },
+    {
+     "q": "Entry 20 B, block 512 B. Entries per block?",
+     "a": "$\\lfloor 512/20 \\rfloor = 25$."
+    },
+    {
+     "q": "A sparse index is built on 300 data blocks, with 25 entries per block. How many index blocks?",
+     "a": "$\\lceil 300/25 \\rceil = 12$."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q31, 2023 CS Q62, 2008 CS Q70",
+   "try": {
+    "id": "gen.index.007",
+    "label": "Try: blocks for 5,000 records of 120 bytes (L2)"
+   },
+   "scene": "db.index.x3.blocks",
+   "example": {
+    "setup": "A file has 7,000 records of 150 bytes each in 1,024-byte blocks (no spanning). An index entry is a 12-byte key plus an 8-byte pointer. Find the number of data blocks, the dense index blocks and the sparse index blocks.",
+    "steps": [
+     "Records per block: $\\lfloor 1024/150 \\rfloor = 6$, because $7 \\times 150 = 1050 > 1024$. The last $1024 - 900 = 124$ bytes of each block are unused.",
+     "Data blocks: $\\lceil 7000/6 \\rceil = 1167$.",
+     "Index entry size: $12 + 8 = 20$ bytes. Entries per block: $\\lfloor 1024/20 \\rfloor = 51$.",
+     "Dense index: one entry per record, $\\lceil 7000/51 \\rceil = 138$ blocks.",
+     "Sparse index: one entry per data block, $\\lceil 1167/51 \\rceil = 23$ blocks."
+    ],
+    "answer": "Data 1,167 blocks, dense index 138 blocks, sparse index 23 blocks."
+   },
+   "what": "**Blocking factor** is how many whole records fit in a block: round **down**. The number of blocks is the record count divided by that, rounded **up**. The same two steps size an index file, where an entry is a key plus a pointer.",
+   "what_full": "**Blocking factor** is how many whole records fit in a block: round **down**. The number of blocks is the record count divided by that, rounded **up**. The same two steps size an index file, where an entry is a key plus a pointer.\n\n$\\text{bfr} = \\lfloor B / R \\rfloor$ for block size $B$ and record size $R$ (unspanned). Data blocks $b = \\lceil r / \\text{bfr} \\rceil$.\n\nIndex entry size $e = K + P$ (key plus pointer). Entries per block $= \\lfloor B / e \\rfloor$. Dense index blocks $= \\lceil r / \\lfloor B/e \\rfloor \\rceil$; sparse index blocks $= \\lceil b / \\lfloor B/e \\rfloor \\rceil$.\n\n**Worked example.** A file has 7,000 records of 150 bytes each in 1,024-byte blocks (no spanning). An index entry is a 12-byte key plus an 8-byte pointer. Find the number of data blocks, the dense index blocks and the sparse index blocks.\n\n1. Records per block: $\\lfloor 1024/150 \\rfloor = 6$, because $7 \\times 150 = 1050 > 1024$. The last $1024 - 900 = 124$ bytes of each block are unused.\n2. Data blocks: $\\lceil 7000/6 \\rceil = 1167$.\n3. Index entry size: $12 + 8 = 20$ bytes. Entries per block: $\\lfloor 1024/20 \\rfloor = 51$.\n4. Dense index: one entry per record, $\\lceil 7000/51 \\rceil = 138$ blocks.\n5. Sparse index: one entry per data block, $\\lceil 1167/51 \\rceil = 23$ blocks.\n\n**Answer:** Data 1,167 blocks, dense index 138 blocks, sparse index 23 blocks.",
+   "why_full": "Size calculations are the most mechanical marks in this chapter. In GATE: number of data blocks, number of index blocks, and sometimes the search cost that follows (2021 CS2 Q31, 2023 CS Q62, 2008 CS Q70).\n\nAsked: 2021 CS2 Q31, 2023 CS Q62, 2008 CS Q70",
+   "trap": "Rounding blocks down or entries per block up. Always floor the number that fits in a block and ceil the number of blocks. Another slip is using the record count for a sparse index, which has one entry per block."
+  },
+  {
+   "atom_id": "x4",
+   "title": "Index search cost",
+   "simple": "Finding a word in a thick dictionary by opening the middle again and again takes a few tries. Now imagine a one-page guide that says which part of the dictionary to open, and a second guide that says which page of that guide to look at. Each guide cuts the search to one step. Stacking guides until the top guide fits on one page means you read exactly one page per guide. In exam words: binary search on an index of $b$ blocks costs $\\lceil\\log_2 b\\rceil$; a multi-level index costs one read per level, plus the data block.",
+   "idea": "A **single-level** index is searched by binary search over its blocks, costing $\\lceil\\log_2 b_i\\rceil$ reads. A **multi-level** index puts a sparse index on top of the index, and so on, until the top is a single block. A search then reads one block per level.",
+   "definition": "For an index with $b_i$ blocks and $f$ entries per block: single-level search $= \\lceil \\log_2 b_i \\rceil + 1$ (the $+1$ is the data block). Multi-level: level sizes are $\\lceil b_i/f \\rceil, \\lceil b_i/f^2 \\rceil, \\dots$ until 1. Number of levels $x$ gives search cost $x + 1$.",
+   "intuition_full": "Binary search halves the remaining blocks per read, so it needs about $\\log_2 b_i$ reads. A multi-level index divides the remaining blocks by $f$ per read, because each block of the next-level index has $f$ entries. Since $f$ is typically 50 to 500, the number of levels is tiny, often 2 or 3, and the multi-level index wins. Every level above the first is sparse, because the level below is always sorted. That makes multi-level indexing the idea behind the B+ tree, which also remains balanced under insertions. When a question says the root is cached in memory, subtract one read.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A sparse primary index has 300 blocks (51 entries per block), over 15,300 data blocks. Compare the cost of fetching one record by binary search on the index against a multi-level index.",
+     "steps": [
+      "Single-level index with binary search: $\\lceil \\log_2 300 \\rceil = 9$ index reads (since $2^8 = 256 < 300 \\le 512$), plus 1 data block. Total $9 + 1 = 10$.",
+      "Multi-level: build a second level, a sparse index over the 300 index blocks. It has 300 entries, so $\\lceil 300/51 \\rceil = 6$ blocks.",
+      "Build a third level over those 6 blocks: 6 entries, $\\lceil 6/51 \\rceil = 1$ block. Stop when the top level is one block.",
+      "Search: read the top block (1), one level-2 block (2), one level-1 block (3), then the data block (4). One read per level.",
+      "Multi-level costs 4 accesses. Binary search on the single-level index costs 10."
+     ],
+     "answer": "4 accesses with the 3-level index; 10 with binary search on the single-level index."
+    },
+    {
+     "level": "gate",
+     "setup": "A dense secondary index on a key field covers 90,000 records. Entries are 20 bytes and a block is 1,000 bytes. Higher levels are sparse. How many index blocks in total, and what is the search cost?",
+     "steps": [
+      "Entries per block: $1000/20 = 50$.",
+      "Level 1 (dense, one entry per record): $\\lceil 90000/50 \\rceil = 1800$ blocks.",
+      "Level 2 (sparse over level 1): $\\lceil 1800/50 \\rceil = 36$ blocks. Level 3: $\\lceil 36/50 \\rceil = 1$ block.",
+      "Total index blocks: $1800 + 36 + 1 = 1837$.",
+      "Search: 3 index reads, and the level-1 entry points straight to the record's block: 1 data read. Total 4."
+     ],
+     "answer": "1,837 index blocks; 4 block accesses per search."
+    },
+    {
+     "level": "twist",
+     "setup": "The 3-level index above has its top (root) block kept in memory. How many disk reads does a search need?",
+     "steps": [
+      "Without caching a search reads 3 index blocks and 1 data block, which is 4.",
+      "The root block is already in memory, so it costs no disk read.",
+      "Remaining reads: the level-2 block, the level-1 block and the data block."
+     ],
+     "answer": "3 disk reads."
+    }
+   ],
+   "why": "Search cost is how the exam compares indexing choices. In GATE: the worst-case block accesses to fetch a record, with or without multi-level indexing (2021 CS2 Q31, 2023 CS Q62, 2008 CS Q70, 2020 CS Q64).",
+   "how": [
+    "Find the number of first-level index blocks $b_i$ (dense or sparse as stated).",
+    "Single-level: $\\lceil \\log_2 b_i \\rceil + 1$.",
+    "Multi-level: repeat $b \\leftarrow \\lceil b/f \\rceil$ until it is 1, counting levels; cost = levels + 1.",
+    "Subtract 1 if the top block is cached."
+   ],
+   "mistake": "Counting only the index levels and forgetting the data block (or the reverse). A search needs one read per index level plus one for the data block, unless the question counts only index accesses.",
+   "edge_cases": [
+    "If the whole index fits in one block, a single read is enough; do not apply the log formula.",
+    "A dense first level points directly at the record; a sparse one points at a block that is then scanned.",
+    "If the file is a clustering index on duplicates, an extra block of record pointers may be needed.",
+    "The top level always has exactly one block."
+   ],
+   "connections": [
+    "**Blocking factor and index size** computes $b_i$ and $f$.",
+    "**B+ tree height** is the multi-level index count with the node-fill rules applied.",
+    "Disk-access costs echo the cost model in `coa.memory`."
+   ],
+   "check": [
+    {
+     "q": "An index has 64 blocks. Worst-case reads with binary search, plus the data block?",
+     "a": "$\\log_2 64 = 6$, plus 1 = 7."
+    },
+    {
+     "q": "A 3-level index is built over a file. How many reads for one record?",
+     "a": "3 index reads + 1 data read = 4."
+    },
+    {
+     "q": "First level has 200 blocks, 50 entries per block. How many levels are needed in total?",
+     "a": "3: 200, then 4, then 1."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q31, 2023 CS Q62, 2008 CS Q70, 2020 CS Q64, 2024 DA sample Q40",
+   "try": {
+    "id": "gen.index.009",
+    "label": "Try: search cost with a 100-block sparse index (L2)"
+   },
+   "scene": "db.index.x4.levels",
+   "example": {
+    "setup": "A sparse primary index has 300 blocks (51 entries per block), over 15,300 data blocks. Compare the cost of fetching one record by binary search on the index against a multi-level index.",
+    "steps": [
+     "Single-level index with binary search: $\\lceil \\log_2 300 \\rceil = 9$ index reads (since $2^8 = 256 < 300 \\le 512$), plus 1 data block. Total $9 + 1 = 10$.",
+     "Multi-level: build a second level, a sparse index over the 300 index blocks. It has 300 entries, so $\\lceil 300/51 \\rceil = 6$ blocks.",
+     "Build a third level over those 6 blocks: 6 entries, $\\lceil 6/51 \\rceil = 1$ block. Stop when the top level is one block.",
+     "Search: read the top block (1), one level-2 block (2), one level-1 block (3), then the data block (4). One read per level.",
+     "Multi-level costs 4 accesses. Binary search on the single-level index costs 10."
+    ],
+    "answer": "4 accesses with the 3-level index; 10 with binary search on the single-level index."
+   },
+   "what": "A **single-level** index is searched by binary search over its blocks, costing $\\lceil\\log_2 b_i\\rceil$ reads. A **multi-level** index puts a sparse index on top of the index, and so on, until the top is a single block. A search then reads one block per level.",
+   "what_full": "A **single-level** index is searched by binary search over its blocks, costing $\\lceil\\log_2 b_i\\rceil$ reads. A **multi-level** index puts a sparse index on top of the index, and so on, until the top is a single block. A search then reads one block per level.\n\nFor an index with $b_i$ blocks and $f$ entries per block: single-level search $= \\lceil \\log_2 b_i \\rceil + 1$ (the $+1$ is the data block). Multi-level: level sizes are $\\lceil b_i/f \\rceil, \\lceil b_i/f^2 \\rceil, \\dots$ until 1. Number of levels $x$ gives search cost $x + 1$.\n\n**Worked example.** A sparse primary index has 300 blocks (51 entries per block), over 15,300 data blocks. Compare the cost of fetching one record by binary search on the index against a multi-level index.\n\n1. Single-level index with binary search: $\\lceil \\log_2 300 \\rceil = 9$ index reads (since $2^8 = 256 < 300 \\le 512$), plus 1 data block. Total $9 + 1 = 10$.\n2. Multi-level: build a second level, a sparse index over the 300 index blocks. It has 300 entries, so $\\lceil 300/51 \\rceil = 6$ blocks.\n3. Build a third level over those 6 blocks: 6 entries, $\\lceil 6/51 \\rceil = 1$ block. Stop when the top level is one block.\n4. Search: read the top block (1), one level-2 block (2), one level-1 block (3), then the data block (4). One read per level.\n5. Multi-level costs 4 accesses. Binary search on the single-level index costs 10.\n\n**Answer:** 4 accesses with the 3-level index; 10 with binary search on the single-level index.",
+   "why_full": "Search cost is how the exam compares indexing choices. In GATE: the worst-case block accesses to fetch a record, with or without multi-level indexing (2021 CS2 Q31, 2023 CS Q62, 2008 CS Q70, 2020 CS Q64).\n\nAsked: 2021 CS2 Q31, 2023 CS Q62, 2008 CS Q70, 2020 CS Q64, 2024 DA sample Q40",
+   "trap": "Counting only the index levels and forgetting the data block (or the reverse). A search needs one read per index level plus one for the data block, unless the question counts only index accesses."
+  },
+  {
+   "atom_id": "x5",
+   "title": "B and B+ tree order",
+   "simple": "A B+ tree node is a page that holds a list of 'go left, go middle, go right' signposts. Each signpost needs a pointer (where to go) and a separating key (the number that decides). If you have $p$ pointers you need $p-1$ separators. The page has a fixed size, so you fit as many signposts as the size allows, rounding down. A leaf page is different: it holds (key, record address) pairs and a link to the next leaf. In exam words: internal order $p$ comes from $pP + (p-1)K \\le B$.",
+   "idea": "A tree node is one disk block. The **order** $p$ is the largest number of child pointers that fit. An internal node of $p$ pointers has $p-1$ keys. Solve the size inequality and round down.",
+   "definition": "**B+ internal:** $pP + (p-1)K \\le B$ ($P$ tree pointer, $K$ key).\n\n**B+ leaf:** $m(K + P_r) + P \\le B$ ($P_r$ record pointer, $P$ next-leaf pointer).\n\n**B-tree node:** $pP + (p-1)(K + P_r) \\le B$, since every key carries a record pointer.",
+   "intuition_full": "The tree's fan-out decides its height, and the fan-out is simply how many entries one block holds. An internal B+ node stores only keys and pointers to children, so it packs densely. A B-tree node must also store the record pointer for each key, so it holds fewer entries and the tree is taller. A leaf stores keys with record pointers plus one link to the next leaf, which is why its capacity formula differs. Everything is floored because half an entry cannot be stored. When a question gives 'order' in terms of keys rather than pointers, convert with $p = \\text{keys} + 1$.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A block is 512 bytes, a key is 8 bytes, a tree (block) pointer is 4 bytes and a record pointer is 8 bytes. Find (a) the order $p$ of a B+ tree internal node, (b) the maximum entries in a B+ leaf (with one next-leaf pointer), (c) the order of a B-tree node.",
+     "steps": [
+      "An internal B+ node holds $p$ tree pointers and $p-1$ keys, and no record pointers: $4p + 8(p-1) \\le 512$.",
+      "Simplify: $12p \\le 520$, so $p \\le 43.3$ and $p = 43$ (round down). Check: $43\\times4 + 42\\times8 = 508 \\le 512$, while $p=44$ needs 520.",
+      "A B+ leaf holds $m$ pairs of (key 8 + record pointer 8) and one 4-byte next-leaf pointer: $16m + 4 \\le 512$, so $m = 31$.",
+      "A B-tree node also stores a record pointer with every key: $4p + (8+8)(p-1) \\le 512$, so $20p \\le 528$ and $p = 26$.",
+      "B+ internal nodes get order 43 against 26 for the B-tree, because they carry no record pointers. More fan-out means a shorter tree."
+     ],
+     "answer": "(a) $p = 43$, (b) 31 entries, (c) $p = 26$."
+    },
+    {
+     "level": "gate",
+     "setup": "A B+ tree has a 1,000-byte block, a 9-byte key, a 7-byte tree pointer and an 8-byte record pointer. Find the internal order and the leaf capacity (one 7-byte next-leaf pointer).",
+     "steps": [
+      "Internal: $7p + 9(p-1) \\le 1000$, so $16p \\le 1009$ and $p = 63$ (check $63\\times 16 - 9 = 999$).",
+      "Leaf: each pair is $9 + 8 = 17$ bytes. $17m + 7 \\le 1000$ gives $m \\le 58.4$, so $m = 58$.",
+      "Leaf capacity (58) and internal order (63) differ. Do not reuse one for the other."
+     ],
+     "answer": "Internal order 63; leaf capacity 58 entries."
+    },
+    {
+     "level": "twist",
+     "setup": "A question says an internal node of a B+ tree holds at most **42 keys**. What is its order (max pointers) and its minimum number of children?",
+     "steps": [
+      "A node with $k$ keys has $k + 1$ pointers, so 42 keys means 43 pointers: order 43.",
+      "A non-root internal node must be at least half full: $\\lceil 43/2 \\rceil = 22$ children.",
+      "Always check whether the question defines order by pointers or by keys."
+     ],
+     "answer": "Order 43; at least 22 children (21 keys)."
+    }
+   ],
+   "why": "The order calculation is the first step of every B+ tree size question. In GATE: compute the order or the leaf capacity from block, key and pointer sizes (2017 CS2 Q49, 2026 DA Q32, 2015 CS3 Q46, 2004 CS Q52, 2007 CS Q63).",
+   "how": [
+    "Write the node layout: $p$ pointers and $p-1$ keys (internal), or $m$ pairs and one next pointer (leaf).",
+    "Leave record pointers out of internal B+ nodes.",
+    "Solve the inequality against the block size and round down.",
+    "Add the next-leaf pointer to the leaf calculation."
+   ],
+   "mistake": "Using $p$ keys instead of $p-1$ in an internal node, putting record pointers in internal B+ nodes, or forgetting the next-leaf pointer in a leaf. Each of these changes the integer you get.",
+   "edge_cases": [
+    "If the inequality lands exactly on the block size, that $p$ is allowed.",
+    "The leaf capacity and the internal order are different numbers.",
+    "If the question defines order as the maximum number of keys, the pointer count is one more.",
+    "Pointer sizes may differ for tree and record pointers; use each where it belongs."
+   ],
+   "connections": [
+    "**Height and node counts** (next card) uses these capacities.",
+    "**Blocking factor** (earlier card) is the same floor-of-a-fit idea.",
+    "**B versus B+ trees** (later card) explains why the formulas differ."
+   ],
+   "check": [
+    {
+     "q": "Block 100 B, key 6 B, pointer 4 B. What is the B+ internal order?",
+     "a": "$4p + 6(p-1) \\le 100$, $10p \\le 106$, $p = 10$."
+    },
+    {
+     "q": "An internal node has order 10. How many keys at most?",
+     "a": "9."
+    },
+    {
+     "q": "Why is the B-tree order smaller than the B+ order for the same sizes?",
+     "a": "B-tree nodes also store a record pointer with each key."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q49, 2026 DA Q32, 2015 CS3 Q46, 2002 CS Q2_23, 2004 CS Q52, 2007 CS Q63",
+   "try": {
+    "id": "gen.index.004",
+    "label": "Try: keys in an internal node of order 6 (L1)"
+   },
+   "scene": "db.index.x5.order",
+   "example": {
+    "setup": "A block is 512 bytes, a key is 8 bytes, a tree (block) pointer is 4 bytes and a record pointer is 8 bytes. Find (a) the order $p$ of a B+ tree internal node, (b) the maximum entries in a B+ leaf (with one next-leaf pointer), (c) the order of a B-tree node.",
+    "steps": [
+     "An internal B+ node holds $p$ tree pointers and $p-1$ keys, and no record pointers: $4p + 8(p-1) \\le 512$.",
+     "Simplify: $12p \\le 520$, so $p \\le 43.3$ and $p = 43$ (round down). Check: $43\\times4 + 42\\times8 = 508 \\le 512$, while $p=44$ needs 520.",
+     "A B+ leaf holds $m$ pairs of (key 8 + record pointer 8) and one 4-byte next-leaf pointer: $16m + 4 \\le 512$, so $m = 31$.",
+     "A B-tree node also stores a record pointer with every key: $4p + (8+8)(p-1) \\le 512$, so $20p \\le 528$ and $p = 26$.",
+     "B+ internal nodes get order 43 against 26 for the B-tree, because they carry no record pointers. More fan-out means a shorter tree."
+    ],
+    "answer": "(a) $p = 43$, (b) 31 entries, (c) $p = 26$."
+   },
+   "what": "A tree node is one disk block. The **order** $p$ is the largest number of child pointers that fit. An internal node of $p$ pointers has $p-1$ keys. Solve the size inequality and round down.",
+   "what_full": "A tree node is one disk block. The **order** $p$ is the largest number of child pointers that fit. An internal node of $p$ pointers has $p-1$ keys. Solve the size inequality and round down.\n\n**B+ internal:** $pP + (p-1)K \\le B$ ($P$ tree pointer, $K$ key).\n\n**B+ leaf:** $m(K + P_r) + P \\le B$ ($P_r$ record pointer, $P$ next-leaf pointer).\n\n**B-tree node:** $pP + (p-1)(K + P_r) \\le B$, since every key carries a record pointer.\n\n**Worked example.** A block is 512 bytes, a key is 8 bytes, a tree (block) pointer is 4 bytes and a record pointer is 8 bytes. Find (a) the order $p$ of a B+ tree internal node, (b) the maximum entries in a B+ leaf (with one next-leaf pointer), (c) the order of a B-tree node.\n\n1. An internal B+ node holds $p$ tree pointers and $p-1$ keys, and no record pointers: $4p + 8(p-1) \\le 512$.\n2. Simplify: $12p \\le 520$, so $p \\le 43.3$ and $p = 43$ (round down). Check: $43\\times4 + 42\\times8 = 508 \\le 512$, while $p=44$ needs 520.\n3. A B+ leaf holds $m$ pairs of (key 8 + record pointer 8) and one 4-byte next-leaf pointer: $16m + 4 \\le 512$, so $m = 31$.\n4. A B-tree node also stores a record pointer with every key: $4p + (8+8)(p-1) \\le 512$, so $20p \\le 528$ and $p = 26$.\n5. B+ internal nodes get order 43 against 26 for the B-tree, because they carry no record pointers. More fan-out means a shorter tree.\n\n**Answer:** (a) $p = 43$, (b) 31 entries, (c) $p = 26$.",
+   "why_full": "The order calculation is the first step of every B+ tree size question. In GATE: compute the order or the leaf capacity from block, key and pointer sizes (2017 CS2 Q49, 2026 DA Q32, 2015 CS3 Q46, 2004 CS Q52, 2007 CS Q63).\n\nAsked: 2017 CS2 Q49, 2026 DA Q32, 2015 CS3 Q46, 2002 CS Q2_23, 2004 CS Q52, 2007 CS Q63",
+   "trap": "Using $p$ keys instead of $p-1$ in an internal node, putting record pointers in internal B+ nodes, or forgetting the next-leaf pointer in a leaf. Each of these changes the integer you get."
+  },
+  {
+   "atom_id": "x6",
+   "title": "Height and node counts",
+   "simple": "A phone book with a few big signposts is shallow: every signpost sends you to many pages. If the signposts are mostly empty, you need more of them stacked on top of each other, so you walk through more levels. The fullest possible tree is the shortest, and the emptiest allowed tree is the tallest. The top signpost (the root) is allowed to be nearly empty. In exam words: minimum height uses full nodes and maximum fan-out; maximum height uses half-full nodes, with only two children required at the root.",
+   "idea": "The **height** of a B+ tree depends on how full its nodes are. Packing nodes full gives the fewest levels. Letting every node be only half full gives the most levels. The root is the exception: it may have just 2 children.",
+   "definition": "Order $p$ (max children), leaf capacity $m$. Every non-root internal node has between $\\lceil p/2 \\rceil$ and $p$ children. Every leaf has between $\\lceil m/2 \\rceil$ and $m$ keys. The root has at least 2 children (if internal).\n\n**Min levels for $n$ keys:** leaves $\\lceil n/m \\rceil$, then repeatedly $\\lceil \\cdot /p \\rceil$ to 1.\n\n**Max levels:** leaves $\\lfloor n/\\lceil m/2 \\rceil \\rfloor$, then repeatedly $\\lfloor \\cdot / \\lceil p/2 \\rceil \\rfloor$ until you can put 1 root above (at least 2 nodes).",
+   "intuition_full": "Think of the tree as a funnel that shrinks by the fan-out at each level. Large fan-out shrinks quickly, so few levels are needed. The smallest fan-out the rules allow is $\\lceil p/2 \\rceil$, so the tallest tree uses that at every level. Counting in the other direction, a tree with $h$ levels and full nodes holds at most $p^{h-1} m$ keys. The root is special because a tree with few keys cannot have a half-full root; allowing 2 children keeps small trees legal. Questions ask for either the range of heights, the number of nodes, or the minimum and maximum number of keys, and all follow from these two funnels.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A B+ tree has order 5 (at most 5 children per internal node) and leaves hold at most 4 keys. It stores 200 keys. Find the minimum and maximum number of levels, counting the leaf level and the root.",
+     "steps": [
+      "For the **minimum** height, pack every node full. Leaves hold 4 keys each: $\\lceil 200/4 \\rceil = 50$ leaves.",
+      "Each internal node has 5 children: $\\lceil 50/5 \\rceil = 10$ nodes, then $\\lceil 10/5 \\rceil = 2$, then 1 root. Levels: 50, 10, 2, 1, so 4 levels.",
+      "For the **maximum** height, make nodes as empty as allowed. A leaf holds at least $\\lceil 4/2 \\rceil = 2$ keys, so up to $200/2 = 100$ leaves.",
+      "A non-root internal node has at least $\\lceil 5/2 \\rceil = 3$ children: $\\lfloor 100/3 \\rfloor = 33$, then 11, then 3. The root needs only 2 children, so the 3 nodes sit under it. Levels: 100, 33, 11, 3, 1, so 5 levels.",
+      "So the tree has between 4 and 5 levels."
+     ],
+     "answer": "Minimum 4 levels; maximum 5 levels."
+    },
+    {
+     "level": "gate",
+     "setup": "A B+ tree has internal order 50 and leaf capacity 49 keys. What is the minimum number of levels to store 500,000 keys?",
+     "steps": [
+      "Pack full. Leaves: $\\lceil 500000/49 \\rceil = 10205$.",
+      "Next level: $\\lceil 10205/50 \\rceil = 205$, then $\\lceil 205/50 \\rceil = 5$, then $\\lceil 5/50 \\rceil = 1$ (root).",
+      "Levels: leaves, 205, 5, root = 4. As a check, $50^3 \\times 49 = 6{,}125{,}000 \\ge 500{,}000$ for a 4-level tree."
+     ],
+     "answer": "4 levels."
+    },
+    {
+     "level": "twist",
+     "setup": "Internal order 4, leaf capacity 3 keys. What is the **minimum** number of keys in a 3-level B+ tree (root, one internal level, leaves)? What is the maximum?",
+     "steps": [
+      "Minimum: the root is exempt from the half-full rule and needs only 2 children.",
+      "Each non-root internal node needs at least $\\lceil 4/2 \\rceil = 2$ children, so there are $2 \\times 2 = 4$ leaves.",
+      "Each leaf needs at least $\\lceil 3/2 \\rceil = 2$ keys: $4 \\times 2 = 8$ keys.",
+      "Maximum: everything full, $4 \\times 4 = 16$ leaves of 3 keys, so 48 keys."
+     ],
+     "answer": "Minimum 8 keys; maximum 48 keys."
+    }
+   ],
+   "why": "Height drives the disk-access cost of a tree search. In GATE: the minimum or maximum height for $n$ keys, or the number of nodes in a tree (2020 CS Q64, 2024 DA sample Q40, 2019 CS Q24, 2024 CS1 Q21).",
+   "how": [
+    "Find $p$ and $m$ (from the question or the order card).",
+    "Minimum levels: divide by full capacities with ceilings until you reach 1.",
+    "Maximum levels: divide by the half-full minimums with floors, and let the root have just 2 children.",
+    "For search cost add 1 for the data block, if the leaf only has pointers."
+   ],
+   "mistake": "Treating the root like any other node. The root is exempt from the half-full rule, so a minimum-key count uses 2 children at the root, not $\\lceil p/2 \\rceil$.",
+   "edge_cases": [
+    "A tree with one level has a root that is also a leaf.",
+    "Some books count height in edges, some in levels; read the question.",
+    "For the maximum height, floors are used because you want as many nodes as the minimum fill permits.",
+    "A B-tree has the same rules but keeps data in internal nodes too."
+   ],
+   "connections": [
+    "**B and B+ tree order** gives $p$ and $m$.",
+    "**Insertion and splits** (next card) is how the tree reaches those heights.",
+    "Balanced tree height $\\Theta(\\log n)$ links to `ds.trees` (AVL trees)."
+   ],
+   "check": [
+    {
+     "q": "Order 3, leaf capacity 2. Minimum number of leaves to store 10 keys?",
+     "a": "$\\lceil 10/2 \\rceil = 5$."
+    },
+    {
+     "q": "Order 10. Minimum children of a non-root internal node?",
+     "a": "$\\lceil 10/2 \\rceil = 5$."
+    },
+    {
+     "q": "Minimum children of the root of a multi-level B+ tree?",
+     "a": "2."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q64, 2024 DA sample Q40, 2019 CS Q24, 2024 CS1 Q21, 2016 CS2 Q21",
+   "try": {
+    "id": "gen.index.012",
+    "label": "Try: minimum pointers in a node of order 7 (L2)"
+   },
+   "scene": "db.index.x6.height",
+   "example": {
+    "setup": "A B+ tree has order 5 (at most 5 children per internal node) and leaves hold at most 4 keys. It stores 200 keys. Find the minimum and maximum number of levels, counting the leaf level and the root.",
+    "steps": [
+     "For the **minimum** height, pack every node full. Leaves hold 4 keys each: $\\lceil 200/4 \\rceil = 50$ leaves.",
+     "Each internal node has 5 children: $\\lceil 50/5 \\rceil = 10$ nodes, then $\\lceil 10/5 \\rceil = 2$, then 1 root. Levels: 50, 10, 2, 1, so 4 levels.",
+     "For the **maximum** height, make nodes as empty as allowed. A leaf holds at least $\\lceil 4/2 \\rceil = 2$ keys, so up to $200/2 = 100$ leaves.",
+     "A non-root internal node has at least $\\lceil 5/2 \\rceil = 3$ children: $\\lfloor 100/3 \\rfloor = 33$, then 11, then 3. The root needs only 2 children, so the 3 nodes sit under it. Levels: 100, 33, 11, 3, 1, so 5 levels.",
+     "So the tree has between 4 and 5 levels."
+    ],
+    "answer": "Minimum 4 levels; maximum 5 levels."
+   },
+   "what": "The **height** of a B+ tree depends on how full its nodes are. Packing nodes full gives the fewest levels. Letting every node be only half full gives the most levels. The root is the exception: it may have just 2 children.",
+   "what_full": "The **height** of a B+ tree depends on how full its nodes are. Packing nodes full gives the fewest levels. Letting every node be only half full gives the most levels. The root is the exception: it may have just 2 children.\n\nOrder $p$ (max children), leaf capacity $m$. Every non-root internal node has between $\\lceil p/2 \\rceil$ and $p$ children. Every leaf has between $\\lceil m/2 \\rceil$ and $m$ keys. The root has at least 2 children (if internal).\n\n**Min levels for $n$ keys:** leaves $\\lceil n/m \\rceil$, then repeatedly $\\lceil \\cdot /p \\rceil$ to 1.\n\n**Max levels:** leaves $\\lfloor n/\\lceil m/2 \\rceil \\rfloor$, then repeatedly $\\lfloor \\cdot / \\lceil p/2 \\rceil \\rfloor$ until you can put 1 root above (at least 2 nodes).\n\n**Worked example.** A B+ tree has order 5 (at most 5 children per internal node) and leaves hold at most 4 keys. It stores 200 keys. Find the minimum and maximum number of levels, counting the leaf level and the root.\n\n1. For the **minimum** height, pack every node full. Leaves hold 4 keys each: $\\lceil 200/4 \\rceil = 50$ leaves.\n2. Each internal node has 5 children: $\\lceil 50/5 \\rceil = 10$ nodes, then $\\lceil 10/5 \\rceil = 2$, then 1 root. Levels: 50, 10, 2, 1, so 4 levels.\n3. For the **maximum** height, make nodes as empty as allowed. A leaf holds at least $\\lceil 4/2 \\rceil = 2$ keys, so up to $200/2 = 100$ leaves.\n4. A non-root internal node has at least $\\lceil 5/2 \\rceil = 3$ children: $\\lfloor 100/3 \\rfloor = 33$, then 11, then 3. The root needs only 2 children, so the 3 nodes sit under it. Levels: 100, 33, 11, 3, 1, so 5 levels.\n5. So the tree has between 4 and 5 levels.\n\n**Answer:** Minimum 4 levels; maximum 5 levels.",
+   "why_full": "Height drives the disk-access cost of a tree search. In GATE: the minimum or maximum height for $n$ keys, or the number of nodes in a tree (2020 CS Q64, 2024 DA sample Q40, 2019 CS Q24, 2024 CS1 Q21).\n\nAsked: 2020 CS Q64, 2024 DA sample Q40, 2019 CS Q24, 2024 CS1 Q21, 2016 CS2 Q21",
+   "trap": "Treating the root like any other node. The root is exempt from the half-full rule, so a minimum-key count uses 2 children at the root, not $\\lceil p/2 \\rceil$."
+  },
+  {
+   "atom_id": "x7",
+   "title": "Insertion and splits",
+   "simple": "Imagine shelves where each shelf holds at most three books. When you add a fourth book, the shelf is split into two shelves, and the label on the shelf above gets a new entry telling you where the split is. If the label shelf also overflows, it splits as well, and a new top label is made. The tree grows at the top, never at the bottom, so every path from top to bottom stays the same length. In exam words: a leaf split copies the smallest key of the right leaf up; an internal split pushes the middle key up; a root split adds a level.",
+   "idea": "A B+ tree grows by **splitting**. A full leaf splits in two and **copies** a separator key up to the parent. A full internal node splits and **pushes** its middle key up. If the root splits, a new root is created and the tree gets one level taller.",
+   "definition": "**Leaf split:** an overflowing leaf is divided into two leaves; the smallest key of the right leaf is copied to the parent and stays in the leaf.\n\n**Internal split:** the middle key is moved up to the parent (not kept in either half); the rest is divided between two nodes.\n\n**Root split:** creates a new root with one key and two children; height $+1$.\n\nThe question states how many keys go to each half; follow its rule.",
+   "intuition_full": "The tree stays balanced because it only gets taller when the root splits, which lengthens every path by one at once. A leaf split copies because the leaves must still contain every key (that is where the data pointers live). An internal split pushes because internal nodes only route searches; the pushed key already acts as the separator, so keeping a copy would waste room. Splits cascade only while the parent is also full, so most insertions cause no split at all. To simulate by hand, redraw the tree after every insertion that triggers a split, and keep the keys sorted inside every node. A frequent exam question counts splits or asks for the final root.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A B+ tree has leaves holding at most 3 keys and internal nodes holding at most 2 keys. A leaf with 4 keys splits 2 + 2 and the right leaf's smallest key is copied up. Insert 20, 40, 60, 10, 30, 50, 70, 80, 35 in order into an empty tree.",
+     "steps": [
+      "Insert 20, 40, 60. They fit in one leaf $[20\\ 40\\ 60]$, which is also the root.",
+      "Insert 10. The leaf would hold 4 keys, so it splits 2 + 2 into $[10\\ 20]$ and $[40\\ 60]$. The right leaf's smallest key, 40, is **copied** up into a new root $[40]$.",
+      "Insert 30 and 50. They fit: $[10\\ 20\\ 30]$ and $[40\\ 50\\ 60]$. No split.",
+      "Insert 70. The right leaf would be $[40\\ 50\\ 60\\ 70]$, so it splits into $[40\\ 50]$ and $[60\\ 70]$. Copy 60 up; the root is $[40\\ 60]$.",
+      "Insert 80. It fits in $[60\\ 70\\ 80]$.",
+      "Insert 35. The leaf $[10\\ 20\\ 30\\ 35]$ splits into $[10\\ 20]$ and $[30\\ 35]$, copying 30 up. The root $[30\\ 40\\ 60]$ now has 3 keys (limit 2), so it splits and **pushes** its middle key 40 up. The new root is $[40]$ over $[30]$ and $[60]$, and the height becomes 3."
+     ],
+     "answer": "Root $[40]$; internal nodes $[30]$ and $[60]$; leaves $[10\\ 20]$, $[30\\ 35]$, $[40\\ 50]$, $[60\\ 70\\ 80]$. That is 3 leaf splits, 1 internal split, height 3."
+    },
+    {
+     "level": "gate",
+     "setup": "Leaves hold at most 4 keys and internal nodes at most 3 keys. An overflowing leaf of 5 keys splits 2 + 3 (left gets 2) and copies the right leaf's smallest key up. Insert 50, 10, 40, 20, 30, 60, 5, 15, 25, 35, 45, 55. How many leaves are there, what is the root, and what is the height?",
+     "steps": [
+      "Insert 50, 10, 40, 20: they fill $[10\\ 20\\ 40\\ 50]$. Insert 30: 5 keys, split into $[10\\ 20]$ and $[30\\ 40\\ 50]$, copy 30 up. Root $[30]$.",
+      "Insert 60 (goes right), 5 and 15 (go left). Then 25 makes the left leaf $[5\\ 10\\ 15\\ 20\\ 25]$: split into $[5\\ 10]$ and $[15\\ 20\\ 25]$, copy 15 up. Root $[15\\ 30]$.",
+      "Insert 35 into $[30\\ 40\\ 50\\ 60]$, giving 5 keys: split into $[30\\ 35]$ and $[40\\ 50\\ 60]$, copy 40 up. Root $[15\\ 30\\ 40]$ (3 keys, still allowed). Insert 45: $[40\\ 45\\ 50\\ 60]$.",
+      "Insert 55: that leaf has 5 keys, split into $[40\\ 45]$ and $[50\\ 55\\ 60]$, copy 50 up. The root would be $[15\\ 30\\ 40\\ 50]$, 4 keys, so it splits and pushes 40 up.",
+      "Final: root $[40]$; internal $[15\\ 30]$ and $[50]$; 5 leaves $[5\\ 10]$, $[15\\ 20\\ 25]$, $[30\\ 35]$, $[40\\ 45]$, $[50\\ 55\\ 60]$. Height 3."
+     ],
+     "answer": "5 leaves, root $[40]$, height 3."
+    },
+    {
+     "level": "twist",
+     "setup": "Leaves hold at most 3 keys, internal nodes at most 2 keys. Keys 1, 2, 3, … are inserted in ascending order. At which key does the height first become 3?",
+     "steps": [
+      "Keys 1, 2, 3 fit in the root leaf. Key 4 splits it: $[1\\ 2]$, $[3\\ 4]$, root $[3]$. Height 2.",
+      "Key 5 goes to $[3\\ 4\\ 5]$. Key 6 splits it into $[3\\ 4]$ and $[5\\ 6]$, root $[3\\ 5]$.",
+      "Key 7 fits in $[5\\ 6\\ 7]$. Key 8 splits it into $[5\\ 6]$, $[7\\ 8]$ and copies 7 up. Root $[3\\ 5\\ 7]$ is too full: push 5 up.",
+      "New root $[5]$ over $[3]$ and $[7]$. The height is now 3."
+     ],
+     "answer": "The height becomes 3 when key 8 is inserted."
+    }
+   ],
+   "why": "Insertion traces are the most common tree-drawing question in this chapter. In GATE: insert a sequence and give the final tree, the root, the number of leaves, or the number of splits (2025 CS1 Q21, 2025 CS2 Q57, 2026 DA Q41, 2009 CS Q44).",
+   "how": [
+    "Find the leaf where the key belongs and insert in sorted position.",
+    "If the leaf now exceeds its limit, split it using the question's rule and copy up the right leaf's smallest key.",
+    "If the parent now exceeds its limit, split it and push the middle key up. Repeat to the root.",
+    "Count the splits or read off the final tree."
+   ],
+   "mistake": "Stopping at a leaf split when the parent is also full, or removing the copied-up key from the leaf (as a B-tree does). In a B+ tree the leaf keeps its copy; only internal splits push a key out of the level.",
+   "edge_cases": [
+    "With an odd number of keys the question says which half is larger.",
+    "The first split creates the root, so a tree's second level appears at the first overflow.",
+    "Ascending insertion leaves left leaves half full, so the tree is taller than a random one.",
+    "Splitting an internal node never leaves a copy of the pushed key below."
+   ],
+   "connections": [
+    "**B versus B+ tree** (next card) contrasts copy-up with push-up.",
+    "**Height and node counts** gives the range of heights splits can produce.",
+    "AVL rotations in `ds.trees` are the binary-tree analogue of rebalancing."
+   ],
+   "check": [
+    {
+     "q": "Leaf capacity 3. A leaf $[5\\ 6\\ 7]$ receives 8. What key goes to the parent if it splits 2 + 2?",
+     "a": "7, the smallest key of the right leaf $[7\\ 8]$."
+    },
+    {
+     "q": "When does the height of a B+ tree increase?",
+     "a": "Only when the root splits."
+    },
+    {
+     "q": "After a leaf split, does the copied-up key still appear in the leaf?",
+     "a": "Yes. Leaf splits copy; they do not move."
+    }
+   ],
+   "asked": "Asked: 2025 CS1 Q21, 2025 CS2 Q57, 2026 DA Q41, 2009 CS Q44, 2008 CS Q41",
+   "try": {
+    "id": "gen.index.005",
+    "label": "Try: key sent to the parent after a leaf split (L1)"
+   },
+   "scene": "db.index.x7.splits",
+   "example": {
+    "setup": "A B+ tree has leaves holding at most 3 keys and internal nodes holding at most 2 keys. A leaf with 4 keys splits 2 + 2 and the right leaf's smallest key is copied up. Insert 20, 40, 60, 10, 30, 50, 70, 80, 35 in order into an empty tree.",
+    "steps": [
+     "Insert 20, 40, 60. They fit in one leaf $[20\\ 40\\ 60]$, which is also the root.",
+     "Insert 10. The leaf would hold 4 keys, so it splits 2 + 2 into $[10\\ 20]$ and $[40\\ 60]$. The right leaf's smallest key, 40, is **copied** up into a new root $[40]$.",
+     "Insert 30 and 50. They fit: $[10\\ 20\\ 30]$ and $[40\\ 50\\ 60]$. No split.",
+     "Insert 70. The right leaf would be $[40\\ 50\\ 60\\ 70]$, so it splits into $[40\\ 50]$ and $[60\\ 70]$. Copy 60 up; the root is $[40\\ 60]$.",
+     "Insert 80. It fits in $[60\\ 70\\ 80]$.",
+     "Insert 35. The leaf $[10\\ 20\\ 30\\ 35]$ splits into $[10\\ 20]$ and $[30\\ 35]$, copying 30 up. The root $[30\\ 40\\ 60]$ now has 3 keys (limit 2), so it splits and **pushes** its middle key 40 up. The new root is $[40]$ over $[30]$ and $[60]$, and the height becomes 3."
+    ],
+    "answer": "Root $[40]$; internal nodes $[30]$ and $[60]$; leaves $[10\\ 20]$, $[30\\ 35]$, $[40\\ 50]$, $[60\\ 70\\ 80]$. That is 3 leaf splits, 1 internal split, height 3."
+   },
+   "what": "A B+ tree grows by **splitting**. A full leaf splits in two and **copies** a separator key up to the parent. A full internal node splits and **pushes** its middle key up. If the root splits, a new root is created and the tree gets one level taller.",
+   "what_full": "A B+ tree grows by **splitting**. A full leaf splits in two and **copies** a separator key up to the parent. A full internal node splits and **pushes** its middle key up. If the root splits, a new root is created and the tree gets one level taller.\n\n**Leaf split:** an overflowing leaf is divided into two leaves; the smallest key of the right leaf is copied to the parent and stays in the leaf.\n\n**Internal split:** the middle key is moved up to the parent (not kept in either half); the rest is divided between two nodes.\n\n**Root split:** creates a new root with one key and two children; height $+1$.\n\nThe question states how many keys go to each half; follow its rule.\n\n**Worked example.** A B+ tree has leaves holding at most 3 keys and internal nodes holding at most 2 keys. A leaf with 4 keys splits 2 + 2 and the right leaf's smallest key is copied up. Insert 20, 40, 60, 10, 30, 50, 70, 80, 35 in order into an empty tree.\n\n1. Insert 20, 40, 60. They fit in one leaf $[20\\ 40\\ 60]$, which is also the root.\n2. Insert 10. The leaf would hold 4 keys, so it splits 2 + 2 into $[10\\ 20]$ and $[40\\ 60]$. The right leaf's smallest key, 40, is **copied** up into a new root $[40]$.\n3. Insert 30 and 50. They fit: $[10\\ 20\\ 30]$ and $[40\\ 50\\ 60]$. No split.\n4. Insert 70. The right leaf would be $[40\\ 50\\ 60\\ 70]$, so it splits into $[40\\ 50]$ and $[60\\ 70]$. Copy 60 up; the root is $[40\\ 60]$.\n5. Insert 80. It fits in $[60\\ 70\\ 80]$.\n6. Insert 35. The leaf $[10\\ 20\\ 30\\ 35]$ splits into $[10\\ 20]$ and $[30\\ 35]$, copying 30 up. The root $[30\\ 40\\ 60]$ now has 3 keys (limit 2), so it splits and **pushes** its middle key 40 up. The new root is $[40]$ over $[30]$ and $[60]$, and the height becomes 3.\n\n**Answer:** Root $[40]$; internal nodes $[30]$ and $[60]$; leaves $[10\\ 20]$, $[30\\ 35]$, $[40\\ 50]$, $[60\\ 70\\ 80]$. That is 3 leaf splits, 1 internal split, height 3.",
+   "why_full": "Insertion traces are the most common tree-drawing question in this chapter. In GATE: insert a sequence and give the final tree, the root, the number of leaves, or the number of splits (2025 CS1 Q21, 2025 CS2 Q57, 2026 DA Q41, 2009 CS Q44).\n\nAsked: 2025 CS1 Q21, 2025 CS2 Q57, 2026 DA Q41, 2009 CS Q44, 2008 CS Q41",
+   "trap": "Stopping at a leaf split when the parent is also full, or removing the copied-up key from the leaf (as a B-tree does). In a B+ tree the leaf keeps its copy; only internal splits push a key out of the level."
+  },
+  {
+   "atom_id": "x8",
+   "title": "B tree versus B+ tree",
+   "simple": "A B tree is like a notice board where the full details of each item sit on every shelf. A B+ tree keeps only short labels on the upper shelves and puts all the details on the bottom shelf, which is linked from left to right like a conveyor belt. Short labels mean more of them fit on a shelf, so you need fewer levels to reach the bottom. The conveyor belt makes it easy to read a whole range in order. In exam words: in a B+ tree all data pointers are in the linked leaves; a B tree keeps a data pointer with every key.",
+   "idea": "A **B tree** stores keys and record pointers in every node. A **B+ tree** stores record pointers only in the **leaves**, which are linked in key order. Its internal nodes just route the search, so they hold more keys and the tree is shorter.",
+   "definition": "**B tree:** every key appears once; a key and its record pointer may sit in any node; an internal split moves the middle key up and out.\n\n**B+ tree:** all record pointers are in the leaves; internal keys are copies used for routing; leaves are chained for range scans; a leaf split copies a key up.\n\nSearch cost: B+ always reads the full height; B may stop early.",
+   "intuition_full": "The B+ tree's design is aimed at databases. Moving the data pointers out of the internal nodes makes the internal nodes smaller, which raises fan-out and lowers height, and every lookup has a predictable cost. Chaining the leaves turns a range query into one search plus a sequential walk. A B tree saves space on duplicated keys and can find a key near the top without descending, but its internal nodes are bulkier and range queries need an in-order traversal. For these reasons database systems almost always use B+ trees. When a question lists statements, check them against these four differences: where data pointers live, whether keys repeat, leaf links, and fan-out.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Insert 10, 20, 30 into an empty B tree and an empty B+ tree, both with at most 2 keys per node. In the B tree, an overflowing node pushes its middle key up. In the B+ tree, an overflowing leaf splits as $[10]$ and $[20\\ 30]$ and copies 20 up. Compare the results, then compare the fan-out for a 512-byte block with 6-byte keys, 4-byte tree pointers and 6-byte record pointers.",
+     "steps": [
+      "Insert 10 and 20. In both trees they sit in a single node $[10\\ 20]$.",
+      "Insert 30. The node would hold 3 keys, which exceeds 2, so it must split.",
+      "B tree: the middle key 20 **moves** up and leaves the node. Result: root $[20]$ with children $[10]$ and $[30]$. The key 20 exists once.",
+      "B+ tree: 20 is **copied** up and stays in the right leaf. Result: root $[20]$ with leaves $[10]$ and $[20\\ 30]$. The key 20 appears twice, and the leaves are linked.",
+      "Fan-out: the B tree stores a record pointer with each key, so $4p + 12(p-1) \\le 512$ gives $p = 32$. The B+ internal node does not, so $4p + 6(p-1) \\le 512$ gives $p = 51$."
+     ],
+     "answer": "B tree: root $[20]$, leaves $[10]$, $[30]$, order 32. B+ tree: root $[20]$, leaves $[10]$, $[20\\ 30]$, order 51."
+    },
+    {
+     "level": "gate",
+     "setup": "Which of these statements are true? (1) A B+ tree search always reaches a leaf. (2) A B tree search may end at an internal node. (3) A B+ tree supports a range scan by following leaf links. (4) A B tree stores each key exactly once in the tree.",
+     "steps": [
+      "(1) True. In a B+ tree the data pointers are only in leaves, so every search ends at a leaf, at the same depth.",
+      "(2) True. A B tree stores a record pointer with each key, so finding the key in an internal node ends the search.",
+      "(3) True. B+ leaves are linked in key order, so after finding the start key you follow the links.",
+      "(4) True. A B tree has no duplicates of keys across levels, while a B+ tree repeats separator keys in leaves."
+     ],
+     "answer": "All four are true."
+    },
+    {
+     "level": "twist",
+     "setup": "For the same data, can a B tree ever need fewer disk reads than a B+ tree for a single-key lookup?",
+     "steps": [
+      "A B tree lookup can stop at the first node that contains the key. If the key is in the root, that is 1 read.",
+      "A B+ tree lookup always goes down to a leaf, reading one node per level.",
+      "But the B+ tree has a higher fan-out, so it often has fewer levels. On average the B+ tree wins, but for a lucky key the B tree can be faster."
+     ],
+     "answer": "Yes, for keys stored near the root of the B tree."
+    }
+   ],
+   "why": "The B and B+ comparison is a standard true/false question. In GATE: where data pointers are stored, which tree has higher fan-out, and how splits differ (2019 CS Q24, 2024 CS1 Q21, 2016 CS2 Q21, 2000 CS Q1.22).",
+   "how": [
+    "Recall the four differences: data pointer location, key repetition, leaf links, fan-out.",
+    "For splits, check whether the key is copied (B+ leaf) or moved (B tree, B+ internal).",
+    "For cost, B+ is a fixed-depth walk; B may end earlier.",
+    "For range queries, choose B+."
+   ],
+   "mistake": "Removing the copied-up key from the leaf in a B+ tree, as a B tree would. In a B+ tree, the separator in the parent is only a copy, and the data stays in the leaf.",
+   "edge_cases": [
+    "A B+ tree internal node may contain a key that has been deleted from the leaf.",
+    "The B tree can store fewer total key copies, but it still needs at least as many blocks in practice.",
+    "Leaf links run in key order only at the leaf level.",
+    "Both trees keep all leaves at the same depth."
+   ],
+   "connections": [
+    "**Insertion and splits** (previous card) showed copy-up in detail.",
+    "**Index types** uses B+ trees as the multi-level primary or secondary index.",
+    "Both are balanced multi-way search trees, generalising BST/AVL in `ds.trees`."
+   ],
+   "check": [
+    {
+     "q": "Where are record pointers stored in a B+ tree?",
+     "a": "Only in the leaf nodes."
+    },
+    {
+     "q": "Which tree supports fast range scans through linked leaves?",
+     "a": "The B+ tree."
+    },
+    {
+     "q": "For the same block size, which has higher internal fan-out, B or B+?",
+     "a": "B+, because it stores no record pointers in internal nodes."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q24, 2024 CS1 Q21, 2016 CS2 Q21, 2000 CS Q1_22, 2005 CS Q28, 2010 CS Q18",
+   "try": {
+    "id": "gen.index.006",
+    "label": "Try: where a B+ tree stores data pointers (L1)"
+   },
+   "scene": "db.index.x8.btree_vs_bplus",
+   "example": {
+    "setup": "Insert 10, 20, 30 into an empty B tree and an empty B+ tree, both with at most 2 keys per node. In the B tree, an overflowing node pushes its middle key up. In the B+ tree, an overflowing leaf splits as $[10]$ and $[20\\ 30]$ and copies 20 up. Compare the results, then compare the fan-out for a 512-byte block with 6-byte keys, 4-byte tree pointers and 6-byte record pointers.",
+    "steps": [
+     "Insert 10 and 20. In both trees they sit in a single node $[10\\ 20]$.",
+     "Insert 30. The node would hold 3 keys, which exceeds 2, so it must split.",
+     "B tree: the middle key 20 **moves** up and leaves the node. Result: root $[20]$ with children $[10]$ and $[30]$. The key 20 exists once.",
+     "B+ tree: 20 is **copied** up and stays in the right leaf. Result: root $[20]$ with leaves $[10]$ and $[20\\ 30]$. The key 20 appears twice, and the leaves are linked.",
+     "Fan-out: the B tree stores a record pointer with each key, so $4p + 12(p-1) \\le 512$ gives $p = 32$. The B+ internal node does not, so $4p + 6(p-1) \\le 512$ gives $p = 51$."
+    ],
+    "answer": "B tree: root $[20]$, leaves $[10]$, $[30]$, order 32. B+ tree: root $[20]$, leaves $[10]$, $[20\\ 30]$, order 51."
+   },
+   "what": "A **B tree** stores keys and record pointers in every node. A **B+ tree** stores record pointers only in the **leaves**, which are linked in key order. Its internal nodes just route the search, so they hold more keys and the tree is shorter.",
+   "what_full": "A **B tree** stores keys and record pointers in every node. A **B+ tree** stores record pointers only in the **leaves**, which are linked in key order. Its internal nodes just route the search, so they hold more keys and the tree is shorter.\n\n**B tree:** every key appears once; a key and its record pointer may sit in any node; an internal split moves the middle key up and out.\n\n**B+ tree:** all record pointers are in the leaves; internal keys are copies used for routing; leaves are chained for range scans; a leaf split copies a key up.\n\nSearch cost: B+ always reads the full height; B may stop early.\n\n**Worked example.** Insert 10, 20, 30 into an empty B tree and an empty B+ tree, both with at most 2 keys per node. In the B tree, an overflowing node pushes its middle key up. In the B+ tree, an overflowing leaf splits as $[10]$ and $[20\\ 30]$ and copies 20 up. Compare the results, then compare the fan-out for a 512-byte block with 6-byte keys, 4-byte tree pointers and 6-byte record pointers.\n\n1. Insert 10 and 20. In both trees they sit in a single node $[10\\ 20]$.\n2. Insert 30. The node would hold 3 keys, which exceeds 2, so it must split.\n3. B tree: the middle key 20 **moves** up and leaves the node. Result: root $[20]$ with children $[10]$ and $[30]$. The key 20 exists once.\n4. B+ tree: 20 is **copied** up and stays in the right leaf. Result: root $[20]$ with leaves $[10]$ and $[20\\ 30]$. The key 20 appears twice, and the leaves are linked.\n5. Fan-out: the B tree stores a record pointer with each key, so $4p + 12(p-1) \\le 512$ gives $p = 32$. The B+ internal node does not, so $4p + 6(p-1) \\le 512$ gives $p = 51$.\n\n**Answer:** B tree: root $[20]$, leaves $[10]$, $[30]$, order 32. B+ tree: root $[20]$, leaves $[10]$, $[20\\ 30]$, order 51.",
+   "why_full": "The B and B+ comparison is a standard true/false question. In GATE: where data pointers are stored, which tree has higher fan-out, and how splits differ (2019 CS Q24, 2024 CS1 Q21, 2016 CS2 Q21, 2000 CS Q1.22).\n\nAsked: 2019 CS Q24, 2024 CS1 Q21, 2016 CS2 Q21, 2000 CS Q1_22, 2005 CS Q28, 2010 CS Q18",
+   "trap": "Removing the copied-up key from the leaf in a B+ tree, as a B tree would. In a B+ tree, the separator in the parent is only a copy, and the data stays in the leaf."
+  },
+  {
+   "atom_id": "x9",
+   "title": "Choosing an index",
+   "simple": "Think of two tools. A hash index is like a locker system: give the exact number and it opens the right locker instantly, but it cannot say which lockers are next to each other. A sorted index is like a dictionary: it finds one word fast and also lets you read the next fifty words in order. So for 'exactly this one' use either, but for 'all between this and that', or 'sorted', only the dictionary-like index helps. For several conditions, put the one you test with equality first. In exam words: hash for equality, B+ for ranges, prefixes and ordering; a composite index helps with a leading prefix.",
+   "idea": "Pick the index from the **query shape**. **Hash** wins for an exact match. A **B+ tree** handles exact match, ranges, prefixes and sorted output. A composite index $(A, B)$ helps queries that fix a leading prefix: $A$, or $A$ and $B$.",
+   "definition": "**Hash index:** equality on the full search key, about 1 block; no range, no order.\n\n**B+ tree (ordered index):** equality, range, prefix and order by in $O(\\log n)$ plus the matching entries.\n\n**Composite index $(A,B)$:** entries sorted by $A$, then $B$. Useful for `A = x`, `A = x AND B = y`, and `A = x AND B` in a range. Not useful for `B = y` alone.",
+   "intuition_full": "An index only helps if the query can use the order or hash it keeps. A hash index keeps no order, so only predicates that name an exact key work. An ordered index keeps entries sorted, so any predicate that selects a contiguous stretch of that order works: equality, ranges, and string prefixes. A composite index sorts by the first column and then the second, so the second column is sorted only inside each group of the first. This explains the leading-prefix rule. If the first column is tested by equality, the matching entries are contiguous and a range on the second column is cheap. If the range is on the first column, the second column filters entries scattered through the range. Put equality columns first and range columns last.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A table $T(k, \\dots)$ has an index on $k$. For each query: (a) $k = 7$, (b) $k$ between 5 and 9, (c) $k$ like `'ab%'`, (d) order by $k$, decide whether a heap scan, a hash index or a B+ tree index avoids reading the whole table.",
+     "steps": [
+      "A heap with no index reads the entire table for every query. The question is which index avoids that.",
+      "(a) $k = 7$ is an exact match. A hash index jumps to one bucket and a B+ tree walks down in $O(\\log n)$. Both work.",
+      "(b) $k$ between 5 and 9 is a range. A hash index scatters neighbouring keys, so it fails. A B+ tree finds 5 and follows the leaf links to 9. Only the B+ tree works.",
+      "(c) $k$ like `'ab%'` is a prefix match, a range of strings from `ab` to `ac`. Only an ordered index (B+) works.",
+      "(d) order by $k$ needs the keys in order. The B+ leaves are already in order, so no sorting is needed. A hash index gives no order."
+     ],
+     "answer": "Equality: hash or B+. Range, prefix and order by: B+ only."
+    },
+    {
+     "level": "gate",
+     "setup": "Query: `WHERE dept = 'HR' AND salary BETWEEN 40000 AND 60000`. Compare a B+ index on $(\\text{dept}, \\text{salary})$ with one on $(\\text{salary}, \\text{dept})$, and a hash index on $(\\text{dept}, \\text{salary})$.",
+     "steps": [
+      "B+ on $(\\text{dept}, \\text{salary})$: all `HR` entries are together, sorted by salary. The search lands on `HR` with salary 40000 and reads to 60000. Only matching entries are read.",
+      "B+ on $(\\text{salary}, \\text{dept})$: entries are sorted by salary first. The index reads the whole salary range and filters out the non-`HR` entries. Much less efficient.",
+      "Hash on $(\\text{dept}, \\text{salary})$: a hash needs equality on every column. A salary range cannot be hashed, so it is useless."
+     ],
+     "answer": "Best: B+ on (dept, salary). The (salary, dept) B+ helps a little; hash does not help."
+    },
+    {
+     "level": "twist",
+     "setup": "A B+ index exists on $(A, B)$. Does it help the query `WHERE B = 5`?",
+     "steps": [
+      "The entries are sorted by $A$ first, and by $B$ only within one value of $A$.",
+      "Entries with $B = 5$ are scattered across the index, one group per value of $A$. There is no single place to search.",
+      "So the index can't be used to look up $B = 5$ directly. A separate index on $B$ is needed."
+     ],
+     "answer": "No. An index on $(A, B)$ helps only when the query uses a leading prefix of $(A, B)$."
+    }
+   ],
+   "why": "These are the 'which index would speed this query' questions. In GATE: hash for equality, B+ for ranges, and how a composite index behaves (2024 DA Q55, 2011 CS Q39, 2024 CS2 Q26).",
+   "how": [
+    "Classify each predicate: equality, range, prefix, or order by.",
+    "Equality only: hash or B+.",
+    "Any range, prefix or order by: B+ (ordered index).",
+    "Composite: equality columns first, the range column last, and the query must use a leading prefix."
+   ],
+   "mistake": "Choosing a hash index for a range predicate. Hash gives no order, so it helps only exact matches. Also, assuming an index on $(A, B)$ helps a query on $B$ alone.",
+   "edge_cases": [
+    "A hash index on $(A, B)$ needs both columns in equality predicates.",
+    "A very unselective predicate (most rows match) may be faster with a full scan.",
+    "An index on a function of the column is not used when the query tests the raw column.",
+    "Order by on a clustered B+ index needs no sort."
+   ],
+   "connections": [
+    "**File organisations** gave the costs of heap, sorted and hash files.",
+    "**B versus B+ tree** explains why B+ is the default index.",
+    "SQL queries in `db.sql` are what these indexes accelerate."
+   ],
+   "check": [
+    {
+     "q": "Which index serves `WHERE id = 5`: hash, B+, or both?",
+     "a": "Both."
+    },
+    {
+     "q": "Which index serves `WHERE id > 100`?",
+     "a": "B+ only."
+    },
+    {
+     "q": "An index is on $(A, B)$. Is it useful for `WHERE A = 3`?",
+     "a": "Yes, $A$ is a leading prefix."
+    }
+   ],
+   "asked": "Asked: 2024 DA Q55, 2011 CS Q39, 2024 CS2 Q26",
+   "try": {
+    "id": "gen.index.001",
+    "label": "Try: hash or ordered file for an equality search (L1)"
+   },
+   "scene": "db.index.x9.choosing",
+   "example": {
+    "setup": "A table $T(k, \\dots)$ has an index on $k$. For each query: (a) $k = 7$, (b) $k$ between 5 and 9, (c) $k$ like `'ab%'`, (d) order by $k$, decide whether a heap scan, a hash index or a B+ tree index avoids reading the whole table.",
+    "steps": [
+     "A heap with no index reads the entire table for every query. The question is which index avoids that.",
+     "(a) $k = 7$ is an exact match. A hash index jumps to one bucket and a B+ tree walks down in $O(\\log n)$. Both work.",
+     "(b) $k$ between 5 and 9 is a range. A hash index scatters neighbouring keys, so it fails. A B+ tree finds 5 and follows the leaf links to 9. Only the B+ tree works.",
+     "(c) $k$ like `'ab%'` is a prefix match, a range of strings from `ab` to `ac`. Only an ordered index (B+) works.",
+     "(d) order by $k$ needs the keys in order. The B+ leaves are already in order, so no sorting is needed. A hash index gives no order."
+    ],
+    "answer": "Equality: hash or B+. Range, prefix and order by: B+ only."
+   },
+   "what": "Pick the index from the **query shape**. **Hash** wins for an exact match. A **B+ tree** handles exact match, ranges, prefixes and sorted output. A composite index $(A, B)$ helps queries that fix a leading prefix: $A$, or $A$ and $B$.",
+   "what_full": "Pick the index from the **query shape**. **Hash** wins for an exact match. A **B+ tree** handles exact match, ranges, prefixes and sorted output. A composite index $(A, B)$ helps queries that fix a leading prefix: $A$, or $A$ and $B$.\n\n**Hash index:** equality on the full search key, about 1 block; no range, no order.\n\n**B+ tree (ordered index):** equality, range, prefix and order by in $O(\\log n)$ plus the matching entries.\n\n**Composite index $(A,B)$:** entries sorted by $A$, then $B$. Useful for `A = x`, `A = x AND B = y`, and `A = x AND B` in a range. Not useful for `B = y` alone.\n\n**Worked example.** A table $T(k, \\dots)$ has an index on $k$. For each query: (a) $k = 7$, (b) $k$ between 5 and 9, (c) $k$ like `'ab%'`, (d) order by $k$, decide whether a heap scan, a hash index or a B+ tree index avoids reading the whole table.\n\n1. A heap with no index reads the entire table for every query. The question is which index avoids that.\n2. (a) $k = 7$ is an exact match. A hash index jumps to one bucket and a B+ tree walks down in $O(\\log n)$. Both work.\n3. (b) $k$ between 5 and 9 is a range. A hash index scatters neighbouring keys, so it fails. A B+ tree finds 5 and follows the leaf links to 9. Only the B+ tree works.\n4. (c) $k$ like `'ab%'` is a prefix match, a range of strings from `ab` to `ac`. Only an ordered index (B+) works.\n5. (d) order by $k$ needs the keys in order. The B+ leaves are already in order, so no sorting is needed. A hash index gives no order.\n\n**Answer:** Equality: hash or B+. Range, prefix and order by: B+ only.",
+   "why_full": "These are the 'which index would speed this query' questions. In GATE: hash for equality, B+ for ranges, and how a composite index behaves (2024 DA Q55, 2011 CS Q39, 2024 CS2 Q26).\n\nAsked: 2024 DA Q55, 2011 CS Q39, 2024 CS2 Q26",
+   "trap": "Choosing a hash index for a range predicate. Hash gives no order, so it helps only exact matches. Also, assuming an index on $(A, B)$ helps a query on $B$ alone."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "db.index.x1.organisations",
+   "title": "Block accesses for one lookup in three file organisations",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "b = 2400 / 12 = 200 blocks",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "bars",
+     "kind": "bar",
+     "x": 40,
+     "y": 56,
+     "w": 280,
+     "h": 130,
+     "values": [
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "Heap (avg)",
+      "Sorted",
+      "Hash"
+     ],
+     "max": 200,
+     "hideZero": true
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "equality lookup, block accesses",
+     "size": 13,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Blocks: $b = 2400 / 12 = 200$. We count block accesses to fetch one record by key.",
+     "highlight": [
+      "calc"
+     ]
+    },
+    {
+     "caption": "Heap file (no order): scan from the start. On average half the blocks are read, $200/2 = 100$ (worst case 200).",
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        100,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "note",
+       "text": "heap: b/2 = 100 on average"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        0
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Sorted file: binary search over blocks costs $\\lceil \\log_2 200 \\rceil = 8$, since $2^7 = 128 < 200 \\le 256$.",
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        100,
+        8,
+        0
+       ]
+      },
+      {
+       "id": "note",
+       "text": "sorted: ⌈log₂ 200⌉ = 8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Hash file on the key: the hash function names the bucket, so about 1 block access.",
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        100,
+        8,
+        1
+       ]
+      },
+      {
+       "id": "note",
+       "text": "hash: about 1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Range query (36 records = 3 blocks): sorted file reads 8 + 2 = 10 blocks. Hash scatters neighbouring keys, so it needs all 200. A heap needs all 200.",
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        200,
+        10,
+        200
+       ]
+      },
+      {
+       "id": "note",
+       "text": "range of 3 blocks: heap and hash read all 200"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        0,
+        2
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.index.x2.sparse_dense",
+   "title": "Sparse versus dense index on a sorted file",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "sp",
+     "kind": "array",
+     "x": 8,
+     "y": 50,
+     "cells": [
+      1,
+      4,
+      7,
+      10
+     ],
+     "cw": 84,
+     "ch": 28,
+     "indices": false,
+     "label": "sparse index: one entry per block"
+    },
+    {
+     "id": "ar0",
+     "kind": "arrow",
+     "x1": 50,
+     "y1": 78,
+     "x2": 50,
+     "y2": 104
+    },
+    {
+     "id": "ar1",
+     "kind": "arrow",
+     "x1": 134,
+     "y1": 78,
+     "x2": 134,
+     "y2": 104
+    },
+    {
+     "id": "ar2",
+     "kind": "arrow",
+     "x1": 218,
+     "y1": 78,
+     "x2": 218,
+     "y2": 104
+    },
+    {
+     "id": "ar3",
+     "kind": "arrow",
+     "x1": 302,
+     "y1": 78,
+     "x2": 302,
+     "y2": 104
+    },
+    {
+     "id": "b0",
+     "kind": "box",
+     "x": 8,
+     "y": 106,
+     "w": 80,
+     "h": 30,
+     "label": "1  2  3"
+    },
+    {
+     "id": "b1",
+     "kind": "box",
+     "x": 92,
+     "y": 106,
+     "w": 80,
+     "h": 30,
+     "label": "4  5  6"
+    },
+    {
+     "id": "b2",
+     "kind": "box",
+     "x": 176,
+     "y": 106,
+     "w": 80,
+     "h": 30,
+     "label": "7  8  9"
+    },
+    {
+     "id": "b3",
+     "kind": "box",
+     "x": 260,
+     "y": 106,
+     "w": 80,
+     "h": 30,
+     "label": "10 11 12"
+    },
+    {
+     "id": "dl",
+     "kind": "text",
+     "x": 180,
+     "y": 156,
+     "text": "data file: 4 blocks, sorted on the key",
+     "size": 13
+    },
+    {
+     "id": "dn",
+     "kind": "array",
+     "x": 8,
+     "y": 190,
+     "cells": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+     ],
+     "cw": 28,
+     "ch": 28,
+     "indices": false,
+     "label": "dense index: one entry per record"
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 240,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The data file is sorted on the key: blocks hold keys (1,2,3), (4,5,6), (7,8,9) and (10,11,12).",
+     "show": [
+      "b0",
+      "b1",
+      "b2",
+      "b3",
+      "dl"
+     ]
+    },
+    {
+     "caption": "A **sparse** index has one entry per block, holding the first key of the block. That gives 4 entries: 1, 4, 7, 10.",
+     "show": [
+      "sp",
+      "ar0",
+      "ar1",
+      "ar2",
+      "ar3"
+     ],
+     "set": [
+      {
+       "id": "res",
+       "text": "sparse: 4 entries",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "sp"
+     ]
+    },
+    {
+     "caption": "A **dense** index has one entry for every record. That gives 12 entries.",
+     "show": [
+      "dn"
+     ],
+     "set": [
+      {
+       "id": "res",
+       "text": "dense: 12 entries",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "dn"
+     ]
+    },
+    {
+     "caption": "Find key 8 with the sparse index: take the largest entry $\\le 8$, which is 7. Read that block (7, 8, 9) and scan it.",
+     "highlight": [
+      {
+       "id": "sp",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "b2",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "res",
+       "text": "key 8: largest entry ≤ 8 is 7, read block 3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The sparse index has $b$ entries (4) and the dense index has $r$ entries (12). For 3,000 records at 10 per block it is 300 versus 3,000. A sparse index needs the data sorted.",
+     "set": [
+      {
+       "id": "res",
+       "text": "sparse = b entries, dense = r entries",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sp",
+       "tone": "good"
+      },
+      {
+       "id": "dn",
+       "tone": "mid"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.index.x3.blocks",
+   "title": "Blocking factor and index size",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "blk",
+     "kind": "box",
+     "x": 26,
+     "y": 30,
+     "w": 308,
+     "h": 34,
+     "fill": false
+    },
+    {
+     "id": "r1",
+     "kind": "box",
+     "x": 26,
+     "y": 30,
+     "w": 45,
+     "h": 34,
+     "label": "150"
+    },
+    {
+     "id": "r2",
+     "kind": "box",
+     "x": 71,
+     "y": 30,
+     "w": 45,
+     "h": 34,
+     "label": "150"
+    },
+    {
+     "id": "r3",
+     "kind": "box",
+     "x": 116,
+     "y": 30,
+     "w": 45,
+     "h": 34,
+     "label": "150"
+    },
+    {
+     "id": "r4",
+     "kind": "box",
+     "x": 161,
+     "y": 30,
+     "w": 45,
+     "h": 34,
+     "label": "150"
+    },
+    {
+     "id": "r5",
+     "kind": "box",
+     "x": 206,
+     "y": 30,
+     "w": 45,
+     "h": 34,
+     "label": "150"
+    },
+    {
+     "id": "r6",
+     "kind": "box",
+     "x": 251,
+     "y": 30,
+     "w": 45,
+     "h": 34,
+     "label": "150"
+    },
+    {
+     "id": "w",
+     "kind": "box",
+     "x": 296,
+     "y": 30,
+     "w": 38,
+     "h": 34,
+     "label": "124",
+     "dash": true,
+     "fill": false
+    },
+    {
+     "id": "cap",
+     "kind": "text",
+     "x": 180,
+     "y": 84,
+     "text": "block = 1,024 B   record = 150 B",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "bars",
+     "kind": "bar",
+     "x": 50,
+     "y": 118,
+     "w": 260,
+     "h": 84,
+     "values": [
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "data",
+      "dense idx",
+      "sparse idx"
+     ],
+     "max": 1167,
+     "hideZero": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 236,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Records per block: $\\lfloor 1024/150 \\rfloor = 6$, because $7 \\times 150 = 1050 > 1024$. The last $1024 - 900 = 124$ bytes of each block are unused.",
+     "set": [
+      {
+       "id": "res",
+       "text": "6 records fit; 124 B wasted",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "w",
+       "tone": "bad"
+      },
+      {
+       "id": "blk",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Data blocks: $\\lceil 7000/6 \\rceil = 1167$.",
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        1167,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "res",
+       "text": "data blocks = ⌈7000/6⌉ = 1167"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        0
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Index entry size: $12 + 8 = 20$ bytes. Entries per block: $\\lfloor 1024/20 \\rfloor = 51$.",
+     "set": [
+      {
+       "id": "cap",
+       "text": "entry = 12 + 8 = 20 B   51 per block"
+      },
+      {
+       "id": "res",
+       "text": "⌊1024/20⌋ = 51 entries per block"
+      }
+     ]
+    },
+    {
+     "caption": "Dense index: one entry per record, $\\lceil 7000/51 \\rceil = 138$ blocks.",
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        1167,
+        138,
+        0
+       ]
+      },
+      {
+       "id": "res",
+       "text": "dense: ⌈7000/51⌉ = 138"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        1
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Sparse index: one entry per data block, $\\lceil 1167/51 \\rceil = 23$ blocks.",
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        1167,
+        138,
+        23
+       ]
+      },
+      {
+       "id": "res",
+       "text": "sparse: ⌈1167/51⌉ = 23",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.index.x4.levels",
+   "title": "Multi-level index: one read per level",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "top",
+     "kind": "box",
+     "x": 115,
+     "y": 12,
+     "w": 130,
+     "h": 26,
+     "label": "level 3: 1 block"
+    },
+    {
+     "id": "l2",
+     "kind": "box",
+     "x": 100,
+     "y": 62,
+     "w": 160,
+     "h": 26,
+     "label": "level 2: 6 blocks"
+    },
+    {
+     "id": "l1",
+     "kind": "box",
+     "x": 50,
+     "y": 112,
+     "w": 260,
+     "h": 26,
+     "label": "level 1: 300 blocks"
+    },
+    {
+     "id": "dat",
+     "kind": "box",
+     "x": 20,
+     "y": 162,
+     "w": 320,
+     "h": 26,
+     "label": "data file: 15,300 blocks"
+    },
+    {
+     "id": "a1",
+     "kind": "arrow",
+     "from": "top",
+     "to": "l2"
+    },
+    {
+     "id": "a2",
+     "kind": "arrow",
+     "from": "l2",
+     "to": "l1"
+    },
+    {
+     "id": "a3",
+     "kind": "arrow",
+     "from": "l1",
+     "to": "dat"
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 180,
+     "y": 216,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "cmp",
+     "kind": "text",
+     "x": 180,
+     "y": 244,
+     "text": "",
+     "size": 13,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Single-level index with binary search: $\\lceil \\log_2 300 \\rceil = 9$ index reads (since $2^8 = 256 < 300 \\le 512$), plus 1 data block. Total $9 + 1 = 10$.",
+     "set": [
+      {
+       "id": "cnt",
+       "text": "binary search: 9 + 1 = 10 reads",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "l1",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Multi-level: build a second level, a sparse index over the 300 index blocks. It has 300 entries, so $\\lceil 300/51 \\rceil = 6$ blocks.",
+     "show": [
+      "l2",
+      "a2"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "level 2: ⌈300/51⌉ = 6 blocks",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "l2"
+     ]
+    },
+    {
+     "caption": "Build a third level over those 6 blocks: 6 entries, $\\lceil 6/51 \\rceil = 1$ block. Stop when the top level is one block.",
+     "show": [
+      "top",
+      "a1"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "level 3: ⌈6/51⌉ = 1 block, stop",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "top"
+     ]
+    },
+    {
+     "caption": "Search: read the top block (1), one level-2 block (2), one level-1 block (3), then the data block (4). One read per level.",
+     "set": [
+      {
+       "id": "cnt",
+       "text": "4 reads: one per level + data",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "top",
+       "tone": "good"
+      },
+      {
+       "id": "l2",
+       "tone": "good"
+      },
+      {
+       "id": "l1",
+       "tone": "good"
+      },
+      {
+       "id": "dat",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Multi-level costs 4 accesses. Binary search on the single-level index costs 10.",
+     "set": [
+      {
+       "id": "cmp",
+       "text": "multi-level 4 reads   vs   binary search 10 reads"
+      }
+     ],
+     "highlight": [
+      "cmp"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.index.x5.order",
+   "title": "Fitting a B+ tree node into a block",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "node",
+     "kind": "array",
+     "x": 12,
+     "y": 40,
+     "cells": [
+      "P1",
+      "K1",
+      "P2",
+      "K2",
+      "…",
+      "K42",
+      "P43"
+     ],
+     "cw": 48,
+     "ch": 30,
+     "indices": false,
+     "label": "internal node: p pointers and p−1 keys"
+    },
+    {
+     "id": "eq",
+     "kind": "text",
+     "x": 180,
+     "y": 100,
+     "text": "4p + 8(p−1) ≤ 512",
+     "size": 15,
+     "bold": true
+    },
+    {
+     "id": "eq2",
+     "kind": "text",
+     "x": 180,
+     "y": 124,
+     "text": "",
+     "size": 14,
+     "tone": "accent"
+    },
+    {
+     "id": "ord",
+     "kind": "bar",
+     "x": 50,
+     "y": 150,
+     "w": 260,
+     "h": 52,
+     "values": [
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "B+ internal p",
+      "B+ leaf",
+      "B-tree p"
+     ],
+     "max": 50,
+     "hideZero": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 240,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "An internal B+ node holds $p$ tree pointers and $p-1$ keys, and no record pointers: $4p + 8(p-1) \\le 512$.",
+     "highlight": [
+      "node",
+      "eq"
+     ]
+    },
+    {
+     "caption": "Simplify: $12p \\le 520$, so $p \\le 43.3$ and $p = 43$ (round down). Check: $43\\times4 + 42\\times8 = 508 \\le 512$, while $p=44$ needs 520.",
+     "set": [
+      {
+       "id": "eq2",
+       "text": "12p ≤ 520  →  p = 43"
+      },
+      {
+       "id": "ord",
+       "values": [
+        43,
+        0,
+        0
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A B+ leaf holds $m$ pairs of (key 8 + record pointer 8) and one 4-byte next-leaf pointer: $16m + 4 \\le 512$, so $m = 31$.",
+     "set": [
+      {
+       "id": "eq",
+       "text": "16m + 4 ≤ 512"
+      },
+      {
+       "id": "eq2",
+       "text": "m ≤ 31.75  →  31 entries"
+      },
+      {
+       "id": "ord",
+       "values": [
+        43,
+        31,
+        0
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A B-tree node also stores a record pointer with every key: $4p + (8+8)(p-1) \\le 512$, so $20p \\le 528$ and $p = 26$.",
+     "set": [
+      {
+       "id": "eq",
+       "text": "4p + 16(p−1) ≤ 512"
+      },
+      {
+       "id": "eq2",
+       "text": "20p ≤ 528  →  p = 26"
+      },
+      {
+       "id": "ord",
+       "values": [
+        43,
+        31,
+        26
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "B+ internal nodes get order 43 against 26 for the B-tree, because they carry no record pointers. More fan-out means a shorter tree.",
+     "set": [
+      {
+       "id": "res",
+       "text": "no record pointers inside → higher fan-out",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        0,
+        2
+       ],
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.index.x6.height",
+   "title": "Nodes per level: full versus half-full B+ tree",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "t1",
+     "kind": "text",
+     "x": 95,
+     "y": 22,
+     "text": "full nodes: shortest",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "t2",
+     "kind": "text",
+     "x": 270,
+     "y": 22,
+     "text": "half-full: tallest",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "mn",
+     "kind": "bar",
+     "x": 14,
+     "y": 56,
+     "w": 162,
+     "h": 110,
+     "values": [
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "leaf",
+      "L2",
+      "L3",
+      "root"
+     ],
+     "max": 100,
+     "hideZero": true
+    },
+    {
+     "id": "mx",
+     "kind": "bar",
+     "x": 190,
+     "y": 56,
+     "w": 162,
+     "h": 110,
+     "values": [
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "leaf",
+      "L2",
+      "L3",
+      "L4",
+      "root"
+     ],
+     "max": 100,
+     "hideZero": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 224,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "For the **minimum** height, pack every node full. Leaves hold 4 keys each: $\\lceil 200/4 \\rceil = 50$ leaves.",
+     "set": [
+      {
+       "id": "mn",
+       "values": [
+        50,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "res",
+       "text": "full leaves: ⌈200/4⌉ = 50"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "mn",
+       "cells": [
+        0
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Each internal node has 5 children: $\\lceil 50/5 \\rceil = 10$ nodes, then $\\lceil 10/5 \\rceil = 2$, then 1 root. Levels: 50, 10, 2, 1, so 4 levels.",
+     "set": [
+      {
+       "id": "mn",
+       "values": [
+        50,
+        10,
+        2,
+        1
+       ]
+      },
+      {
+       "id": "res",
+       "text": "÷5: 50 → 10 → 2 → 1 = 4 levels",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "mn",
+       "cells": [
+        1,
+        2,
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "For the **maximum** height, make nodes as empty as allowed. A leaf holds at least $\\lceil 4/2 \\rceil = 2$ keys, so up to $200/2 = 100$ leaves.",
+     "set": [
+      {
+       "id": "mx",
+       "values": [
+        100,
+        0,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "res",
+       "text": "half-full leaves: 200 ÷ 2 = 100"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "mx",
+       "cells": [
+        0
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "A non-root internal node has at least $\\lceil 5/2 \\rceil = 3$ children: $\\lfloor 100/3 \\rfloor = 33$, then 11, then 3. The root needs only 2 children, so the 3 nodes sit under it. Levels: 100, 33, 11, 3, 1, so 5 levels.",
+     "set": [
+      {
+       "id": "mx",
+       "values": [
+        100,
+        33,
+        11,
+        3,
+        1
+       ]
+      },
+      {
+       "id": "res",
+       "text": "÷3: 100 → 33 → 11 → 3 → 1 = 5 levels",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "mx",
+       "cells": [
+        1,
+        2,
+        3,
+        4
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "So the tree has between 4 and 5 levels.",
+     "set": [
+      {
+       "id": "res",
+       "text": "between 4 and 5 levels",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "mn",
+      "mx"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.index.x7.splits",
+   "title": "Inserting into a B+ tree: leaf splits copy up, internal splits push up",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "A",
+     "kind": "box",
+     "x": 140,
+     "y": 40,
+     "w": 80,
+     "h": 28,
+     "label": "20 40 60"
+    },
+    {
+     "id": "Br",
+     "kind": "box",
+     "x": 160,
+     "y": 30,
+     "w": 40,
+     "h": 28,
+     "label": "40"
+    },
+    {
+     "id": "Bl1",
+     "kind": "box",
+     "x": 70,
+     "y": 100,
+     "w": 80,
+     "h": 28,
+     "label": "10 20"
+    },
+    {
+     "id": "Bl2",
+     "kind": "box",
+     "x": 210,
+     "y": 100,
+     "w": 80,
+     "h": 28,
+     "label": "40 60"
+    },
+    {
+     "id": "eB1",
+     "kind": "edge",
+     "from": "Br",
+     "to": "Bl1"
+    },
+    {
+     "id": "eB2",
+     "kind": "edge",
+     "from": "Br",
+     "to": "Bl2"
+    },
+    {
+     "id": "Cr",
+     "kind": "box",
+     "x": 140,
+     "y": 30,
+     "w": 80,
+     "h": 28,
+     "label": "40 60"
+    },
+    {
+     "id": "Cl1",
+     "kind": "box",
+     "x": 20,
+     "y": 100,
+     "w": 90,
+     "h": 28,
+     "label": "10 20 30"
+    },
+    {
+     "id": "Cl2",
+     "kind": "box",
+     "x": 135,
+     "y": 100,
+     "w": 90,
+     "h": 28,
+     "label": "40 50"
+    },
+    {
+     "id": "Cl3",
+     "kind": "box",
+     "x": 250,
+     "y": 100,
+     "w": 90,
+     "h": 28,
+     "label": "60 70"
+    },
+    {
+     "id": "eC1",
+     "kind": "edge",
+     "from": "Cr",
+     "to": "Cl1"
+    },
+    {
+     "id": "eC2",
+     "kind": "edge",
+     "from": "Cr",
+     "to": "Cl2"
+    },
+    {
+     "id": "eC3",
+     "kind": "edge",
+     "from": "Cr",
+     "to": "Cl3"
+    },
+    {
+     "id": "Dr",
+     "kind": "box",
+     "x": 150,
+     "y": 16,
+     "w": 40,
+     "h": 28,
+     "label": "40"
+    },
+    {
+     "id": "Di1",
+     "kind": "box",
+     "x": 56,
+     "y": 72,
+     "w": 40,
+     "h": 28,
+     "label": "30"
+    },
+    {
+     "id": "Di2",
+     "kind": "box",
+     "x": 245,
+     "y": 72,
+     "w": 40,
+     "h": 28,
+     "label": "60"
+    },
+    {
+     "id": "Dl1",
+     "kind": "box",
+     "x": 8,
+     "y": 132,
+     "w": 60,
+     "h": 28,
+     "label": "10 20"
+    },
+    {
+     "id": "Dl2",
+     "kind": "box",
+     "x": 84,
+     "y": 132,
+     "w": 60,
+     "h": 28,
+     "label": "30 35"
+    },
+    {
+     "id": "Dl3",
+     "kind": "box",
+     "x": 190,
+     "y": 132,
+     "w": 60,
+     "h": 28,
+     "label": "40 50"
+    },
+    {
+     "id": "Dl4",
+     "kind": "box",
+     "x": 268,
+     "y": 132,
+     "w": 84,
+     "h": 28,
+     "label": "60 70 80"
+    },
+    {
+     "id": "eD1",
+     "kind": "edge",
+     "from": "Dr",
+     "to": "Di1"
+    },
+    {
+     "id": "eD2",
+     "kind": "edge",
+     "from": "Dr",
+     "to": "Di2"
+    },
+    {
+     "id": "eD3",
+     "kind": "edge",
+     "from": "Di1",
+     "to": "Dl1"
+    },
+    {
+     "id": "eD4",
+     "kind": "edge",
+     "from": "Di1",
+     "to": "Dl2"
+    },
+    {
+     "id": "eD5",
+     "kind": "edge",
+     "from": "Di2",
+     "to": "Dl3"
+    },
+    {
+     "id": "eD6",
+     "kind": "edge",
+     "from": "Di2",
+     "to": "Dl4"
+    },
+    {
+     "id": "cap",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "cap2",
+     "kind": "text",
+     "x": 180,
+     "y": 232,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Insert 20, 40, 60. They fit in one leaf $[20\\ 40\\ 60]$, which is also the root.",
+     "show": [
+      "A"
+     ],
+     "set": [
+      {
+       "id": "cap",
+       "text": "insert 20, 40, 60: one leaf"
+      }
+     ],
+     "highlight": [
+      "A"
+     ]
+    },
+    {
+     "caption": "Insert 10. The leaf would hold 4 keys, so it splits 2 + 2 into $[10\\ 20]$ and $[40\\ 60]$. The right leaf's smallest key, 40, is **copied** up into a new root $[40]$.",
+     "hide": [
+      "A"
+     ],
+     "show": [
+      "Br",
+      "Bl1",
+      "Bl2",
+      "eB1",
+      "eB2"
+     ],
+     "set": [
+      {
+       "id": "cap",
+       "text": "insert 10: leaf splits 2 + 2",
+       "tone": "bad"
+      },
+      {
+       "id": "cap2",
+       "text": "40 is copied up (it stays in the leaf)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "Br",
+       "tone": "accent"
+      },
+      {
+       "id": "Bl1",
+       "tone": "good"
+      },
+      {
+       "id": "Bl2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Insert 30 and 50. They fit: $[10\\ 20\\ 30]$ and $[40\\ 50\\ 60]$. No split.",
+     "set": [
+      {
+       "id": "Bl1",
+       "label": "10 20 30"
+      },
+      {
+       "id": "Bl2",
+       "label": "40 50 60"
+      },
+      {
+       "id": "cap",
+       "text": "insert 30, 50: they fit",
+       "tone": "good"
+      },
+      {
+       "id": "cap2",
+       "text": ""
+      }
+     ],
+     "highlight": [
+      {
+       "id": "Bl1",
+       "tone": "good"
+      },
+      {
+       "id": "Bl2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Insert 70. The right leaf would be $[40\\ 50\\ 60\\ 70]$, so it splits into $[40\\ 50]$ and $[60\\ 70]$. Copy 60 up; the root is $[40\\ 60]$.",
+     "hide": [
+      "Br",
+      "Bl1",
+      "Bl2",
+      "eB1",
+      "eB2"
+     ],
+     "show": [
+      "Cr",
+      "Cl1",
+      "Cl2",
+      "Cl3",
+      "eC1",
+      "eC2",
+      "eC3"
+     ],
+     "set": [
+      {
+       "id": "cap",
+       "text": "insert 70: right leaf splits",
+       "tone": "bad"
+      },
+      {
+       "id": "cap2",
+       "text": "60 is copied up: root [40 60]"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "Cl2",
+       "tone": "good"
+      },
+      {
+       "id": "Cl3",
+       "tone": "good"
+      },
+      {
+       "id": "Cr",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Insert 80. It fits in $[60\\ 70\\ 80]$.",
+     "set": [
+      {
+       "id": "Cl3",
+       "label": "60 70 80"
+      },
+      {
+       "id": "cap",
+       "text": "insert 80: fits",
+       "tone": "good"
+      },
+      {
+       "id": "cap2",
+       "text": ""
+      }
+     ],
+     "highlight": [
+      {
+       "id": "Cl3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Insert 35. The leaf $[10\\ 20\\ 30\\ 35]$ splits into $[10\\ 20]$ and $[30\\ 35]$, copying 30 up. The root $[30\\ 40\\ 60]$ now has 3 keys (limit 2), so it splits and **pushes** its middle key 40 up. The new root is $[40]$ over $[30]$ and $[60]$, and the height becomes 3.",
+     "hide": [
+      "Cr",
+      "Cl1",
+      "Cl2",
+      "Cl3",
+      "eC1",
+      "eC2",
+      "eC3"
+     ],
+     "show": [
+      "Dr",
+      "Di1",
+      "Di2",
+      "Dl1",
+      "Dl2",
+      "Dl3",
+      "Dl4",
+      "eD1",
+      "eD2",
+      "eD3",
+      "eD4",
+      "eD5",
+      "eD6"
+     ],
+     "set": [
+      {
+       "id": "cap",
+       "text": "insert 35: leaf splits, root overflows",
+       "tone": "bad"
+      },
+      {
+       "id": "cap2",
+       "text": "30 copied up; then 40 pushed up. Height 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "Dr",
+       "tone": "accent"
+      },
+      {
+       "id": "Di1",
+       "tone": "accent"
+      },
+      {
+       "id": "Di2",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.index.x8.btree_vs_bplus",
+   "title": "Same inserts, B tree versus B+ tree",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "tb",
+     "kind": "text",
+     "x": 90,
+     "y": 18,
+     "text": "B tree",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "tp",
+     "kind": "text",
+     "x": 270,
+     "y": 18,
+     "text": "B+ tree",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "bl0",
+     "kind": "box",
+     "x": 50,
+     "y": 56,
+     "w": 80,
+     "h": 28,
+     "label": "10 20"
+    },
+    {
+     "id": "pl0",
+     "kind": "box",
+     "x": 230,
+     "y": 56,
+     "w": 80,
+     "h": 28,
+     "label": "10 20"
+    },
+    {
+     "id": "br",
+     "kind": "box",
+     "x": 68,
+     "y": 40,
+     "w": 44,
+     "h": 28,
+     "label": "20"
+    },
+    {
+     "id": "bl1",
+     "kind": "box",
+     "x": 20,
+     "y": 110,
+     "w": 48,
+     "h": 28,
+     "label": "10"
+    },
+    {
+     "id": "bl2",
+     "kind": "box",
+     "x": 112,
+     "y": 110,
+     "w": 48,
+     "h": 28,
+     "label": "30"
+    },
+    {
+     "id": "eb1",
+     "kind": "edge",
+     "from": "br",
+     "to": "bl1"
+    },
+    {
+     "id": "eb2",
+     "kind": "edge",
+     "from": "br",
+     "to": "bl2"
+    },
+    {
+     "id": "pr",
+     "kind": "box",
+     "x": 248,
+     "y": 40,
+     "w": 44,
+     "h": 28,
+     "label": "20"
+    },
+    {
+     "id": "pl1",
+     "kind": "box",
+     "x": 190,
+     "y": 110,
+     "w": 48,
+     "h": 28,
+     "label": "10"
+    },
+    {
+     "id": "pl2",
+     "kind": "box",
+     "x": 262,
+     "y": 110,
+     "w": 70,
+     "h": 28,
+     "label": "20 30"
+    },
+    {
+     "id": "ep1",
+     "kind": "edge",
+     "from": "pr",
+     "to": "pl1"
+    },
+    {
+     "id": "ep2",
+     "kind": "edge",
+     "from": "pr",
+     "to": "pl2"
+    },
+    {
+     "id": "lnk",
+     "kind": "arrow",
+     "x1": 238,
+     "y1": 124,
+     "x2": 262,
+     "y2": 124
+    },
+    {
+     "id": "cap",
+     "kind": "text",
+     "x": 180,
+     "y": 176,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "cap2",
+     "kind": "text",
+     "x": 180,
+     "y": 204,
+     "text": "",
+     "size": 13
+    },
+    {
+     "id": "cap3",
+     "kind": "text",
+     "x": 180,
+     "y": 228,
+     "text": "",
+     "size": 13,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Insert 10 and 20. In both trees they sit in a single node $[10\\ 20]$.",
+     "set": [
+      {
+       "id": "cap",
+       "text": "both trees: one node [10 20]"
+      }
+     ],
+     "highlight": [
+      "bl0",
+      "pl0"
+     ]
+    },
+    {
+     "caption": "Insert 30. The node would hold 3 keys, which exceeds 2, so it must split.",
+     "set": [
+      {
+       "id": "bl0",
+       "label": "10 20 30"
+      },
+      {
+       "id": "pl0",
+       "label": "10 20 30"
+      },
+      {
+       "id": "cap",
+       "text": "insert 30: node overflows (max 2)",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bl0",
+       "tone": "bad"
+      },
+      {
+       "id": "pl0",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "B tree: the middle key 20 **moves** up and leaves the node. Result: root $[20]$ with children $[10]$ and $[30]$. The key 20 exists once.",
+     "hide": [
+      "bl0"
+     ],
+     "show": [
+      "br",
+      "bl1",
+      "bl2",
+      "eb1",
+      "eb2"
+     ],
+     "set": [
+      {
+       "id": "cap",
+       "text": "B tree: 20 moves up",
+       "tone": "accent"
+      },
+      {
+       "id": "cap2",
+       "text": "key 20 exists once"
+      }
+     ],
+     "highlight": [
+      "br"
+     ]
+    },
+    {
+     "caption": "B+ tree: 20 is **copied** up and stays in the right leaf. Result: root $[20]$ with leaves $[10]$ and $[20\\ 30]$. The key 20 appears twice, and the leaves are linked.",
+     "hide": [
+      "pl0"
+     ],
+     "show": [
+      "pr",
+      "pl1",
+      "pl2",
+      "ep1",
+      "ep2",
+      "lnk"
+     ],
+     "set": [
+      {
+       "id": "cap",
+       "text": "B+ tree: 20 is copied up",
+       "tone": "accent"
+      },
+      {
+       "id": "cap2",
+       "text": "key 20 appears twice; leaves linked →"
+      }
+     ],
+     "highlight": [
+      "pr",
+      "pl2"
+     ]
+    },
+    {
+     "caption": "Fan-out: the B tree stores a record pointer with each key, so $4p + 12(p-1) \\le 512$ gives $p = 32$. The B+ internal node does not, so $4p + 6(p-1) \\le 512$ gives $p = 51$.",
+     "set": [
+      {
+       "id": "cap",
+       "text": "fan-out for a 512 B block"
+      },
+      {
+       "id": "cap2",
+       "text": ""
+      },
+      {
+       "id": "cap3",
+       "text": "B tree order 32     B+ order 51"
+      }
+     ],
+     "highlight": [
+      "cap3"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.index.x9.choosing",
+   "title": "Which index serves which query?",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "q",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "Query on key k: does the index avoid a full scan?",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 130,
+     "y": 62,
+     "rows": 4,
+     "cols": 3,
+     "cw": 66,
+     "ch": 32,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "Heap",
+      "Hash",
+      "B+ tree"
+     ],
+     "rowLabels": [
+      "k = 7",
+      "k in 5..9",
+      "k like 'ab%'",
+      "order by k"
+     ]
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 222,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A heap with no index reads the entire table for every query. The question is which index avoids that.",
+     "set": [
+      {
+       "id": "res",
+       "text": "no index: every query scans all blocks",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        3,
+        6,
+        9
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "(a) $k = 7$ is an exact match. A hash index jumps to one bucket and a B+ tree walks down in $O(\\log n)$. Both work.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✗",
+        "✓",
+        "✓",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "res",
+       "text": "equality: hash or B+",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "(b) $k$ between 5 and 9 is a range. A hash index scatters neighbouring keys, so it fails. A B+ tree finds 5 and follows the leaf links to 9. Only the B+ tree works.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✗",
+        "✓",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "res",
+       "text": "range: only the ordered B+ tree",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        3,
+        4,
+        5
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "(c) $k$ like `'ab%'` is a prefix match, a range of strings from `ab` to `ac`. Only an ordered index (B+) works.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✗",
+        "✓",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "res",
+       "text": "prefix = range of strings: B+",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        6,
+        7,
+        8
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "(d) order by $k$ needs the keys in order. The B+ leaves are already in order, so no sorting is needed. A hash index gives no order.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✗",
+        "✓",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "✗",
+        "✗",
+        "✓"
+       ]
+      },
+      {
+       "id": "res",
+       "text": "order by: leaves are already sorted",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        9,
+        10,
+        11
+       ],
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

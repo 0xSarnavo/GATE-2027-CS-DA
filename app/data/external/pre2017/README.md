@@ -1,0 +1,5 @@
+# Pre-2017 GATE CS questions (2000-2016)
+Generated 2026-10-06 from ../serphh-go-scrape/question_details(pdf).json (GATE Overflow content). One file per paper/set (e.g. 2015-CS1.json), ids like 2015-CS1-q12, GA as 2015-CS1-qGA3; 2000-2002 ids use section_question (q1_21, marks = section).
+Fields follow app question files: id, exam_year, paper, session, q_no, section, q_type (MCQ/NAT), marks (inferred from numbering, marks_inferred=true, null for 2003-2008 where unknown; 2000-2002 = section marks), text (HTML stripped, LaTeX kept in $..$), options, answer (letter | {ranges} | 'MTA' | null), source_url (GO discussion), tags, images (GO-hosted URLs, not downloaded), needs_review/review_reasons.
+Caveats: answers are GO accepted answers (not official keys); coverage is partial (GO dump lacks some questions, e.g. 2015-CS1 has 51 of 55 subject questions); 1987-1999 and GATE IT papers exist in the source but were not imported; MSQ did not exist pre-2014; some items (diagram/table questions) need images.
+Source license: see ../serphh-go-scrape/README.md. Personal study use only.

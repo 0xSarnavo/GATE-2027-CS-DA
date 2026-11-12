@@ -1,0 +1,4609 @@
+{
+ "topic_id": "ds.heaps",
+ "title": "Heaps and priority queues",
+ "chapter_note": {
+  "about": "A heap is a tree stored in an array, where every parent beats its children. It gives you the biggest (or smallest) key at once and lets you add or remove keys in about log n swaps. This chapter covers how to read a heap array, its shape, insert and extract, building a heap fast, and what a heap can and cannot find quickly. It then turns to priority queues and heapsort, Python's heapq, counting heaps and d-ary heaps. Every question comes down to drawing the tree from the array and following one path through it.",
+  "simple": "Imagine a tournament bracket written out as one long row. The winner of every little match sits above the two players it beat. The best player is at the very top, so you see them instantly. When a new player arrives, they start at the bottom and climb while they beat the one above. When the champion leaves, the newest player from the bottom takes the throne and slides down until they fit. Building the whole bracket from a messy pile is surprisingly quick, because most players start near the bottom already. Two traps: only the top is easy to find, and the smallest player hides somewhere among the bottom row.",
+  "concept_map": [
+   {
+    "atom_id": "h1",
+    "title": "Heap property and array layout",
+    "one_line": "Parent beats children; children of i are 2i and 2i+1."
+   },
+   {
+    "atom_id": "h2",
+    "title": "Shape: complete tree, height and leaves",
+    "one_line": "Height is floor(log2 n); leaves are the second half of the array."
+   },
+   {
+    "atom_id": "h3",
+    "title": "Insert and sift up",
+    "one_line": "Add at the end and swap upward while the parent is smaller."
+   },
+   {
+    "atom_id": "h4",
+    "title": "Extract and sift down",
+    "one_line": "Last key to the root, then swap with the larger child."
+   },
+   {
+    "atom_id": "h5",
+    "title": "Build-heap (Floyd)",
+    "one_line": "Sift down from floor(n/2) back to 1; the total is Θ(n)."
+   },
+   {
+    "atom_id": "h6",
+    "title": "Where the extremes live",
+    "one_line": "The opposite extreme is at a leaf, and finding it costs Θ(n)."
+   },
+   {
+    "atom_id": "h8",
+    "title": "Priority queue and heapsort",
+    "one_line": "Find-max O(1), insert and extract O(log n), heapsort Θ(n log n)."
+   },
+   {
+    "atom_id": "h10",
+    "title": "Python heapq",
+    "one_line": "A min-heap on a 0-based list; push negatives for a max-heap."
+   },
+   {
+    "atom_id": "h7",
+    "title": "Counting heaps",
+    "one_line": "h(n) = C(n-1, L) h(L) h(R), with L and R forced by the shape."
+   },
+   {
+    "atom_id": "h9",
+    "title": "d-ary heaps",
+    "one_line": "0-based: children di+1..di+d, parent floor((i-1)/d)."
+   }
+  ],
+  "gate_patterns": [
+   "Build-heap or insert traces on an array: apply sift-down from the last parent, or sift-up for each insert, and write the array (2024 CS1 Q41, 2023 CS Q12, 2005 CS Q34, 2015 CS1 Q32).",
+   "Complexity and extremes: the maximum of a min-heap is a leaf and costs Θ(n); insert and extract are O(log n); melding two array heaps is Θ(n) (2021 CS2 Q12, 2023 CS Q46, 2020 CS Q57, 2025 CS2 Q38).",
+   "Position and shape facts: leaves are the second half of the array, height is floor(log2 n), plus true/false statements and counting heaps (2024 CS1 Q43, 2025 CS1 Q35, 2026 CS1 Q23, 2019 CS Q50, 2018 CS Q56). Weightage: about 1.1 marks per CS paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "h1",
+   "title": "Heap property and array layout",
+   "simple": "Picture a company chart where every boss earns at least as much as each person who reports to them. Only boss versus worker is compared. Two workers under the same boss can earn in any order. Now write the chart as one row, top level first, then the next level, left to right. Because nobody is missing, you do not need to store who reports to whom: the position tells you. In exam words: a max-heap is a complete binary tree where each parent is at least both children, stored in an array. With 1-based indexing the children of i are 2i and 2i+1 and the parent is floor(i/2).",
+   "idea": "A heap is a tree where every parent beats its children, packed into an array level by level. In a **max-heap** a parent is at least as large as each child, so the largest key sits at the root. The tree has no gaps, so the array position alone tells you the parent and children. No pointers are needed.",
+   "definition": "A **max-heap** on `A[1..n]` satisfies $A[\\lfloor i/2\\rfloor]\\ge A[i]$ for every index $i\\ge 2$.\n\n- Children of $i$ are $2i$ and $2i+1$ (when they are $\\le n$). Parent of $i$ is $\\lfloor i/2\\rfloor$.\n- For 0-based arrays (C, Python) the children are $2i+1$ and $2i+2$ and the parent is $\\lfloor (i-1)/2\\rfloor$.\n- A **min-heap** flips the inequality: parent $\\le$ child.\n- Siblings are not compared with each other.",
+   "intuition_full": "Level order is just reading the tree row by row. Row 0 has 1 node, row 1 has 2, row 2 has 4, so row r starts at index $2^r$. A node at index i has $i-2^r$ nodes to its left in its row, and each of them has two children, so its own children land at $2i$ and $2i+1$. The check is local: if every parent beats its two children, then by chaining, every ancestor beats every descendant, and the root beats everything. A second picture is a tournament bracket where a winner must beat both players below it. The bracket does not say who is better between the two losers. That is why sibling order is free, and why a heap is not sorted.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Is `A = [70, 50, 60, 20, 40, 10, 30]` (indexed from 1) a max-heap?",
+     "steps": [
+      "Write the array as a tree. `A[1] = 70` is the root, and the children of index `i` sit at `2i` and `2i+1`.",
+      "`i = 1`: children `A[2] = 50` and `A[3] = 60`. Is 70 ≥ 50 and 70 ≥ 60? Yes.",
+      "`i = 2`: children `A[4] = 20` and `A[5] = 40`. Is 50 ≥ 20 and 50 ≥ 40? Yes.",
+      "`i = 3`: children `A[6] = 10` and `A[7] = 30`. Is 60 ≥ 10 and 60 ≥ 30? Yes.",
+      "Every parent is at least both its children, so it is a max-heap. The siblings 50 and 60 are in no particular order, and that is fine."
+     ],
+     "answer": "Yes, it is a max-heap. Only parent-versus-child pairs are checked."
+    },
+    {
+     "level": "gate",
+     "setup": "The array `A = [80, 60, 70, 40, 55, 65, 30, 20, 35, 58]` (1-based, n = 10) has a root bigger than both children. Is it a max-heap?",
+     "steps": [
+      "`i = 1`: 80 ≥ 60 and 80 ≥ 70. Passes.",
+      "`i = 2`: children `A[4] = 40`, `A[5] = 55`. 60 ≥ both. Passes.",
+      "`i = 3`: children `A[6] = 65`, `A[7] = 30`. 70 ≥ both. Passes.",
+      "`i = 4`: children `A[8] = 20`, `A[9] = 35`. 40 ≥ both. Passes.",
+      "`i = 5`: the only child is `A[10] = 58` (index 11 does not exist). 55 ≥ 58 is false.",
+      "One broken pair is enough. Swapping 55 and 58 would repair it, but as given it is not a heap."
+     ],
+     "answer": "Not a max-heap. The violation is the pair (index 5, index 10) deep in the tree, so checking only the root is not enough."
+    },
+    {
+     "level": "twist",
+     "setup": "The Python list `a = [70, 50, 60, 20, 40, 10, 30]` is 0-based. Find the parent of index 6. What goes wrong if you use the 1-based formula `i // 2`?",
+     "steps": [
+      "For 0-based arrays the children of `i` are `2i+1` and `2i+2`, so the parent of `i` is `(i-1)//2`.",
+      "Parent of index 6 is `(6-1)//2 = 2`, and `a[2] = 60`. Indeed `a[6] = 30` is the second child of index 2 (children 5 and 6).",
+      "With the 1-based formula, `6 // 2 = 3`, and `a[3] = 20`. That is a different node, and 20 is not even an ancestor of 30."
+     ],
+     "answer": "The parent is index 2 (value 60). The 1-based formula points to index 3 (value 20), which is wrong. Always check which base the question uses."
+    }
+   ],
+   "why": "Every other heap question starts by moving between a node and its neighbours with index arithmetic. In GATE: 'which array is a heap' and 'what is the index of the parent or child' (2023 CS Q12, 2009 CS Q59, 2001 CS Q1_15).",
+   "how": [
+    "Fix the base: 1-based (children 2i, 2i+1) or 0-based (2i+1, 2i+2).",
+    "For each index i up to n/2, find its children by the formula. Skip children beyond n.",
+    "Compare the parent with each child (max-heap: parent ≥ child).",
+    "Stop at the first violation: one bad pair makes it not a heap."
+   ],
+   "mistake": "Checking only the root, or only the siblings. A heap is about parent versus child at every internal node. Siblings can be in any order, and a violation can hide at the bottom.",
+   "edge_cases": [
+    "Siblings out of order (a left child bigger than the right) are allowed. Heap order is vertical.",
+    "A node whose 2i is greater than n is a leaf and has nothing to check.",
+    "A node with only one child (2i = n) is checked against that child only.",
+    "Equal keys are fine: the rule is ≥, not >."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers arrays and index arithmetic.",
+    "Next card: **Shape, height and leaves** uses the same indices to count levels.",
+    "A BST orders keys horizontally (left < node < right). See **ds.trees** for the contrast."
+   ],
+   "check": [
+    {
+     "q": "In a 1-based heap, which indices are the children of index 9?",
+     "a": "18 and 19, if n ≥ 19."
+    },
+    {
+     "q": "0-based array: what is the parent of index 10?",
+     "a": "(10 − 1) // 2 = 4."
+    },
+    {
+     "q": "Is `[9, 7, 8, 1, 5]` a max-heap (1-based)?",
+     "a": "Yes. 9 ≥ 7, 8 and 7 ≥ 1, 5. The node at index 3 (value 8) has no children, since 2*3 = 6 > 5."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q12, 2009 CS Q59, 2001 CS Q1_15",
+   "try": {
+    "id": "gen.ds.heaps.001",
+    "label": "Which of these arrays, indexed 1 to 7, is a max-heap? (L1)"
+   },
+   "scene": "ds.heaps.h1.layout",
+   "example": {
+    "setup": "Is `A = [70, 50, 60, 20, 40, 10, 30]` (indexed from 1) a max-heap?",
+    "steps": [
+     "Write the array as a tree. `A[1] = 70` is the root, and the children of index `i` sit at `2i` and `2i+1`.",
+     "`i = 1`: children `A[2] = 50` and `A[3] = 60`. Is 70 ≥ 50 and 70 ≥ 60? Yes.",
+     "`i = 2`: children `A[4] = 20` and `A[5] = 40`. Is 50 ≥ 20 and 50 ≥ 40? Yes.",
+     "`i = 3`: children `A[6] = 10` and `A[7] = 30`. Is 60 ≥ 10 and 60 ≥ 30? Yes.",
+     "Every parent is at least both its children, so it is a max-heap. The siblings 50 and 60 are in no particular order, and that is fine."
+    ],
+    "answer": "Yes, it is a max-heap. Only parent-versus-child pairs are checked."
+   },
+   "what": "A heap is a tree where every parent beats its children, packed into an array level by level. In a **max-heap** a parent is at least as large as each child, so the largest key sits at the root. The tree has no gaps, so the array position alone tells you the parent and children. No pointers are needed.",
+   "what_full": "A heap is a tree where every parent beats its children, packed into an array level by level. In a **max-heap** a parent is at least as large as each child, so the largest key sits at the root. The tree has no gaps, so the array position alone tells you the parent and children. No pointers are needed.\n\nA **max-heap** on `A[1..n]` satisfies $A[\\lfloor i/2\\rfloor]\\ge A[i]$ for every index $i\\ge 2$.\n\n- Children of $i$ are $2i$ and $2i+1$ (when they are $\\le n$). Parent of $i$ is $\\lfloor i/2\\rfloor$.\n- For 0-based arrays (C, Python) the children are $2i+1$ and $2i+2$ and the parent is $\\lfloor (i-1)/2\\rfloor$.\n- A **min-heap** flips the inequality: parent $\\le$ child.\n- Siblings are not compared with each other.\n\n**Worked example.** Is `A = [70, 50, 60, 20, 40, 10, 30]` (indexed from 1) a max-heap?\n\n1. Write the array as a tree. `A[1] = 70` is the root, and the children of index `i` sit at `2i` and `2i+1`.\n2. `i = 1`: children `A[2] = 50` and `A[3] = 60`. Is 70 ≥ 50 and 70 ≥ 60? Yes.\n3. `i = 2`: children `A[4] = 20` and `A[5] = 40`. Is 50 ≥ 20 and 50 ≥ 40? Yes.\n4. `i = 3`: children `A[6] = 10` and `A[7] = 30`. Is 60 ≥ 10 and 60 ≥ 30? Yes.\n5. Every parent is at least both its children, so it is a max-heap. The siblings 50 and 60 are in no particular order, and that is fine.\n\n**Answer:** Yes, it is a max-heap. Only parent-versus-child pairs are checked.",
+   "why_full": "Every other heap question starts by moving between a node and its neighbours with index arithmetic. In GATE: 'which array is a heap' and 'what is the index of the parent or child' (2023 CS Q12, 2009 CS Q59, 2001 CS Q1_15).\n\nAsked: 2023 CS Q12, 2009 CS Q59, 2001 CS Q1_15",
+   "trap": "Checking only the root, or only the siblings. A heap is about parent versus child at every internal node. Siblings can be in any order, and a violation can hide at the bottom."
+  },
+  {
+   "atom_id": "h2",
+   "title": "Shape: complete tree, height and leaves",
+   "simple": "Think of seats in a cinema filled row by row from the front, always from the left. No gaps are allowed. The rows get longer as you go back (1, 2, 4, 8 seats), so the number of rows grows slowly. The last occupied row may be only partly filled. The seats in the back half of the order are the ones with nobody behind them. In exam words: a heap is a complete binary tree, so its height is floor(log2 n) and the leaves are the indices floor(n/2)+1 to n, the second half of the array.",
+   "idea": "A heap is a **complete** binary tree: every level is full except possibly the last, which fills from the left. That fixes the shape for any n. The height is $\\lfloor\\log_2 n\\rfloor$. The leaves are the second half of the array.",
+   "definition": "For a heap on $n$ nodes, 1-based:\n\n- Height (edges from root to deepest leaf) $=\\lfloor\\log_2 n\\rfloor$.\n- Last internal node: index $\\lfloor n/2\\rfloor$.\n- Leaves: indices $\\lfloor n/2\\rfloor+1,\\dots,n$, so $\\lceil n/2\\rceil$ leaves.\n- Level $r$ holds indices $2^r$ to $2^{r+1}-1$ (the last level may stop early).",
+   "intuition_full": "The shape is forced by the array: filling positions 1, 2, 3, ... in order can only build a complete tree. Level r starts at index $2^r$, so index n lives on level $\\lfloor\\log_2 n\\rfloor$. A node i has a child only if $2i\\le n$, which means $i\\le n/2$. That is why every index above $\\lfloor n/2\\rfloor$ is a leaf. Roughly half of all nodes are leaves, which is why 'the minimum of a max-heap' is a hard question later: half the nodes are candidates. If n is exactly $2^k-1$ the tree is perfect, and every leaf sits at the same depth.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A heap stores 11 keys in `A[1..11]`. What is its height, and which indices are leaves?",
+     "steps": [
+      "Fill levels left to right: level 0 holds index 1, level 1 holds indices 2 to 3, level 2 holds 4 to 7, and the last level takes the remaining four, indices 8 to 11.",
+      "Height is the number of edges from the root to the deepest level: 3. Check: floor(log2 11) = floor(3.46) = 3.",
+      "The last parent is index floor(11/2) = 5. It has children 10 and 11. Index 6 would need a child at 12, which does not exist, so 6 is a leaf.",
+      "Leaves are indices 6 to 11, that is 6 leaves. The internal nodes are indices 1 to 5.",
+      "Check with a formula: leaves = n − floor(n/2) = 11 − 5 = 6 = ceil(11/2). The leaves are the second half of the array."
+     ],
+     "answer": "Height 3. Leaves are indices 6 to 11 (6 of them); indices 1 to 5 are internal."
+    },
+    {
+     "level": "gate",
+     "setup": "A min-heap has 77 elements in `A[1..77]`. Give its height, its number of leaves, and say whether index 38 is a leaf.",
+     "steps": [
+      "Height: 2^6 = 64 ≤ 77 < 128 = 2^7, so height = floor(log2 77) = 6.",
+      "Last parent index = floor(77/2) = 38. Its children are 76 and 77, and 77 exists, so 38 has two children.",
+      "Leaves are indices 39 to 77, so 77 − 38 = 39 leaves.",
+      "Index 38 is therefore the last internal node, not a leaf. The maximum of this min-heap hides among the 39 leaves."
+     ],
+     "answer": "Height 6, 39 leaves, and index 38 is internal (the last parent)."
+    },
+    {
+     "level": "twist",
+     "setup": "Now n = 12 (even). How many children does the last parent have, and how many leaves are there?",
+     "steps": [
+      "Last parent = floor(12/2) = 6. Its children would be 12 and 13, but only 12 exists.",
+      "So index 6 has exactly one child (a left child). The completeness rule fills left to right, so a lone child is always a left child.",
+      "Leaves are indices 7 to 12: 12 − 6 = 6 leaves, which is also ceil(12/2) = 6."
+     ],
+     "answer": "The last parent (index 6) has one child. There are 6 leaves, indices 7 to 12."
+    }
+   ],
+   "why": "Position and shape facts decide height, leaf count and the index of the last parent. In GATE: height of a heap with n keys, which indices are leaves, and how many leaves there are (2025 CS1 Q35, 2026 CS1 Q23, 2024 CS1 Q43).",
+   "how": [
+    "Compute the height as floor(log2 n): the largest k with 2^k ≤ n.",
+    "Compute the last parent as floor(n/2).",
+    "Leaves are every index after the last parent, up to n.",
+    "If n is even, the last parent has only a left child; if n is odd, it has two."
+   ],
+   "mistake": "Using ceil instead of floor for the height, or counting levels instead of edges. A heap with 32 keys has levels 0 to 5, so its height is 5 edges, not 6.",
+   "edge_cases": [
+    "n = 1: only the root, height 0, and the root is the only leaf.",
+    "n = 2^k − 1: perfect tree, all leaves on the last level.",
+    "n even: the last internal node has just one child.",
+    "Height counts edges here. Some books count levels; read the question."
+   ],
+   "connections": [
+    "Foundations: **Exponents and logs** (found.explog) covers why $\\lfloor\\log_2 n\\rfloor$ counts doublings.",
+    "Foundations: **Programming basics** (found.programming_basics) covers integer division, the floor in n/2.",
+    "Leaves being half the array is what makes **Where extremes live** and **Build-heap** work."
+   ],
+   "check": [
+    {
+     "q": "A heap has 31 keys. What is its height?",
+     "a": "floor(log2 31) = 4."
+    },
+    {
+     "q": "A heap has 20 keys. Which index is the last parent?",
+     "a": "floor(20/2) = 10. It has one child (20)."
+    },
+    {
+     "q": "How many leaves does a heap with 9 keys have?",
+     "a": "9 − floor(9/2) = 9 − 4 = 5 (indices 5 to 9)."
+    }
+   ],
+   "asked": "Asked: 2025 CS1 Q35, 2026 CS1 Q23, 2024 CS1 Q43, 2022 CS Q28",
+   "try": {
+    "id": "gen.ds.heaps.005",
+    "label": "Height of a binary heap with 15 elements (L1)"
+   },
+   "scene": "ds.heaps.h2.shape",
+   "example": {
+    "setup": "A heap stores 11 keys in `A[1..11]`. What is its height, and which indices are leaves?",
+    "steps": [
+     "Fill levels left to right: level 0 holds index 1, level 1 holds indices 2 to 3, level 2 holds 4 to 7, and the last level takes the remaining four, indices 8 to 11.",
+     "Height is the number of edges from the root to the deepest level: 3. Check: floor(log2 11) = floor(3.46) = 3.",
+     "The last parent is index floor(11/2) = 5. It has children 10 and 11. Index 6 would need a child at 12, which does not exist, so 6 is a leaf.",
+     "Leaves are indices 6 to 11, that is 6 leaves. The internal nodes are indices 1 to 5.",
+     "Check with a formula: leaves = n − floor(n/2) = 11 − 5 = 6 = ceil(11/2). The leaves are the second half of the array."
+    ],
+    "answer": "Height 3. Leaves are indices 6 to 11 (6 of them); indices 1 to 5 are internal."
+   },
+   "what": "A heap is a **complete** binary tree: every level is full except possibly the last, which fills from the left. That fixes the shape for any n. The height is $\\lfloor\\log_2 n\\rfloor$. The leaves are the second half of the array.",
+   "what_full": "A heap is a **complete** binary tree: every level is full except possibly the last, which fills from the left. That fixes the shape for any n. The height is $\\lfloor\\log_2 n\\rfloor$. The leaves are the second half of the array.\n\nFor a heap on $n$ nodes, 1-based:\n\n- Height (edges from root to deepest leaf) $=\\lfloor\\log_2 n\\rfloor$.\n- Last internal node: index $\\lfloor n/2\\rfloor$.\n- Leaves: indices $\\lfloor n/2\\rfloor+1,\\dots,n$, so $\\lceil n/2\\rceil$ leaves.\n- Level $r$ holds indices $2^r$ to $2^{r+1}-1$ (the last level may stop early).\n\n**Worked example.** A heap stores 11 keys in `A[1..11]`. What is its height, and which indices are leaves?\n\n1. Fill levels left to right: level 0 holds index 1, level 1 holds indices 2 to 3, level 2 holds 4 to 7, and the last level takes the remaining four, indices 8 to 11.\n2. Height is the number of edges from the root to the deepest level: 3. Check: floor(log2 11) = floor(3.46) = 3.\n3. The last parent is index floor(11/2) = 5. It has children 10 and 11. Index 6 would need a child at 12, which does not exist, so 6 is a leaf.\n4. Leaves are indices 6 to 11, that is 6 leaves. The internal nodes are indices 1 to 5.\n5. Check with a formula: leaves = n − floor(n/2) = 11 − 5 = 6 = ceil(11/2). The leaves are the second half of the array.\n\n**Answer:** Height 3. Leaves are indices 6 to 11 (6 of them); indices 1 to 5 are internal.",
+   "why_full": "Position and shape facts decide height, leaf count and the index of the last parent. In GATE: height of a heap with n keys, which indices are leaves, and how many leaves there are (2025 CS1 Q35, 2026 CS1 Q23, 2024 CS1 Q43).\n\nAsked: 2025 CS1 Q35, 2026 CS1 Q23, 2024 CS1 Q43, 2022 CS Q28",
+   "trap": "Using ceil instead of floor for the height, or counting levels instead of edges. A heap with 32 keys has levels 0 to 5, so its height is 5 edges, not 6."
+  },
+  {
+   "atom_id": "h3",
+   "title": "Insert and sift up",
+   "simple": "Imagine a new recruit joins at the bottom of the company chart. If they are better than their boss, they swap places with that boss, then compare with the next boss up, and so on. They stop as soon as their boss is at least as good. The shape of the chart never changes, because the recruit takes the next free desk. In exam words: insert puts the key at index n+1 and sifts up, swapping with the parent while it is larger (max-heap). At most height swaps happen, so insert is O(log n).",
+   "idea": "Insert puts the new key in the next free slot, so the tree stays complete. Then **sift up**: while the key is larger than its parent (max-heap), swap them. Each swap moves one level up, so the cost is at most the height, $O(\\log n)$.",
+   "definition": "To insert key $x$ into a max-heap of size $n$:\n\n1. $n\\leftarrow n+1$ and $A[n]\\leftarrow x$.\n2. While $i>1$ and $A[i]>A[\\lfloor i/2\\rfloor]$, swap $A[i]$ with $A[\\lfloor i/2\\rfloor]$ and set $i\\leftarrow\\lfloor i/2\\rfloor$.\n\nSwaps $\\le\\lfloor\\log_2(n+1)\\rfloor$. For a min-heap, swap while the key is **smaller**.",
+   "intuition_full": "Why is it enough to look only upward? Before the insert, the whole tree was a heap. Adding a leaf can break only one pair: the new key against its parent. If the key is bigger, swapping fixes that pair, but now the old parent sits where the key was, and it was already bigger than the key's old siblings below. The only new pair to check is the key against its new parent. So the problem moves up one level at a time, and it ends at the root at the latest. Picture a bubble rising in a glass of water: it keeps rising until it meets something lighter than itself. Every step only needs the parent, never the siblings.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The max-heap `88 60 72 40 55 30 66 20 35` (n = 9) receives the key 77. What is the array afterwards?",
+     "steps": [
+      "Start from the valid heap with n = 9: for example 88 ≥ 60, 72 and 60 ≥ 40, 55.",
+      "Put 77 in the next free slot, index 10. This keeps the tree complete. Its parent is floor(10/2) = 5, which holds 55.",
+      "77 > 55, so swap. 77 is now at index 5, and its parent is index 2, which holds 60.",
+      "77 > 60, so swap again. 77 is now at index 2, and its parent is index 1, which holds 88.",
+      "77 < 88, so stop. The array is `88 77 72 40 60 30 66 20 35 55`: two swaps."
+     ],
+     "answer": "`88 77 72 40 60 30 66 20 35 55`, after 2 swaps."
+    },
+    {
+     "level": "gate",
+     "setup": "Insert 52, then 70, into the max-heap `60 45 50 30 40`. Write the final array.",
+     "steps": [
+      "Start: `60 45 50 30 40` (n = 5). Insert 52 at index 6. Its parent is index 3, holding 50. 52 > 50, so swap.",
+      "Now 52 is at index 3, and its parent is the root 60. 52 < 60, so stop. Array: `60 45 52 30 40 50`.",
+      "Insert 70 at index 7. Its parent is index 3, holding 52. 70 > 52, so swap. Then its parent is the root 60, and 70 > 60, so swap again.",
+      "Final array: `70 45 60 30 40 50 52`. Check: 45 ≥ 30, 40 and 60 ≥ 50, 52."
+     ],
+     "answer": "`70 45 60 30 40 50 52`."
+    },
+    {
+     "level": "twist",
+     "setup": "Same heap as the basic example (n = 9). How many swaps does inserting 5 take? And inserting 99?",
+     "steps": [
+      "Insert 5 at index 10. Its parent (index 5) holds 55, and 5 < 55. No swap at all: the insert costs 1 comparison.",
+      "Insert 99 at index 10. It beats 55, then 60, then the root 88: 3 swaps. The new tree has 10 nodes, so its height is floor(log2 10) = 3, the maximum possible.",
+      "So one insert costs between 0 swaps and height swaps. The worst case is O(log n); the best case is O(1)."
+     ],
+     "answer": "5 takes 0 swaps; 99 takes 3 swaps (up to the root). Insert is O(log n) worst case, O(1) best case."
+    }
+   ],
+   "why": "Insert is half of the priority-queue interface, and building a heap by repeated inserts is the slow way to build one. In GATE: write the array after inserting one or more keys (2005 CS Q34, 2006 CS Q77, 2015 CS1 Q32), or say the cost of insert (2023 CS Q46).",
+   "how": [
+    "Write the key at index n+1.",
+    "Find the parent at floor(i/2) and compare.",
+    "If the key beats the parent, swap and move to the parent's index. Repeat.",
+    "Stop when the parent is at least as large, or at the root. Write the array."
+   ],
+   "mistake": "Comparing the new key with its sibling, or swapping all the way to the root every time. Sift up compares only with the parent and stops as soon as the parent is not smaller.",
+   "edge_cases": [
+    "A key smaller than its parent does not move: 0 swaps.",
+    "A key larger than everything ends at the root after height swaps.",
+    "Equal keys: with a strict > test the equal key stays below, so no swap on a tie.",
+    "Inserting into an empty heap just creates the root."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers swaps and loops that stop on a condition.",
+    "Sift up is the mirror of **Extract and sift down**: one goes up through parents, the other down through children.",
+    "Building a heap by n inserts costs O(n log n); see **Build-heap**."
+   ],
+   "check": [
+    {
+     "q": "A max-heap has 15 keys. What is the most swaps one insert can need?",
+     "a": "The new tree has 16 keys, so height floor(log2 16) = 4."
+    },
+    {
+     "q": "Insert 12 into the max-heap `20 15 10`. What is the array?",
+     "a": "12 goes to index 4, parent index 2 (15). 12 < 15, so no swap: `20 15 10 12`."
+    },
+    {
+     "q": "Insert 5 into the min-heap `8 10 9`. Array?",
+     "a": "5 at index 4, parent index 2 (10): swap; then parent index 1 (8): swap. Result `5 8 9 10`."
+    }
+   ],
+   "asked": "Asked: 2005 CS Q34, 2006 CS Q77, 2014 CS2 Q12, 2015 CS1 Q32",
+   "try": {
+    "id": "gen.ds.heaps.006",
+    "label": "Insert 45 into a given max-heap (L2)"
+   },
+   "scene": "ds.heaps.h3.insert",
+   "example": {
+    "setup": "The max-heap `88 60 72 40 55 30 66 20 35` (n = 9) receives the key 77. What is the array afterwards?",
+    "steps": [
+     "Start from the valid heap with n = 9: for example 88 ≥ 60, 72 and 60 ≥ 40, 55.",
+     "Put 77 in the next free slot, index 10. This keeps the tree complete. Its parent is floor(10/2) = 5, which holds 55.",
+     "77 > 55, so swap. 77 is now at index 5, and its parent is index 2, which holds 60.",
+     "77 > 60, so swap again. 77 is now at index 2, and its parent is index 1, which holds 88.",
+     "77 < 88, so stop. The array is `88 77 72 40 60 30 66 20 35 55`: two swaps."
+    ],
+    "answer": "`88 77 72 40 60 30 66 20 35 55`, after 2 swaps."
+   },
+   "what": "Insert puts the new key in the next free slot, so the tree stays complete. Then **sift up**: while the key is larger than its parent (max-heap), swap them. Each swap moves one level up, so the cost is at most the height, $O(\\log n)$.",
+   "what_full": "Insert puts the new key in the next free slot, so the tree stays complete. Then **sift up**: while the key is larger than its parent (max-heap), swap them. Each swap moves one level up, so the cost is at most the height, $O(\\log n)$.\n\nTo insert key $x$ into a max-heap of size $n$:\n\n1. $n\\leftarrow n+1$ and $A[n]\\leftarrow x$.\n2. While $i>1$ and $A[i]>A[\\lfloor i/2\\rfloor]$, swap $A[i]$ with $A[\\lfloor i/2\\rfloor]$ and set $i\\leftarrow\\lfloor i/2\\rfloor$.\n\nSwaps $\\le\\lfloor\\log_2(n+1)\\rfloor$. For a min-heap, swap while the key is **smaller**.\n\n**Worked example.** The max-heap `88 60 72 40 55 30 66 20 35` (n = 9) receives the key 77. What is the array afterwards?\n\n1. Start from the valid heap with n = 9: for example 88 ≥ 60, 72 and 60 ≥ 40, 55.\n2. Put 77 in the next free slot, index 10. This keeps the tree complete. Its parent is floor(10/2) = 5, which holds 55.\n3. 77 > 55, so swap. 77 is now at index 5, and its parent is index 2, which holds 60.\n4. 77 > 60, so swap again. 77 is now at index 2, and its parent is index 1, which holds 88.\n5. 77 < 88, so stop. The array is `88 77 72 40 60 30 66 20 35 55`: two swaps.\n\n**Answer:** `88 77 72 40 60 30 66 20 35 55`, after 2 swaps.",
+   "why_full": "Insert is half of the priority-queue interface, and building a heap by repeated inserts is the slow way to build one. In GATE: write the array after inserting one or more keys (2005 CS Q34, 2006 CS Q77, 2015 CS1 Q32), or say the cost of insert (2023 CS Q46).\n\nAsked: 2005 CS Q34, 2006 CS Q77, 2014 CS2 Q12, 2015 CS1 Q32",
+   "trap": "Comparing the new key with its sibling, or swapping all the way to the root every time. Sift up compares only with the parent and stops as soon as the parent is not smaller."
+  },
+  {
+   "atom_id": "h4",
+   "title": "Extract and sift down",
+   "simple": "Imagine the boss leaves. You cannot leave the chair empty, so you take the newest person from the bottom desk and sit them in the boss's chair. They are probably too junior. So you compare them with the two people below, and swap with the stronger of the two. You repeat until they are stronger than both people below, or they reach the bottom. In exam words: extract-max returns the root, moves the last element to the root, and sifts down by swapping with the larger child. At most height swaps happen, so it is O(log n).",
+   "idea": "Extract-max removes the root. Put the last array element at the root so the tree stays complete, and shrink n by one. Then **sift down**: swap with the **larger** child while that child is bigger. The cost is at most the height, $O(\\log n)$.",
+   "definition": "To extract from a max-heap of size $n$:\n\n1. Save $m=A[1]$. Set $A[1]\\leftarrow A[n]$ and $n\\leftarrow n-1$.\n2. At index $i$, let $c$ be the larger of $A[2i]$ and $A[2i+1]$ that exist ($\\le n$).\n3. If $A[c]>A[i]$, swap and set $i\\leftarrow c$; otherwise stop.\n4. Return $m$.\n\nFor a min-heap use the **smaller** child.",
+   "intuition_full": "Why the last element? Taking any other element would leave a hole in the middle of the array. The last slot is the only one that can be removed without breaking the shape. Why the larger child? After the swap, the child moves up to be the parent of its sibling. If you swapped with the smaller child, the smaller child would become the parent of the bigger sibling, and the heap rule would break right there. Picking the larger child guarantees the new parent beats both. The moved key is a former leaf, so it usually sinks to near the bottom again, and the cost stays at most the height.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Extract-max from the max-heap `90 70 80 50 60 65 30 20 45` (n = 9). What is returned, and what is the array afterwards?",
+     "steps": [
+      "The heap is valid: 90 ≥ 70, 80; 70 ≥ 50, 60; 80 ≥ 65, 30; 50 ≥ 20, 45.",
+      "Return the root, 90. Move the last key, 45, to the root and shrink n to 8. The tree is complete again but the root is too small.",
+      "Sift down: the children of index 1 are 70 and 80. The larger is 80, and 80 > 45, so swap with it. 45 is now at index 3.",
+      "The children of index 3 are indices 6 and 7, holding 65 and 30. The larger is 65 > 45, so swap. 45 is now at index 6.",
+      "Index 6 has no children (12 > 8), so stop. Array: `80 70 65 50 60 45 30 20`, and 90 was returned."
+     ],
+     "answer": "Returns 90. The array becomes `80 70 65 50 60 45 30 20`, after 2 swaps."
+    },
+    {
+     "level": "gate",
+     "setup": "Extract-min twice from the min-heap `4 9 6 12 10 8 7`. Give the array after both.",
+     "steps": [
+      "First extract: return 4. Move the last key 7 to the root: `7 9 6 12 10 8`, n = 6.",
+      "Children of the root: 9 and 6. The smaller is 6 < 7, so swap. Index 3 has one child, index 6 (value 8), and 8 > 7, so stop. Array `6 9 7 12 10 8`.",
+      "Second extract: return 6. Move the last key 8 to the root: `8 9 7 12 10`, n = 5.",
+      "Children: 9 and 7. The smaller is 7 < 8, so swap. Index 3 has no children now (6 > 5), so stop. Array `7 9 8 12 10`."
+     ],
+     "answer": "`7 9 8 12 10`. The keys 4 and 6 were returned, in that order."
+    },
+    {
+     "level": "twist",
+     "setup": "Extract-min from the min-heap `1 2 5 6 9` (n = 5). A node ends up with only one child. Handle it.",
+     "steps": [
+      "Return 1. Move the last key 9 to the root: `9 2 5 6`, n = 4.",
+      "Root children: 2 and 5. The smaller is 2 < 9, so swap: `2 9 5 6`.",
+      "Index 2 now holds 9. Its children would be indices 4 and 5, but only index 4 exists (n = 4). Compare with that single child only: 6 < 9, so swap.",
+      "Never read `A[5]`: it is outside the heap. Array: `2 6 5 9`."
+     ],
+     "answer": "`2 6 5 9`. A node with one child is compared with that child alone."
+    }
+   ],
+   "why": "Extract is the other half of the priority-queue interface and the engine of heapsort. In GATE: write the array after one or more extracts (2009 CS Q60) and name the cost of extract (2023 CS Q46, 2021 CS2 Q12).",
+   "how": [
+    "Return the root. Copy the last element to index 1 and reduce n by 1.",
+    "At the current index, find its children inside the new n.",
+    "Swap with the larger child (smaller in a min-heap) if it beats the key.",
+    "Stop when the key beats all its children, or it is a leaf. Write the array without the removed slot."
+   ],
+   "mistake": "Swapping with the smaller child in a max-heap, or comparing with only one child. Always compare both children first, pick the larger, and only then compare it with the key.",
+   "edge_cases": [
+    "Heap of size 1: extract leaves it empty.",
+    "A node with one child (when 2i = n) is compared with that child only.",
+    "The moved key may stay at the root (if it already beats both children).",
+    "Equal children: either may be chosen, but the result array can differ in the tie."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers loops that walk indices and stop at a bound.",
+    "Sift down is the step repeated by **Build-heap** and by heapsort (see **Priority queue and heapsort**).",
+    "Insert goes up, extract goes down: both follow one root-to-leaf path, which is why both are O(log n)."
+   ],
+   "check": [
+    {
+     "q": "Extract-max from the max-heap `9 7 8 1 5`. Array afterwards?",
+     "a": "Return 9. Move 5 to the root: `5 7 8 1`. Larger child 8 > 5: swap. Result `8 7 5 1`."
+    },
+    {
+     "q": "How many comparisons does one sift-down level cost?",
+     "a": "Two: child versus child, then the larger child versus the key."
+    },
+    {
+     "q": "Max-heap `10 6 8`: extract-max leaves what array?",
+     "a": "Move 8 to the root: `8 6`. 8 ≥ 6, so stop. Array `8 6`."
+    }
+   ],
+   "asked": "Asked: 2009 CS Q60, 2023 CS Q46, 2021 CS2 Q12, 2020 CS Q57",
+   "try": {
+    "id": "gen.ds.heaps.007",
+    "label": "Extract-max twice from a given max-heap (L2)"
+   },
+   "scene": "ds.heaps.h4.extract",
+   "example": {
+    "setup": "Extract-max from the max-heap `90 70 80 50 60 65 30 20 45` (n = 9). What is returned, and what is the array afterwards?",
+    "steps": [
+     "The heap is valid: 90 ≥ 70, 80; 70 ≥ 50, 60; 80 ≥ 65, 30; 50 ≥ 20, 45.",
+     "Return the root, 90. Move the last key, 45, to the root and shrink n to 8. The tree is complete again but the root is too small.",
+     "Sift down: the children of index 1 are 70 and 80. The larger is 80, and 80 > 45, so swap with it. 45 is now at index 3.",
+     "The children of index 3 are indices 6 and 7, holding 65 and 30. The larger is 65 > 45, so swap. 45 is now at index 6.",
+     "Index 6 has no children (12 > 8), so stop. Array: `80 70 65 50 60 45 30 20`, and 90 was returned."
+    ],
+    "answer": "Returns 90. The array becomes `80 70 65 50 60 45 30 20`, after 2 swaps."
+   },
+   "what": "Extract-max removes the root. Put the last array element at the root so the tree stays complete, and shrink n by one. Then **sift down**: swap with the **larger** child while that child is bigger. The cost is at most the height, $O(\\log n)$.",
+   "what_full": "Extract-max removes the root. Put the last array element at the root so the tree stays complete, and shrink n by one. Then **sift down**: swap with the **larger** child while that child is bigger. The cost is at most the height, $O(\\log n)$.\n\nTo extract from a max-heap of size $n$:\n\n1. Save $m=A[1]$. Set $A[1]\\leftarrow A[n]$ and $n\\leftarrow n-1$.\n2. At index $i$, let $c$ be the larger of $A[2i]$ and $A[2i+1]$ that exist ($\\le n$).\n3. If $A[c]>A[i]$, swap and set $i\\leftarrow c$; otherwise stop.\n4. Return $m$.\n\nFor a min-heap use the **smaller** child.\n\n**Worked example.** Extract-max from the max-heap `90 70 80 50 60 65 30 20 45` (n = 9). What is returned, and what is the array afterwards?\n\n1. The heap is valid: 90 ≥ 70, 80; 70 ≥ 50, 60; 80 ≥ 65, 30; 50 ≥ 20, 45.\n2. Return the root, 90. Move the last key, 45, to the root and shrink n to 8. The tree is complete again but the root is too small.\n3. Sift down: the children of index 1 are 70 and 80. The larger is 80, and 80 > 45, so swap with it. 45 is now at index 3.\n4. The children of index 3 are indices 6 and 7, holding 65 and 30. The larger is 65 > 45, so swap. 45 is now at index 6.\n5. Index 6 has no children (12 > 8), so stop. Array: `80 70 65 50 60 45 30 20`, and 90 was returned.\n\n**Answer:** Returns 90. The array becomes `80 70 65 50 60 45 30 20`, after 2 swaps.",
+   "why_full": "Extract is the other half of the priority-queue interface and the engine of heapsort. In GATE: write the array after one or more extracts (2009 CS Q60) and name the cost of extract (2023 CS Q46, 2021 CS2 Q12).\n\nAsked: 2009 CS Q60, 2023 CS Q46, 2021 CS2 Q12, 2020 CS Q57",
+   "trap": "Swapping with the smaller child in a max-heap, or comparing with only one child. Always compare both children first, pick the larger, and only then compare it with the key."
+  },
+  {
+   "atom_id": "h5",
+   "title": "Build-heap (Floyd)",
+   "simple": "Suppose you have a pile of people and must arrange them into a company chart. One way is to add them one by one and let each rise. A smarter way: put everyone in the chart at random, then fix it from the bottom. People at the bottom have no one below them, so they are already fine. Move up one boss at a time, and let each boss sink until they sit correctly. Most bosses are low in the chart, so they sink only a step or two. In exam words: build-heap runs sift-down from index floor(n/2) down to 1, and the total cost is Θ(n), not Θ(n log n).",
+   "idea": "Build-heap (Floyd) turns any array into a heap. Leaves are already heaps, so start at the last parent, index $\\lfloor n/2\\rfloor$, and **sift down** each node going back to index 1. The total work is $\\Theta(n)$, while building by $n$ inserts is $\\Theta(n\\log n)$.",
+   "definition": "Build-heap on $A[1..n]$:\n\n1. For $i=\\lfloor n/2\\rfloor$ down to $1$: sift-down$(i)$.\n\nWhen index $i$ is processed, both of its subtrees are already heaps, so sifting $A[i]$ down repairs the subtree rooted at $i$. The cost is $\\sum_h \\frac{n}{2^{h+1}}\\cdot h=O(n)$, where a node of height $h$ moves at most $h$ levels.",
+   "intuition_full": "Look at where the nodes are. About half of the nodes are leaves and do no work. A quarter are one level above the leaves and move at most 1 step. An eighth move at most 2 steps, and so on. The work adds up to about $n(\\tfrac12\\cdot 0+\\tfrac14\\cdot 1+\\tfrac18\\cdot 2+\\dots)$, and that series sums to a constant times $n$. The reverse picture, inserting one at a time, makes the many bottom nodes rise a long way, which is the expensive direction. Order matters too: you must go from the bottom up, so that both subtrees of a node are heaps before the node is sifted. Going top-down gives nothing guaranteed.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Turn `12 7 3 15 9 20 5` (n = 7) into a max-heap with build-heap. Give the result and the number of swaps.",
+     "steps": [
+      "Indices 4 to 7 are leaves, and a leaf alone is already a heap. The last parent is floor(7/2) = 3, so start there.",
+      "Sift down index 3 (value 3): children 20 and 5. The larger, 20, beats 3, so swap. Array `12 7 20 15 9 3 5`.",
+      "Sift down index 2 (value 7): children 15 and 9. The larger, 15, beats 7, so swap. Array `12 15 20 7 9 3 5`. (7 now has no children inside n.)",
+      "Sift down index 1 (value 12): children 15 and 20. Swap with 20. At index 3 the children are 3 and 5, and 12 beats both, so stop. Array `20 15 12 7 9 3 5`.",
+      "The loop has reached index 1, so build-heap is done. Total swaps = 3."
+     ],
+     "answer": "`20 15 12 7 9 3 5`, with 3 swaps."
+    },
+    {
+     "level": "gate",
+     "setup": "Build a **min**-heap from `14 30 8 22 5 17 26 11 3 19` (n = 10) with Floyd's method. How many swaps in total, and what is the result?",
+     "steps": [
+      "Last parent = floor(10/2) = 5. Sift down for i = 5, 4, 3, 2, 1.",
+      "i = 5 (value 5): only child is index 10, value 19. 5 < 19, so no swap.",
+      "i = 4 (value 22): children 11 and 3. The smaller, 3, is below 22, so swap. 22 lands at index 9, a leaf. Swaps so far: 1.",
+      "i = 3 (value 8): children 17 and 26. 8 is smaller than both, so no swap.",
+      "i = 2 (value 30): children 3 and 5. Swap with 3. At index 4 the children are 11 and 22: swap with 11. At index 8 stop. Swaps so far: 3.",
+      "i = 1 (value 14): children 3 and 8. Swap with 3. At index 2 the children are 11 and 5: swap with 5. At index 5 the only child is 19 > 14, so stop. Total: 5 swaps. Result `3 5 8 11 14 17 26 30 22 19`."
+     ],
+     "answer": "5 swaps; the min-heap is `3 5 8 11 14 17 26 30 22 19`."
+    },
+    {
+     "level": "twist",
+     "setup": "For a heap of n = 15 keys, what is the worst-case number of swaps for build-heap, and for building the same heap by 15 separate inserts?",
+     "steps": [
+      "Build-heap: a node of height h can sink at most h levels. A 15-node perfect tree has 8 leaves (height 0), 4 nodes of height 1, 2 of height 2, 1 of height 3.",
+      "Worst case: 4×1 + 2×2 + 1×3 = 11 swaps.",
+      "Inserts: a node at depth d can rise at most d levels. Depth 1 has 2 nodes, depth 2 has 4, depth 3 has 8.",
+      "Worst case: 2×1 + 4×2 + 8×3 = 34 swaps.",
+      "Most nodes are near the bottom. Sinking is cheap for them, but rising is expensive for them. That gap grows into Θ(n) versus Θ(n log n)."
+     ],
+     "answer": "11 swaps for build-heap against 34 for repeated inserts at n = 15."
+    }
+   ],
+   "why": "Build-heap is how every real heap or heapsort starts, and the linear cost is a favourite fact. In GATE: apply build-heap to an array and report the result or the swaps (2024 CS1 Q41, 2023 CS Q12, 2015 CS3 Q19), or choose between Θ(n) and Θ(n log n).",
+   "how": [
+    "Find the last parent, index floor(n/2).",
+    "Sift down that node: swap with the larger child (smaller for a min-heap) while the child beats it.",
+    "Move to the previous index and repeat, down to index 1.",
+    "Write the array. For the cost, answer Θ(n)."
+   ],
+   "mistake": "Believing build-heap is Θ(n log n) because each sift-down is O(log n), or running it top-down from index 1. The sums are small because most nodes are near the bottom, and the order must be bottom-up.",
+   "edge_cases": [
+    "An array that is already a heap needs zero swaps, though the sift-down comparisons still happen.",
+    "Equal keys never trigger a swap if you swap only when a child is strictly larger.",
+    "n = 1: nothing to do.",
+    "When the key sinks, it moves to the larger child, so the other subtree stays untouched."
+   ],
+   "connections": [
+    "Foundations: **Series** (found.series) covers sums like $\\sum k/2^k$, the series behind the Θ(n) bound.",
+    "Sift down comes from **Extract and sift down**; the leaves-are-half fact is **Shape, height and leaves**.",
+    "Heapsort (see **Priority queue and heapsort**) starts with this step."
+   ],
+   "check": [
+    {
+     "q": "Where does build-heap start for n = 14?",
+     "a": "At index floor(14/2) = 7."
+    },
+    {
+     "q": "Build-heap on `1 2 3` (max-heap): result?",
+     "a": "Index 1: children 2, 3. Swap with 3: `3 2 1`."
+    },
+    {
+     "q": "True or false: n inserts into an empty heap cost Θ(n) total.",
+     "a": "False. It is Θ(n log n) in the worst case; only build-heap is Θ(n)."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q41, 2023 CS Q12, 2015 CS3 Q19, 2021 CS2 Q12",
+   "try": {
+    "id": "gen.ds.heaps.011",
+    "label": "Result of heapify on a given Python list (L2)"
+   },
+   "scene": "ds.heaps.h5.build",
+   "example": {
+    "setup": "Turn `12 7 3 15 9 20 5` (n = 7) into a max-heap with build-heap. Give the result and the number of swaps.",
+    "steps": [
+     "Indices 4 to 7 are leaves, and a leaf alone is already a heap. The last parent is floor(7/2) = 3, so start there.",
+     "Sift down index 3 (value 3): children 20 and 5. The larger, 20, beats 3, so swap. Array `12 7 20 15 9 3 5`.",
+     "Sift down index 2 (value 7): children 15 and 9. The larger, 15, beats 7, so swap. Array `12 15 20 7 9 3 5`. (7 now has no children inside n.)",
+     "Sift down index 1 (value 12): children 15 and 20. Swap with 20. At index 3 the children are 3 and 5, and 12 beats both, so stop. Array `20 15 12 7 9 3 5`.",
+     "The loop has reached index 1, so build-heap is done. Total swaps = 3."
+    ],
+    "answer": "`20 15 12 7 9 3 5`, with 3 swaps."
+   },
+   "what": "Build-heap (Floyd) turns any array into a heap. Leaves are already heaps, so start at the last parent, index $\\lfloor n/2\\rfloor$, and **sift down** each node going back to index 1. The total work is $\\Theta(n)$, while building by $n$ inserts is $\\Theta(n\\log n)$.",
+   "what_full": "Build-heap (Floyd) turns any array into a heap. Leaves are already heaps, so start at the last parent, index $\\lfloor n/2\\rfloor$, and **sift down** each node going back to index 1. The total work is $\\Theta(n)$, while building by $n$ inserts is $\\Theta(n\\log n)$.\n\nBuild-heap on $A[1..n]$:\n\n1. For $i=\\lfloor n/2\\rfloor$ down to $1$: sift-down$(i)$.\n\nWhen index $i$ is processed, both of its subtrees are already heaps, so sifting $A[i]$ down repairs the subtree rooted at $i$. The cost is $\\sum_h \\frac{n}{2^{h+1}}\\cdot h=O(n)$, where a node of height $h$ moves at most $h$ levels.\n\n**Worked example.** Turn `12 7 3 15 9 20 5` (n = 7) into a max-heap with build-heap. Give the result and the number of swaps.\n\n1. Indices 4 to 7 are leaves, and a leaf alone is already a heap. The last parent is floor(7/2) = 3, so start there.\n2. Sift down index 3 (value 3): children 20 and 5. The larger, 20, beats 3, so swap. Array `12 7 20 15 9 3 5`.\n3. Sift down index 2 (value 7): children 15 and 9. The larger, 15, beats 7, so swap. Array `12 15 20 7 9 3 5`. (7 now has no children inside n.)\n4. Sift down index 1 (value 12): children 15 and 20. Swap with 20. At index 3 the children are 3 and 5, and 12 beats both, so stop. Array `20 15 12 7 9 3 5`.\n5. The loop has reached index 1, so build-heap is done. Total swaps = 3.\n\n**Answer:** `20 15 12 7 9 3 5`, with 3 swaps.",
+   "why_full": "Build-heap is how every real heap or heapsort starts, and the linear cost is a favourite fact. In GATE: apply build-heap to an array and report the result or the swaps (2024 CS1 Q41, 2023 CS Q12, 2015 CS3 Q19), or choose between Θ(n) and Θ(n log n).\n\nAsked: 2024 CS1 Q41, 2023 CS Q12, 2015 CS3 Q19, 2021 CS2 Q12",
+   "trap": "Believing build-heap is Θ(n log n) because each sift-down is O(log n), or running it top-down from index 1. The sums are small because most nodes are near the bottom, and the order must be bottom-up."
+  },
+  {
+   "atom_id": "h6",
+   "title": "Where the extremes live",
+   "simple": "In a company chart where bosses earn more than their reports, the top earner is obviously the CEO. But who earns the least? Not any boss, since every boss has someone below earning less. The lowest earner is someone at the bottom, and there are lots of people at the bottom with no ranking between them. So you have to check all of them. In exam words: a heap gives its own extreme at the root in O(1). The opposite extreme is at a leaf, and finding it needs a scan of about n/2 leaves, which is Θ(n).",
+   "idea": "A max-heap hands you the maximum at the root, free. The **minimum** must be at a leaf, because every internal node has a smaller child. Leaves are not ordered against each other, so finding the min costs $\\Theta(n)$. A min-heap is the mirror image.",
+   "definition": "In a heap with distinct keys, $n$ nodes, 1-based:\n\n- Max-heap: max at index 1. Min is among the leaves, indices $\\lfloor n/2\\rfloor+1..n$. Finding it takes $\\lceil n/2\\rceil-1$ comparisons.\n- Min-heap: min at index 1. Max is among the leaves, with the same cost.\n- The $k$-th largest of a max-heap is within the first $k$ levels (depth $\\le k-1$). For constant $k$ it is found in $O(1)$.",
+   "intuition_full": "Argue by contradiction. Suppose an internal node held the smallest key. That node has a child, and the child is not larger than it, which makes the child smaller. That contradicts 'smallest'. So internal nodes are ruled out. The leaves are not ruled out by anything: nothing compares two leaves, or a leaf with another subtree's internal nodes. Any one of them could be the minimum, which is why you must look at all of them. The same reasoning is why a heap is a poor tool for 'find the minimum of a max-heap' and a good one for the top few. The top k keys can be found within k levels, so for fixed k it is constant time.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A max-heap has 13 distinct keys: `95 80 90 60 70 85 50 20 40 55 65 30 45`. Where can the smallest key be, and how many comparisons find it?",
+     "steps": [
+      "The root, 95, is the maximum. It is read in O(1).",
+      "Every internal node has at least one child below it, which is smaller. So no internal node can be the minimum.",
+      "The minimum is therefore in a leaf. With n = 13 the leaves are indices 7 to 13, which is 13 − 6 = 7 candidates.",
+      "Scan the 7 leaves: 50, 20, 40, 55, 65, 30, 45. That takes 6 comparisons and finds 20 at index 8.",
+      "Nothing orders the leaves, so there is no shortcut: min of a max-heap costs Θ(n)."
+     ],
+     "answer": "The minimum is a leaf (here 20 at index 8). Finding it needs 6 comparisons, Θ(n) in general."
+    },
+    {
+     "level": "gate",
+     "setup": "A min-heap has 1000 distinct elements in an array. What is the minimum number of comparisons needed to find the maximum?",
+     "steps": [
+      "In a min-heap, every internal node has a larger child, so the maximum is a leaf.",
+      "Leaves are indices floor(1000/2)+1 = 501 to 1000: 500 leaves.",
+      "Any leaf could hold the maximum, and nothing relates one leaf to another. Finding the largest of 500 values needs 499 comparisons.",
+      "Not 999: the 500 internal nodes need no comparison."
+     ],
+     "answer": "499 comparisons."
+    },
+    {
+     "level": "twist",
+     "setup": "In a max-heap of 7 distinct keys 1 to 7, where can the **second** largest and the **third** largest key be?",
+     "steps": [
+      "The largest, 7, is the root. The second largest has only the root above it, so it must be a child of the root: index 2 or 3.",
+      "The third largest has at most two larger keys above it: the root and the second largest.",
+      "So it is either the other child of the root, or a child of the second largest: indices 2, 3, 4, 5, 6 or 7 (but not the root).",
+      "Check by listing all 80 valid heaps on 1 to 7: key 6 appears only at indices 2 or 3, and key 5 appears at indices 2 to 7."
+     ],
+     "answer": "Second largest: index 2 or 3. Third largest: any index from 2 to 7. The k-th largest is within the first k levels."
+    }
+   ],
+   "why": "The extremes fact is a favourite complexity question, because the tempting answers O(1) and O(log n) are wrong. In GATE: min of a max-heap or max of a min-heap in Θ(n), and the exact comparison count (2020 CS Q57, 2021 CS2 Q12, 2024 CS1 Q43, 2019 CS Q50).",
+   "how": [
+    "Decide which extreme the heap gives free (root).",
+    "The other extreme is among the leaves. Count them: n − floor(n/2).",
+    "Comparisons to find the best of m leaves = m − 1.",
+    "For 'k-th largest of a max-heap': the answer lies within the first k levels."
+   ],
+   "mistake": "Answering O(1) or O(log n) for the opposite extreme, or counting n − 1 comparisons. Only the leaves are candidates, so the exact count is leaves − 1, and the complexity is Θ(n).",
+   "edge_cases": [
+    "n = 1: the root is both the min and the max.",
+    "n = 2: one leaf (the child); the min of a max-heap is that child with 0 comparisons.",
+    "Equal keys: an internal node can equal its child, so the min may also appear internally.",
+    "Heap order gives no information between two leaves, even siblings."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers scanning an index range for a minimum.",
+    "The leaf count comes from **Shape, height and leaves**.",
+    "Θ(n) for the opposite extreme is why melding two heaps is also Θ(n) (**Priority queue and heapsort**)."
+   ],
+   "check": [
+    {
+     "q": "A max-heap has 100 elements. How many leaves are there?",
+     "a": "100 − 50 = 50."
+    },
+    {
+     "q": "Which node of a min-heap can hold the maximum: root, internal node, or leaf?",
+     "a": "Leaf only."
+    },
+    {
+     "q": "A min-heap has 64 elements. Fewest comparisons to find the maximum?",
+     "a": "Leaves: 64 − 32 = 32, so 31 comparisons."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q57, 2021 CS2 Q12, 2024 CS1 Q43, 2019 CS Q50, 2006 CS Q10",
+   "try": {
+    "id": "gen.ds.heaps.003",
+    "label": "Where the smallest element of a max-heap can be (L1)"
+   },
+   "scene": "ds.heaps.h6.extremes",
+   "example": {
+    "setup": "A max-heap has 13 distinct keys: `95 80 90 60 70 85 50 20 40 55 65 30 45`. Where can the smallest key be, and how many comparisons find it?",
+    "steps": [
+     "The root, 95, is the maximum. It is read in O(1).",
+     "Every internal node has at least one child below it, which is smaller. So no internal node can be the minimum.",
+     "The minimum is therefore in a leaf. With n = 13 the leaves are indices 7 to 13, which is 13 − 6 = 7 candidates.",
+     "Scan the 7 leaves: 50, 20, 40, 55, 65, 30, 45. That takes 6 comparisons and finds 20 at index 8.",
+     "Nothing orders the leaves, so there is no shortcut: min of a max-heap costs Θ(n)."
+    ],
+    "answer": "The minimum is a leaf (here 20 at index 8). Finding it needs 6 comparisons, Θ(n) in general."
+   },
+   "what": "A max-heap hands you the maximum at the root, free. The **minimum** must be at a leaf, because every internal node has a smaller child. Leaves are not ordered against each other, so finding the min costs $\\Theta(n)$. A min-heap is the mirror image.",
+   "what_full": "A max-heap hands you the maximum at the root, free. The **minimum** must be at a leaf, because every internal node has a smaller child. Leaves are not ordered against each other, so finding the min costs $\\Theta(n)$. A min-heap is the mirror image.\n\nIn a heap with distinct keys, $n$ nodes, 1-based:\n\n- Max-heap: max at index 1. Min is among the leaves, indices $\\lfloor n/2\\rfloor+1..n$. Finding it takes $\\lceil n/2\\rceil-1$ comparisons.\n- Min-heap: min at index 1. Max is among the leaves, with the same cost.\n- The $k$-th largest of a max-heap is within the first $k$ levels (depth $\\le k-1$). For constant $k$ it is found in $O(1)$.\n\n**Worked example.** A max-heap has 13 distinct keys: `95 80 90 60 70 85 50 20 40 55 65 30 45`. Where can the smallest key be, and how many comparisons find it?\n\n1. The root, 95, is the maximum. It is read in O(1).\n2. Every internal node has at least one child below it, which is smaller. So no internal node can be the minimum.\n3. The minimum is therefore in a leaf. With n = 13 the leaves are indices 7 to 13, which is 13 − 6 = 7 candidates.\n4. Scan the 7 leaves: 50, 20, 40, 55, 65, 30, 45. That takes 6 comparisons and finds 20 at index 8.\n5. Nothing orders the leaves, so there is no shortcut: min of a max-heap costs Θ(n).\n\n**Answer:** The minimum is a leaf (here 20 at index 8). Finding it needs 6 comparisons, Θ(n) in general.",
+   "why_full": "The extremes fact is a favourite complexity question, because the tempting answers O(1) and O(log n) are wrong. In GATE: min of a max-heap or max of a min-heap in Θ(n), and the exact comparison count (2020 CS Q57, 2021 CS2 Q12, 2024 CS1 Q43, 2019 CS Q50).\n\nAsked: 2020 CS Q57, 2021 CS2 Q12, 2024 CS1 Q43, 2019 CS Q50, 2006 CS Q10",
+   "trap": "Answering O(1) or O(log n) for the opposite extreme, or counting n − 1 comparisons. Only the leaves are candidates, so the exact count is leaves − 1, and the complexity is Θ(n)."
+  },
+  {
+   "atom_id": "h8",
+   "title": "Priority queue and heapsort",
+   "simple": "A hospital waiting room does not serve people in arrival order. It serves the most urgent person first. A heap keeps the most urgent one on top, so you can see them at once, and adding or removing a person costs only a few swaps. Heapsort reuses the trick: build a heap, take out the biggest, put it at the end of the array, and repeat. In exam words: a binary-heap priority queue has find-max O(1), insert O(log n), extract-max O(log n). Heapsort is Θ(n log n) in all cases, and top-k of a stream uses a heap of size k in O(n log k).",
+   "idea": "A **priority queue** always serves the item with the highest priority. A binary heap gives find-max in $O(1)$, and insert and extract-max in $O(\\log n)$. **Heapsort** builds a heap in $\\Theta(n)$ and then extracts $n$ times, so it sorts in $\\Theta(n\\log n)$ with no extra array.",
+   "definition": "For a binary heap with $n$ items:\n\n- find-max: $O(1)$. insert: $O(\\log n)$. extract-max: $O(\\log n)$. delete(i) and change-priority: $O(\\log n)$.\n- Heapsort: build-heap $\\Theta(n)$, then $n-1$ times swap the root with the last heap slot and sift down: $\\Theta(n\\log n)$ for distinct keys, best and worst case.\n- Top-$k$ of $n$ items: keep a size-$k$ heap, $O(n\\log k)$ time, $O(k)$ space.\n- Melding two heaps stored in arrays: $\\Theta(n)$ (concatenate and build-heap).",
+   "intuition_full": "Heapsort works because extract-max always gives the largest of what is left. The place freed at the end of the array is exactly where that largest key belongs. So the array splits into a shrinking heap on the left and a growing sorted run on the right. Every step moves one key to its final spot. The cost has two parts: a cheap build, and n extracts, each bounded by the height. For top-k, think of a club with k seats. The weakest member sits by the door. A newcomer must beat the weakest member to join, and then the weakest leaves. The weakest member is the heap's root, which is why the heap for 'k largest' is a min-heap. The same idea shows up in scheduling (the next job to run) and in graph algorithms such as Dijkstra and Prim.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Sort `4 10 3 5 1` in ascending order with heapsort (max-heap).",
+     "steps": [
+      "The array `4 10 3 5 1` read as a tree is not a heap yet: the root 4 is smaller than its child 10.",
+      "Build-heap: index 2 (value 10) already beats 5 and 1. Index 1 (value 4) swaps with 10, then with 5. Heap: `10 5 3 4 1`.",
+      "Swap the root 10 with the last heap slot. Now 10 is in its final place. Shrink the heap to 4 and sift down: `5 4 3 1 | 10`.",
+      "Swap the root 5 with the last heap slot (index 4), shrink to 3, sift down: `4 1 3 | 5 10`.",
+      "Swap the root 4 with index 3, shrink to 2, sift down (3 ≥ 1, no change): `3 1 | 4 5 10`.",
+      "Swap the root 3 with index 2. One key is left and it is in place: `1 3 4 5 10`. The work was one build-heap (Θ(n)) plus n − 1 extracts of O(log n) each, so Θ(n log n)."
+     ],
+     "answer": "Sorted: `1 3 4 5 10`. Heapsort is Θ(n log n) and needs no extra array."
+    },
+    {
+     "level": "gate",
+     "setup": "Find the 3 largest numbers of the stream `7, 3, 9, 1, 8, 5` using a min-heap that never holds more than 3 numbers.",
+     "steps": [
+      "Push 7, 3, 9. The heap holds {3, 7, 9}. The root, 3, is the smallest of the top 3 so far.",
+      "Read 1. It is not larger than the root 3, so it cannot be in the top 3. Skip it.",
+      "Read 8. It beats the root 3, so replace the root with 8 and sift down. The heap is {7, 8, 9}.",
+      "Read 5. It is not larger than the root 7. Skip it.",
+      "The heap holds the 3 largest: 7, 8, 9. Each of the n items costs at most one O(log k) update."
+     ],
+     "answer": "The top 3 are 9, 8, 7. Time O(n log k), space O(k), with k = 3."
+    },
+    {
+     "level": "twist",
+     "setup": "Same stream `7, 3, 9, 1, 8, 5`. Now find the 3 **smallest** numbers with a heap of size 3.",
+     "steps": [
+      "The root must be the element you would throw away first. The throw-away element here is the largest of the kept 3, so use a **max**-heap.",
+      "Push 7, 3, 9. The heap holds {3, 7, 9}, with 9 at the root.",
+      "Read 1. It is smaller than the root 9, so replace 9 with 1. The heap holds {1, 3, 7}.",
+      "Read 8: not smaller than the root 7, skip. Read 5: smaller than 7, so replace 7 with 5. The heap holds {1, 3, 5}."
+     ],
+     "answer": "The 3 smallest are 1, 3, 5. For top-k largest use a min-heap; for k smallest use a max-heap."
+    }
+   ],
+   "why": "The priority queue is the reason heaps exist, and the cost table is a standard question. In GATE: the cost of each operation (2023 CS Q46), melding or merging heaps (2025 CS2 Q38), and algorithms that run on a priority queue (2015 CS1 Q40).",
+   "how": [
+    "Name the operation: find-max, insert, extract-max, or a build.",
+    "Use the table: O(1), O(log n), O(log n); build Θ(n).",
+    "Heapsort: Θ(n) build plus n extracts at O(log n): Θ(n log n).",
+    "Top-k: the heap root must be the item you would drop first. Cost O(n log k)."
+   ],
+   "mistake": "Saying heapsort is O(n) because build-heap is O(n), or using a max-heap to find the k largest. The n extracts dominate and cost Θ(n log n). For the k largest, you need a min-heap so you can compare each newcomer with the weakest kept item.",
+   "edge_cases": [
+    "A sorted array has the same heapsort cost: still Θ(n log n). Heapsort is not adaptive.",
+    "k = 1: a 'heap of size 1' is just a running maximum, O(n).",
+    "k = n: the top-k heap approach becomes heapsort, O(n log n).",
+    "Equal priorities: the order of equal items is not preserved. Heapsort is not stable."
+   ],
+   "connections": [
+    "Foundations: **Exponents and logs** (found.explog) covers why $\\log_2 n$ is the height and why $n\\log n$ beats $n^2$.",
+    "Insert and extract come from **Insert and sift up** and **Extract and sift down**; the Θ(n) build comes from **Build-heap**.",
+    "See **algo.sorting** for how heapsort compares with merge sort and quicksort."
+   ],
+   "check": [
+    {
+     "q": "What is the cost of find-max in a binary max-heap?",
+     "a": "O(1): the maximum is the root."
+    },
+    {
+     "q": "Heapsort on an already sorted array of n numbers: best-case time?",
+     "a": "Still Θ(n log n). The n extractions each take about log n."
+    },
+    {
+     "q": "To report the 5 smallest of a stream, which heap do you keep?",
+     "a": "A max-heap of size 5, so the root is the largest of the 5 kept."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q46, 2025 CS2 Q38, 2015 CS1 Q40",
+   "try": {
+    "id": "gen.ds.heaps.009",
+    "label": "Costs of Find-Max and Insert in a max-heap priority queue (L2)"
+   },
+   "scene": "ds.heaps.h8.heapsort",
+   "example": {
+    "setup": "Sort `4 10 3 5 1` in ascending order with heapsort (max-heap).",
+    "steps": [
+     "The array `4 10 3 5 1` read as a tree is not a heap yet: the root 4 is smaller than its child 10.",
+     "Build-heap: index 2 (value 10) already beats 5 and 1. Index 1 (value 4) swaps with 10, then with 5. Heap: `10 5 3 4 1`.",
+     "Swap the root 10 with the last heap slot. Now 10 is in its final place. Shrink the heap to 4 and sift down: `5 4 3 1 | 10`.",
+     "Swap the root 5 with the last heap slot (index 4), shrink to 3, sift down: `4 1 3 | 5 10`.",
+     "Swap the root 4 with index 3, shrink to 2, sift down (3 ≥ 1, no change): `3 1 | 4 5 10`.",
+     "Swap the root 3 with index 2. One key is left and it is in place: `1 3 4 5 10`. The work was one build-heap (Θ(n)) plus n − 1 extracts of O(log n) each, so Θ(n log n)."
+    ],
+    "answer": "Sorted: `1 3 4 5 10`. Heapsort is Θ(n log n) and needs no extra array."
+   },
+   "what": "A **priority queue** always serves the item with the highest priority. A binary heap gives find-max in $O(1)$, and insert and extract-max in $O(\\log n)$. **Heapsort** builds a heap in $\\Theta(n)$ and then extracts $n$ times, so it sorts in $\\Theta(n\\log n)$ with no extra array.",
+   "what_full": "A **priority queue** always serves the item with the highest priority. A binary heap gives find-max in $O(1)$, and insert and extract-max in $O(\\log n)$. **Heapsort** builds a heap in $\\Theta(n)$ and then extracts $n$ times, so it sorts in $\\Theta(n\\log n)$ with no extra array.\n\nFor a binary heap with $n$ items:\n\n- find-max: $O(1)$. insert: $O(\\log n)$. extract-max: $O(\\log n)$. delete(i) and change-priority: $O(\\log n)$.\n- Heapsort: build-heap $\\Theta(n)$, then $n-1$ times swap the root with the last heap slot and sift down: $\\Theta(n\\log n)$ for distinct keys, best and worst case.\n- Top-$k$ of $n$ items: keep a size-$k$ heap, $O(n\\log k)$ time, $O(k)$ space.\n- Melding two heaps stored in arrays: $\\Theta(n)$ (concatenate and build-heap).\n\n**Worked example.** Sort `4 10 3 5 1` in ascending order with heapsort (max-heap).\n\n1. The array `4 10 3 5 1` read as a tree is not a heap yet: the root 4 is smaller than its child 10.\n2. Build-heap: index 2 (value 10) already beats 5 and 1. Index 1 (value 4) swaps with 10, then with 5. Heap: `10 5 3 4 1`.\n3. Swap the root 10 with the last heap slot. Now 10 is in its final place. Shrink the heap to 4 and sift down: `5 4 3 1 | 10`.\n4. Swap the root 5 with the last heap slot (index 4), shrink to 3, sift down: `4 1 3 | 5 10`.\n5. Swap the root 4 with index 3, shrink to 2, sift down (3 ≥ 1, no change): `3 1 | 4 5 10`.\n6. Swap the root 3 with index 2. One key is left and it is in place: `1 3 4 5 10`. The work was one build-heap (Θ(n)) plus n − 1 extracts of O(log n) each, so Θ(n log n).\n\n**Answer:** Sorted: `1 3 4 5 10`. Heapsort is Θ(n log n) and needs no extra array.",
+   "why_full": "The priority queue is the reason heaps exist, and the cost table is a standard question. In GATE: the cost of each operation (2023 CS Q46), melding or merging heaps (2025 CS2 Q38), and algorithms that run on a priority queue (2015 CS1 Q40).\n\nAsked: 2023 CS Q46, 2025 CS2 Q38, 2015 CS1 Q40",
+   "trap": "Saying heapsort is O(n) because build-heap is O(n), or using a max-heap to find the k largest. The n extracts dominate and cost Θ(n log n). For the k largest, you need a min-heap so you can compare each newcomer with the weakest kept item."
+  },
+  {
+   "atom_id": "h10",
+   "title": "Python heapq",
+   "simple": "Python gives you a ready-made waiting room: the `heapq` module. You hand it a normal list, and it keeps the smallest item at the front. It always serves the smallest first, not the largest. If you want the largest first, you cheat: store the numbers with a minus sign, so the biggest becomes the smallest. The list itself is only partly ordered. The front is right, but the rest of the list is arranged for speed, not for reading. In exam words: heapq is a binary min-heap on a 0-based list; heappush and heappop are O(log n) and heapify is O(n).",
+   "idea": "`heapq` is a **min-heap on a plain list** (0-based). `heappush(h, x)` and `heappop(h)` cost $O(\\log n)$, `heapify(h)` costs $O(n)$, and `h[0]` is the minimum. For a max-heap, push negated values.",
+   "definition": "- `heapq.heappush(h, x)`: append, then sift up. $O(\\log n)$.\n- `heapq.heappop(h)`: return and remove `h[0]`; move the last item to the root and sift down. $O(\\log n)$.\n- `heapq.heapify(h)`: in place, $O(n)$ (same as build-heap, 0-based).\n- `h[0]`: the minimum (peek), $O(1)$.\n- 0-based: children of $i$ are $2i+1$, $2i+2$; parent is $\\lfloor (i-1)/2\\rfloor$.\n- `heapq.nlargest(k, it)` and `nsmallest` return sorted lists.",
+   "intuition_full": "Treat `heapq` as the same heap you already know, only written down in Python's terms. The list is the array, 0-based. Pushing is insert and sift up. Popping is extract-min and sift down. Printing the list prints the array exactly as the heap stores it, so you can predict the output by drawing the tree. The trap is thinking the list is sorted: only parent versus child is ordered. Sorting by repeated pops works because each pop gives the smallest remaining. Python ignores the 'max-heap' idea, so negating values is the standard workaround. Tuples work too: `(priority, item)` compares by priority first, which is how to build a simple task queue.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "What does this print?\n```python\nimport heapq\nh = []\nfor x in [6, 2, 9, 4]:\n    heapq.heappush(h, x)\nprint(h)\nprint(heapq.heappop(h), h)\n```",
+     "steps": [
+      "A `heapq` list is a min-heap stored in a plain 0-based list. The smallest item is always `h[0]`.",
+      "`heappush(6)` gives `[6]`. `heappush(2)` appends 2 at index 1; its parent (index 0) is 6 and 2 < 6, so they swap: `[2, 6]`.",
+      "`heappush(9)` appends at index 2, and 9 > 2 so it stays. `heappush(4)` appends at index 3; its parent (index 1) is 6 and 4 < 6, so swap: `[2, 4, 9, 6]`.",
+      "`print(h)` shows the heap array `[2, 4, 9, 6]`. It is not sorted: 9 comes before 6.",
+      "`heappop()` returns 2. The last item 6 moves to the root, then sinks below the smaller child 4: `[4, 6, 9]`."
+     ],
+     "answer": "Prints `[2, 4, 9, 6]`, then `2 [4, 6, 9]`."
+    },
+    {
+     "level": "gate",
+     "setup": "What does this print?\n```python\nimport heapq\nh = [9, 5, 7, 2, 8, 1]\nheapq.heapify(h)\nheapq.heappush(h, 3)\nprint(h[0], h[-1])\n```",
+     "steps": [
+      "`heapify` builds a min-heap in O(n). 0-based, n = 6, so the last parent is index 2.",
+      "Index 2 (value 7) has child index 5 (value 1). Swap: `[9, 5, 1, 2, 8, 7]`.",
+      "Index 1 (value 5) has children 2 and 8. Swap with 2: `[9, 2, 1, 5, 8, 7]`.",
+      "Index 0 (value 9) has children 2 and 1. Swap with 1, then at index 2 swap 9 with its child 7: `[1, 2, 7, 5, 8, 9]`.",
+      "`heappush(3)` appends 3 at index 6. Its parent (index 2) holds 7, so swap; then the parent (index 0) holds 1 and 3 > 1, so stop: `[1, 2, 3, 5, 8, 9, 7]`.",
+      "`h[0]` is 1. `h[-1]` is just the last array slot, 7. It is not the maximum (9)."
+     ],
+     "answer": "Prints `1 7`. The last slot of a heap list is not its largest item."
+    },
+    {
+     "level": "twist",
+     "setup": "`heapq` has no max-heap. What does this print, and how does it work?\n```python\nimport heapq\nh = []\nfor x in [4, 9, 2, 7]:\n    heapq.heappush(h, -x)\nprint(-heapq.heappop(h))\n```",
+     "steps": [
+      "Pushing `-x` stores the negatives −4, −9, −2, −7 in a min-heap. The smallest negative is the most negative: −9.",
+      "`heappop` returns −9, the smallest stored value.",
+      "Negate it back: `-(-9) = 9`. The remaining heap holds −7, −4, −2, that is the keys 7, 4, 2."
+     ],
+     "answer": "Prints 9. Negating on the way in and on the way out turns the min-heap into a max-heap."
+    }
+   ],
+   "why": "GATE DA has a Python programming section, so a `heapq` trace has to match the real array. In GATE DA: print the heap list after pushes or heapify, the popped value, or top-k code. No past paper has asked it yet.",
+   "how": [
+    "Draw the empty tree. For each push, append at the next index and sift up with the 0-based parent (i−1)//2.",
+    "For heapify, run sift-down from the last parent (n//2 − 1) back to index 0.",
+    "For pop, return h[0], put the last item at the root, sift down.",
+    "When printing the list, copy the array exactly as it stands; do not sort it."
+   ],
+   "mistake": "Assuming the printed list is sorted, or that `h[-1]` is the maximum. Only `h[0]` is guaranteed to be the minimum. Also remember that `heapq` is a min-heap: a 'max-heap' needs negated values.",
+   "edge_cases": [
+    "`heappop` on an empty list raises `IndexError`.",
+    "`heapify` on a sorted list changes nothing: a sorted list is already a min-heap.",
+    "Equal items are fine; ties between tuples compare the next field.",
+    "`heapq.nlargest(k, h)` is O(n log k); it does not require h to be a heap."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers lists, 0-based indexing and tracing code by hand.",
+    "The same sift-up and sift-down steps are in **Insert and sift up** and **Extract and sift down**.",
+    "See **ds.python** for list operations that the trace relies on."
+   ],
+   "check": [
+    {
+     "q": "`h = []; heappush(h, 5); heappush(h, 1); print(h)`. Output?",
+     "a": "`[1, 5]`: 1 swaps above 5."
+    },
+    {
+     "q": "`h = [3, 1, 2]; heapify(h); print(h[0])`. Output?",
+     "a": "1. The minimum moves to the front."
+    },
+    {
+     "q": "How do you pop the largest of `[4, 9, 2]` with heapq?",
+     "a": "Push the negatives, pop once, and negate the result: 9."
+    }
+   ],
+   "asked": "Asked: no past-paper question yet. The ladder has `heapq` traces (Q4, Q11, Q30); the heap behaviour is the same as in 2024 CS1 Q41.",
+   "try": {
+    "id": "gen.ds.heaps.004",
+    "label": "Python: push 5, 2, 8 then pop (L1)"
+   },
+   "scene": "ds.heaps.h10.heapq",
+   "example": {
+    "setup": "What does this print?\n```python\nimport heapq\nh = []\nfor x in [6, 2, 9, 4]:\n    heapq.heappush(h, x)\nprint(h)\nprint(heapq.heappop(h), h)\n```",
+    "steps": [
+     "A `heapq` list is a min-heap stored in a plain 0-based list. The smallest item is always `h[0]`.",
+     "`heappush(6)` gives `[6]`. `heappush(2)` appends 2 at index 1; its parent (index 0) is 6 and 2 < 6, so they swap: `[2, 6]`.",
+     "`heappush(9)` appends at index 2, and 9 > 2 so it stays. `heappush(4)` appends at index 3; its parent (index 1) is 6 and 4 < 6, so swap: `[2, 4, 9, 6]`.",
+     "`print(h)` shows the heap array `[2, 4, 9, 6]`. It is not sorted: 9 comes before 6.",
+     "`heappop()` returns 2. The last item 6 moves to the root, then sinks below the smaller child 4: `[4, 6, 9]`."
+    ],
+    "answer": "Prints `[2, 4, 9, 6]`, then `2 [4, 6, 9]`."
+   },
+   "what": "`heapq` is a **min-heap on a plain list** (0-based). `heappush(h, x)` and `heappop(h)` cost $O(\\log n)$, `heapify(h)` costs $O(n)$, and `h[0]` is the minimum. For a max-heap, push negated values.",
+   "what_full": "`heapq` is a **min-heap on a plain list** (0-based). `heappush(h, x)` and `heappop(h)` cost $O(\\log n)$, `heapify(h)` costs $O(n)$, and `h[0]` is the minimum. For a max-heap, push negated values.\n\n- `heapq.heappush(h, x)`: append, then sift up. $O(\\log n)$.\n- `heapq.heappop(h)`: return and remove `h[0]`; move the last item to the root and sift down. $O(\\log n)$.\n- `heapq.heapify(h)`: in place, $O(n)$ (same as build-heap, 0-based).\n- `h[0]`: the minimum (peek), $O(1)$.\n- 0-based: children of $i$ are $2i+1$, $2i+2$; parent is $\\lfloor (i-1)/2\\rfloor$.\n- `heapq.nlargest(k, it)` and `nsmallest` return sorted lists.\n\n**Worked example.** What does this print?\n```python\nimport heapq\nh = []\nfor x in [6, 2, 9, 4]:\n    heapq.heappush(h, x)\nprint(h)\nprint(heapq.heappop(h), h)\n```\n\n1. A `heapq` list is a min-heap stored in a plain 0-based list. The smallest item is always `h[0]`.\n2. `heappush(6)` gives `[6]`. `heappush(2)` appends 2 at index 1; its parent (index 0) is 6 and 2 < 6, so they swap: `[2, 6]`.\n3. `heappush(9)` appends at index 2, and 9 > 2 so it stays. `heappush(4)` appends at index 3; its parent (index 1) is 6 and 4 < 6, so swap: `[2, 4, 9, 6]`.\n4. `print(h)` shows the heap array `[2, 4, 9, 6]`. It is not sorted: 9 comes before 6.\n5. `heappop()` returns 2. The last item 6 moves to the root, then sinks below the smaller child 4: `[4, 6, 9]`.\n\n**Answer:** Prints `[2, 4, 9, 6]`, then `2 [4, 6, 9]`.",
+   "why_full": "GATE DA has a Python programming section, so a `heapq` trace has to match the real array. In GATE DA: print the heap list after pushes or heapify, the popped value, or top-k code. No past paper has asked it yet.\n\nAsked: no past-paper question yet. The ladder has `heapq` traces (Q4, Q11, Q30); the heap behaviour is the same as in 2024 CS1 Q41.",
+   "trap": "Assuming the printed list is sorted, or that `h[-1]` is the maximum. Only `h[0]` is guaranteed to be the minimum. Also remember that `heapq` is a min-heap: a 'max-heap' needs negated values."
+  },
+  {
+   "atom_id": "h7",
+   "title": "Counting heaps",
+   "simple": "Suppose you want to count the ways to seat 4 people in a family photo with a fixed layout: one at the top, two in the middle row, one at the back. The layout never changes, only who sits where. For a heap it is the same. The shape is forced by the number of keys. The smallest key (in a min-heap) must take the top spot. After that, you choose which of the remaining keys go to the left group, and each group is counted the same way. In exam words: h(n) = C(n−1, L) × h(L) × h(R), where L and R are the sizes of the left and right subtrees of the complete tree.",
+   "idea": "The shape of a heap on $n$ nodes is fixed, so only the **placement of keys** varies. The root takes the extreme key. The other $n-1$ keys split into a left set of size $L$ and a right set of size $R$, and each side is a smaller heap. Hence $h(n)=\\binom{n-1}{L}\\,h(L)\\,h(R)$.",
+   "definition": "For a min-heap (or max-heap) on $n$ distinct keys:\n\n$h(n)=\\binom{n-1}{L}\\,h(L)\\,h(R),\\qquad h(0)=h(1)=1.$\n\n- $L$ and $R$ are the sizes of the left and right subtrees in the complete tree on $n$ nodes ($L+R=n-1$).\n- Values: $h(2)=1,\\ h(3)=2,\\ h(4)=3,\\ h(5)=8,\\ h(6)=20,\\ h(7)=80,\\ h(8)=210$.\n- With a condition (for example 'key 5 must be a leaf'), fix that key first, then count the rest.",
+   "intuition_full": "Why does the recurrence work? A heap on n keys has one root, always the extreme key. Every other key goes into exactly one of the two subtrees. Which keys go left is a free choice, and there are $\\binom{n-1}{L}$ ways, because the two subtrees are separate heaps and need no ordering between them. Once the keys of one side are fixed, that side is an independent heap problem on $L$ keys, counted by $h(L)$. Multiplying the independent choices gives the total. It is the same idea as seating people: first pick who goes in each group, then arrange each group. The only place students slip is the sizes: $L$ and $R$ depend on how many nodes sit on the last level, and they are usually not equal.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "How many different min-heaps can be built from the keys 1, 2, 3, 4, each used once?",
+     "steps": [
+      "The shape of a heap with 4 nodes is fixed: a root, a left subtree of 2 nodes (a parent with one child), and a right subtree of 1 node. So L = 2 and R = 1.",
+      "The root must be the smallest key, 1.",
+      "Choose which 2 of the other keys {2, 3, 4} go in the left subtree: C(3, 2) = 3 ways. Those are {2,3}, {2,4}, {3,4}.",
+      "Each side can then be arranged in only one way: 2 keys as a heap (smaller on top) give h(2) = 1, and 1 key gives h(1) = 1.",
+      "Total: h(4) = C(3, 2) × h(2) × h(1) = 3 × 1 × 1 = 3."
+     ],
+     "answer": "3 heaps: `1 2 3 4`, `1 2 4 3` and `1 3 2 4` as arrays."
+    },
+    {
+     "level": "gate",
+     "setup": "How many different min-heaps can be formed from the keys 1 to 8, each used once?",
+     "steps": [
+      "The recurrence: h(n) = C(n−1, L) × h(L) × h(R), where L and R are the subtree sizes forced by the complete shape.",
+      "Shape of 8 nodes: levels hold 1, 2, 4, and 1 node at the bottom. The bottom node is index 8, a child of index 4, so it is in the left subtree.",
+      "Left subtree = indices 2, 4, 5, 8: L = 4. Right subtree = indices 3, 6, 7: R = 3.",
+      "Known values: h(4) = 3 and h(3) = 2.",
+      "h(8) = C(7, 4) × h(4) × h(3) = 35 × 3 × 2 = 210."
+     ],
+     "answer": "210 min-heaps (a brute-force check over all 8! orderings agrees)."
+    },
+    {
+     "level": "twist",
+     "setup": "How many min-heaps are there on the keys 1 to 10? Be careful with the subtree sizes.",
+     "steps": [
+      "Shape of 10 nodes: levels 1, 2, 4, then 3 nodes at the bottom: indices 8, 9, 10.",
+      "Indices 8 and 9 are children of index 4, and index 10 is a child of index 5. All three are in the left subtree.",
+      "Left subtree = indices 2, 4, 5, 8, 9, 10: L = 6. Right subtree = indices 3, 6, 7: R = 3. They are not equal, so do not split 9 as 4 + 5.",
+      "h(10) = C(9, 6) × h(6) × h(3) = 84 × 20 × 2 = 3360."
+     ],
+     "answer": "3360. The shape decides L = 6 and R = 3, not an even split."
+    }
+   ],
+   "why": "Counting heaps appears rarely but it is pure arithmetic once the recurrence is clear. In GATE: the number of heaps on 1 to 7 (2018 CS Q56), and variants that fix where a key sits.",
+   "how": [
+    "Find the shape: how many nodes sit on the last level and which side they fall in.",
+    "Compute L and R, the subtree sizes. Check L + R = n − 1.",
+    "Put the extreme key at the root. Count C(n−1, L) ways to choose the left keys.",
+    "Multiply by h(L) and h(R), found the same way for smaller sizes."
+   ],
+   "mistake": "Splitting the keys evenly, or counting n! orderings. The shape forces L and R: for n = 10 they are 6 and 3, not 4 and 5. Also do not multiply by 2 for swapping the two subtrees unless the sizes are equal and the keys differ.",
+   "edge_cases": [
+    "n = 1 or 2: exactly one heap.",
+    "n = 3: two heaps, because the children can swap.",
+    "A perfect tree (n = 2^k − 1) has L = R, so the two sides have equal size.",
+    "Duplicate keys change the count: all the arguments assume distinct keys."
+   ],
+   "connections": [
+    "Foundations: **Sets and logic** (found.sets_logic) covers choosing a subset of keys, and the binomial counting behind $\\binom{n-1}{L}$.",
+    "The subtree sizes come from **Shape, height and leaves**.",
+    "See **dm.counting** for the combination formula."
+   ],
+   "check": [
+    {
+     "q": "How many min-heaps on the keys 1, 2, 3?",
+     "a": "h(3) = C(2, 1) × 1 × 1 = 2."
+    },
+    {
+     "q": "In a 6-node heap, what are L and R?",
+     "a": "Levels 1, 2, 3. Left subtree has 3 nodes, right has 2. L = 3, R = 2."
+    },
+    {
+     "q": "Compute h(5).",
+     "a": "L = 3, R = 1. h(5) = C(4, 3) × h(3) × h(1) = 4 × 2 × 1 = 8."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q56",
+   "try": {
+    "id": "gen.ds.heaps.010",
+    "label": "Number of max-heaps on the keys 1, 2, 3 (L2)"
+   },
+   "scene": "ds.heaps.h7.counting",
+   "example": {
+    "setup": "How many different min-heaps can be built from the keys 1, 2, 3, 4, each used once?",
+    "steps": [
+     "The shape of a heap with 4 nodes is fixed: a root, a left subtree of 2 nodes (a parent with one child), and a right subtree of 1 node. So L = 2 and R = 1.",
+     "The root must be the smallest key, 1.",
+     "Choose which 2 of the other keys {2, 3, 4} go in the left subtree: C(3, 2) = 3 ways. Those are {2,3}, {2,4}, {3,4}.",
+     "Each side can then be arranged in only one way: 2 keys as a heap (smaller on top) give h(2) = 1, and 1 key gives h(1) = 1.",
+     "Total: h(4) = C(3, 2) × h(2) × h(1) = 3 × 1 × 1 = 3."
+    ],
+    "answer": "3 heaps: `1 2 3 4`, `1 2 4 3` and `1 3 2 4` as arrays."
+   },
+   "what": "The shape of a heap on $n$ nodes is fixed, so only the **placement of keys** varies. The root takes the extreme key. The other $n-1$ keys split into a left set of size $L$ and a right set of size $R$, and each side is a smaller heap. Hence $h(n)=\\binom{n-1}{L}\\,h(L)\\,h(R)$.",
+   "what_full": "The shape of a heap on $n$ nodes is fixed, so only the **placement of keys** varies. The root takes the extreme key. The other $n-1$ keys split into a left set of size $L$ and a right set of size $R$, and each side is a smaller heap. Hence $h(n)=\\binom{n-1}{L}\\,h(L)\\,h(R)$.\n\nFor a min-heap (or max-heap) on $n$ distinct keys:\n\n$h(n)=\\binom{n-1}{L}\\,h(L)\\,h(R),\\qquad h(0)=h(1)=1.$\n\n- $L$ and $R$ are the sizes of the left and right subtrees in the complete tree on $n$ nodes ($L+R=n-1$).\n- Values: $h(2)=1,\\ h(3)=2,\\ h(4)=3,\\ h(5)=8,\\ h(6)=20,\\ h(7)=80,\\ h(8)=210$.\n- With a condition (for example 'key 5 must be a leaf'), fix that key first, then count the rest.\n\n**Worked example.** How many different min-heaps can be built from the keys 1, 2, 3, 4, each used once?\n\n1. The shape of a heap with 4 nodes is fixed: a root, a left subtree of 2 nodes (a parent with one child), and a right subtree of 1 node. So L = 2 and R = 1.\n2. The root must be the smallest key, 1.\n3. Choose which 2 of the other keys {2, 3, 4} go in the left subtree: C(3, 2) = 3 ways. Those are {2,3}, {2,4}, {3,4}.\n4. Each side can then be arranged in only one way: 2 keys as a heap (smaller on top) give h(2) = 1, and 1 key gives h(1) = 1.\n5. Total: h(4) = C(3, 2) × h(2) × h(1) = 3 × 1 × 1 = 3.\n\n**Answer:** 3 heaps: `1 2 3 4`, `1 2 4 3` and `1 3 2 4` as arrays.",
+   "why_full": "Counting heaps appears rarely but it is pure arithmetic once the recurrence is clear. In GATE: the number of heaps on 1 to 7 (2018 CS Q56), and variants that fix where a key sits.\n\nAsked: 2018 CS Q56",
+   "trap": "Splitting the keys evenly, or counting n! orderings. The shape forces L and R: for n = 10 they are 6 and 3, not 4 and 5. Also do not multiply by 2 for swapping the two subtrees unless the sizes are equal and the keys differ."
+  },
+  {
+   "atom_id": "h9",
+   "title": "d-ary heaps",
+   "simple": "A binary heap is a company chart where each boss has two people reporting to them. A 3-ary heap gives each boss three people, and a 4-ary heap gives each boss four. With more people per boss, the chart gets shorter. The index rules still follow one pattern: the first report of boss i sits at d times i plus one. In exam words: a d-ary heap stored 0-based has children d·i+1 to d·i+d and parent floor((i−1)/d); its height is about log base d of n.",
+   "idea": "A **d-ary heap** is a complete tree where every node has up to $d$ children. Stored 0-based, the children of $i$ are $di+1,\\dots,di+d$ and the parent is $\\lfloor(i-1)/d\\rfloor$. The height is about $\\log_d n$, so inserts are shorter, and each sift-down level costs about $d$ comparisons.",
+   "definition": "For a d-ary heap on $A[0..n-1]$:\n\n- Children of $i$: $di+1,\\ di+2,\\ \\dots,\\ di+d$ (those $<n$).\n- Parent of $i>0$: $\\lfloor(i-1)/d\\rfloor$.\n- Last parent: $\\lfloor(n-2)/d\\rfloor$. Leaves: the indices after it.\n- Height: $\\lceil\\log_d(n(d-1)+1)\\rceil-1$, which is about $\\log_d n$.\n- Insert: $O(\\log_d n)$. Extract: $O(d\\log_d n)$.\n- Binary heap: $d=2$. 1-based binary: children $2i,2i+1$, parent $\\lfloor i/2\\rfloor$.",
+   "intuition_full": "The numbers come from counting. Level r of a d-ary tree holds $d^r$ nodes, and the first index of level r is $(d^r-1)/(d-1)$. Index i's first child is the first index of the next level plus d times the position of i within its level, which simplifies to $di+1$. The same counting backwards gives the parent. More children per node mean fewer levels, so sift-up has fewer steps. But sift-down must find the largest of d children at every level, which takes $d-1$ comparisons plus one against the key. That trade-off is why $d=2$ and $d=4$ often tie on extract, and why bigger d helps algorithms with many inserts, such as Dijkstra with decrease-key.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 3-ary heap with 13 nodes is stored 0-based. Find the children of index 2, the parent of index 11, and the leaves.",
+     "steps": [
+      "In a 3-ary heap each node has up to 3 children. Number nodes level by level from 0. The root is 0 and its children are 1, 2, 3.",
+      "The children of i are 3i+1, 3i+2, 3i+3. For i = 2 that is 7, 8, 9.",
+      "The parent of i is floor((i−1)/3). For i = 11: floor(10/3) = 3, and 3 indeed has children 10, 11, 12.",
+      "The last parent is the parent of the last index 12: floor(11/3) = 3. So indices 4 to 12 are leaves, 9 of them.",
+      "The tree has 1 + 3 + 9 = 13 nodes, so it is only 2 levels deep, against 3 for a binary heap with 13 nodes."
+     ],
+     "answer": "Children of 2: 7, 8, 9. Parent of 11: 3. Leaves: indices 4 to 12."
+    },
+    {
+     "level": "gate",
+     "setup": "Is `[95, 60, 80, 50, 70, 40, 65, 30, 45]` (0-based) a valid **4-ary** max-heap?",
+     "steps": [
+      "For a 4-ary heap the children of i are 4i+1 to 4i+4. The parent of i is floor((i−1)/4).",
+      "i = 0: children 1 to 4 hold 60, 80, 50, 70. All ≤ 95. Passes.",
+      "i = 1 (value 60): children 5 to 8 hold 40, 65, 30, 45. But 65 > 60, so the pair (index 1, index 6) breaks the rule.",
+      "One violation is enough: not a valid 4-ary max-heap. (Index 2 would have children from index 9, which does not exist.)"
+     ],
+     "answer": "No. The parent at index 1 (60) is smaller than its child at index 6 (65)."
+    },
+    {
+     "level": "twist",
+     "setup": "A heap has 85 nodes. How many comparisons does one worst-case sift-down need for a binary heap, and for a 4-ary heap?",
+     "steps": [
+      "Binary: height floor(log2 85) = 6. Each level costs 2 comparisons: child against child, then the larger child against the key. 6 × 2 = 12.",
+      "4-ary: 85 = 1 + 4 + 16 + 64, a perfect tree of height 3. Each level picks the largest of 4 children with 3 comparisons, then compares with the key: 4 per level. 3 × 4 = 12.",
+      "The two tie at 12. In general sift-down costs about d·log_d n comparisons, and 2 and 4 give the same value.",
+      "Sift-up is cheaper in the 4-ary heap: at most 3 swaps, each with one comparison, against 6 for the binary heap."
+     ],
+     "answer": "12 comparisons for both. A larger d makes the tree shorter, so insert gets cheaper, but each extract level costs more."
+    }
+   ],
+   "why": "GATE asks the index arithmetic for a non-binary heap, or the validity of an array as a d-ary heap. In GATE: 3-ary heap validity and parent index (2006 CS Q76), and complexity comparisons with different d.",
+   "how": [
+    "Write down d and whether indexing is 0-based or 1-based.",
+    "Children of i: d·i+1 to d·i+d (0-based). Parent: floor((i−1)/d).",
+    "Check each parent against all its children (up to d of them).",
+    "For costs: insert about log_d n; extract about d · log_d n."
+   ],
+   "mistake": "Using the binary formulas for a d-ary heap, or using floor(i/d) as the parent in a 0-based heap. For d = 3, index 12 has parent floor(11/3) = 3, but floor(12/3) = 4 would be wrong.",
+   "edge_cases": [
+    "d = 2 gives the binary formulas (2i+1, 2i+2, floor((i−1)/2)) when 0-based.",
+    "The last parent may have fewer than d children.",
+    "If the question is 1-based, the children of i are d(i−1)+2 to d·i+1 and the parent is floor((i−2)/d)+1.",
+    "d = 1 would be a linked list: height n − 1."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers 0-based versus 1-based indexing.",
+    "Foundations: **Exponents and logs** (found.explog) covers $\\log_d n=\\log_2 n/\\log_2 d$.",
+    "The binary formulas are in **Heap property and array layout**; the cost trade-off links to **Priority queue and heapsort**."
+   ],
+   "check": [
+    {
+     "q": "Children of index 5 in a 4-ary heap (0-based)?",
+     "a": "21, 22, 23, 24."
+    },
+    {
+     "q": "Parent of index 30 in a 4-ary heap (0-based)?",
+     "a": "floor(29/4) = 7."
+    },
+    {
+     "q": "A 3-ary heap has 13 nodes. How many leaves?",
+     "a": "9 (indices 4 to 12)."
+    }
+   ],
+   "asked": "Asked: 2006 CS Q76 (3-ary heap)",
+   "try": {
+    "id": "gen.ds.heaps.012",
+    "label": "Parent index in a 3-ary heap (L2)"
+   },
+   "scene": "ds.heaps.h9.dary",
+   "example": {
+    "setup": "A 3-ary heap with 13 nodes is stored 0-based. Find the children of index 2, the parent of index 11, and the leaves.",
+    "steps": [
+     "In a 3-ary heap each node has up to 3 children. Number nodes level by level from 0. The root is 0 and its children are 1, 2, 3.",
+     "The children of i are 3i+1, 3i+2, 3i+3. For i = 2 that is 7, 8, 9.",
+     "The parent of i is floor((i−1)/3). For i = 11: floor(10/3) = 3, and 3 indeed has children 10, 11, 12.",
+     "The last parent is the parent of the last index 12: floor(11/3) = 3. So indices 4 to 12 are leaves, 9 of them.",
+     "The tree has 1 + 3 + 9 = 13 nodes, so it is only 2 levels deep, against 3 for a binary heap with 13 nodes."
+    ],
+    "answer": "Children of 2: 7, 8, 9. Parent of 11: 3. Leaves: indices 4 to 12."
+   },
+   "what": "A **d-ary heap** is a complete tree where every node has up to $d$ children. Stored 0-based, the children of $i$ are $di+1,\\dots,di+d$ and the parent is $\\lfloor(i-1)/d\\rfloor$. The height is about $\\log_d n$, so inserts are shorter, and each sift-down level costs about $d$ comparisons.",
+   "what_full": "A **d-ary heap** is a complete tree where every node has up to $d$ children. Stored 0-based, the children of $i$ are $di+1,\\dots,di+d$ and the parent is $\\lfloor(i-1)/d\\rfloor$. The height is about $\\log_d n$, so inserts are shorter, and each sift-down level costs about $d$ comparisons.\n\nFor a d-ary heap on $A[0..n-1]$:\n\n- Children of $i$: $di+1,\\ di+2,\\ \\dots,\\ di+d$ (those $<n$).\n- Parent of $i>0$: $\\lfloor(i-1)/d\\rfloor$.\n- Last parent: $\\lfloor(n-2)/d\\rfloor$. Leaves: the indices after it.\n- Height: $\\lceil\\log_d(n(d-1)+1)\\rceil-1$, which is about $\\log_d n$.\n- Insert: $O(\\log_d n)$. Extract: $O(d\\log_d n)$.\n- Binary heap: $d=2$. 1-based binary: children $2i,2i+1$, parent $\\lfloor i/2\\rfloor$.\n\n**Worked example.** A 3-ary heap with 13 nodes is stored 0-based. Find the children of index 2, the parent of index 11, and the leaves.\n\n1. In a 3-ary heap each node has up to 3 children. Number nodes level by level from 0. The root is 0 and its children are 1, 2, 3.\n2. The children of i are 3i+1, 3i+2, 3i+3. For i = 2 that is 7, 8, 9.\n3. The parent of i is floor((i−1)/3). For i = 11: floor(10/3) = 3, and 3 indeed has children 10, 11, 12.\n4. The last parent is the parent of the last index 12: floor(11/3) = 3. So indices 4 to 12 are leaves, 9 of them.\n5. The tree has 1 + 3 + 9 = 13 nodes, so it is only 2 levels deep, against 3 for a binary heap with 13 nodes.\n\n**Answer:** Children of 2: 7, 8, 9. Parent of 11: 3. Leaves: indices 4 to 12.",
+   "why_full": "GATE asks the index arithmetic for a non-binary heap, or the validity of an array as a d-ary heap. In GATE: 3-ary heap validity and parent index (2006 CS Q76), and complexity comparisons with different d.\n\nAsked: 2006 CS Q76 (3-ary heap)",
+   "trap": "Using the binary formulas for a d-ary heap, or using floor(i/d) as the parent in a 0-based heap. For d = 3, index 12 has parent floor(11/3) = 3, but floor(12/3) = 4 would be wrong."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "ds.heaps.h1.layout",
+   "title": "Reading A = [70,50,60,20,40,10,30] as a tree and checking each parent",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 180.0,
+     "y": 24,
+     "label": "70",
+     "r": 14
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 95.0,
+     "y": 74,
+     "label": "50",
+     "r": 14
+    },
+    {
+     "id": "h3",
+     "kind": "node",
+     "x": 265.0,
+     "y": 74,
+     "label": "60",
+     "r": 14
+    },
+    {
+     "id": "h4",
+     "kind": "node",
+     "x": 52.5,
+     "y": 124,
+     "label": "20",
+     "r": 14
+    },
+    {
+     "id": "h5",
+     "kind": "node",
+     "x": 137.5,
+     "y": 124,
+     "label": "40",
+     "r": 14
+    },
+    {
+     "id": "h6",
+     "kind": "node",
+     "x": 222.5,
+     "y": 124,
+     "label": "10",
+     "r": 14
+    },
+    {
+     "id": "h7",
+     "kind": "node",
+     "x": 307.5,
+     "y": 124,
+     "label": "30",
+     "r": 14
+    },
+    {
+     "id": "he2",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h2"
+    },
+    {
+     "id": "he3",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h3"
+    },
+    {
+     "id": "he4",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h4"
+    },
+    {
+     "id": "he5",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h5"
+    },
+    {
+     "id": "he6",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h6"
+    },
+    {
+     "id": "he7",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h7"
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 36,
+     "y": 168,
+     "cells": [
+      "·",
+      70,
+      50,
+      60,
+      20,
+      40,
+      10,
+      30
+     ],
+     "cw": 36,
+     "ch": 26,
+     "indices": true,
+     "slots": 8
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Write the array as a tree. `A[1] = 70` is the root, and the children of index `i` sit at `2i` and `2i+1`.",
+     "show": [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "h7",
+      "he2",
+      "he3",
+      "he4",
+      "he5",
+      "he6",
+      "he7",
+      "arr"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       0
+      ]
+     },
+     "set": {
+      "id": "st",
+      "text": "children of i: 2i and 2i+1"
+     }
+    },
+    {
+     "caption": "`i = 1`: children `A[2] = 50` and `A[3] = 60`. Is 70 ≥ 50 and 70 ≥ 60? Yes.",
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "accent"
+      },
+      {
+       "id": "h2",
+       "tone": "good"
+      },
+      {
+       "id": "h3",
+       "tone": "good"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        1,
+        2,
+        3
+       ],
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "st",
+       "text": "i=1: 70 ≥ 50, 60  ok"
+      },
+      {
+       "id": "h1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "`i = 2`: children `A[4] = 20` and `A[5] = 40`. Is 50 ≥ 20 and 50 ≥ 40? Yes.",
+     "highlight": [
+      {
+       "id": "h2",
+       "tone": "accent"
+      },
+      {
+       "id": "h4",
+       "tone": "good"
+      },
+      {
+       "id": "h5",
+       "tone": "good"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        2,
+        4,
+        5
+       ],
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "st",
+       "text": "i=2: 50 ≥ 20, 40  ok"
+      },
+      {
+       "id": "h2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "`i = 3`: children `A[6] = 10` and `A[7] = 30`. Is 60 ≥ 10 and 60 ≥ 30? Yes.",
+     "highlight": [
+      {
+       "id": "h3",
+       "tone": "accent"
+      },
+      {
+       "id": "h6",
+       "tone": "good"
+      },
+      {
+       "id": "h7",
+       "tone": "good"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        3,
+        6,
+        7
+       ],
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "st",
+       "text": "i=3: 60 ≥ 10, 30  ok"
+      },
+      {
+       "id": "h3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Every parent is at least both its children, so it is a max-heap. The siblings 50 and 60 are in no particular order, and that is fine.",
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "good"
+      },
+      {
+       "id": "h2",
+       "tone": "good"
+      },
+      {
+       "id": "h3",
+       "tone": "good"
+      },
+      {
+       "id": "h4",
+       "tone": "good"
+      },
+      {
+       "id": "h5",
+       "tone": "good"
+      },
+      {
+       "id": "h6",
+       "tone": "good"
+      },
+      {
+       "id": "h7",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "max-heap: yes",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h2.shape",
+   "title": "An 11-key heap: height 3, leaves are indices 6 to 11",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 180.0,
+     "y": 22,
+     "label": "95",
+     "r": 14
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 95.0,
+     "y": 60,
+     "label": "80",
+     "r": 14
+    },
+    {
+     "id": "h3",
+     "kind": "node",
+     "x": 265.0,
+     "y": 60,
+     "label": "90",
+     "r": 14
+    },
+    {
+     "id": "h4",
+     "kind": "node",
+     "x": 52.5,
+     "y": 98,
+     "label": "60",
+     "r": 14
+    },
+    {
+     "id": "h5",
+     "kind": "node",
+     "x": 137.5,
+     "y": 98,
+     "label": "70",
+     "r": 14
+    },
+    {
+     "id": "h6",
+     "kind": "node",
+     "x": 222.5,
+     "y": 98,
+     "label": "85",
+     "r": 14
+    },
+    {
+     "id": "h7",
+     "kind": "node",
+     "x": 307.5,
+     "y": 98,
+     "label": "50",
+     "r": 14
+    },
+    {
+     "id": "h8",
+     "kind": "node",
+     "x": 31.2,
+     "y": 136,
+     "label": "20",
+     "r": 14
+    },
+    {
+     "id": "h9",
+     "kind": "node",
+     "x": 73.8,
+     "y": 136,
+     "label": "40",
+     "r": 14
+    },
+    {
+     "id": "h10",
+     "kind": "node",
+     "x": 116.2,
+     "y": 136,
+     "label": "55",
+     "r": 14
+    },
+    {
+     "id": "h11",
+     "kind": "node",
+     "x": 158.8,
+     "y": 136,
+     "label": "65",
+     "r": 14
+    },
+    {
+     "id": "he2",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h2"
+    },
+    {
+     "id": "he3",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h3"
+    },
+    {
+     "id": "he4",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h4"
+    },
+    {
+     "id": "he5",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h5"
+    },
+    {
+     "id": "he6",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h6"
+    },
+    {
+     "id": "he7",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h7"
+    },
+    {
+     "id": "he8",
+     "kind": "edge",
+     "from": "h4",
+     "to": "h8"
+    },
+    {
+     "id": "he9",
+     "kind": "edge",
+     "from": "h4",
+     "to": "h9"
+    },
+    {
+     "id": "he10",
+     "kind": "edge",
+     "from": "h5",
+     "to": "h10"
+    },
+    {
+     "id": "he11",
+     "kind": "edge",
+     "from": "h5",
+     "to": "h11"
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 12,
+     "y": 172,
+     "cells": [
+      "·",
+      95,
+      80,
+      90,
+      60,
+      70,
+      85,
+      50,
+      20,
+      40,
+      55,
+      65
+     ],
+     "cw": 28,
+     "ch": 26,
+     "indices": true,
+     "slots": 12
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Fill levels left to right: level 0 holds index 1, level 1 holds indices 2 to 3, level 2 holds 4 to 7, and the last level takes the remaining four, indices 8 to 11.",
+     "show": [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "h7",
+      "h8",
+      "h9",
+      "h10",
+      "h11",
+      "he2",
+      "he3",
+      "he4",
+      "he5",
+      "he6",
+      "he7",
+      "he8",
+      "he9",
+      "he10",
+      "he11",
+      "arr"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       0
+      ]
+     },
+     "highlight": [
+      {
+       "id": "h8",
+       "tone": "mid"
+      },
+      {
+       "id": "h9",
+       "tone": "mid"
+      },
+      {
+       "id": "h10",
+       "tone": "mid"
+      },
+      {
+       "id": "h11",
+       "tone": "mid"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "levels hold 1, 2, 4, then the rest (4)"
+     }
+    },
+    {
+     "caption": "Height is the number of edges from the root to the deepest level: 3. Check: floor(log2 11) = floor(3.46) = 3.",
+     "highlight": [
+      "h1",
+      "h2",
+      "h5",
+      "h10",
+      "he2",
+      "he5",
+      "he10"
+     ],
+     "set": {
+      "id": "st",
+      "text": "height = 3 edges = floor(log2 11)"
+     }
+    },
+    {
+     "caption": "The last parent is index floor(11/2) = 5. It has children 10 and 11. Index 6 would need a child at 12, which does not exist, so 6 is a leaf.",
+     "highlight": [
+      {
+       "id": "h5",
+       "tone": "accent"
+      },
+      {
+       "id": "h10",
+       "tone": "good"
+      },
+      {
+       "id": "h11",
+       "tone": "good"
+      },
+      {
+       "id": "h6",
+       "tone": "bad"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        5,
+        10,
+        11
+       ],
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "last parent = floor(11/2) = 5"
+     }
+    },
+    {
+     "caption": "Leaves are indices 6 to 11, that is 6 leaves. The internal nodes are indices 1 to 5.",
+     "highlight": [
+      {
+       "id": "h6",
+       "tone": "good"
+      },
+      {
+       "id": "h7",
+       "tone": "good"
+      },
+      {
+       "id": "h8",
+       "tone": "good"
+      },
+      {
+       "id": "h9",
+       "tone": "good"
+      },
+      {
+       "id": "h10",
+       "tone": "good"
+      },
+      {
+       "id": "h11",
+       "tone": "good"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "leaves = indices 6..11 (6 of them)"
+     }
+    },
+    {
+     "caption": "Check with a formula: leaves = n − floor(n/2) = 11 − 5 = 6 = ceil(11/2). The leaves are the second half of the array.",
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ],
+       "tone": "mid"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "leaves = n - floor(n/2) = 11 - 5 = 6",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h3.insert",
+   "title": "Insert 77: place at index 10, then sift up while it beats its parent",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 180.0,
+     "y": 22,
+     "label": "88",
+     "r": 14
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 95.0,
+     "y": 60,
+     "label": "60",
+     "r": 14
+    },
+    {
+     "id": "h3",
+     "kind": "node",
+     "x": 265.0,
+     "y": 60,
+     "label": "72",
+     "r": 14
+    },
+    {
+     "id": "h4",
+     "kind": "node",
+     "x": 52.5,
+     "y": 98,
+     "label": "40",
+     "r": 14
+    },
+    {
+     "id": "h5",
+     "kind": "node",
+     "x": 137.5,
+     "y": 98,
+     "label": "55",
+     "r": 14
+    },
+    {
+     "id": "h6",
+     "kind": "node",
+     "x": 222.5,
+     "y": 98,
+     "label": "30",
+     "r": 14
+    },
+    {
+     "id": "h7",
+     "kind": "node",
+     "x": 307.5,
+     "y": 98,
+     "label": "66",
+     "r": 14
+    },
+    {
+     "id": "h8",
+     "kind": "node",
+     "x": 31.2,
+     "y": 136,
+     "label": "20",
+     "r": 14
+    },
+    {
+     "id": "h9",
+     "kind": "node",
+     "x": 73.8,
+     "y": 136,
+     "label": "35",
+     "r": 14
+    },
+    {
+     "id": "h10",
+     "kind": "node",
+     "x": 116.2,
+     "y": 136,
+     "label": "",
+     "r": 14
+    },
+    {
+     "id": "he2",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h2"
+    },
+    {
+     "id": "he3",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h3"
+    },
+    {
+     "id": "he4",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h4"
+    },
+    {
+     "id": "he5",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h5"
+    },
+    {
+     "id": "he6",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h6"
+    },
+    {
+     "id": "he7",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h7"
+    },
+    {
+     "id": "he8",
+     "kind": "edge",
+     "from": "h4",
+     "to": "h8"
+    },
+    {
+     "id": "he9",
+     "kind": "edge",
+     "from": "h4",
+     "to": "h9"
+    },
+    {
+     "id": "he10",
+     "kind": "edge",
+     "from": "h5",
+     "to": "h10"
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 14,
+     "y": 172,
+     "cells": [
+      "·",
+      88,
+      60,
+      72,
+      40,
+      55,
+      30,
+      66,
+      20,
+      35
+     ],
+     "cw": 28,
+     "ch": 26,
+     "indices": true,
+     "slots": 11
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start from the valid heap with n = 9: for example 88 ≥ 60, 72 and 60 ≥ 40, 55.",
+     "show": [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "h7",
+      "h8",
+      "h9",
+      "he2",
+      "he3",
+      "he4",
+      "he5",
+      "he6",
+      "he7",
+      "he8",
+      "he9",
+      "arr"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       0
+      ]
+     },
+     "set": {
+      "id": "st",
+      "text": "max-heap, n = 9"
+     }
+    },
+    {
+     "caption": "Put 77 in the next free slot, index 10. This keeps the tree complete. Its parent is floor(10/2) = 5, which holds 55.",
+     "show": [
+      "h10",
+      "he10"
+     ],
+     "set": [
+      {
+       "id": "h10",
+       "label": "77"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        88,
+        60,
+        72,
+        40,
+        55,
+        30,
+        66,
+        20,
+        35,
+        77
+       ]
+      },
+      {
+       "id": "st",
+       "text": "insert 77 at index 10; parent = 5 (55)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h10",
+       "tone": "accent"
+      },
+      {
+       "id": "h5",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "77 > 55, so swap. 77 is now at index 5, and its parent is index 2, which holds 60.",
+     "set": [
+      {
+       "id": "h5",
+       "label": "77"
+      },
+      {
+       "id": "h10",
+       "label": "55"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        88,
+        60,
+        72,
+        40,
+        77,
+        30,
+        66,
+        20,
+        35,
+        55
+       ]
+      },
+      {
+       "id": "st",
+       "text": "77 > 55: swap; parent = 2 (60)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h5",
+       "tone": "accent"
+      },
+      {
+       "id": "h10",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "77 > 60, so swap again. 77 is now at index 2, and its parent is index 1, which holds 88.",
+     "set": [
+      {
+       "id": "h2",
+       "label": "77"
+      },
+      {
+       "id": "h5",
+       "label": "60"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        88,
+        77,
+        72,
+        40,
+        60,
+        30,
+        66,
+        20,
+        35,
+        55
+       ]
+      },
+      {
+       "id": "st",
+       "text": "77 > 60: swap; parent = 1 (88)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h2",
+       "tone": "accent"
+      },
+      {
+       "id": "h5",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "77 < 88, so stop. The array is `88 77 72 40 60 30 66 20 35 55`: two swaps.",
+     "highlight": [
+      {
+       "id": "h2",
+       "tone": "good"
+      },
+      {
+       "id": "h1",
+       "tone": "mid"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "77 < 88: stop. 2 swaps",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h4.extract",
+   "title": "Extract-max: last key to the root, then sift down through the larger child",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 180.0,
+     "y": 22,
+     "label": "90",
+     "r": 14
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 95.0,
+     "y": 60,
+     "label": "70",
+     "r": 14
+    },
+    {
+     "id": "h3",
+     "kind": "node",
+     "x": 265.0,
+     "y": 60,
+     "label": "80",
+     "r": 14
+    },
+    {
+     "id": "h4",
+     "kind": "node",
+     "x": 52.5,
+     "y": 98,
+     "label": "50",
+     "r": 14
+    },
+    {
+     "id": "h5",
+     "kind": "node",
+     "x": 137.5,
+     "y": 98,
+     "label": "60",
+     "r": 14
+    },
+    {
+     "id": "h6",
+     "kind": "node",
+     "x": 222.5,
+     "y": 98,
+     "label": "65",
+     "r": 14
+    },
+    {
+     "id": "h7",
+     "kind": "node",
+     "x": 307.5,
+     "y": 98,
+     "label": "30",
+     "r": 14
+    },
+    {
+     "id": "h8",
+     "kind": "node",
+     "x": 31.2,
+     "y": 136,
+     "label": "20",
+     "r": 14
+    },
+    {
+     "id": "h9",
+     "kind": "node",
+     "x": 73.8,
+     "y": 136,
+     "label": "45",
+     "r": 14
+    },
+    {
+     "id": "he2",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h2"
+    },
+    {
+     "id": "he3",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h3"
+    },
+    {
+     "id": "he4",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h4"
+    },
+    {
+     "id": "he5",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h5"
+    },
+    {
+     "id": "he6",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h6"
+    },
+    {
+     "id": "he7",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h7"
+    },
+    {
+     "id": "he8",
+     "kind": "edge",
+     "from": "h4",
+     "to": "h8"
+    },
+    {
+     "id": "he9",
+     "kind": "edge",
+     "from": "h4",
+     "to": "h9"
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 14,
+     "y": 172,
+     "cells": [
+      "·",
+      90,
+      70,
+      80,
+      50,
+      60,
+      65,
+      30,
+      20,
+      45
+     ],
+     "cw": 28,
+     "ch": 26,
+     "indices": true,
+     "slots": 10
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The heap is valid: 90 ≥ 70, 80; 70 ≥ 50, 60; 80 ≥ 65, 30; 50 ≥ 20, 45.",
+     "show": [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "h7",
+      "h8",
+      "h9",
+      "he2",
+      "he3",
+      "he4",
+      "he5",
+      "he6",
+      "he7",
+      "he8",
+      "he9",
+      "arr"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       0
+      ]
+     },
+     "set": {
+      "id": "st",
+      "text": "max-heap, n = 9"
+     }
+    },
+    {
+     "caption": "Return the root, 90. Move the last key, 45, to the root and shrink n to 8. The tree is complete again but the root is too small.",
+     "hide": [
+      "h9",
+      "he9"
+     ],
+     "set": [
+      {
+       "id": "h1",
+       "label": "45"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        45,
+        70,
+        80,
+        50,
+        60,
+        65,
+        30,
+        20
+       ]
+      },
+      {
+       "id": "st",
+       "text": "return 90; last key 45 goes to the root"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Sift down: the children of index 1 are 70 and 80. The larger is 80, and 80 > 45, so swap with it. 45 is now at index 3.",
+     "set": [
+      {
+       "id": "h1",
+       "label": "80"
+      },
+      {
+       "id": "h3",
+       "label": "45"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        80,
+        70,
+        45,
+        50,
+        60,
+        65,
+        30,
+        20
+       ]
+      },
+      {
+       "id": "st",
+       "text": "children 70, 80: swap with 80"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "mid"
+      },
+      {
+       "id": "h3",
+       "tone": "accent"
+      },
+      {
+       "id": "h2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "The children of index 3 are indices 6 and 7, holding 65 and 30. The larger is 65 > 45, so swap. 45 is now at index 6.",
+     "set": [
+      {
+       "id": "h3",
+       "label": "65"
+      },
+      {
+       "id": "h6",
+       "label": "45"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        80,
+        70,
+        65,
+        50,
+        60,
+        45,
+        30,
+        20
+       ]
+      },
+      {
+       "id": "st",
+       "text": "children 65, 30: swap with 65"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h3",
+       "tone": "mid"
+      },
+      {
+       "id": "h6",
+       "tone": "accent"
+      },
+      {
+       "id": "h7",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Index 6 has no children (12 > 8), so stop. Array: `80 70 65 50 60 45 30 20`, and 90 was returned.",
+     "highlight": [
+      {
+       "id": "h6",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "index 6 is a leaf: stop. 2 swaps",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h5.build",
+   "title": "Build-heap on 12 7 3 15 9 20 5: sift down from the last parent back to the root",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 180.0,
+     "y": 24,
+     "label": "12",
+     "r": 14
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 95.0,
+     "y": 74,
+     "label": "7",
+     "r": 14
+    },
+    {
+     "id": "h3",
+     "kind": "node",
+     "x": 265.0,
+     "y": 74,
+     "label": "3",
+     "r": 14
+    },
+    {
+     "id": "h4",
+     "kind": "node",
+     "x": 52.5,
+     "y": 124,
+     "label": "15",
+     "r": 14
+    },
+    {
+     "id": "h5",
+     "kind": "node",
+     "x": 137.5,
+     "y": 124,
+     "label": "9",
+     "r": 14
+    },
+    {
+     "id": "h6",
+     "kind": "node",
+     "x": 222.5,
+     "y": 124,
+     "label": "20",
+     "r": 14
+    },
+    {
+     "id": "h7",
+     "kind": "node",
+     "x": 307.5,
+     "y": 124,
+     "label": "5",
+     "r": 14
+    },
+    {
+     "id": "he2",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h2"
+    },
+    {
+     "id": "he3",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h3"
+    },
+    {
+     "id": "he4",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h4"
+    },
+    {
+     "id": "he5",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h5"
+    },
+    {
+     "id": "he6",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h6"
+    },
+    {
+     "id": "he7",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h7"
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 36,
+     "y": 168,
+     "cells": [
+      "·",
+      12,
+      7,
+      3,
+      15,
+      9,
+      20,
+      5
+     ],
+     "cw": 36,
+     "ch": 26,
+     "indices": true,
+     "slots": 8
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Indices 4 to 7 are leaves, and a leaf alone is already a heap. The last parent is floor(7/2) = 3, so start there.",
+     "show": [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "h7",
+      "he2",
+      "he3",
+      "he4",
+      "he5",
+      "he6",
+      "he7",
+      "arr"
+     ],
+     "dim": [
+      {
+       "id": "arr",
+       "cells": [
+        0
+       ]
+      },
+      "h4",
+      "h5",
+      "h6",
+      "h7"
+     ],
+     "highlight": [
+      {
+       "id": "h3",
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "leaves 4..7 are heaps; start at index 3"
+     }
+    },
+    {
+     "caption": "Sift down index 3 (value 3): children 20 and 5. The larger, 20, beats 3, so swap. Array `12 7 20 15 9 3 5`.",
+     "undim": [
+      "h6",
+      "h7"
+     ],
+     "set": [
+      {
+       "id": "h3",
+       "label": "20"
+      },
+      {
+       "id": "h6",
+       "label": "3"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        12,
+        7,
+        20,
+        15,
+        9,
+        3,
+        5
+       ]
+      },
+      {
+       "id": "st",
+       "text": "i=3: swap 3 with larger child 20"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h3",
+       "tone": "accent"
+      },
+      {
+       "id": "h6",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Sift down index 2 (value 7): children 15 and 9. The larger, 15, beats 7, so swap. Array `12 15 20 7 9 3 5`. (7 now has no children inside n.)",
+     "undim": [
+      "h4",
+      "h5"
+     ],
+     "set": [
+      {
+       "id": "h2",
+       "label": "15"
+      },
+      {
+       "id": "h4",
+       "label": "7"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        12,
+        15,
+        20,
+        7,
+        9,
+        3,
+        5
+       ]
+      },
+      {
+       "id": "st",
+       "text": "i=2: swap 7 with larger child 15"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h2",
+       "tone": "accent"
+      },
+      {
+       "id": "h4",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Sift down index 1 (value 12): children 15 and 20. Swap with 20. At index 3 the children are 3 and 5, and 12 beats both, so stop. Array `20 15 12 7 9 3 5`.",
+     "set": [
+      {
+       "id": "h1",
+       "label": "20"
+      },
+      {
+       "id": "h3",
+       "label": "12"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        20,
+        15,
+        12,
+        7,
+        9,
+        3,
+        5
+       ]
+      },
+      {
+       "id": "st",
+       "text": "i=1: swap 12 with 20; children 3, 5 stop it"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "accent"
+      },
+      {
+       "id": "h3",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "The loop has reached index 1, so build-heap is done. Total swaps = 3.",
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "good"
+      },
+      {
+       "id": "h2",
+       "tone": "good"
+      },
+      {
+       "id": "h3",
+       "tone": "good"
+      },
+      {
+       "id": "h4",
+       "tone": "good"
+      },
+      {
+       "id": "h5",
+       "tone": "good"
+      },
+      {
+       "id": "h6",
+       "tone": "good"
+      },
+      {
+       "id": "h7",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "heap done: 3 swaps",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h6.extremes",
+   "title": "In a max-heap the minimum is hiding among the leaves",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 180.0,
+     "y": 22,
+     "label": "95",
+     "r": 13
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 95.0,
+     "y": 60,
+     "label": "80",
+     "r": 13
+    },
+    {
+     "id": "h3",
+     "kind": "node",
+     "x": 265.0,
+     "y": 60,
+     "label": "90",
+     "r": 13
+    },
+    {
+     "id": "h4",
+     "kind": "node",
+     "x": 52.5,
+     "y": 98,
+     "label": "60",
+     "r": 13
+    },
+    {
+     "id": "h5",
+     "kind": "node",
+     "x": 137.5,
+     "y": 98,
+     "label": "70",
+     "r": 13
+    },
+    {
+     "id": "h6",
+     "kind": "node",
+     "x": 222.5,
+     "y": 98,
+     "label": "85",
+     "r": 13
+    },
+    {
+     "id": "h7",
+     "kind": "node",
+     "x": 307.5,
+     "y": 98,
+     "label": "50",
+     "r": 13
+    },
+    {
+     "id": "h8",
+     "kind": "node",
+     "x": 31.2,
+     "y": 136,
+     "label": "20",
+     "r": 13
+    },
+    {
+     "id": "h9",
+     "kind": "node",
+     "x": 73.8,
+     "y": 136,
+     "label": "40",
+     "r": 13
+    },
+    {
+     "id": "h10",
+     "kind": "node",
+     "x": 116.2,
+     "y": 136,
+     "label": "55",
+     "r": 13
+    },
+    {
+     "id": "h11",
+     "kind": "node",
+     "x": 158.8,
+     "y": 136,
+     "label": "65",
+     "r": 13
+    },
+    {
+     "id": "h12",
+     "kind": "node",
+     "x": 201.2,
+     "y": 136,
+     "label": "30",
+     "r": 13
+    },
+    {
+     "id": "h13",
+     "kind": "node",
+     "x": 243.8,
+     "y": 136,
+     "label": "45",
+     "r": 13
+    },
+    {
+     "id": "he2",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h2"
+    },
+    {
+     "id": "he3",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h3"
+    },
+    {
+     "id": "he4",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h4"
+    },
+    {
+     "id": "he5",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h5"
+    },
+    {
+     "id": "he6",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h6"
+    },
+    {
+     "id": "he7",
+     "kind": "edge",
+     "from": "h3",
+     "to": "h7"
+    },
+    {
+     "id": "he8",
+     "kind": "edge",
+     "from": "h4",
+     "to": "h8"
+    },
+    {
+     "id": "he9",
+     "kind": "edge",
+     "from": "h4",
+     "to": "h9"
+    },
+    {
+     "id": "he10",
+     "kind": "edge",
+     "from": "h5",
+     "to": "h10"
+    },
+    {
+     "id": "he11",
+     "kind": "edge",
+     "from": "h5",
+     "to": "h11"
+    },
+    {
+     "id": "he12",
+     "kind": "edge",
+     "from": "h6",
+     "to": "h12"
+    },
+    {
+     "id": "he13",
+     "kind": "edge",
+     "from": "h6",
+     "to": "h13"
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 12,
+     "y": 172,
+     "cells": [
+      "·",
+      95,
+      80,
+      90,
+      60,
+      70,
+      85,
+      50,
+      20,
+      40,
+      55,
+      65,
+      30,
+      45
+     ],
+     "cw": 24,
+     "ch": 26,
+     "indices": true,
+     "slots": 14
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The root, 95, is the maximum. It is read in O(1).",
+     "show": [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "h7",
+      "h8",
+      "h9",
+      "h10",
+      "h11",
+      "h12",
+      "h13",
+      "he2",
+      "he3",
+      "he4",
+      "he5",
+      "he6",
+      "he7",
+      "he8",
+      "he9",
+      "he10",
+      "he11",
+      "he12",
+      "he13",
+      "arr"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       0
+      ]
+     },
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "root = maximum = 95, found in O(1)"
+     }
+    },
+    {
+     "caption": "Every internal node has at least one child below it, which is smaller. So no internal node can be the minimum.",
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "bad"
+      },
+      {
+       "id": "h2",
+       "tone": "bad"
+      },
+      {
+       "id": "h3",
+       "tone": "bad"
+      },
+      {
+       "id": "h4",
+       "tone": "bad"
+      },
+      {
+       "id": "h5",
+       "tone": "bad"
+      },
+      {
+       "id": "h6",
+       "tone": "bad"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+       ],
+       "tone": "bad"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "internal nodes have a smaller child: not the min"
+     }
+    },
+    {
+     "caption": "The minimum is therefore in a leaf. With n = 13 the leaves are indices 7 to 13, which is 13 − 6 = 7 candidates.",
+     "highlight": [
+      {
+       "id": "h7",
+       "tone": "good"
+      },
+      {
+       "id": "h8",
+       "tone": "good"
+      },
+      {
+       "id": "h9",
+       "tone": "good"
+      },
+      {
+       "id": "h10",
+       "tone": "good"
+      },
+      {
+       "id": "h11",
+       "tone": "good"
+      },
+      {
+       "id": "h12",
+       "tone": "good"
+      },
+      {
+       "id": "h13",
+       "tone": "good"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "candidates: leaves 7..13 (7 of them)"
+     }
+    },
+    {
+     "caption": "Scan the 7 leaves: 50, 20, 40, 55, 65, 30, 45. That takes 6 comparisons and finds 20 at index 8.",
+     "highlight": [
+      {
+       "id": "h8",
+       "tone": "accent"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        8
+       ],
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "scan 7 leaves: 6 comparisons, min = 20"
+     }
+    },
+    {
+     "caption": "Nothing orders the leaves, so there is no shortcut: min of a max-heap costs Θ(n).",
+     "highlight": [
+      {
+       "id": "h8",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "max: O(1).  min: scan the leaves, Θ(n)",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h8.heapsort",
+   "title": "Heapsort of 4 10 3 5 1: build a max-heap, then move the root to the end each time",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 180.0,
+     "y": 24,
+     "label": "4",
+     "r": 14
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 95.0,
+     "y": 70,
+     "label": "10",
+     "r": 14
+    },
+    {
+     "id": "h3",
+     "kind": "node",
+     "x": 265.0,
+     "y": 70,
+     "label": "3",
+     "r": 14
+    },
+    {
+     "id": "h4",
+     "kind": "node",
+     "x": 52.5,
+     "y": 116,
+     "label": "5",
+     "r": 14
+    },
+    {
+     "id": "h5",
+     "kind": "node",
+     "x": 137.5,
+     "y": 116,
+     "label": "1",
+     "r": 14
+    },
+    {
+     "id": "he2",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h2"
+    },
+    {
+     "id": "he3",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h3"
+    },
+    {
+     "id": "he4",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h4"
+    },
+    {
+     "id": "he5",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h5"
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 70,
+     "y": 150,
+     "cells": [
+      "·",
+      4,
+      10,
+      3,
+      5,
+      1
+     ],
+     "cw": 40,
+     "ch": 26,
+     "indices": true,
+     "slots": 6
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The array `4 10 3 5 1` read as a tree is not a heap yet: the root 4 is smaller than its child 10.",
+     "show": [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "he2",
+      "he3",
+      "he4",
+      "he5",
+      "arr"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       0
+      ]
+     },
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "bad"
+      },
+      {
+       "id": "h2",
+       "tone": "mid"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "no heap order yet: 4 < 10"
+     }
+    },
+    {
+     "caption": "Build-heap: index 2 (value 10) already beats 5 and 1. Index 1 (value 4) swaps with 10, then with 5. Heap: `10 5 3 4 1`.",
+     "set": [
+      {
+       "id": "h1",
+       "label": "10"
+      },
+      {
+       "id": "h2",
+       "label": "5"
+      },
+      {
+       "id": "h4",
+       "label": "4"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        10,
+        5,
+        3,
+        4,
+        1
+       ]
+      },
+      {
+       "id": "st",
+       "text": "build-heap: 4 sinks past 10 and 5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Swap the root 10 with the last heap slot. Now 10 is in its final place. Shrink the heap to 4 and sift down: `5 4 3 1 | 10`.",
+     "hide": [
+      "h5",
+      "he5"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       5
+      ]
+     },
+     "set": [
+      {
+       "id": "h1",
+       "label": "5"
+      },
+      {
+       "id": "h2",
+       "label": "4"
+      },
+      {
+       "id": "h4",
+       "label": "1"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        5,
+        4,
+        3,
+        1,
+        10
+       ]
+      },
+      {
+       "id": "st",
+       "text": "10 is placed; heap size 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        5
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "h1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Swap the root 5 with the last heap slot (index 4), shrink to 3, sift down: `4 1 3 | 5 10`.",
+     "hide": [
+      "h4",
+      "he4"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       4
+      ]
+     },
+     "set": [
+      {
+       "id": "h1",
+       "label": "4"
+      },
+      {
+       "id": "h2",
+       "label": "1"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        4,
+        1,
+        3,
+        5,
+        10
+       ]
+      },
+      {
+       "id": "st",
+       "text": "5 is placed; heap size 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        4
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "h1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Swap the root 4 with index 3, shrink to 2, sift down (3 ≥ 1, no change): `3 1 | 4 5 10`.",
+     "hide": [
+      "h3",
+      "he3"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       3
+      ]
+     },
+     "set": [
+      {
+       "id": "h1",
+       "label": "3"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        3,
+        1,
+        4,
+        5,
+        10
+       ]
+      },
+      {
+       "id": "st",
+       "text": "4 is placed; heap size 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "h1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Swap the root 3 with index 2. One key is left and it is in place: `1 3 4 5 10`. The work was one build-heap (Θ(n)) plus n − 1 extracts of O(log n) each, so Θ(n log n).",
+     "hide": [
+      "h2",
+      "he2"
+     ],
+     "dim": {
+      "id": "arr",
+      "cells": [
+       2
+      ]
+     },
+     "set": [
+      {
+       "id": "h1",
+       "label": "1"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        1,
+        3,
+        4,
+        5,
+        10
+       ]
+      },
+      {
+       "id": "st",
+       "text": "sorted: 1 3 4 5 10",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h10.heapq",
+   "title": "heapq: push 6, 2, 9, 4 then pop",
+   "viewBox": [
+    0,
+    0,
+    360,
+    280
+   ],
+   "objects": [
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 10,
+     "y": 16,
+     "text": "h = []",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "c2",
+     "kind": "text",
+     "x": 10,
+     "y": 40,
+     "text": "for x in [6, 2, 9, 4]: heappush(h, x)",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "c3",
+     "kind": "text",
+     "x": 10,
+     "y": 64,
+     "text": "print(h); print(heappop(h), h)",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 180.0,
+     "y": 104,
+     "label": "",
+     "r": 14
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 95.0,
+     "y": 142,
+     "label": "",
+     "r": 14
+    },
+    {
+     "id": "h3",
+     "kind": "node",
+     "x": 265.0,
+     "y": 142,
+     "label": "",
+     "r": 14
+    },
+    {
+     "id": "h4",
+     "kind": "node",
+     "x": 52.5,
+     "y": 180,
+     "label": "",
+     "r": 14
+    },
+    {
+     "id": "he2",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h2"
+    },
+    {
+     "id": "he3",
+     "kind": "edge",
+     "from": "h1",
+     "to": "h3"
+    },
+    {
+     "id": "he4",
+     "kind": "edge",
+     "from": "h2",
+     "to": "h4"
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 92,
+     "y": 200,
+     "cells": [],
+     "cw": 44,
+     "ch": 26,
+     "indices": true,
+     "slots": 4
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 268,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A `heapq` list is a min-heap stored in a plain 0-based list. The smallest item is always `h[0]`.",
+     "show": [
+      "c1",
+      "c2",
+      "c3",
+      "arr"
+     ],
+     "highlight": "c1",
+     "set": {
+      "id": "st",
+      "text": "heapq list = min-heap; h[0] is the smallest"
+     }
+    },
+    {
+     "caption": "`heappush(6)` gives `[6]`. `heappush(2)` appends 2 at index 1; its parent (index 0) is 6 and 2 < 6, so they swap: `[2, 6]`.",
+     "show": [
+      "h1",
+      "h2",
+      "he2"
+     ],
+     "highlight": [
+      "c2",
+      {
+       "id": "h2",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "h1",
+       "label": "2"
+      },
+      {
+       "id": "h2",
+       "label": "6"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        2,
+        6
+       ]
+      },
+      {
+       "id": "st",
+       "text": "push 6, push 2 (swaps up): [2, 6]"
+      }
+     ]
+    },
+    {
+     "caption": "`heappush(9)` appends at index 2, and 9 > 2 so it stays. `heappush(4)` appends at index 3; its parent (index 1) is 6 and 4 < 6, so swap: `[2, 4, 9, 6]`.",
+     "show": [
+      "h3",
+      "he3",
+      "h4",
+      "he4"
+     ],
+     "highlight": [
+      "c2",
+      {
+       "id": "h4",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "h2",
+       "label": "4"
+      },
+      {
+       "id": "h3",
+       "label": "9"
+      },
+      {
+       "id": "h4",
+       "label": "6"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        2,
+        4,
+        9,
+        6
+       ]
+      },
+      {
+       "id": "st",
+       "text": "push 9 stays, push 4 swaps with 6"
+      }
+     ]
+    },
+    {
+     "caption": "`print(h)` shows the heap array `[2, 4, 9, 6]`. It is not sorted: 9 comes before 6.",
+     "highlight": [
+      "c3",
+      {
+       "id": "arr",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "print(h) = [2, 4, 9, 6]  (not sorted)"
+     }
+    },
+    {
+     "caption": "`heappop()` returns 2. The last item 6 moves to the root, then sinks below the smaller child 4: `[4, 6, 9]`.",
+     "hide": [
+      "h4",
+      "he4"
+     ],
+     "highlight": [
+      "c3",
+      {
+       "id": "h1",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "h1",
+       "label": "4"
+      },
+      {
+       "id": "h2",
+       "label": "6"
+      },
+      {
+       "id": "arr",
+       "cells": [
+        "·",
+        4,
+        6,
+        9
+       ]
+      },
+      {
+       "id": "st",
+       "text": "pop returns 2; h = [4, 6, 9]",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h7.counting",
+   "title": "Counting min-heaps on keys 1 to 4: root 1, then choose the left keys",
+   "viewBox": [
+    0,
+    0,
+    360,
+    264
+   ],
+   "objects": [
+    {
+     "id": "s1",
+     "kind": "node",
+     "x": 180,
+     "y": 22,
+     "label": "?",
+     "r": 13
+    },
+    {
+     "id": "s2",
+     "kind": "node",
+     "x": 146,
+     "y": 60,
+     "label": "?",
+     "r": 13
+    },
+    {
+     "id": "s3",
+     "kind": "node",
+     "x": 214,
+     "y": 60,
+     "label": "?",
+     "r": 13
+    },
+    {
+     "id": "s4",
+     "kind": "node",
+     "x": 112,
+     "y": 98,
+     "label": "?",
+     "r": 13
+    },
+    {
+     "id": "se2",
+     "kind": "edge",
+     "from": "s1",
+     "to": "s2"
+    },
+    {
+     "id": "se3",
+     "kind": "edge",
+     "from": "s1",
+     "to": "s3"
+    },
+    {
+     "id": "se4",
+     "kind": "edge",
+     "from": "s2",
+     "to": "s4"
+    },
+    {
+     "id": "tl",
+     "kind": "text",
+     "x": 244,
+     "y": 54,
+     "text": "left: L = 2",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "tr",
+     "kind": "text",
+     "x": 244,
+     "y": 80,
+     "text": "right: R = 1",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 244,
+     "y": 106,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "a1",
+     "kind": "node",
+     "x": 60,
+     "y": 150,
+     "label": "1",
+     "r": 13
+    },
+    {
+     "id": "a2",
+     "kind": "node",
+     "x": 38,
+     "y": 188,
+     "label": "2",
+     "r": 13
+    },
+    {
+     "id": "a3",
+     "kind": "node",
+     "x": 82,
+     "y": 188,
+     "label": "4",
+     "r": 13
+    },
+    {
+     "id": "a4",
+     "kind": "node",
+     "x": 16,
+     "y": 226,
+     "label": "3",
+     "r": 13
+    },
+    {
+     "id": "ae2",
+     "kind": "edge",
+     "from": "a1",
+     "to": "a2"
+    },
+    {
+     "id": "ae3",
+     "kind": "edge",
+     "from": "a1",
+     "to": "a3"
+    },
+    {
+     "id": "ae4",
+     "kind": "edge",
+     "from": "a2",
+     "to": "a4"
+    },
+    {
+     "id": "acap",
+     "kind": "text",
+     "x": 60,
+     "y": 254,
+     "text": "left {2,3}",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "b1",
+     "kind": "node",
+     "x": 180,
+     "y": 150,
+     "label": "1",
+     "r": 13
+    },
+    {
+     "id": "b2",
+     "kind": "node",
+     "x": 158,
+     "y": 188,
+     "label": "2",
+     "r": 13
+    },
+    {
+     "id": "b3",
+     "kind": "node",
+     "x": 202,
+     "y": 188,
+     "label": "3",
+     "r": 13
+    },
+    {
+     "id": "b4",
+     "kind": "node",
+     "x": 136,
+     "y": 226,
+     "label": "4",
+     "r": 13
+    },
+    {
+     "id": "be2",
+     "kind": "edge",
+     "from": "b1",
+     "to": "b2"
+    },
+    {
+     "id": "be3",
+     "kind": "edge",
+     "from": "b1",
+     "to": "b3"
+    },
+    {
+     "id": "be4",
+     "kind": "edge",
+     "from": "b2",
+     "to": "b4"
+    },
+    {
+     "id": "bcap",
+     "kind": "text",
+     "x": 180,
+     "y": 254,
+     "text": "left {2,4}",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "c1",
+     "kind": "node",
+     "x": 300,
+     "y": 150,
+     "label": "1",
+     "r": 13
+    },
+    {
+     "id": "c2",
+     "kind": "node",
+     "x": 278,
+     "y": 188,
+     "label": "3",
+     "r": 13
+    },
+    {
+     "id": "c3",
+     "kind": "node",
+     "x": 322,
+     "y": 188,
+     "label": "2",
+     "r": 13
+    },
+    {
+     "id": "c4",
+     "kind": "node",
+     "x": 256,
+     "y": 226,
+     "label": "4",
+     "r": 13
+    },
+    {
+     "id": "ce2",
+     "kind": "edge",
+     "from": "c1",
+     "to": "c2"
+    },
+    {
+     "id": "ce3",
+     "kind": "edge",
+     "from": "c1",
+     "to": "c3"
+    },
+    {
+     "id": "ce4",
+     "kind": "edge",
+     "from": "c2",
+     "to": "c4"
+    },
+    {
+     "id": "ccap",
+     "kind": "text",
+     "x": 300,
+     "y": 254,
+     "text": "left {3,4}",
+     "size": 12,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The shape of a heap with 4 nodes is fixed: a root, a left subtree of 2 nodes (a parent with one child), and a right subtree of 1 node. So L = 2 and R = 1.",
+     "show": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "se2",
+      "se3",
+      "se4",
+      "tl",
+      "tr"
+     ],
+     "highlight": [
+      "s2",
+      "s4"
+     ]
+    },
+    {
+     "caption": "The root must be the smallest key, 1.",
+     "highlight": "s1",
+     "set": {
+      "id": "s1",
+      "label": "1"
+     }
+    },
+    {
+     "caption": "Choose which 2 of the other keys {2, 3, 4} go in the left subtree: C(3, 2) = 3 ways. Those are {2,3}, {2,4}, {3,4}.",
+     "show": [
+      "a1",
+      "a2",
+      "a3",
+      "a4",
+      "ae2",
+      "ae3",
+      "ae4",
+      "acap",
+      "b1",
+      "b2",
+      "b3",
+      "b4",
+      "be2",
+      "be3",
+      "be4",
+      "bcap",
+      "c1",
+      "c2",
+      "c3",
+      "c4",
+      "ce2",
+      "ce3",
+      "ce4",
+      "ccap"
+     ],
+     "highlight": [
+      "acap",
+      "bcap",
+      "ccap"
+     ]
+    },
+    {
+     "caption": "Each side can then be arranged in only one way: 2 keys as a heap (smaller on top) give h(2) = 1, and 1 key gives h(1) = 1.",
+     "highlight": [
+      {
+       "id": "a2",
+       "tone": "accent"
+      },
+      {
+       "id": "a4",
+       "tone": "accent"
+      },
+      {
+       "id": "b2",
+       "tone": "accent"
+      },
+      {
+       "id": "b4",
+       "tone": "accent"
+      },
+      {
+       "id": "c2",
+       "tone": "accent"
+      },
+      {
+       "id": "c4",
+       "tone": "accent"
+      },
+      {
+       "id": "a3",
+       "tone": "mid"
+      },
+      {
+       "id": "b3",
+       "tone": "mid"
+      },
+      {
+       "id": "c3",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Total: h(4) = C(3, 2) × h(2) × h(1) = 3 × 1 × 1 = 3.",
+     "highlight": [
+      {
+       "id": "a1",
+       "tone": "good"
+      },
+      {
+       "id": "b1",
+       "tone": "good"
+      },
+      {
+       "id": "c1",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "tot",
+      "text": "3 x 1 x 1 = 3"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ds.heaps.h9.dary",
+   "title": "3-ary heap with 13 nodes: children 3i+1..3i+3, parent floor((i-1)/3)",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "d0",
+     "kind": "node",
+     "x": 180.0,
+     "y": 26,
+     "label": "0",
+     "r": 13
+    },
+    {
+     "id": "d1",
+     "kind": "node",
+     "x": 66.7,
+     "y": 84,
+     "label": "1",
+     "r": 13
+    },
+    {
+     "id": "d2",
+     "kind": "node",
+     "x": 180.0,
+     "y": 84,
+     "label": "2",
+     "r": 13
+    },
+    {
+     "id": "d3",
+     "kind": "node",
+     "x": 293.3,
+     "y": 84,
+     "label": "3",
+     "r": 13
+    },
+    {
+     "id": "d4",
+     "kind": "node",
+     "x": 28.9,
+     "y": 142,
+     "label": "4",
+     "r": 13
+    },
+    {
+     "id": "d5",
+     "kind": "node",
+     "x": 66.7,
+     "y": 142,
+     "label": "5",
+     "r": 13
+    },
+    {
+     "id": "d6",
+     "kind": "node",
+     "x": 104.4,
+     "y": 142,
+     "label": "6",
+     "r": 13
+    },
+    {
+     "id": "d7",
+     "kind": "node",
+     "x": 142.2,
+     "y": 142,
+     "label": "7",
+     "r": 13
+    },
+    {
+     "id": "d8",
+     "kind": "node",
+     "x": 180.0,
+     "y": 142,
+     "label": "8",
+     "r": 13
+    },
+    {
+     "id": "d9",
+     "kind": "node",
+     "x": 217.8,
+     "y": 142,
+     "label": "9",
+     "r": 13
+    },
+    {
+     "id": "d10",
+     "kind": "node",
+     "x": 255.6,
+     "y": 142,
+     "label": "10",
+     "r": 13
+    },
+    {
+     "id": "d11",
+     "kind": "node",
+     "x": 293.3,
+     "y": 142,
+     "label": "11",
+     "r": 13
+    },
+    {
+     "id": "d12",
+     "kind": "node",
+     "x": 331.1,
+     "y": 142,
+     "label": "12",
+     "r": 13
+    },
+    {
+     "id": "de1",
+     "kind": "edge",
+     "from": "d0",
+     "to": "d1"
+    },
+    {
+     "id": "de2",
+     "kind": "edge",
+     "from": "d0",
+     "to": "d2"
+    },
+    {
+     "id": "de3",
+     "kind": "edge",
+     "from": "d0",
+     "to": "d3"
+    },
+    {
+     "id": "de4",
+     "kind": "edge",
+     "from": "d1",
+     "to": "d4"
+    },
+    {
+     "id": "de5",
+     "kind": "edge",
+     "from": "d1",
+     "to": "d5"
+    },
+    {
+     "id": "de6",
+     "kind": "edge",
+     "from": "d1",
+     "to": "d6"
+    },
+    {
+     "id": "de7",
+     "kind": "edge",
+     "from": "d2",
+     "to": "d7"
+    },
+    {
+     "id": "de8",
+     "kind": "edge",
+     "from": "d2",
+     "to": "d8"
+    },
+    {
+     "id": "de9",
+     "kind": "edge",
+     "from": "d2",
+     "to": "d9"
+    },
+    {
+     "id": "de10",
+     "kind": "edge",
+     "from": "d3",
+     "to": "d10"
+    },
+    {
+     "id": "de11",
+     "kind": "edge",
+     "from": "d3",
+     "to": "d11"
+    },
+    {
+     "id": "de12",
+     "kind": "edge",
+     "from": "d3",
+     "to": "d12"
+    },
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 224,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "In a 3-ary heap each node has up to 3 children. Number nodes level by level from 0. The root is 0 and its children are 1, 2, 3.",
+     "show": [
+      "d0",
+      "d1",
+      "d2",
+      "d3",
+      "de1",
+      "de2",
+      "de3"
+     ],
+     "highlight": [
+      "d0",
+      "d1",
+      "d2",
+      "d3"
+     ],
+     "set": [
+      {
+       "id": "f1",
+       "text": "children of i: 3i+1, 3i+2, 3i+3"
+      },
+      {
+       "id": "st",
+       "text": "root 0 has children 1, 2, 3"
+      }
+     ]
+    },
+    {
+     "caption": "The children of i are 3i+1, 3i+2, 3i+3. For i = 2 that is 7, 8, 9.",
+     "show": [
+      "d4",
+      "d5",
+      "d6",
+      "d7",
+      "d8",
+      "d9",
+      "d10",
+      "d11",
+      "d12",
+      "de4",
+      "de5",
+      "de6",
+      "de7",
+      "de8",
+      "de9",
+      "de10",
+      "de11",
+      "de12"
+     ],
+     "highlight": [
+      {
+       "id": "d2",
+       "tone": "accent"
+      },
+      {
+       "id": "d7",
+       "tone": "good"
+      },
+      {
+       "id": "d8",
+       "tone": "good"
+      },
+      {
+       "id": "d9",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "i = 2: children 7, 8, 9"
+     }
+    },
+    {
+     "caption": "The parent of i is floor((i−1)/3). For i = 11: floor(10/3) = 3, and 3 indeed has children 10, 11, 12.",
+     "highlight": [
+      {
+       "id": "d11",
+       "tone": "accent"
+      },
+      {
+       "id": "d3",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "f1",
+       "text": "parent of i: floor((i-1)/3)"
+      },
+      {
+       "id": "st",
+       "text": "i = 11: floor(10/3) = 3"
+      }
+     ]
+    },
+    {
+     "caption": "The last parent is the parent of the last index 12: floor(11/3) = 3. So indices 4 to 12 are leaves, 9 of them.",
+     "highlight": [
+      {
+       "id": "d4",
+       "tone": "good"
+      },
+      {
+       "id": "d5",
+       "tone": "good"
+      },
+      {
+       "id": "d6",
+       "tone": "good"
+      },
+      {
+       "id": "d7",
+       "tone": "good"
+      },
+      {
+       "id": "d8",
+       "tone": "good"
+      },
+      {
+       "id": "d9",
+       "tone": "good"
+      },
+      {
+       "id": "d10",
+       "tone": "good"
+      },
+      {
+       "id": "d11",
+       "tone": "good"
+      },
+      {
+       "id": "d12",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "last parent = floor(11/3) = 3; leaves 4..12"
+     }
+    },
+    {
+     "caption": "The tree has 1 + 3 + 9 = 13 nodes, so it is only 2 levels deep, against 3 for a binary heap with 13 nodes.",
+     "highlight": [
+      {
+       "id": "d0",
+       "tone": "accent"
+      },
+      {
+       "id": "d1",
+       "tone": "accent"
+      },
+      {
+       "id": "d4",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "f1",
+       "text": "height = 2 for n = 13"
+      },
+      {
+       "id": "st",
+       "text": "3-ary: 2 levels below the root (binary: 3)",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

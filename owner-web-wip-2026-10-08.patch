@@ -1,0 +1,537 @@
+diff --git a/web/src/mock.ts b/web/src/mock.ts
+index da8be14..92fc725 100644
+--- a/web/src/mock.ts
++++ b/web/src/mock.ts
+@@ -4,6 +4,10 @@ import topicsSeed from '../../seed/topics.json'
+ import { addDays, uuid7 } from './util'
+ 
+ const files = import.meta.glob('../../data/questions/20*.json') as Record<string, () => Promise<{ default: any[] }>>
++const ladders = import.meta.glob('../../data/ladders/*.json') as Record<string, () => Promise<{ default: any }>>
++const explainers = import.meta.glob('../../data/explainers/*.json') as Record<string, () => Promise<{ default: any }>>
++const conceptProgress = new Map<string, string>()
++const contentFile = async (files: Record<string, () => Promise<{ default: any }>>, dir: string, id: string) => (await files[`../../data/${dir}/${id}.json`]?.())?.default ?? null
+ const REAL = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
+ const TODAY = REAL < '2026-10-07' ? '2026-10-07' : REAL > '2027-02-06' ? '2026-11-02' : REAL
+ const hash = (s: string) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7)
+@@ -95,6 +99,20 @@ export async function handle(method: string, rawPath: string, body: any): Promis
+     const qs2 = await loadQs()
+     return { items: topics.map((t) => ({ ...t, question_count: qs2.filter((x) => x.topic_id === t.id).length, progress: { status: 'todo', confidence: null } })) }
+   }
++  if (path === '/concepts') {
++    const items = (await Promise.all(Object.values(ladders).map(load => load()))).flatMap(({ default: file }) =>
++      (file.blueprint?.atoms ?? []).map((atom: any) => ({ topic_id: file.topic_id, atom_id: atom.id, name: atom.name, one_line: atom.one_line, has_card: true })))
++    return { items }
++  }
++  if (path === '/concepts/progress') return { items: [...conceptProgress].map(([key, status]) => { const [topic_id, atom_id] = key.split('/'); return { topic_id, atom_id, status } }) }
++  if ((r = m(/^\/concepts\/([^/]+)\/([^/]+)$/))) {
++    const key = `${decodeURIComponent(r[1])}/${decodeURIComponent(r[2])}`
++    if (method === 'DELETE' || body?.status === null) conceptProgress.delete(key)
++    else conceptProgress.set(key, body?.status ?? 'got_it')
++    return { status: conceptProgress.get(key) ?? null }
++  }
++  if ((r = m(/^\/topics\/([^/]+)\/blueprint$/))) return (await contentFile(ladders, 'ladders', decodeURIComponent(r[1])))?.blueprint ?? null
++  if ((r = m(/^\/topics\/([^/]+)\/explainer$/))) return await contentFile(explainers, 'explainers', decodeURIComponent(r[1]))
+   if ((r = m(/^\/topics\/([^/]+)\/progress$/))) return ok({})
+   if (path === '/videos') return { items: (topics.find((t) => t.id === q.get('topic_id'))?.videos ?? []).map((v: any) => ({ ...v, source: v.lang })) }
+   if (path === '/questions') return { items: await loadQs(), next: null }
+diff --git a/web/src/modules/core/Settings.tsx b/web/src/modules/core/Settings.tsx
+index dde197f..d784908 100644
+--- a/web/src/modules/core/Settings.tsx
++++ b/web/src/modules/core/Settings.tsx
+@@ -42,7 +42,8 @@ export default function Settings() {
+   return (
+     <>
+       <Header title="Settings" onBack menu={false} />
+-      <main class="page form">
++      <main class="page form settings-page">
++        <p class="settings-intro">Make the app fit your schedule and study style.</p>
+         {enabled('planner') && <section class="card">
+           <h2>Schedule</h2>
+           <div class="two">
+@@ -54,52 +55,52 @@ export default function Settings() {
+           <Field label="Exam date"><input type="date" value={f.exam_date} onInput={s('exam_date')} /></Field>
+           <button class="btn primary block" onClick={save}>Save</button>
+         </section>}
+-        {enabled('jobs') && <section class="card"><h2>Daily job target</h2><div class="two"><Field label="Applications"><input type="number" min="1" max="20" value={f.job_applications_target} onInput={s('job_applications_target')} /></Field><Field label="Outreach"><input type="number" min="1" max="20" value={f.job_outreach_target} onInput={s('job_outreach_target')} /></Field></div><button class="btn block" onClick={() => patchSettings({ job_applications_target: +f.job_applications_target, job_outreach_target: +f.job_outreach_target }).then(() => toast('Targets saved')).catch((e: any) => toast(e.message))}>Save targets</button></section>}
+-        {(enabled('learn') || enabled('practice')) && <section class="card">
+-          <h2>Reading</h2>
++        <section class="card settings-feature">
++          <h2>Appearance</h2>
++          <Seg<Theme> value={theme} onChange={(v) => { setTheme(v); setThemeState(v) }} options={[["system", "System"], ["light", "Light"], ["dark", "Dark"]]} />
++          <small class="muted">System follows your device setting.</small>
++          <label class="toggle"><span>Haptics on answers</span><input type="checkbox" checked={prefs.haptics} onChange={() => setPrefs({ haptics: !prefs.haptics })} /><i /></label>
++        </section>
++        {(enabled('learn') || enabled('practice')) && <details class="settings-group">
++          <summary>Reading and practice</summary>
+           {enabled('learn') && <Seg<Prefs['detail']> value={prefs.detail} onChange={(v) => setPrefs({ detail: v })} options={[['focus', 'Focus'], ['full', 'Full']]} />}
+           {enabled('learn') && <small class="muted">Focus shows short, one-idea chunks. Full shows the complete explanation. Every section also has its own Show more.</small>}
+           {enabled('practice') && <label class="toggle"><span>Show questions outside the 2027 syllabus</span><input type="checkbox" checked={prefs.showOutside} onChange={() => setPrefs({ showOutside: !prefs.showOutside })} /><i /></label>}
+           {enabled('practice') && <label class="toggle"><span>Include older papers (2000 to 2016)</span><input type="checkbox" checked={prefs.showPre2017} onChange={() => setPrefs({ showPre2017: !prefs.showPre2017 })} /><i /></label>}
+           {enabled('practice') && <small class="muted">Older papers use community answers from GATE Overflow, not official keys.</small>}
+-        </section>}
+-        <section class="card"><h2>Mock score target</h2><Field label="Target marks"><input type="number" min="0" max="100" value={reminders.score_target??''} onInput={e=>setReminders({...reminders,score_target:(e.target as HTMLInputElement).value})}/></Field><button class="btn block" onClick={()=>patchSettings({score_target:reminders.score_target}).then(()=>toast('Target saved')).catch((e:any)=>toast(e.message))}>Save target</button></section>
+-        {enabled('habits') && <section class="card"><h2>Reminders</h2><p class="muted">On iPhone, open this app from its Home Screen icon. In Safari, use Share → Add to Home Screen first. Then allow notifications below.</p>
++        </details>}
++        {enabled('jobs') && <details class="settings-group"><summary>Daily job target</summary><div class="two"><Field label="Applications"><input type="number" min="1" max="20" value={f.job_applications_target} onInput={s('job_applications_target')} /></Field><Field label="Outreach"><input type="number" min="1" max="20" value={f.job_outreach_target} onInput={s('job_outreach_target')} /></Field></div><button class="btn block" onClick={() => patchSettings({ job_applications_target: +f.job_applications_target, job_outreach_target: +f.job_outreach_target }).then(() => toast('Targets saved')).catch((e: any) => toast(e.message))}>Save targets</button></details>}
++        <details class="settings-group"><summary>Mock score target</summary><Field label="Target marks"><input type="number" min="0" max="100" value={reminders.score_target??''} onInput={e=>setReminders({...reminders,score_target:(e.target as HTMLInputElement).value})}/></Field><button class="btn block" onClick={()=>patchSettings({score_target:reminders.score_target}).then(()=>toast('Target saved')).catch((e:any)=>toast(e.message))}>Save target</button></details>
++        {enabled('habits') && <details class="settings-group"><summary>Reminders</summary><p class="muted">On iPhone, open this app from its Home Screen icon. In Safari, use Share → Add to Home Screen first. Then allow notifications below.</p>
+           {vapid.data?.enabled?<button class="btn primary block" onClick={async()=>{try{if(!('serviceWorker'in navigator)||!('PushManager'in window)) throw new Error('Push is unavailable on this device');const permission=await Notification.requestPermission();if(permission!=='granted') throw new Error('Notifications were not allowed');const reg=await navigator.serviceWorker.ready;const key=Uint8Array.from(atob(vapid.data.public_key.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});await addPushSubscription(sub.toJSON());setPushState('Reminders enabled')}catch(e:any){setPushState(e.message)}}}>Enable reminders</button>:<p class="muted">Reminders are unavailable until VAPID keys are configured on the server.</p>}
+           {pushState&&<p role="status">{pushState}</p>}
+           {(['reminder_morning','reminder_checkin','reminder_mistakes','reminder_quiet_start','reminder_quiet_end'] as const).map(k=><Field label={k.replace('reminder_','').replace('_',' ')}><input type="time" value={reminders[k]||''} onInput={e=>setReminders({...reminders,[k]:(e.target as HTMLInputElement).value})}/></Field>)}
+           <label class="toggle"><span>Mute during gym time</span><input type="checkbox" checked={reminders.reminder_gym_mute!=='0'} onChange={e=>setReminders({...reminders,reminder_gym_mute:(e.target as HTMLInputElement).checked?'1':'0'})}/><i/></label>
+           <button class="btn block" onClick={()=>patchSettings(reminders).then(()=>toast('Reminder schedule saved')).catch((e:any)=>toast(e.message))}>Save reminder times</button>
+           <button class="btn sm" onClick={async()=>{try{const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.getSubscription();if(sub){await removePushSubscription(sub.endpoint);await sub.unsubscribe()}setPushState('Reminders disabled')}catch(e:any){setPushState(e.message)}}}>Disable reminders</button>
+-        </section>}
+-        <section class="card">
+-          <h2>My papers</h2>
++        </details>}
++        <details class="settings-group">
++          <summary>My papers</summary>
+           <Seg<Prefs['papers']> value={prefs.papers} onChange={(v) => setPrefs({ papers: v })} options={[['CS', 'CS'], ['DA', 'DA'], ['both', 'Both']]} />
+           <small class="muted">Decides which past-paper marks per paper are shown on subjects and chapters.</small>
+-        </section>
+-        <section class="card">
+-          <h2>Appearance</h2>
+-          <Seg<Theme> value={theme} onChange={(v) => { setTheme(v); setThemeState(v) }} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']]} />
+-          <small class="muted">System follows your device setting.</small>
+-          <label class="toggle"><span>Haptics on answers</span><input type="checkbox" checked={prefs.haptics} onChange={() => setPrefs({ haptics: !prefs.haptics })} /><i /></label>
+-        </section>
+-        <section class="card">
+-          <h2>Modules</h2>
++        </details>
++        <details class="settings-group">
++          <summary>Modules</summary>
+           {modules.filter(m => m.available).map(m => <label class="toggle"><span>{m.id[0].toUpperCase() + m.id.slice(1)}</span><input type="checkbox" checked={m.enabled} onChange={async () => { try { await patchModule(m.id, !m.enabled); await refreshModules() } catch (e: any) { toast(e.message) } }} /><i /></label>)}
+-        </section>
+-        <section class="card">
+-          <h2>Data</h2>
++        </details>
++        <details class="settings-group">
++          <summary>Data and offline use</summary>
+           <button class="btn block" onClick={doExport}>Export all data (JSON)</button>
+           {enabled('practice') && <button class="btn block" onClick={dlImages}>Download question images for offline</button>}
+           {prog && <small class="muted">{prog}</small>}
+           {enabled('practice') && <small class="muted">Images are about 30 MB in total, so this is best done on Wi-Fi.</small>}
+-        </section>
+-        <section class="card">
+-          <h2>Account</h2>
++        </details>
++        <details class="settings-group">
++          <summary>Account</summary>
+           {enabled('learn') && <a class="btn block" href="#/dev/anim">Animation gallery</a>}
+           <button class="btn block danger" onClick={doLogout}>Sign out</button>
+           <small class="muted">Version {__APP_VERSION__}. Install: in Safari use Share, then Add to Home Screen. In Chrome use Install app.</small>
+-        </section>
++        </details>
+       </main>
+     </>
+   )
+diff --git a/web/src/modules/habits/Log.tsx b/web/src/modules/habits/Log.tsx
+index 5a12dde..10aabaa 100644
+--- a/web/src/modules/habits/Log.tsx
++++ b/web/src/modules/habits/Log.tsx
+@@ -18,7 +18,7 @@ export default function Log({ tab }: { tab?: string }) {
+   const t = (tab === 'jobs' && !jobsEnabled || tab === 'mocks' && !mocksEnabled ? 'checkin' : ['checkin', 'mocks', 'jobs', 'history'].includes(tab || '') ? tab : 'checkin') as Tab
+   return (
+     <>
+-      <Header title="Log" />
++      <Header title="Log" sub="Record what you did and how you felt." />
+       <main class="page">
+         <Seg<Tab> value={t} onChange={(v) => go('log/' + v, true)} options={[['checkin', 'Check-in'], ...(mocksEnabled ? [['mocks', 'Mocks'] as [Tab, string]] : []), ...(jobsEnabled ? [['jobs', 'Jobs'] as [Tab, string]] : []), ['history', 'History']]} />
+         {t === 'checkin' && <CheckIn jobsEnabled={jobsEnabled} />}
+@@ -81,13 +81,14 @@ function CheckIn({ jobsEnabled }: { jobsEnabled: boolean }) {
+           <option value="">+ Add subject</option>{subjects.filter((s) => !(s.id in sm)).map((s) => <option value={s.id}>{s.name}</option>)}
+         </select>
+       </section>
+-      <section class="card">
++      <details class="log-details">
++        <summary>Routine and sleep <span>Optional</span></summary>
+         <label class="toggle"><span>Gym done</span><input type="checkbox" checked={f.gym_done} onChange={() => set({ gym_done: !f.gym_done })} /><i /></label>
+         <label class="toggle"><span>Revision done</span><input type="checkbox" checked={f.revision_done} onChange={() => set({ revision_done: !f.revision_done })} /><i /></label>
+         <div class="srow"><span>Sleep (hours)</span><Stepper value={f.sleep_hours} step={0.5} max={14} onChange={(v) => set({ sleep_hours: v })} /></div>
+         {jobsEnabled && <><div class="srow"><span>Job time</span><b>{fmtMin(data?.ci?.job_minutes ?? 0)}</b></div><div class="srow"><span>Job applications</span><Stepper value={f.job_applications} onChange={(v) => set({ job_applications: v })} /></div><div class="srow"><span>Outreach</span><Stepper value={f.referrals_sent} onChange={(v) => set({ referrals_sent: v })} /></div></>}
+-      </section>
+-      <section class="card"><Scale label="Energy" value={f.energy} onChange={(n) => set({ energy: n })} /><Scale label="Mood" value={f.mood} onChange={(n) => set({ mood: n })} /></section>
++      </details>
++      <details class="log-details"><summary>Energy and mood <span>Optional</span></summary><Scale label="Energy" value={f.energy} onChange={(n) => set({ energy: n })} /><Scale label="Mood" value={f.mood} onChange={(n) => set({ mood: n })} /></details>
+       <Field label="Notes"><textarea rows={3} value={f.notes} onInput={(e) => set({ notes: val(e) })} placeholder="How did the day go?" /></Field>
+       <button class="btn primary block" onClick={save}>Save check-in</button>
+     </div>
+diff --git a/web/src/modules/habits/Stats.tsx b/web/src/modules/habits/Stats.tsx
+index cd98eb3..c8a77ac 100644
+--- a/web/src/modules/habits/Stats.tsx
++++ b/web/src/modules/habits/Stats.tsx
+@@ -35,6 +35,19 @@ export default function Stats() {
+     <>
+       <Header title="Stats" onBack />
+       <main class="page">
++        <section class="card streak-grid">
++          {(['study', 'gym', 'revision', 'job'] as const).filter(k => k === 'job' ? jobsEnabled : k === 'gym' ? !('routine_blocks' in settings) || String(settings.routine_blocks).toLowerCase().includes('gym') : true).map((k) => (
++            <div class={'sbox' + (st?.[k]?.today_done ? ' on' : '')}><b>{st?.[k]?.current ?? 0}</b><span>{k}</span><small>best {st?.[k]?.longest ?? 0}</small></div>
++          ))}
++        </section>
++        <div class="muted center">{dte} days to exam{s.plan_adherence ? ` - ${fmtMin(s.plan_adherence.done_min ?? 0)} done of ${fmtMin(s.plan_adherence.planned_min ?? 0)} planned` : ''}</div>
++        <section class="card">
++          <h2>Planned vs done <small class="legend"><i class="lg plan" />planned <i class="lg done" />done</small></h2>
++          {weeks.length ? <PairBars data={weeks} /> : <p class="muted">Not enough data yet.</p>}
++        </section>
++        <section class="card"><h2>Accuracy by topic</h2>{acc.length ? <HBars rows={acc.map((a: any) => ({ label: a.label, pct: a.pct, note: `(${a.n})` }))} /> : <p class="muted">Attempt some questions to see this.</p>}</section>
++        <details class="stats-details">
++          <summary>More analysis</summary>
+         <div class="chips"><button class={'chip '+(period==='weekly'?'on':'')} onClick={()=>setPeriod('weekly')}>This week</button><button class={'chip '+(period==='monthly'?'on':'')} onClick={()=>setPeriod('monthly')}>This month</button></div>
+         <section class="card"><h2>{period==='weekly'?'Weekly':'Monthly'} review</h2>
+           {periodData.data ? <><p><b>{Math.round(periodData.data.plan_adherence*100)}%</b> plan adherence · <b>{periodData.data.study_days}</b> study days</p>
+@@ -58,17 +71,7 @@ export default function Stats() {
+             {Array.isArray(scores.data.cutoffs.programmes??scores.data.cutoffs.target_programmes)&&<details><summary>Programme estimates</summary><ul class="list">{(scores.data.cutoffs.programmes??scores.data.cutoffs.target_programmes).map((x:any)=><li class="lrow">{x.name??x.programme??x.institute??'Programme'} · {x.year??''} {x.score??x.cutoff??''}</li>)}</ul></details>}
+           </> : <p class="muted">Past cutoff estimates are not available yet.</p>}
+         </section>}
+-        <section class="card streak-grid">
+-          {(['study', 'gym', 'revision', 'job'] as const).filter(k => k === 'job' ? jobsEnabled : k === 'gym' ? !('routine_blocks' in settings) || String(settings.routine_blocks).toLowerCase().includes('gym') : true).map((k) => (
+-            <div class={'sbox' + (st?.[k]?.today_done ? ' on' : '')}><b>{st?.[k]?.current ?? 0}</b><span>{k}</span><small>best {st?.[k]?.longest ?? 0}</small></div>
+-          ))}
+-        </section>
+-        <div class="muted center">{dte} days to exam{s.plan_adherence ? ` - ${fmtMin(s.plan_adherence.done_min ?? 0)} done of ${fmtMin(s.plan_adherence.planned_min ?? 0)} planned` : ''}</div>
+-        <section class="card">
+-          <h2>Planned vs done <small class="legend"><i class="lg plan" />planned <i class="lg done" />done</small></h2>
+-          {weeks.length ? <PairBars data={weeks} /> : <p class="muted">Not enough data yet.</p>}
+-        </section>
+-        <section class="card"><h2>Accuracy by topic</h2>{acc.length ? <HBars rows={acc.map((a: any) => ({ label: a.label, pct: a.pct, note: `(${a.n})` }))} /> : <p class="muted">Attempt some questions to see this.</p>}</section>
++        </details>
+         {mocksEnabled && <section class="card">
+           <h2>Mock scores <small class="legend"><i class="lg s-CS" />CS <i class="lg s-DA" />DA</small></h2>
+           {trend.some((t) => t.pts.length) ? <Lines series={trend} /> : <p class="muted">Log a mock in Log, Mocks.</p>}
+diff --git a/web/src/modules/learn/Learn.tsx b/web/src/modules/learn/Learn.tsx
+index d8d7c0f..fb19cd6 100644
+--- a/web/src/modules/learn/Learn.tsx
++++ b/web/src/modules/learn/Learn.tsx
+@@ -75,18 +75,25 @@ function LearnHome() {
+   const roots = d.kids.get(null) ?? []
+   const groups = (['shared', 'cs', 'da', 'ga'] as const).map((sc) => { const ts = roots.filter((t) => t.scope === sc); return [sc, sortW ? [...ts].sort((a, b) => w.score(b.id, true) - w.score(a.id, true)) : ts] as const }).filter(([, ts]) => ts.length)
+   const sn = mastery.data?.study_next
+-  const first = (d.concepts.data?.items ?? []).find((c) => d.prog.data?.get(c.topic_id + '/' + c.atom_id) !== 'got_it')
++  const foundations = (d.kids.get('found') ?? []).filter((t) => d.concepts.data?.items.some((c) => c.topic_id === t.id))
++  const firstFoundation = foundations.find((t) => d.stat(t.id).got < d.stat(t.id).total) ?? foundations[0]
++  const openConcepts = (d.concepts.data?.items ?? []).filter((c) => d.prog.data?.get(c.topic_id + '/' + c.atom_id) !== 'got_it')
++  const first = foundations.map((t) => openConcepts.find((c) => c.topic_id === t.id)).find(Boolean) ?? openConcepts[0]
+   const next = sn ? { topic: sn.topic_id as string, atom: sn.atom_id as string, name: sn.atom_name as string, where: sn.topic_name as string } : first ? { topic: first.topic_id, atom: first.atom_id, name: first.name, where: d.topics.data?.find((t) => t.id === first.topic_id)?.name ?? '' } : null
+-  const foundations = d.kids.get('found') ?? []
+   return (
+     <>
+       <Header title="Learn" sub="Read a concept, then try a question." />
+       <main class="page">
+         {next && <ContinueCard eyebrow="Up next" title={next.name} line={next.where} cta="Start concept" onGo={() => go(`learn/${next.topic}/${next.atom}`)} />}
+-        {foundations.length > 0 && <section class="subj" aria-label="Foundations">
+-          <h2 class="subj-h">Foundations</h2><p class="muted">Quick basics before GATE chapters.</p>
+-          <ol class="foundation-path">{foundations.slice(0, 8).map((t, i) => <li><button onClick={() => go('learn/' + t.id)}><span class="foundation-node">{i + 1}</span><b>{t.name}</b><Icon.chev size={18} /></button></li>)}</ol>
+-          <ul class="list card">{foundations.slice(8).map(t => <li><button class="lrow" onClick={() => go('learn/' + t.id)}>{t.name}<Icon.chev size={18} /></button></li>)}</ul>
++        {foundations.length > 0 && <section class="foundation-overview" aria-label="Foundations">
++          <span class="section-kicker">Build your base</span>
++          <h2>Foundations</h2>
++          <p>Short lessons to make the GATE chapters easier.</p>
++          <button class={cx('btn', !next && 'primary')} onClick={() => go('learn/' + firstFoundation.id)}>{next ? 'Open foundations' : d.stat(firstFoundation.id).got === d.stat(firstFoundation.id).total ? 'Review foundations' : 'Start with ' + firstFoundation.name}<Icon.chev size={18} /></button>
++          <details class="reveal-list">
++            <summary>Browse all {foundations.length} foundation topics</summary>
++            <ol class="foundation-path">{foundations.map((t, i) => <li><button onClick={() => go('learn/' + t.id)}><span class="foundation-node">{i + 1}</span><b>{t.name}</b><Icon.chev size={18} /></button></li>)}</ol>
++          </details>
+         </section>}
+         {d.loading ? <Loading error={d.topics.error} retry={d.topics.reload} /> : groups.map(([sc, ts]) => (
+           <section class="subj" aria-label={SCOPE_LABEL[sc]}>
+@@ -125,7 +132,10 @@ function TopicLearn({ id }: { id: string }) {
+   if (d.loading) return <><Header title="Learn" onBack={() => go('learn')} /><main class="page"><Loading error={d.topics.error} retry={d.topics.reload} /></main></>
+   if (!t) return <><Header title="Not found" onBack={() => go('learn')} /><main class="page"><Empty art="empty" title="Topic not found" /></main></>
+   if (chapters.length) {
+-    if (id === 'found') return <><Header title="Foundations" onBack={() => go('learn')} sub="Build the basics in short chapters." /><main class="page"><ol class="foundation-path">{chapters.slice(0, 8).map((c, i) => <li><button onClick={() => go('learn/' + c.id)}><span class="foundation-node">{i + 1}</span><b>{c.name}</b><Icon.chev size={18} /></button></li>)}</ol><ul class="list card">{chapters.slice(8).map(c => <li><button class="lrow" onClick={() => go('learn/' + c.id)}>{c.name}<Icon.chev size={18} /></button></li>)}</ul></main></>
++    if (id === 'found') {
++      const available = d.concepts.data ? chapters.filter((c) => d.concepts.data!.items.some((atom) => atom.topic_id === c.id)) : chapters
++      return <><Header title="Foundations" onBack={() => go('learn')} sub="Build the basics in short chapters." /><main class="page"><ol class="foundation-path">{available.map((c, i) => <li><button onClick={() => go('learn/' + c.id)}><span class="foundation-node">{i + 1}</span><b>{c.name}</b><Icon.chev size={18} /></button></li>)}</ol></main></>
++    }
+     const nx = d.nextIn(id), s = d.stat(id)
+     const nxChapter = nx && chapters.find((c) => subtreeIds(d.kids, c.id).has(nx.topic_id))
+     return (
+diff --git a/web/src/modules/planner/Plan.tsx b/web/src/modules/planner/Plan.tsx
+index 27c956f..65ac1d3 100644
+--- a/web/src/modules/planner/Plan.tsx
++++ b/web/src/modules/planner/Plan.tsx
+@@ -28,6 +28,8 @@ export default function Plan({ date }: { date?: string }) {
+   if (!week) return <><Header title="Plan" /><main class="page"><p class="empty">No plan loaded yet.</p></main></>
+   const wdays = days.filter((d) => d.date >= week.start_date && d.date <= week.end_date)
+   const phase = phases.find((p) => p.id === week.phase_id)
++  const goalsDone = week.macro_goals.filter((g) => g.done || goalPct(g) >= 1).length
++  const nextGoal = week.macro_goals.find((g) => !g.done && goalPct(g) < 1)
+   const dayCap = (d: Day) => d.available_minutes ?? 390
+   const nav = (n: number) => { const w = weeks[wi + n]; if (w) go('plan/' + w.start_date) }
+ 
+@@ -47,7 +49,6 @@ export default function Plan({ date }: { date?: string }) {
+     <>
+       <Header title="Plan" sub={phase?.name} right={<button class="icon-btn" aria-label="Open calendar" onClick={() => go('calendar')}><Icon.cal /></button>} />
+       <main class="page">
+-        <Timeline phases={phases} weeks={weeks} cur={wi} />
+         <div class="weeknav">
+           <button class="icon-btn" aria-label="Previous week" disabled={wi === 0} onClick={() => nav(-1)}><Icon.back /></button>
+           <div>
+@@ -56,9 +57,10 @@ export default function Plan({ date }: { date?: string }) {
+           </div>
+           <button class="icon-btn flip" aria-label="Next week" disabled={wi === weeks.length - 1} onClick={() => nav(1)}><Icon.back /></button>
+         </div>
++        <Timeline phases={phases} weeks={weeks} cur={wi} />
+ 
+-        <section class="card">
+-          <h2>Goals this week</h2>
++        <details class="plan-goals">
++          <summary><span><b>Weekly goals</b><small>{goalsDone} of {week.macro_goals.length} complete{nextGoal ? ` · Next: ${nextGoal.text}` : ''}</small></span><Icon.chev size={18} /></summary>
+           {week.macro_goals.length === 0 && <p class="muted">No goals set.</p>}
+           <ul class="goals">
+             {week.macro_goals.map((g, i) => (
+@@ -71,7 +73,7 @@ export default function Plan({ date }: { date?: string }) {
+               </li>
+             ))}
+           </ul>
+-        </section>
++        </details>
+ 
+         <section>
+           <div class="row between"><h2 class="h">Days</h2><button class="btn sm" onClick={preview}>Reschedule week</button></div>
+diff --git a/web/src/modules/planner/Today.tsx b/web/src/modules/planner/Today.tsx
+index 7f361de..b28beeb 100644
+--- a/web/src/modules/planner/Today.tsx
++++ b/web/src/modules/planner/Today.tsx
+@@ -17,11 +17,12 @@ function StatLine({ streak, done, cards, review }: { streak: number; done: boole
+   const [, f] = useState(0)
+   useEffect(() => onXp(() => f((n) => n + 1)), [])
+   const xp = xpToday()
++  if (!streak && !xp && !(review && cards)) return null
+   return (
+     <p class="statline" aria-label="Your progress">
+-      <button onClick={() => go('stats')} aria-label={`${streak} day study streak${done ? ', done today' : ''}`}><Icon.flame size={16} />{streak}-day streak</button>
+-      <button onClick={() => go('stats')} aria-label={`${xp} points earned today`}><Icon.bolt size={16} />{xp} points</button>
+-      {review && <button onClick={() => go('cards/review')} aria-label={`${cards} flashcards due`}><Icon.gem size={16} />{cards} cards due</button>}
++      {streak > 0 && <button onClick={() => go('stats')} aria-label={`${streak} day study streak${done ? ', done today' : ''}`}><Icon.flame size={16} />{streak}-day streak</button>}
++      {xp > 0 && <button onClick={() => go('stats')} aria-label={`${xp} points earned today`}><Icon.bolt size={16} />{xp} points</button>}
++      {review && cards > 0 && <button onClick={() => go('cards/review')} aria-label={`${cards} flashcards due`}><Icon.gem size={16} />{cards} cards due</button>}
+     </p>
+   )
+ }
+@@ -105,16 +106,12 @@ export default function Today({ query }: { query?: URLSearchParams }) {
+             <Ring pct={pct} size={60} stroke={8} color={pct >= 1 ? 'var(--gold)' : 'var(--orange)'}><b style="font-size:var(--t-sm)">{Math.round(pct * 100)}%</b></Ring>
+             <div class="prog-t"><b>Daily goal: {fmtMin(done)} of {fmtMin(planned)} studied</b><span>{pct >= 1 ? 'Goal reached. Nice work.' : `${fmtMin(Math.max(0, planned - done))} to go${day.available_minutes != null ? ` · you set ${fmtMin(cap)} available` : ''}`}</span></div>
+           </section>
+-          <button class="btn block" aria-pressed={!!checkin.data?.gym_done} onClick={toggleGym}>{checkin.data?.gym_done ? 'Gym done ✓ · Undo' : 'Gym done'} {gymTask && <small>{gymTask.time_block?.replace('-', '–') || '17:00–19:00 reminder'}</small>}</button>
+-
+           {data.missed && !data.missed.undone && (data.missed.moved > 0 || data.missed.skipped > 0) && (
+             <div class="note row between gap">
+               <span>Missed days: {data.missed.moved} task{data.missed.moved === 1 ? '' : 's'} moved forward{data.missed.skipped ? `, ${data.missed.skipped} skipped` : ''}.</span>
+               <button class="btn sm" onClick={() => undoRevision(data.missed!.revision_id).then(() => { toast('Reverted'); reload() }).catch((e) => toast(e.message))}>Undo</button>
+             </div>
+           )}
+-          {carried > 0 && <div class="note">{carried} task{carried > 1 ? 's' : ''} carried over from earlier days.</div>}
+-
+           {tasks.length === 0 && <Empty title="Nothing planned today">Take the day off, or add a task from the Plan tab.</Empty>}
+           {later.length > 0 && (
+             <section class="group" aria-label="Later today">
+@@ -123,6 +120,11 @@ export default function Today({ query }: { query?: URLSearchParams }) {
+             </section>
+           )}
+ 
++          {(gymTask || carried > 0) && <section class="today-extras" aria-label="Other updates">
++            {gymTask && <button class="routine-action" aria-pressed={!!checkin.data?.gym_done} onClick={toggleGym}><Icon.check size={18} /><span>{checkin.data?.gym_done ? 'Gym logged · undo' : 'Log gym'}<small>{gymTask.time_block?.replace('-', '–') || 'Today’s routine'}</small></span><Icon.chev size={18} /></button>}
++            {carried > 0 && <p class="quiet-note">{carried} task{carried > 1 ? 's' : ''} carried over from earlier days.</p>}
++          </section>}
++
+           {showEvening && (
+             <section class="card evening" aria-label="Evening check-in"><h2>How did today go?</h2><p class="muted">A 20-second check-in helps your plan fit your energy.</p><button class="btn" onClick={() => setCheckinOpen(true)}>Check in</button></section>
+           )}
+diff --git a/web/src/modules/practice/Practice.tsx b/web/src/modules/practice/Practice.tsx
+index 9f54a77..c3b7862 100644
+--- a/web/src/modules/practice/Practice.tsx
++++ b/web/src/modules/practice/Practice.tsx
+@@ -107,8 +107,9 @@ export function Practice() {
+                 const done = cont(t).n?.state === 'done' && a && a.total > 0 && a.done >= a.total
+                 return (
+                   <li><button class="lrow col" onClick={() => go('practice/' + t.id)}>
+-                    <span class="row between gap"><b>{t.name}{done && <span class="crown inl" role="img" aria-label="Mastered"><Icon.crown size={18} /></span>}</b><small>{a?.done ?? 0} of {a?.total ?? 0} solved</small></span>
+-                    <Bar pct={pct} label={`${t.name} progress`} />
++                    <span class="row between gap"><b>{t.name}{done && <span class="crown inl" role="img" aria-label="Mastered"><Icon.crown size={18} /></span>}</b><Icon.chev size={18} /></span>
++                    <small>{a?.done ? `${a.done} of ${a.total} solved` : `${a?.total ?? 0} questions`}</small>
++                    {pct > 0 && <Bar pct={pct} label={`${t.name} progress`} />}
+                     <span><WChip w={w} id={t.id} root /></span>
+                   </button></li>
+                 )
+diff --git a/web/src/styles.css b/web/src/styles.css
+index c8bfc4b..797fd84 100644
+--- a/web/src/styles.css
++++ b/web/src/styles.css
+@@ -777,3 +777,149 @@ input, select, textarea { font-size: max(16px, 1rem); } /* no iOS/Android focus
+ .ag-tasks { display: grid; } .ag-tasks li { display: grid; grid-template-columns: 3.4em minmax(0, 1fr); gap: 2px 10px; padding: 8px 14px; border-top: 2px solid var(--border); font-size: var(--t-sm); } .ag-tasks .ag-t { overflow-wrap: anywhere; } .ag-tasks .ag-t p { margin: 0; } .ag-tasks .ag-m { grid-column: 2; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: var(--t-xs); font-weight: 800; }
+ .ag-tasks li.done .ag-t { color: var(--muted); text-decoration: line-through; } .ag-tasks li.skipped .ag-t { color: var(--muted); }
+ .ag-tasks .ag-time { font-size: var(--t-xs); color: var(--muted); padding-top: 2px; }
++
++/* UI refresh: quieter surfaces and a clear next action, shared across modules. */
++:root { --r: 1.125rem; --r-sm: .75rem; --shadow: 0 10px 28px rgba(0,0,0,.08); }
++:root[data-theme=dark] { --shadow: 0 10px 28px rgba(0,0,0,.3); }
++@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --shadow: 0 10px 28px rgba(0,0,0,.3); } }
++body { line-height: 1.45; }
++h1, h2, .bt-t b { text-wrap: balance; }
++.big, .bt-n, .sbox b, .score-sm, .day-h small { font-variant-numeric: tabular-nums; }
++.page { gap: 22px; padding-top: 22px; }
++.hdr, .rbar { border-bottom: 1px solid var(--border); }
++.hdr-home { min-height: 76px; padding-block: calc(var(--sat) + 12px) 12px; }
++.hdr-home h1 { font-size: 1.875rem; letter-spacing: -.03em; }
++.hdr .sub { font-weight: 700; }
++.tabs { border-top: 1px solid var(--border); gap: 2px; }
++.tab { border: 0; border-radius: 12px; }
++.tab.on { background: var(--orange-bg); color: var(--text); }
++.tab.on svg { color: var(--orange-t); }
++.card { border: 1px solid var(--border); box-shadow: none; padding: 18px; }
++.card h2 { font-size: 1.125rem; }
++.list.card { padding: 0; }
++.list li + li, .qlist li + li { border-top: 1px solid var(--border); }
++.lrow { min-height: 58px; padding: 12px 16px; }
++.lrow.col { gap: 7px; }
++.btn { border-width: 1px; box-shadow: 0 2px 0 var(--edge); text-transform: none; letter-spacing: 0; color: var(--text); }
++.btn:active:not(:disabled) { transform: translateY(2px); }
++.btn.primary { border-width: 1px; box-shadow: 0 3px 0 var(--orange-e); }
++.btn.primary:active:not(:disabled) { transform: translateY(3px); }
++.btn.ghost { color: var(--orange-t); }
++.btn.link { color: var(--orange-t); }
++input[type=text], input[type=password], input[type=number], input[type=date], input[type=time], input[type=url], select, textarea { border: 1px solid var(--edge); background: var(--surface); }
++.field > span { color: var(--text); }
++.seg, .tabs-seg { border: 0; padding: 4px; }
++.seg button, .tabs-seg button { border: 0; }
++.seg button.on, .tabs-seg button.on { border: 0; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
++.chips { gap: 8px; }
++.chip { border-width: 1px; box-shadow: none; padding-inline: 14px; }
++.chip.on { background: var(--orange-bg); border-color: var(--orange); box-shadow: none; }
++.pill, .tag, .badge.soft, .wchip { border-width: 1px; }
++.bar { height: 10px; }
++.bar i { min-width: 0; }
++.bar i::after { display: none; }
++.empty { padding: 24px 16px; }
++
++/* Today: the current task leads, progress and optional actions follow. */
++.statline { gap: 4px 10px; }
++.statline button { padding-inline: 4px; font-size: .8125rem; }
++.today, .today-main { gap: 20px; }
++.focus { gap: 12px; padding: 22px; background: var(--orange-bg); border: 1px solid var(--orange); box-shadow: none; }
++.focus h2 { font-size: clamp(1.4rem, 6vw, 1.75rem); line-height: 1.2; }
++.focus .eyebrow { color: var(--orange-t); }
++.focus .btns { gap: 6px 10px; margin-top: 8px; }
++.focus .btns .primary { flex-basis: 100%; }
++.focus .btns .btn:not(.primary) { box-shadow: none; border: 0; background: transparent; min-height: 44px; padding-inline: 6px; color: var(--orange-t); }
++.focus.rest { background: var(--surface2); border-color: var(--border); box-shadow: none; }
++.goal-card { border-top: 1px solid var(--border); padding: 16px 4px 0; }
++.goal-card .ring { transform: scale(.88); margin: -5px; }
++.group > h2 { color: var(--text); text-transform: none; letter-spacing: 0; font-size: 1rem; }
++.task { border-width: 1px; box-shadow: none; }
++.task.focus-t { box-shadow: none; }
++.today-extras { display: grid; gap: 8px; border-top: 1px solid var(--border); padding-top: 14px; }
++.routine-action { min-height: 44px; color: var(--orange-t); font-weight: 800; text-align: left; }
++.quiet-note { margin: 0; font-size: var(--t-sm); color: var(--muted); }
++
++/* Topic and practice lists read as one navigation system. */
++.foundation-overview { display: grid; justify-items: start; gap: 8px; padding: 22px; border-radius: var(--r); background: var(--orange-bg); }
++.foundation-overview h2 { font-size: 1.5rem; margin: 0; }
++.foundation-overview p { margin: 0 0 6px; color: var(--muted); }
++.section-kicker { color: var(--orange-t); text-transform: uppercase; letter-spacing: .06em; font-size: var(--t-xs); font-weight: 900; }
++.foundation-overview > .btn { min-height: 48px; }
++.reveal-list { width: 100%; margin-top: 4px; }
++.reveal-list summary { min-height: 44px; display: flex; align-items: center; color: var(--orange-t); font-size: var(--t-sm); font-weight: 800; cursor: pointer; }
++.foundation-path { margin: 8px 0 0; gap: 0; }
++.foundation-path li:not(:last-child)::after { display: none; }
++.foundation-path li + li { border-top: 1px solid var(--border); }
++.foundation-path button { border: 0; border-radius: 0; box-shadow: none; background: transparent; padding-inline: 0; }
++.foundation-node { width: 32px; height: 32px; box-shadow: none; background: var(--surface); border: 1px solid var(--orange); }
++.subj { gap: 10px; }
++.subj-h { font-size: .875rem; letter-spacing: .02em; }
++.subj-h i { width: 10px; height: 10px; box-shadow: none; }
++.subj .list.card { border-radius: var(--r); }
++.subj .lrow.col { gap: 6px; }
++.subj .lrow .bar { max-width: 100%; }
++.more-links .btn { box-shadow: none; }
++
++/* Plans, check-ins, analysis, and settings reveal detail on request. */
++.weeknav { border-radius: var(--r); background: var(--surface2); padding: 4px; }
++.weeknav > div { padding: 6px 0; }
++.weeknav b { line-height: 1.25; }
++.timeline { padding: 0 2px; }
++.tl-bar { height: 14px; border-radius: 999px; }
++.tl-l { margin-top: 4px; }
++.plan-goals, .log-details, .settings-group, .stats-details { border: 1px solid var(--border); border-radius: var(--r); padding: 0 16px; background: var(--surface); }
++.plan-goals > summary, .log-details > summary, .settings-group > summary, .stats-details > summary { min-height: 60px; display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 900; list-style: none; }
++.plan-goals > summary::-webkit-details-marker, .log-details > summary::-webkit-details-marker, .settings-group > summary::-webkit-details-marker, .stats-details > summary::-webkit-details-marker { display: none; }
++.plan-goals > summary::after, .log-details > summary::after, .settings-group > summary::after, .stats-details > summary::after { content: '⌄'; margin-left: auto; font-size: 1.3rem; font-weight: 700; line-height: 1; color: var(--muted); }
++.plan-goals[open] > summary::after, .log-details[open] > summary::after, .settings-group[open] > summary::after, .stats-details[open] > summary::after { transform: rotate(180deg); }
++.plan-goals > summary svg { display: none; }
++.plan-goals > summary span { display: grid; gap: 2px; min-width: 0; }
++.plan-goals > summary small { font-size: var(--t-xs); font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
++.plan-goals[open], .log-details[open], .settings-group[open], .stats-details[open] { padding-bottom: 16px; }
++.plan-goals .goals { border-top: 1px solid var(--border); padding-top: 10px; }
++.log-details > summary span { margin-left: auto; font-size: var(--t-xs); color: var(--muted); font-weight: 700; }
++.log-details > summary::after { margin-left: 0; }
++.form .card { padding: 18px; }
++.form > .field { margin-bottom: 0; }
++.settings-intro { margin: 0; color: var(--muted); }
++.settings-feature { display: grid; gap: 12px; }
++.settings-feature h2 { margin: 0; }
++.settings-feature .toggle { border-top: 1px solid var(--border); padding-top: 10px; }
++.settings-group > :not(summary) { margin-top: 12px; }
++.streak-grid { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); border: 0; padding: 0; gap: 8px; }
++.sbox { background: var(--surface2); border: 0; padding: 14px 4px; }
++.sbox.on { border: 0; background: var(--orange-bg); }
++.stats-details > .card, .stats-details > .chips { margin-top: 14px; }
++.stats-details > .card { padding: 0; border: 0; }
++.day { border-width: 1px; }
++.day.today { box-shadow: none; background: var(--orange-bg); }
++.day-h .bar { height: 8px; }
++
++/* Entry points remain large; only the suggested action gets the accent. */
++.bigtiles { gap: 10px; }
++.bigtile { border-width: 1px; box-shadow: none; min-height: 86px; }
++.bigtile:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
++.bigtile.primary { border-color: var(--orange); box-shadow: 0 3px 0 var(--orange-e); }
++.bigtile.primary:active:not(:disabled) { transform: translateY(3px); }
++.bt-ic { width: 46px; height: 46px; border-radius: 14px; box-shadow: none; }
++.bigtile.primary .bt-ic { box-shadow: none; }
++.bt-t b { font-size: 1.125rem; }
++.bigtile.v { min-height: 130px; }
++
++@media (min-width: 760px) {
++  .app { max-width: 840px; }
++  .tabs { max-width: 840px; }
++  .page { padding: 28px 32px calc(var(--tabh) + var(--bar-pad) + 36px); }
++  .hdr { padding-inline: 32px; }
++  .bigtiles:not(.two-up) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .bigtiles:not(.two-up) > :first-child { grid-column: 1 / -1; }
++}
++@media (max-width: 380px) {
++  .foundation-overview, .focus { padding: 18px; }
++  .bigtiles.two-up { gap: 8px; }
++  .bigtile.v { padding: 12px; }
++}
++@media (max-width: 380px) {
++  .settings-page input[type=time] { padding-inline: 6px; }
++}
+diff --git a/web/src/tasks.tsx b/web/src/tasks.tsx
+index e9de8e6..cfd33b3 100644
+--- a/web/src/tasks.tsx
++++ b/web/src/tasks.tsx
+@@ -151,7 +151,6 @@ export function TaskRow({ t, toggle, skip, tomorrow, openMenu, current, compact
+           {done && !!t.auto_done && <span class="tag">Done automatically · {t.auto_reason}</span>}
+         </div>
+       </div>
+-      {!isGymTask(t) && <button class="btn sm" onClick={() => startTask(t).catch((e: any) => toast(e.message))}>{done ? 'Open' : 'Start'}</button>}
+       {!isGymTask(t) && <div class={cx('swipe-actions', swiped && 'revealed')}><button class="btn sm" onClick={() => { toggle(t); setSwiped(false) }}>{done ? 'Undo done' : 'Done'}</button>{skip && <button class="btn sm" onClick={() => { skip(t); setSwiped(false) }}>Skip</button>}{!t.fixed && tomorrow && <button class="btn sm" onClick={() => { tomorrow(t); setSwiped(false) }}>Move</button>}</div>}
+       {!isGymTask(t) && <button class="icon-btn sm" aria-label="Task options" onClick={() => openMenu(t)}><Icon.more size={20} /></button>}
+     </li>
+diff --git a/web/src/ui.tsx b/web/src/ui.tsx
+index 38259b8..355e98a 100644
+--- a/web/src/ui.tsx
++++ b/web/src/ui.tsx
+@@ -148,7 +148,7 @@ export function Header({ title, sub, onBack, right, menu = true }: { title: Comp
+     addEventListener('keydown', k); return () => removeEventListener('keydown', k)
+   }, [open])
+   return (
+-    <header class="hdr">
++    <header class={cx('hdr', !onBack && 'hdr-home')}>
+       {onBack && <button class="icon-btn" aria-label="Back" onClick={() => back(typeof onBack === 'function' ? onBack : undefined)}><Icon.back /></button>}
+       <div class="hdr-t"><h1>{title}</h1>{sub && <div class="sub">{sub}</div>}</div>
+       <SyncPill />

@@ -1,0 +1,29 @@
+# Final code review
+
+- high — `web/src/store.ts:28` — IndexedDB read/write failures were treated as an empty or saved outbox, so offline writes could disappear; fixed (durable writes now fail visibly and saves are serialized).
+- high — `web/src/api.ts:70` — a rejected outbox write was discarded, including its notes or answer; fixed (failed items remain stored and visible while later writes continue).
+- high — `seed/import_content.ts:171` — boot import replaced user-edited generated questions and cards with matching IDs/fronts; fixed (content updates are limited to content-owned rows).
+- high — `server/routes/sync.ts:104` — sync applied a write before recording its op, and transient failures were permanently rejected, allowing duplicate or lost replays; fixed (one transaction, retryable transient errors).
+- high — `server/index.ts:17` — boot cleanup expired idempotency keys after seven days, allowing an old offline replay to apply twice; fixed (keys are retained).
+- high — `server/modules/practice/tests.ts:158` — an open test could be graded against answer keys changed by a later import; fixed (migration `0010` stores the question snapshot, and attempts use that grade).
+- medium — `seed/import_content.ts:93` — a pre-2017 import could erase secondary topic tags on a question it did not own; fixed.
+- medium — `seed/load.ts:133` — the owner foundation task seed could add dated tasks to a new user's onboarded plan on reboot; fixed (requires the owner week).
+- medium — `server/auth.ts:81` — logout was registered before the API auth middleware and accepted an unauthenticated request; fixed.
+- medium — `server/auth.ts:30` — login rate limiting trusted the spoofable `X-Forwarded-For` value; fixed (uses the connection address).
+- medium — `web/src/api.ts:134` — signing out offline returned to the cached app without asking for a password; fixed (local sign-out gate survives reload).
+- medium — `web/src/util.ts:4` — the server's IST date was pinned for the whole PWA session, leaving it on yesterday after midnight; fixed (moving server-calibrated date).
+- medium — `web/src/modules/planner/Today.tsx:42` — an open Today screen did not reload when the IST date changed; fixed.
+- medium — `web/src/api.ts:155` — the offline Today cache could show yesterday's tasks after midnight; fixed (uses the cached full plan for the new date).
+- medium — `web/src/grade.ts:6` — local NAT grading accepted malformed numbers and used a different tolerance from the server; fixed, with a server/client parity test.
+- medium — `server/modules/learn/progress.ts:50` — `status:null` marked a concept Got it instead of clearing it; fixed.
+- medium — `web/src/modules/test/Runner.tsx:54` — question dwell time was not saved before navigation or submission; fixed.
+- medium — `web/src/api.ts:321` — background prefetch downloaded the whole question bank every five minutes; fixed (once per IST day per session).
+- medium — `web/src/modules/practice/Question.tsx:193` — an imported discussion URL could use an executable URL scheme; fixed (only HTTP(S) links render; the video fallback is guarded too).
+- medium — `web/src/md-render.ts:14` — valid bold text containing one asterisk displayed Markdown syntax; fixed. The failing text was `**h*(n)**` in `data/explainers/ai.informed.json:771` and `:862`; the content was not edited.
+- medium — `server/lib/backup.ts:45` — a failed offsite backup PUT was treated as complete and its error could expose a signed URL in logs; fixed (HTTP status checked, safe logging, retry on later ticks).
+- low — `server/test/api.test.ts:282` — the CSV mock test assumed the imported row was first despite newer fixture rows; fixed (selects the imported row).
+- low — `server/test/api.test.ts:357` — the digest test used a fixed historical date for a doubt created at the current time; fixed (uses the actual IST date).
+- low — `server/test/api.test.ts:444` — the readiness test expected `la.eigen` to be unavailable after the content pack gained its check; fixed (checks the new fixture and a genuinely unavailable chapter).
+- low — `web/src/styles.css:555` — the small chips used for calculator mode and sorting are 36 px high; left (low-impact target size; no visual changes requested).
+- low — `web/src/store.ts:8` — cached study data remains in device storage after sign-out; left (offline access and unsynced writes require local storage; the UI now requires login after explicit sign-out).
+- low — `web/src/active-time.ts:21` — an in-flight active-time write at `pagehide` may be cut short by the browser; left (at most the unsent minute of passive time tracking, while answered questions and explicit edits use the durable outbox).

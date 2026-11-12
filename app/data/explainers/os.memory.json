@@ -1,0 +1,2830 @@
+{
+ "topic_id": "os.memory",
+ "title": "Memory management",
+ "chapter_note": {
+  "about": "This chapter is about how an OS divides physical memory among processes. It starts with the simplest scheme, one block per process with base and limit registers, and the holes that such blocks leave behind. It then covers how to choose a hole, and the two kinds of fragmentation with the compaction that repairs one of them. Paging and segmentation follow as the two ways to avoid one big block, and the chapter ends with the page-size trade-off. GATE asks short simulations and statements here; the larger address-translation questions are in the virtual-memory chapter.",
+  "simple": "Several programs have to share one memory, so the OS gives each its own piece and makes sure they cannot touch each other. The simplest way is one big block each, but when programs leave, the holes they leave behind get awkward, and there are different rules for choosing which hole to use. Another way is to cut memory into equal pages that can be placed anywhere, using an index to find each one. A third way is to give each part of a program its own piece of the right length. Each method wastes memory in a different way, and the exam asks you to simulate or compare them. In exam words: base and limit, holes and placement policies, fragmentation, compaction, paging, segmentation.",
+  "concept_map": [
+   {
+    "atom_id": "m1",
+    "title": "Base and limit relocation",
+    "one_line": "Check offset < limit, then add base: protects and relocates one block."
+   },
+   {
+    "atom_id": "m2",
+    "title": "Contiguous allocation and holes",
+    "one_line": "Free memory is a list of holes that split on allocation and merge on release."
+   },
+   {
+    "atom_id": "m3",
+    "title": "Placement policies",
+    "one_line": "First, best and worst fit choose among holes; none always wins."
+   },
+   {
+    "atom_id": "m4",
+    "title": "Fragmentation and compaction",
+    "one_line": "External waste is between blocks, internal waste is inside; compaction merges holes."
+   },
+   {
+    "atom_id": "m5",
+    "title": "Paging basics",
+    "one_line": "Equal frames and a page table; only the page number is translated."
+   },
+   {
+    "atom_id": "m6",
+    "title": "Segmentation",
+    "one_line": "Variable-size segments with base and limit each; trap if offset is not below the limit."
+   },
+   {
+    "atom_id": "m7",
+    "title": "Page size trade-off",
+    "one_line": "Table size falls and waste rises with page size; optimum p = sqrt(2 s e)."
+   }
+  ],
+  "gate_patterns": [
+   "Placement simulation: run first, best or worst fit on a list of holes and count holes or failed requests (2026 CS2 Q55, 2015 CS2 Q30).",
+   "Policy comparison: only best and worst fit give guarantees about the hole chosen; first and next fit sit in between (2020 CS Q21).",
+   "True or false on paging and fragmentation: paging has no external waste, segmentation has no internal waste (2021 CS1 Q21). Weightage: about 0.3 marks per CS paper; 3 questions in 3 years. The address-translation arithmetic is asked mostly in the virtual-memory chapter."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "m1",
+   "title": "Base and limit relocation",
+   "simple": "Imagine a school locker room where your locker row starts at number 300 and you have 120 lockers. You only ever say 'my locker number 5', and the caretaker adds 300 to find the real one. If you ask for locker number 130, which is beyond your 120, the caretaker refuses, because that would be someone else's locker. The two numbers the caretaker keeps are the base (where your row starts) and the limit (how many lockers you have). That keeps programs inside their own space and lets the OS slide a program to another place just by changing the base. In exam words: the hardware checks offset < limit, then adds base to get the physical address.",
+   "idea": "A process uses addresses that start at 0, called **logical addresses** or offsets. The hardware adds a **base** register to turn each one into a physical address, and first checks the offset against a **limit** register. This both relocates the process and protects other memory.",
+   "definition": "The OS keeps two registers per process:\n\n**Base:** the physical address where the process starts.\n\n**Limit:** the size of the process in bytes.\n\nFor each logical address (offset) a:\n\n1. If a ≥ limit, trap to the OS (addressing error).\n\n2. Otherwise physical address = base + a.\n\nLegal offsets are 0 to limit - 1. The registers are loaded by the OS on every context switch, with privileged instructions.",
+   "intuition_full": "Two problems appear when several programs share memory: they must not overwrite each other, and a program should not need to know where it was loaded. The base register fixes the second: the program is written with offsets from 0, and the hardware shifts them to wherever the OS put it. The limit register fixes the first: any offset beyond the program's size is refused before it can touch another block. Because the check and the addition happen in hardware on every access, they cost almost nothing. Moving a process later is just a copy plus a new base value, which is why compaction works. The cost is that one process must occupy one contiguous block, which leads to holes and fragmentation in the next cards.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A process is loaded at physical address 5000 and is 1200 bytes long, so base = 5000 and limit = 1200. The CPU issues logical addresses (offsets) 700, 1199 and 1200. What does the hardware do with each?",
+     "steps": [
+      "The OS loads two registers for this process: base = 5000 and limit = 1200. The process owns physical addresses 5000 to 6199.",
+      "The CPU issues offset 700. First the hardware checks offset < limit: 700 < 1200, so it is allowed.",
+      "Then it adds the base: physical address = 5000 + 700 = 5700. That lies inside the process's block.",
+      "Offset 1199 is the last legal one: 1199 < 1200, and 5000 + 1199 = 6199, the last byte of the block.",
+      "Offset 1200: 1200 < 1200 is false, so the hardware traps to the OS. Physical address 6200 belongs to someone else."
+     ],
+     "answer": "700 maps to 5700, 1199 maps to 6199, and 1200 causes a trap. Legal offsets are 0 to limit - 1."
+    },
+    {
+     "level": "gate",
+     "setup": "Process A has base 3000 and limit 1000. Process B has base 4000 and limit 500. The following logical addresses are issued: A:999, A:1000, B:499, B:500. Which are legal, and what are their physical addresses?",
+     "steps": [
+      "A:999: 999 < 1000, legal. Physical = 3000 + 999 = 3999.",
+      "A:1000: 1000 < 1000 is false. Trap. (Physical 4000 would belong to B.)",
+      "B:499: 499 < 500, legal. Physical = 4000 + 499 = 4499.",
+      "B:500: 500 < 500 is false. Trap.",
+      "The OS swaps the base and limit registers on every context switch. So the same logical address 400 maps to 3400 for A and 4400 for B, and neither can reach the other."
+     ],
+     "answer": "A:999 gives 3999 and B:499 gives 4499. A:1000 and B:500 trap."
+    },
+    {
+     "level": "twist",
+     "setup": "A process with base 5000 and limit 1200 is moved by the OS to a new place at 2000. The program counter and every pointer in the program are unchanged. What must the OS update, and where does logical address 300 go?",
+     "steps": [
+      "The program uses logical addresses starting from 0. They are never rewritten, so the program does not need to change.",
+      "Only the base register changes: base = 2000. The limit stays 1200, because the size is the same.",
+      "Logical 300 now maps to 2000 + 300 = 2300. Before the move it mapped to 5300.",
+      "Relocation is cheap because the base is added at run time. This is what makes compaction possible."
+     ],
+     "answer": "Update the base register only. Logical 300 maps to physical 2300."
+    }
+   ],
+   "why": "Base and limit are the simplest memory protection and the starting point for paging and segmentation. In GATE: pick the correct hardware action, or translate an address and decide whether it traps (2020 CS Q21, 2021 CS1 Q21).",
+   "how": [
+    "Read base and limit (limit is the size, not the last address).",
+    "Check offset < limit. If false, the answer is a trap.",
+    "Otherwise physical = base + offset.",
+    "The last legal offset is limit - 1, and the last physical byte is base + limit - 1."
+   ],
+   "mistake": "Allowing offset = limit. Valid offsets run from 0 to limit - 1, so an offset equal to the limit traps. A second slip is adding the base before the check, or checking the physical address against the limit.",
+   "edge_cases": [
+    "Offset 0 always maps to the base.",
+    "If the limit register stored the last address instead of the size, the check would be offset ≤ last. Read the question for which form it uses.",
+    "Context switches must reload both registers, or one process could use another's block."
+   ],
+   "connections": [
+    "Segmentation is base and limit once per segment (see Segmentation).",
+    "Paging removes the need for one contiguous block (see Paging basics).",
+    "Moving a process to close holes is compaction (see Fragmentation and compaction)."
+   ],
+   "check": [
+    {
+     "q": "Base 1000, limit 300. Is offset 300 legal? What does offset 299 map to?",
+     "a": "300 is not legal (needs < 300). 299 maps to 1299."
+    },
+    {
+     "q": "Which register change is needed when the OS moves a process to a new place?",
+     "a": "Only the base register."
+    },
+    {
+     "q": "Who loads the base and limit registers?",
+     "a": "The OS, in privileged mode, on each context switch."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q21, 2021 CS1 Q21, 2015 CS2 Q30",
+   "try": {
+    "id": "gen.mem.001",
+    "label": "Try: what the hardware does with base and limit registers (L1)"
+   },
+   "scene": "os.memory.baselimit",
+   "example": {
+    "setup": "A process is loaded at physical address 5000 and is 1200 bytes long, so base = 5000 and limit = 1200. The CPU issues logical addresses (offsets) 700, 1199 and 1200. What does the hardware do with each?",
+    "steps": [
+     "The OS loads two registers for this process: base = 5000 and limit = 1200. The process owns physical addresses 5000 to 6199.",
+     "The CPU issues offset 700. First the hardware checks offset < limit: 700 < 1200, so it is allowed.",
+     "Then it adds the base: physical address = 5000 + 700 = 5700. That lies inside the process's block.",
+     "Offset 1199 is the last legal one: 1199 < 1200, and 5000 + 1199 = 6199, the last byte of the block.",
+     "Offset 1200: 1200 < 1200 is false, so the hardware traps to the OS. Physical address 6200 belongs to someone else."
+    ],
+    "answer": "700 maps to 5700, 1199 maps to 6199, and 1200 causes a trap. Legal offsets are 0 to limit - 1."
+   },
+   "what": "A process uses addresses that start at 0, called **logical addresses** or offsets. The hardware adds a **base** register to turn each one into a physical address, and first checks the offset against a **limit** register. This both relocates the process and protects other memory.",
+   "what_full": "A process uses addresses that start at 0, called **logical addresses** or offsets. The hardware adds a **base** register to turn each one into a physical address, and first checks the offset against a **limit** register. This both relocates the process and protects other memory.\n\nThe OS keeps two registers per process:\n\n**Base:** the physical address where the process starts.\n\n**Limit:** the size of the process in bytes.\n\nFor each logical address (offset) a:\n\n1. If a ≥ limit, trap to the OS (addressing error).\n\n2. Otherwise physical address = base + a.\n\nLegal offsets are 0 to limit - 1. The registers are loaded by the OS on every context switch, with privileged instructions.\n\n**Worked example.** A process is loaded at physical address 5000 and is 1200 bytes long, so base = 5000 and limit = 1200. The CPU issues logical addresses (offsets) 700, 1199 and 1200. What does the hardware do with each?\n\n1. The OS loads two registers for this process: base = 5000 and limit = 1200. The process owns physical addresses 5000 to 6199.\n2. The CPU issues offset 700. First the hardware checks offset < limit: 700 < 1200, so it is allowed.\n3. Then it adds the base: physical address = 5000 + 700 = 5700. That lies inside the process's block.\n4. Offset 1199 is the last legal one: 1199 < 1200, and 5000 + 1199 = 6199, the last byte of the block.\n5. Offset 1200: 1200 < 1200 is false, so the hardware traps to the OS. Physical address 6200 belongs to someone else.\n\n**Answer:** 700 maps to 5700, 1199 maps to 6199, and 1200 causes a trap. Legal offsets are 0 to limit - 1.",
+   "why_full": "Base and limit are the simplest memory protection and the starting point for paging and segmentation. In GATE: pick the correct hardware action, or translate an address and decide whether it traps (2020 CS Q21, 2021 CS1 Q21).\n\nAsked: 2020 CS Q21, 2021 CS1 Q21, 2015 CS2 Q30",
+   "trap": "Allowing offset = limit. Valid offsets run from 0 to limit - 1, so an offset equal to the limit traps. A second slip is adding the base before the check, or checking the physical address against the limit."
+  },
+  {
+   "atom_id": "m2",
+   "title": "Contiguous allocation and holes",
+   "simple": "Think of parking cars in a long street with no marked bays. Each car takes the length it needs. When a car leaves, it leaves a gap, and the next car must fit into one single gap. Gaps next to each other join into a bigger gap. After a while the street has many small gaps. The total free length could be big, but no single gap is long enough for a new bus. In exam words: contiguous allocation gives each process one block; the free memory is a set of holes, which split when used and merge when freed.",
+   "idea": "In **contiguous allocation** each process gets one block of memory. The free memory is a list of **holes**. Placing a process shrinks a hole, and freeing a block merges it with any hole next to it.",
+   "definition": "Memory is a line of addresses. Allocated blocks and holes alternate.\n\n**Allocate** k bytes: choose a hole of size ≥ k. The process takes k bytes from the start of it. The hole shrinks by k. If the hole equals k exactly, it disappears.\n\n**Free** a block: the block becomes a hole. If a hole is adjacent on the left or right, merge them into a single larger hole.\n\nThe OS keeps a free list of (start, size) for the holes. Two holes are never adjacent, because they would have merged.",
+   "intuition_full": "The free list is the whole state of the system, so write it out after every event. Allocation makes holes smaller and more numerous, because each placement splits one hole into 'used' and 'leftover'. Release works against that by merging neighbours. A process in the middle, however, keeps two holes apart. So the pattern of departures matters: when processes next to each other leave, the holes join, and when a long-lived process sits between them, they stay apart. This is the root of external fragmentation, which we measure in the next two cards. A good way to keep track is to draw memory as one strip with sizes written on each block and update it after each step, as in the animation.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Memory is 120 KB and empty. Processes A (30 KB), B (20 KB), C (40 KB) and D (10 KB) are loaded one after another from address 0. Then B, D and A terminate, in that order. After each release, what are the holes? Then a 45 KB process E arrives.",
+     "steps": [
+      "At the start, memory is one hole of 120 KB.",
+      "Load A, B, C and D from the low end: A at 0-30, B at 30-50, C at 50-90, D at 90-100. A hole of 20 KB remains at 100-120.",
+      "B terminates. Its 20 KB become a hole at 30-50, between A and C. Holes: 20 KB (30-50) and 20 KB (100-120).",
+      "D terminates. Its 10 KB touch the free end, so they merge into one hole of 30 KB at 90-120. Holes: 20 KB and 30 KB.",
+      "A terminates. Its 30 KB sit next to B's old hole, so they merge into a hole of 50 KB at 0-50. Holes: 50 KB and 30 KB, with C between them.",
+      "Two holes, 50 KB and 30 KB, are separated by the running process C. Free memory totals 80 KB, but it is in two pieces.",
+      "E (45 KB) arrives. It fits in the 50 KB hole: E takes 0-45 and a 5 KB hole is left over at 45-50."
+     ],
+     "answer": "Final holes: 5 KB (45-50) and 30 KB (90-120). A neighbouring hole is merged whenever a block is freed."
+    },
+    {
+     "level": "gate",
+     "setup": "Memory from low to high: P1 (20 KB), hole (10 KB), P2 (30 KB), hole (15 KB), P3 (25 KB). P2 terminates. What holes exist now, and what is the largest request that can be served?",
+     "steps": [
+      "P2 sits between two holes: 10 KB on its left and 15 KB on its right.",
+      "When it is freed, all three pieces touch, so they merge into one hole.",
+      "The new hole is 10 + 30 + 15 = 55 KB. Memory now reads P1 (20), hole (55), P3 (25).",
+      "There is exactly one hole, of 55 KB. The largest request that can be served is 55 KB."
+     ],
+     "answer": "One hole of 55 KB; a request of up to 55 KB can be served. Merging happens on both sides of a freed block."
+    },
+    {
+     "level": "twist",
+     "setup": "Memory: hole (10 KB), P1 (20 KB), hole (15 KB), P2 (25 KB), hole (30 KB). P1 and P2 both terminate, P1 first. How many holes are there at the end, and how large?",
+     "steps": [
+      "P1 terminates first. Its neighbours are the 10 KB hole and the 15 KB hole, so they merge into 10 + 20 + 15 = 45 KB.",
+      "Memory is now hole (45), P2 (25), hole (30).",
+      "P2 terminates. Its neighbours are the 45 KB hole and the 30 KB hole, so all merge: 45 + 25 + 30 = 100 KB.",
+      "One hole of 100 KB remains, the whole memory. The order of release does not change the final result, only the steps on the way."
+     ],
+     "answer": "One hole of 100 KB. Holes merge only with adjacent holes, and a running process keeps two holes apart."
+    }
+   ],
+   "why": "Hole bookkeeping is the base for every placement question. In GATE: update the list of holes after allocations and releases, and answer how many holes remain or how large the biggest is (2026 CS2 Q55, 2015 CS2 Q30).",
+   "how": [
+    "Draw memory as a strip with start addresses and sizes.",
+    "On allocation, shrink the chosen hole; remove it if the fit is exact.",
+    "On release, mark the block as a hole and merge it with adjacent holes on both sides.",
+    "After each event, rewrite the list of holes in address order."
+   ],
+   "mistake": "Forgetting to merge adjacent holes after a release, which makes the holes look smaller than they are. The opposite slip is merging two holes that have a running process between them.",
+   "edge_cases": [
+    "An exact fit removes the hole completely and leaves no leftover.",
+    "Freeing a block at either end of memory has only one neighbour to merge with.",
+    "Total free memory equals the sum of the holes, but a request needs one hole at least as large as itself."
+   ],
+   "connections": [
+    "Which hole to choose is the placement policy (see Placement policies).",
+    "The trouble caused by many small holes is external fragmentation (see Fragmentation and compaction).",
+    "Paging avoids holes altogether by using fixed-size frames (see Paging basics)."
+   ],
+   "check": [
+    {
+     "q": "[hole 8][P 12][hole 10]: P terminates. What is the hole?",
+     "a": "8 + 12 + 10 = 30 KB, a single merged hole."
+    },
+    {
+     "q": "A 15 KB request lands in an exactly 15 KB hole. How many holes does that hole become?",
+     "a": "None. It disappears."
+    },
+    {
+     "q": "Can two holes ever be adjacent in the free list?",
+     "a": "No. Adjacent holes are merged."
+    }
+   ],
+   "asked": "Asked: 2026 CS2 Q55, 2015 CS2 Q30, 2020 CS Q21",
+   "try": {
+    "id": "gen.mem.002",
+    "label": "Try: what external fragmentation means (L1)"
+   },
+   "scene": "os.memory.holes",
+   "example": {
+    "setup": "Memory is 120 KB and empty. Processes A (30 KB), B (20 KB), C (40 KB) and D (10 KB) are loaded one after another from address 0. Then B, D and A terminate, in that order. After each release, what are the holes? Then a 45 KB process E arrives.",
+    "steps": [
+     "At the start, memory is one hole of 120 KB.",
+     "Load A, B, C and D from the low end: A at 0-30, B at 30-50, C at 50-90, D at 90-100. A hole of 20 KB remains at 100-120.",
+     "B terminates. Its 20 KB become a hole at 30-50, between A and C. Holes: 20 KB (30-50) and 20 KB (100-120).",
+     "D terminates. Its 10 KB touch the free end, so they merge into one hole of 30 KB at 90-120. Holes: 20 KB and 30 KB.",
+     "A terminates. Its 30 KB sit next to B's old hole, so they merge into a hole of 50 KB at 0-50. Holes: 50 KB and 30 KB, with C between them.",
+     "Two holes, 50 KB and 30 KB, are separated by the running process C. Free memory totals 80 KB, but it is in two pieces.",
+     "E (45 KB) arrives. It fits in the 50 KB hole: E takes 0-45 and a 5 KB hole is left over at 45-50."
+    ],
+    "answer": "Final holes: 5 KB (45-50) and 30 KB (90-120). A neighbouring hole is merged whenever a block is freed."
+   },
+   "what": "In **contiguous allocation** each process gets one block of memory. The free memory is a list of **holes**. Placing a process shrinks a hole, and freeing a block merges it with any hole next to it.",
+   "what_full": "In **contiguous allocation** each process gets one block of memory. The free memory is a list of **holes**. Placing a process shrinks a hole, and freeing a block merges it with any hole next to it.\n\nMemory is a line of addresses. Allocated blocks and holes alternate.\n\n**Allocate** k bytes: choose a hole of size ≥ k. The process takes k bytes from the start of it. The hole shrinks by k. If the hole equals k exactly, it disappears.\n\n**Free** a block: the block becomes a hole. If a hole is adjacent on the left or right, merge them into a single larger hole.\n\nThe OS keeps a free list of (start, size) for the holes. Two holes are never adjacent, because they would have merged.\n\n**Worked example.** Memory is 120 KB and empty. Processes A (30 KB), B (20 KB), C (40 KB) and D (10 KB) are loaded one after another from address 0. Then B, D and A terminate, in that order. After each release, what are the holes? Then a 45 KB process E arrives.\n\n1. At the start, memory is one hole of 120 KB.\n2. Load A, B, C and D from the low end: A at 0-30, B at 30-50, C at 50-90, D at 90-100. A hole of 20 KB remains at 100-120.\n3. B terminates. Its 20 KB become a hole at 30-50, between A and C. Holes: 20 KB (30-50) and 20 KB (100-120).\n4. D terminates. Its 10 KB touch the free end, so they merge into one hole of 30 KB at 90-120. Holes: 20 KB and 30 KB.\n5. A terminates. Its 30 KB sit next to B's old hole, so they merge into a hole of 50 KB at 0-50. Holes: 50 KB and 30 KB, with C between them.\n6. Two holes, 50 KB and 30 KB, are separated by the running process C. Free memory totals 80 KB, but it is in two pieces.\n7. E (45 KB) arrives. It fits in the 50 KB hole: E takes 0-45 and a 5 KB hole is left over at 45-50.\n\n**Answer:** Final holes: 5 KB (45-50) and 30 KB (90-120). A neighbouring hole is merged whenever a block is freed.",
+   "why_full": "Hole bookkeeping is the base for every placement question. In GATE: update the list of holes after allocations and releases, and answer how many holes remain or how large the biggest is (2026 CS2 Q55, 2015 CS2 Q30).\n\nAsked: 2026 CS2 Q55, 2015 CS2 Q30, 2020 CS Q21",
+   "trap": "Forgetting to merge adjacent holes after a release, which makes the holes look smaller than they are. The opposite slip is merging two holes that have a running process between them."
+  },
+  {
+   "atom_id": "m3",
+   "title": "Placement policies",
+   "simple": "You have a row of parking spaces of different lengths and cars arriving one by one. First fit means taking the first space you find that is long enough. Best fit means taking the tightest space that still fits, so you do not waste room. Worst fit means taking the biggest space, hoping the leftover is still useful. Each choice leaves different gaps behind, so a later big car might or might not find a space. None of them is always the winner. In exam words: first, best and worst fit choose the hole by position, smallest adequate size, or largest size, and you simulate step by step.",
+   "idea": "When a request arrives, the OS must choose a hole: **first fit** takes the first one big enough, **best fit** the smallest one big enough, and **worst fit** the largest. Each choice leaves different leftovers, so later requests may succeed or fail.",
+   "definition": "Given holes in address order and a request of size k:\n\n**First fit:** scan from the start and pick the first hole of size ≥ k.\n\n**Next fit:** like first fit, but start scanning where the last search stopped.\n\n**Best fit:** pick the smallest hole with size ≥ k (ties: the first).\n\n**Worst fit:** pick the largest hole (ties: the first).\n\nAfter placing, the chosen hole shrinks by k. An exact fit removes it.\n\nIf no hole has size ≥ k, the request waits or fails.",
+   "intuition_full": "The policies differ in what they preserve. Best fit keeps big holes intact by using the tightest one, but it leaves many tiny leftover holes that are hard to use. Worst fit tries to leave a large leftover that can serve a later request, but it destroys the big holes. First fit is fast and simple: it needs no sorting, and it tends to concentrate used memory at the low end. In the example above best fit wins, and in the twist example first fit wins. The only guarantees are about the extremes: best fit never picks a hole larger than the smallest adequate one, and worst fit never picks a smaller one than the largest. For an exam simulation, keep the list of holes in address order and update it after each request.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Holes in address order: 65, 25, 60, 45, 15 KB. Requests arrive in this order: 10, 30, 40, 55 KB. Run first fit, best fit and worst fit. Which policies place all four requests?",
+     "steps": [
+      "The three policies start with the same holes h1 to h5: 65, 25, 60, 45, 15.",
+      "Request 10. First fit takes the first hole that fits: h1, leaving 55. Best fit takes the smallest hole that fits: h5 (15), leaving 5. Worst fit takes the largest: h1 (65), leaving 55.",
+      "Request 30. First fit: h1 (55 ≥ 30), leaving 25. Best fit: the smallest hole ≥ 30 is h4 (45), leaving 15. Worst fit: the largest is h3 (60), leaving 30.",
+      "Request 40. First fit: h1 now has 25, h2 has 25, so h3 (60) is the first that fits, leaving 20. Best fit: smallest ≥ 40 is h3 (60), leaving 20. Worst fit: largest is h1 (55), leaving 15.",
+      "Request 55. First fit: the holes are 25, 25, 20, 45, 15, none is 55 or more, so it fails. Best fit: h1 still has 65 and takes it, leaving 10. Worst fit: the largest is 45, so it fails.",
+      "Best fit placed all four requests. First fit and worst fit both failed on the 55 KB request."
+     ],
+     "answer": "Only best fit places all four. First fit and worst fit fail on the 55 KB request."
+    },
+    {
+     "level": "gate",
+     "setup": "Holes in address order: 14, 30, 8, 22 KB. Requests of 8, 20 and 12 KB arrive in order and are served by best fit. How many holes remain, and how large is the largest?",
+     "steps": [
+      "Request 8: the smallest hole that fits is the 8 KB hole. This is an exact fit, so that hole disappears and leaves no leftover.",
+      "Request 20: holes that fit are 30 and 22. The smallest is 22, leaving 2 KB.",
+      "Request 12: holes that fit are 14 and 30. The smallest is 14, leaving 2 KB.",
+      "Remaining holes in address order: 2, 30, 2 (the exact-fit hole is gone). That is 3 holes, and the largest is 30 KB."
+     ],
+     "answer": "3 holes remain, and the largest is 30 KB. An exact fit removes the hole instead of leaving a 0 KB hole."
+    },
+    {
+     "level": "twist",
+     "setup": "Holes in address order: 40, 10, 20, 35 KB. Requests: 15, 25, 20, 35 KB. Is best fit always better than first fit? Run both.",
+     "steps": [
+      "First fit. 15 goes into h1 (40), leaving 25. 25 goes into h1 (25), an exact fit. 20 goes into h3 (20), an exact fit. 35 goes into h4 (35), an exact fit. All four are placed.",
+      "Best fit. 15 goes into the smallest hole that fits, h3 (20), leaving 5. 25 goes into h4 (35), leaving 10.",
+      "20 goes into h1 (40), leaving 20. For 35, the holes are now 20, 10, 5, 10. None is large enough, so it fails.",
+      "Best fit used up the good-sized holes for small requests and left nothing for the last big one. First fit placed everything."
+     ],
+     "answer": "First fit places all four, best fit fails on 35 KB. No policy always wins."
+    }
+   ],
+   "why": "Placement is the main hole-based simulation in this chapter. In GATE: simulate a policy on a short sequence and report a hole size, a count of holes, or which requests fail (2026 CS2 Q55, 2015 CS2 Q30, 2020 CS Q21).",
+   "how": [
+    "Write the holes in address order with their sizes.",
+    "For each request, find the candidates (holes ≥ request).",
+    "Pick: first one in order (first fit), smallest (best), largest (worst). Break ties by address.",
+    "Subtract the request. Remove the hole if it is now 0.",
+    "Rewrite the list and go to the next request."
+   ],
+   "mistake": "Choosing the first adequate hole when the question says best fit, or counting an exact fit as a leftover hole of size 0. A third slip is believing that best fit always beats first fit; a different request order can reverse the outcome.",
+   "edge_cases": [
+    "If two holes tie for the smallest (best) or largest (worst), take the one with the lower address.",
+    "Next fit continues from the last allocation point, not from the start.",
+    "A request larger than every hole fails under every policy."
+   ],
+   "connections": [
+    "Placement works on the hole list built in the previous card (see Contiguous allocation and holes).",
+    "The leftover slivers it creates are external fragmentation (see Fragmentation and compaction).",
+    "The same idea applies to the heap allocator in a language runtime."
+   ],
+   "check": [
+    {
+     "q": "Holes 12, 7, 20. Request 6. Best fit uses which hole, and what is left?",
+     "a": "The 7 KB hole, leaving 1 KB."
+    },
+    {
+     "q": "Holes 12, 7, 20. Request 6 with worst fit?",
+     "a": "The 20 KB hole, leaving 14 KB."
+    },
+    {
+     "q": "A request exactly equals a hole. How many holes does that hole leave?",
+     "a": "None. The hole is removed."
+    }
+   ],
+   "asked": "Asked: 2026 CS2 Q55, 2015 CS2 Q30, 2020 CS Q21",
+   "try": {
+    "id": "gen.mem.004",
+    "label": "Try: which policy picks the smallest adequate hole (L1)"
+   },
+   "scene": "os.memory.fit",
+   "example": {
+    "setup": "Holes in address order: 65, 25, 60, 45, 15 KB. Requests arrive in this order: 10, 30, 40, 55 KB. Run first fit, best fit and worst fit. Which policies place all four requests?",
+    "steps": [
+     "The three policies start with the same holes h1 to h5: 65, 25, 60, 45, 15.",
+     "Request 10. First fit takes the first hole that fits: h1, leaving 55. Best fit takes the smallest hole that fits: h5 (15), leaving 5. Worst fit takes the largest: h1 (65), leaving 55.",
+     "Request 30. First fit: h1 (55 ≥ 30), leaving 25. Best fit: the smallest hole ≥ 30 is h4 (45), leaving 15. Worst fit: the largest is h3 (60), leaving 30.",
+     "Request 40. First fit: h1 now has 25, h2 has 25, so h3 (60) is the first that fits, leaving 20. Best fit: smallest ≥ 40 is h3 (60), leaving 20. Worst fit: largest is h1 (55), leaving 15.",
+     "Request 55. First fit: the holes are 25, 25, 20, 45, 15, none is 55 or more, so it fails. Best fit: h1 still has 65 and takes it, leaving 10. Worst fit: the largest is 45, so it fails.",
+     "Best fit placed all four requests. First fit and worst fit both failed on the 55 KB request."
+    ],
+    "answer": "Only best fit places all four. First fit and worst fit fail on the 55 KB request."
+   },
+   "what": "When a request arrives, the OS must choose a hole: **first fit** takes the first one big enough, **best fit** the smallest one big enough, and **worst fit** the largest. Each choice leaves different leftovers, so later requests may succeed or fail.",
+   "what_full": "When a request arrives, the OS must choose a hole: **first fit** takes the first one big enough, **best fit** the smallest one big enough, and **worst fit** the largest. Each choice leaves different leftovers, so later requests may succeed or fail.\n\nGiven holes in address order and a request of size k:\n\n**First fit:** scan from the start and pick the first hole of size ≥ k.\n\n**Next fit:** like first fit, but start scanning where the last search stopped.\n\n**Best fit:** pick the smallest hole with size ≥ k (ties: the first).\n\n**Worst fit:** pick the largest hole (ties: the first).\n\nAfter placing, the chosen hole shrinks by k. An exact fit removes it.\n\nIf no hole has size ≥ k, the request waits or fails.\n\n**Worked example.** Holes in address order: 65, 25, 60, 45, 15 KB. Requests arrive in this order: 10, 30, 40, 55 KB. Run first fit, best fit and worst fit. Which policies place all four requests?\n\n1. The three policies start with the same holes h1 to h5: 65, 25, 60, 45, 15.\n2. Request 10. First fit takes the first hole that fits: h1, leaving 55. Best fit takes the smallest hole that fits: h5 (15), leaving 5. Worst fit takes the largest: h1 (65), leaving 55.\n3. Request 30. First fit: h1 (55 ≥ 30), leaving 25. Best fit: the smallest hole ≥ 30 is h4 (45), leaving 15. Worst fit: the largest is h3 (60), leaving 30.\n4. Request 40. First fit: h1 now has 25, h2 has 25, so h3 (60) is the first that fits, leaving 20. Best fit: smallest ≥ 40 is h3 (60), leaving 20. Worst fit: largest is h1 (55), leaving 15.\n5. Request 55. First fit: the holes are 25, 25, 20, 45, 15, none is 55 or more, so it fails. Best fit: h1 still has 65 and takes it, leaving 10. Worst fit: the largest is 45, so it fails.\n6. Best fit placed all four requests. First fit and worst fit both failed on the 55 KB request.\n\n**Answer:** Only best fit places all four. First fit and worst fit fail on the 55 KB request.",
+   "why_full": "Placement is the main hole-based simulation in this chapter. In GATE: simulate a policy on a short sequence and report a hole size, a count of holes, or which requests fail (2026 CS2 Q55, 2015 CS2 Q30, 2020 CS Q21).\n\nAsked: 2026 CS2 Q55, 2015 CS2 Q30, 2020 CS Q21",
+   "trap": "Choosing the first adequate hole when the question says best fit, or counting an exact fit as a leftover hole of size 0. A third slip is believing that best fit always beats first fit; a different request order can reverse the outcome."
+  },
+  {
+   "atom_id": "m4",
+   "title": "Fragmentation and compaction",
+   "simple": "Imagine a bookshelf with lots of small gaps between books. If you add up the gaps, there is room for a thick atlas, but no single gap is wide enough, so it will not go on the shelf. That is external fragmentation (wasted room between blocks). You can fix it by pushing all the books to the left to close the gaps, which is compaction, but moving books takes time. A different waste happens when a book sits in a box that is bigger than it needs, and the spare room inside the box is wasted. That is internal fragmentation. In exam words: external waste is in holes between blocks; internal waste is inside a block; compaction merges the holes by moving processes.",
+   "idea": "**External fragmentation** is free memory split into small holes, none big enough for a request. **Internal fragmentation** is waste inside an allocated block. **Compaction** slides the processes together so the holes merge into one, at the price of copying.",
+   "definition": "**External fragmentation:** total free memory is enough, but no single hole is. It appears in variable-size allocation (contiguous blocks, segmentation).\n\n**Internal fragmentation:** an allocated block is larger than the data in it. It appears with fixed-size units (fixed partitions, pages).\n\n**Compaction:** move allocated blocks to one end so that free memory becomes one hole. It needs run-time relocation (a base register) and costs a copy of the moved data.\n\nPaging has no external fragmentation and some internal waste (on average half a page per process). Segmentation has external fragmentation and no internal waste.",
+   "intuition_full": "The two kinds of waste come from opposite choices. If you allocate exactly what is asked (variable size), nothing is wasted inside a block, but the leftovers between blocks become unusable slivers. If you allocate in fixed units, there are no slivers, because every unit is the same size and any free unit works, but the last unit of each block is only partly used. Compaction trades CPU time for memory: it copies data so the slivers join up. Its cost is the number of bytes moved, which depends on how many processes sit above the holes. Sliding all processes down moves each process that lies above at least one hole. The cheapest direction is the one that moves fewer bytes. Compaction is impossible if programs hold absolute physical addresses.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Memory is 200 KB. From low to high: OS (20 KB), P1 (30), hole (15), P2 (40), hole (25), P3 (20), hole (10), P4 (40). A new process needs 45 KB. Can it be loaded? Then compact by sliding every process toward address 0: how many KB of data move, and does it fit?",
+     "steps": [
+      "The layout adds up: 20 + 30 + 15 + 40 + 25 + 20 + 10 + 40 = 200 KB. The holes are 15, 25 and 10 KB.",
+      "Free memory is 15 + 25 + 10 = 50 KB, which is more than 45. But the largest hole is 25 KB. The 45 KB process cannot be loaded. This is external fragmentation.",
+      "Compaction: slide P2 down by 15 KB to close the first hole. P2 is 40 KB, so 40 KB of data are copied.",
+      "Slide P3 down by 15 + 25 = 40 KB. P3 is 20 KB, so 20 KB are copied.",
+      "Slide P4 down by 15 + 25 + 10 = 50 KB. P4 is 40 KB, so 40 KB are copied.",
+      "All free memory is now one hole of 50 KB at the top. Total copied = 40 + 20 + 40 = 100 KB.",
+      "The 45 KB process now fits, leaving a 5 KB hole."
+     ],
+     "answer": "Without compaction it fails (largest hole 25 KB). Compaction copies 100 KB and then it fits."
+    },
+    {
+     "level": "gate",
+     "setup": "Memory has fixed partitions of 64, 128, 256 and 128 KB. Processes of 50, 100, 200 and 120 KB are each placed in the smallest free partition that fits (one process per partition). Find the total internal fragmentation. Then say which of paging and segmentation suffers external fragmentation.",
+     "steps": [
+      "50 KB goes into the 64 KB partition. Waste 64 - 50 = 14 KB.",
+      "100 KB goes into a 128 KB partition. Waste 28 KB.",
+      "200 KB goes into the 256 KB partition. Waste 56 KB.",
+      "120 KB goes into the second 128 KB partition. Waste 8 KB. Total internal fragmentation = 14 + 28 + 56 + 8 = 106 KB.",
+      "Internal fragmentation is waste inside an allocated block. Paging has only internal waste (in each process's last page). Segmentation has only external waste, because segments are variable-sized and leave holes."
+     ],
+     "answer": "106 KB of internal fragmentation. Paging: internal only. Segmentation: external only."
+    },
+    {
+     "level": "twist",
+     "setup": "A process lies at base 124 KB. The OS compacts memory and moves it to 100 KB. The program holds a pointer to its logical address 10 KB. Does the program have to be changed? Where does the data live before and after?",
+     "steps": [
+      "The program refers to logical addresses, which start at 0 and do not change when the process moves.",
+      "Before the move: physical = 124 + 10 = 134 KB.",
+      "After the move the OS copies the data and sets base = 100. Now physical = 100 + 10 = 110 KB.",
+      "Compaction needs execution-time address binding (a base register). If addresses were fixed absolute at load time, the process could not move."
+     ],
+     "answer": "No change to the program. 134 KB before, 110 KB after. Only the base register changes."
+    }
+   ],
+   "why": "These terms are the true-or-false core of this chapter, and the compaction count is a quick calculation. In GATE: state which scheme has which fragmentation, or compute the data moved by compaction (2021 CS1 Q21, 2020 CS Q21).",
+   "how": [
+    "Label each waste: between blocks is external, inside a block is internal.",
+    "Variable-size schemes (contiguous, segmentation) give external waste. Fixed-size schemes (paging, fixed partitions) give internal waste.",
+    "For compaction, list the processes that must move and add their sizes. Holes themselves are not copied.",
+    "Check that the merged hole is large enough for the request."
+   ],
+   "mistake": "Saying that paging has no fragmentation. It has no external fragmentation but it does have internal fragmentation. A second slip is counting the hole sizes as the data moved. Only the sizes of the processes that move are copied.",
+   "edge_cases": [
+    "Free memory is enough in total but compaction can still not help if processes cannot be relocated.",
+    "A process that already sits at the bottom does not move when compacting downward.",
+    "Moving the processes toward the other end can cost a different number of bytes; the cheaper direction wins."
+   ],
+   "connections": [
+    "Placement policies change which holes exist but cannot remove external fragmentation (see Placement policies).",
+    "Paging removes external fragmentation entirely (see Paging basics).",
+    "Base and limit registers make relocation, and so compaction, possible (see Base and limit relocation)."
+   ],
+   "check": [
+    {
+     "q": "Free holes of 20, 30 and 10 KB. Largest request that fits without compaction? With compaction?",
+     "a": "30 KB without compaction. 60 KB with compaction."
+    },
+    {
+     "q": "Which fragmentation does a 4 KB page cause for a 9 KB process?",
+     "a": "Internal: it needs 3 pages = 12 KB, so 3 KB is wasted."
+    },
+    {
+     "q": "Which scheme needs compaction: paging or contiguous allocation?",
+     "a": "Contiguous allocation. Paging has no external holes to close."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q21, 2020 CS Q21, 2026 CS2 Q55",
+   "try": {
+    "id": "gen.mem.003",
+    "label": "Try: which scheme has internal but no external fragmentation (L1)"
+   },
+   "scene": "os.memory.compact",
+   "example": {
+    "setup": "Memory is 200 KB. From low to high: OS (20 KB), P1 (30), hole (15), P2 (40), hole (25), P3 (20), hole (10), P4 (40). A new process needs 45 KB. Can it be loaded? Then compact by sliding every process toward address 0: how many KB of data move, and does it fit?",
+    "steps": [
+     "The layout adds up: 20 + 30 + 15 + 40 + 25 + 20 + 10 + 40 = 200 KB. The holes are 15, 25 and 10 KB.",
+     "Free memory is 15 + 25 + 10 = 50 KB, which is more than 45. But the largest hole is 25 KB. The 45 KB process cannot be loaded. This is external fragmentation.",
+     "Compaction: slide P2 down by 15 KB to close the first hole. P2 is 40 KB, so 40 KB of data are copied.",
+     "Slide P3 down by 15 + 25 = 40 KB. P3 is 20 KB, so 20 KB are copied.",
+     "Slide P4 down by 15 + 25 + 10 = 50 KB. P4 is 40 KB, so 40 KB are copied.",
+     "All free memory is now one hole of 50 KB at the top. Total copied = 40 + 20 + 40 = 100 KB.",
+     "The 45 KB process now fits, leaving a 5 KB hole."
+    ],
+    "answer": "Without compaction it fails (largest hole 25 KB). Compaction copies 100 KB and then it fits."
+   },
+   "what": "**External fragmentation** is free memory split into small holes, none big enough for a request. **Internal fragmentation** is waste inside an allocated block. **Compaction** slides the processes together so the holes merge into one, at the price of copying.",
+   "what_full": "**External fragmentation** is free memory split into small holes, none big enough for a request. **Internal fragmentation** is waste inside an allocated block. **Compaction** slides the processes together so the holes merge into one, at the price of copying.\n\n**External fragmentation:** total free memory is enough, but no single hole is. It appears in variable-size allocation (contiguous blocks, segmentation).\n\n**Internal fragmentation:** an allocated block is larger than the data in it. It appears with fixed-size units (fixed partitions, pages).\n\n**Compaction:** move allocated blocks to one end so that free memory becomes one hole. It needs run-time relocation (a base register) and costs a copy of the moved data.\n\nPaging has no external fragmentation and some internal waste (on average half a page per process). Segmentation has external fragmentation and no internal waste.\n\n**Worked example.** Memory is 200 KB. From low to high: OS (20 KB), P1 (30), hole (15), P2 (40), hole (25), P3 (20), hole (10), P4 (40). A new process needs 45 KB. Can it be loaded? Then compact by sliding every process toward address 0: how many KB of data move, and does it fit?\n\n1. The layout adds up: 20 + 30 + 15 + 40 + 25 + 20 + 10 + 40 = 200 KB. The holes are 15, 25 and 10 KB.\n2. Free memory is 15 + 25 + 10 = 50 KB, which is more than 45. But the largest hole is 25 KB. The 45 KB process cannot be loaded. This is external fragmentation.\n3. Compaction: slide P2 down by 15 KB to close the first hole. P2 is 40 KB, so 40 KB of data are copied.\n4. Slide P3 down by 15 + 25 = 40 KB. P3 is 20 KB, so 20 KB are copied.\n5. Slide P4 down by 15 + 25 + 10 = 50 KB. P4 is 40 KB, so 40 KB are copied.\n6. All free memory is now one hole of 50 KB at the top. Total copied = 40 + 20 + 40 = 100 KB.\n7. The 45 KB process now fits, leaving a 5 KB hole.\n\n**Answer:** Without compaction it fails (largest hole 25 KB). Compaction copies 100 KB and then it fits.",
+   "why_full": "These terms are the true-or-false core of this chapter, and the compaction count is a quick calculation. In GATE: state which scheme has which fragmentation, or compute the data moved by compaction (2021 CS1 Q21, 2020 CS Q21).\n\nAsked: 2021 CS1 Q21, 2020 CS Q21, 2026 CS2 Q55",
+   "trap": "Saying that paging has no fragmentation. It has no external fragmentation but it does have internal fragmentation. A second slip is counting the hole sizes as the data moved. Only the sizes of the processes that move are copied."
+  },
+  {
+   "atom_id": "m5",
+   "title": "Paging basics",
+   "simple": "Think of a book that has been torn into pages of the same size, and each page is stored in any free slot of a big cabinet. A small index card lists which slot holds page 0, page 1, page 2 and so on. To find a line of text, you work out which page it is on and how far down the page it is, look up the slot on the card, and walk to the same distance down in that slot. Because all slots are the same size, any free slot will do and there are no awkward gaps. Only the last page is usually not full. In exam words: split the address into page number and offset, replace the page number by the frame number from the page table, and keep the offset.",
+   "idea": "**Paging** cuts memory into equal **frames** and a process into equal **pages**. A **page table** says which frame holds each page, so the pages can sit anywhere. A logical address splits into a page number and an offset, and only the page number is translated.",
+   "definition": "Page size = frame size = 2^k bytes.\n\nA logical address has two parts: **page number p** (the high bits) and **offset d** (the low k bits). p = address div page size, d = address mod page size.\n\nThe page table maps p to a frame number f.\n\n**Physical address = f × page size + d.** In bits: the frame number followed by the same offset.\n\nPages needed = ceil(process size / page size). The unused part of the last page is **internal fragmentation**, which is at most page size - 1 bytes. There is no external fragmentation, since any free frame fits any page.",
+   "intuition_full": "The offset never changes, because the page and its frame have the same layout. That is why only the high bits are translated, and why page sizes are powers of two: the split is just a cut in the bit string. Paging solves external fragmentation by making all units equal, so a request for n pages succeeds whenever n frames are free anywhere. It pays in two ways: a page table to store and look up on every access (the speed-up is the TLB in the virtual-memory chapter), and the half-empty last page of each process. Compared with base and limit, one pair of registers has become a whole table, which is the price for scattering the process. In the animation the frames are not in order (page 0 in frame 5, page 3 in frame 0), and nothing breaks.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A process of 3400 bytes runs on a system with 1024-byte pages. Its page table maps pages 0, 1, 2, 3 to frames 5, 2, 7, 0. Translate logical address 2600, and find the internal fragmentation of the process.",
+     "steps": [
+      "Pages needed = ceil(3400 / 1024) = ceil(3.32) = 4. The page table maps 0 → 5, 1 → 2, 2 → 7, 3 → 0.",
+      "Split the address: page number = 2600 div 1024 = 2, offset = 2600 mod 1024 = 552.",
+      "Look up the page table at index 2. It holds frame 7.",
+      "Physical address = frame × page size + offset = 7 × 1024 + 552 = 7168 + 552 = 7720.",
+      "So page 2 sits in frame 7, and byte 552 of that page is byte 552 of frame 7. Frames need not be in order.",
+      "The last page holds only 3400 - 3 × 1024 = 328 bytes. The unused part is 1024 - 328 = 696 bytes: internal fragmentation."
+     ],
+     "answer": "Logical 2600 is page 2, offset 552, which maps to physical 7720. Internal fragmentation is 696 bytes."
+    },
+    {
+     "level": "gate",
+     "setup": "A logical address space has 64 pages of 1 KB each. Physical memory has 32 frames. How many bits are in a logical address and a physical address? Translate logical address 0x2C85 if page 11 is in frame 19.",
+     "steps": [
+      "Logical space = 64 × 1 KB = 2^6 × 2^10 = 2^16 bytes, so a logical address has 16 bits. The offset takes 10 bits and the page number takes 6 bits.",
+      "Physical memory = 32 × 1 KB = 2^5 × 2^10 = 2^15 bytes, so a physical address has 15 bits: 5 bits of frame number and 10 bits of offset.",
+      "0x2C85 in binary is 0010 1100 1000 0101. The top 6 bits are 001011 = page 11. The low 10 bits are 00 1000 0101 = 133, the offset.",
+      "Page 11 is in frame 19 = 10011. The physical address is 10011 followed by the same offset: 10011 00 1000 0101 = 0x4C85 = 19 × 1024 + 133 = 19589."
+     ],
+     "answer": "16-bit logical and 15-bit physical addresses. 0x2C85 maps to 0x4C85 (decimal 19589). The offset never changes."
+    },
+    {
+     "level": "twist",
+     "setup": "Pages are 1024 bytes. Compare the internal fragmentation of a process of exactly 4096 bytes, one of 4097 bytes, and one of 1 byte.",
+     "steps": [
+      "4096 bytes need exactly 4 pages. The last page is full, so the waste is 0.",
+      "4097 bytes need ceil(4097 / 1024) = 5 pages. The fifth page holds 1 byte, so the waste is 1023 bytes.",
+      "1 byte needs 1 page. The waste is 1023 bytes.",
+      "Waste per process ranges from 0 to page size - 1. On average it is about half a page, which is why big pages waste more."
+     ],
+     "answer": "0, 1023 and 1023 bytes. Paging has internal fragmentation of up to page size - 1 per process."
+    }
+   ],
+   "why": "Paging is the most important memory scheme, and its address arithmetic is the base for virtual memory. In GATE: translate an address, count bits, or compute internal fragmentation (2021 CS1 Q21, 2020 CS Q21, and the page-table questions of the virtual-memory chapter).",
+   "how": [
+    "Find the page size and write it as 2^k. The low k bits are the offset.",
+    "Page number = address div page size. Offset = address mod page size.",
+    "Look up the frame in the page table. Physical = frame × page size + offset.",
+    "For internal waste: pages = ceil(size / page size), waste = pages × page size - size.",
+    "Bits: logical address = log2(pages × page size); physical = log2(frames × page size)."
+   ],
+   "mistake": "Translating the offset as well, or adding the page number instead of multiplying the frame number by the page size. A second slip is saying paging has no fragmentation at all; the last page of each process is partly empty.",
+   "edge_cases": [
+    "A process whose size is an exact multiple of the page size has no internal waste.",
+    "Logical and physical address spaces can have different sizes, so the page number and frame number need different numbers of bits.",
+    "Frame numbers are arbitrary: consecutive pages are not stored in consecutive frames."
+   ],
+   "connections": [
+    "Virtual memory adds a valid bit to the page table so that pages can live on disk (see Demand paging and page faults in the virtual-memory chapter).",
+    "Segmentation is the variable-size alternative (see Segmentation).",
+    "The page-size trade-off between table size and waste is the next-but-one card (see Page size trade-off)."
+   ],
+   "check": [
+    {
+     "q": "Page size 512 B, page 3 is in frame 9. Physical address of logical 1600?",
+     "a": "1600 = 3 × 512 + 64, so page 3, offset 64. Physical = 9 × 512 + 64 = 4672."
+    },
+    {
+     "q": "A 10,000-byte process, 4 KB pages. Pages needed and waste?",
+     "a": "ceil(10000 / 4096) = 3 pages = 12,288 bytes. Waste 2,288 bytes."
+    },
+    {
+     "q": "Does paging cause external fragmentation?",
+     "a": "No. All frames are the same size."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q21, 2020 CS Q21, 2026 CS2 Q55",
+   "try": {
+    "id": "gen.mem.011",
+    "label": "Try: translate a logical address with a page table (L2)"
+   },
+   "scene": "os.memory.paging",
+   "example": {
+    "setup": "A process of 3400 bytes runs on a system with 1024-byte pages. Its page table maps pages 0, 1, 2, 3 to frames 5, 2, 7, 0. Translate logical address 2600, and find the internal fragmentation of the process.",
+    "steps": [
+     "Pages needed = ceil(3400 / 1024) = ceil(3.32) = 4. The page table maps 0 → 5, 1 → 2, 2 → 7, 3 → 0.",
+     "Split the address: page number = 2600 div 1024 = 2, offset = 2600 mod 1024 = 552.",
+     "Look up the page table at index 2. It holds frame 7.",
+     "Physical address = frame × page size + offset = 7 × 1024 + 552 = 7168 + 552 = 7720.",
+     "So page 2 sits in frame 7, and byte 552 of that page is byte 552 of frame 7. Frames need not be in order.",
+     "The last page holds only 3400 - 3 × 1024 = 328 bytes. The unused part is 1024 - 328 = 696 bytes: internal fragmentation."
+    ],
+    "answer": "Logical 2600 is page 2, offset 552, which maps to physical 7720. Internal fragmentation is 696 bytes."
+   },
+   "what": "**Paging** cuts memory into equal **frames** and a process into equal **pages**. A **page table** says which frame holds each page, so the pages can sit anywhere. A logical address splits into a page number and an offset, and only the page number is translated.",
+   "what_full": "**Paging** cuts memory into equal **frames** and a process into equal **pages**. A **page table** says which frame holds each page, so the pages can sit anywhere. A logical address splits into a page number and an offset, and only the page number is translated.\n\nPage size = frame size = 2^k bytes.\n\nA logical address has two parts: **page number p** (the high bits) and **offset d** (the low k bits). p = address div page size, d = address mod page size.\n\nThe page table maps p to a frame number f.\n\n**Physical address = f × page size + d.** In bits: the frame number followed by the same offset.\n\nPages needed = ceil(process size / page size). The unused part of the last page is **internal fragmentation**, which is at most page size - 1 bytes. There is no external fragmentation, since any free frame fits any page.\n\n**Worked example.** A process of 3400 bytes runs on a system with 1024-byte pages. Its page table maps pages 0, 1, 2, 3 to frames 5, 2, 7, 0. Translate logical address 2600, and find the internal fragmentation of the process.\n\n1. Pages needed = ceil(3400 / 1024) = ceil(3.32) = 4. The page table maps 0 → 5, 1 → 2, 2 → 7, 3 → 0.\n2. Split the address: page number = 2600 div 1024 = 2, offset = 2600 mod 1024 = 552.\n3. Look up the page table at index 2. It holds frame 7.\n4. Physical address = frame × page size + offset = 7 × 1024 + 552 = 7168 + 552 = 7720.\n5. So page 2 sits in frame 7, and byte 552 of that page is byte 552 of frame 7. Frames need not be in order.\n6. The last page holds only 3400 - 3 × 1024 = 328 bytes. The unused part is 1024 - 328 = 696 bytes: internal fragmentation.\n\n**Answer:** Logical 2600 is page 2, offset 552, which maps to physical 7720. Internal fragmentation is 696 bytes.",
+   "why_full": "Paging is the most important memory scheme, and its address arithmetic is the base for virtual memory. In GATE: translate an address, count bits, or compute internal fragmentation (2021 CS1 Q21, 2020 CS Q21, and the page-table questions of the virtual-memory chapter).\n\nAsked: 2021 CS1 Q21, 2020 CS Q21, 2026 CS2 Q55",
+   "trap": "Translating the offset as well, or adding the page number instead of multiplying the frame number by the page size. A second slip is saying paging has no fragmentation at all; the last page of each process is partly empty."
+  },
+  {
+   "atom_id": "m6",
+   "title": "Segmentation",
+   "simple": "A program is not one lump but several parts: the code, the data, the stack. Segmentation gives each part its own room in memory, sized to fit exactly. To find something, you say which part it is in and how far into that part it is. A small table lists, for every part, where its room starts and how long it is. If you ask for a spot beyond the end of that room, the hardware stops you. Because the rooms are different lengths, when some are removed they leave gaps of odd sizes. In exam words: a logical address is (segment, offset); the table stores base and limit; offset must be less than the limit; segmentation has external fragmentation.",
+   "idea": "**Segmentation** splits a program into logical parts (code, data, stack), each a **segment** of its own length. A logical address is a pair (segment, offset). The **segment table** stores a base and a limit for each segment, so it is base and limit repeated per segment.",
+   "definition": "Logical address = (s, d), with segment number s and offset d.\n\nSegment table entry s: **base** (start in physical memory) and **limit** (length).\n\nIf d ≥ limit(s), trap. Otherwise physical address = base(s) + d. Legal offsets are 0 to limit - 1.\n\nIf the address is one bit string, the top bits give s and the rest give d. With b bits for s there are 2^b segments, and the largest segment is 2^(address bits - b).\n\nSegments are variable-sized, so they cause **external fragmentation** but no internal fragmentation.",
+   "intuition_full": "Segmentation matches how programmers think: a program has a code area, a stack and a heap, each a different size and each growing independently. Giving each its own base and limit means each can be protected and shared separately: code can be read-only and shared between processes. The translation is the same as base and limit, just with a table lookup first. The price is the same as in contiguous allocation: variable sizes leave holes, and growing a segment may need a copy. Paging gives fixed-size blocks and no external waste but no view of program structure. Real systems often combine them by paging each segment, in which case waste is internal to the pages of each segment.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A segment table has S0: base 2000, limit 600; S1: base 5200, limit 500; S2: base 900, limit 1100. Translate the logical addresses (1, 120), (0, 599) and (2, 1100).",
+     "steps": [
+      "Each segment has its own base and limit, and it is placed anywhere in physical memory. The strip shows where the three segments lie.",
+      "(1, 120): segment 1, offset 120. Check 120 < 500: legal. Physical = 5200 + 120 = 5320.",
+      "(0, 599): segment 0, offset 599. Limit is 600 so legal offsets are 0 to 599, and 599 is the last one. Physical = 2000 + 599 = 2599.",
+      "(2, 1100): segment 2 has limit 1100, so legal offsets are 0 to 1099. 1100 < 1100 is false, so the hardware traps (segmentation fault).",
+      "Segments have different sizes (500, 600, 1100), so they leave holes of different sizes when freed. That is external fragmentation. There is no internal waste."
+     ],
+     "answer": "(1, 120) maps to 5320, (0, 599) maps to 2599, and (2, 1100) traps."
+    },
+    {
+     "level": "gate",
+     "setup": "A 16-bit logical address uses the top 3 bits for the segment number. How many segments are possible and what is the largest segment size? What happens to the address 0xA0F3 if segment 5 has limit 0x0200?",
+     "steps": [
+      "3 bits give 2^3 = 8 segments (numbers 0 to 7).",
+      "The remaining 16 - 3 = 13 bits are the offset, so a segment can be at most 2^13 = 8192 bytes.",
+      "0xA0F3 = 1010 0000 1111 0011. The top 3 bits are 101 = segment 5. The offset is the low 13 bits = 0 0000 1111 0011 = 0x00F3 = 243.",
+      "Segment 5 has limit 0x0200 = 512. 243 < 512, so the address is legal. Physical = base of segment 5 + 243."
+     ],
+     "answer": "8 segments of up to 8192 bytes. 0xA0F3 is segment 5, offset 243, which is legal."
+    },
+    {
+     "level": "twist",
+     "setup": "Segment S2 (base 900, limit 1100) sits right below S0 (base 2000). The program grows S2 to limit 1300. Can the OS simply raise the limit?",
+     "steps": [
+      "S2 currently occupies 900 to 1999. S0 starts at 2000, right after it.",
+      "With limit 1300 it would need 900 to 2199, which overlaps S0 (2000 to 2599).",
+      "The OS cannot just change the limit. It must move S2 to a hole that is at least 1300 bytes long (and update its base), or move S0.",
+      "Growing a segment can force a copy, a cost of variable-size units that pages do not have."
+     ],
+     "answer": "No. The grown segment would overlap S0, so S2 must be relocated to a hole of at least 1300 bytes."
+    }
+   ],
+   "why": "Segmentation questions are short translation exercises with a trap on the limit check. In GATE: translate (segment, offset), decide whether it traps, or choose the true statements about paging and segmentation (2021 CS1 Q21, 2020 CS Q21).",
+   "how": [
+    "Split the logical address into segment s and offset d.",
+    "Read base and limit of segment s from the table.",
+    "If d ≥ limit, the answer is a trap. Otherwise physical = base + d.",
+    "For statements: segmentation has external fragmentation and no internal fragmentation, and supports sharing by logical unit."
+   ],
+   "mistake": "Allowing an offset equal to the limit. The legal offsets are 0 to limit - 1, so d = limit traps. Another slip is mixing up the table fields: the entry holds the physical base and the length, not the physical end address.",
+   "edge_cases": [
+    "Two segment-table entries can point to the same physical segment, which is how code is shared.",
+    "A segment can be larger than a page and still be paged inside.",
+    "A segment number that is not in the table (or marked invalid) also traps."
+   ],
+   "connections": [
+    "Each segment is a base-and-limit pair (see Base and limit relocation).",
+    "Paging uses equal-size units instead (see Paging basics).",
+    "External fragmentation and compaction apply to segments (see Fragmentation and compaction)."
+   ],
+   "check": [
+    {
+     "q": "Segment 3: base 7000, limit 400. Address (3, 400). Legal?",
+     "a": "No. 400 is not less than 400, so it traps."
+    },
+    {
+     "q": "What does a segment-table entry hold?",
+     "a": "The base (start address) and the limit (length) of the segment."
+    },
+    {
+     "q": "Which fragmentation does segmentation cause?",
+     "a": "External fragmentation."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q21, 2020 CS Q21",
+   "try": {
+    "id": "gen.mem.005",
+    "label": "Try: what a segment-table entry stores (L1)"
+   },
+   "scene": "os.memory.segments",
+   "example": {
+    "setup": "A segment table has S0: base 2000, limit 600; S1: base 5200, limit 500; S2: base 900, limit 1100. Translate the logical addresses (1, 120), (0, 599) and (2, 1100).",
+    "steps": [
+     "Each segment has its own base and limit, and it is placed anywhere in physical memory. The strip shows where the three segments lie.",
+     "(1, 120): segment 1, offset 120. Check 120 < 500: legal. Physical = 5200 + 120 = 5320.",
+     "(0, 599): segment 0, offset 599. Limit is 600 so legal offsets are 0 to 599, and 599 is the last one. Physical = 2000 + 599 = 2599.",
+     "(2, 1100): segment 2 has limit 1100, so legal offsets are 0 to 1099. 1100 < 1100 is false, so the hardware traps (segmentation fault).",
+     "Segments have different sizes (500, 600, 1100), so they leave holes of different sizes when freed. That is external fragmentation. There is no internal waste."
+    ],
+    "answer": "(1, 120) maps to 5320, (0, 599) maps to 2599, and (2, 1100) traps."
+   },
+   "what": "**Segmentation** splits a program into logical parts (code, data, stack), each a **segment** of its own length. A logical address is a pair (segment, offset). The **segment table** stores a base and a limit for each segment, so it is base and limit repeated per segment.",
+   "what_full": "**Segmentation** splits a program into logical parts (code, data, stack), each a **segment** of its own length. A logical address is a pair (segment, offset). The **segment table** stores a base and a limit for each segment, so it is base and limit repeated per segment.\n\nLogical address = (s, d), with segment number s and offset d.\n\nSegment table entry s: **base** (start in physical memory) and **limit** (length).\n\nIf d ≥ limit(s), trap. Otherwise physical address = base(s) + d. Legal offsets are 0 to limit - 1.\n\nIf the address is one bit string, the top bits give s and the rest give d. With b bits for s there are 2^b segments, and the largest segment is 2^(address bits - b).\n\nSegments are variable-sized, so they cause **external fragmentation** but no internal fragmentation.\n\n**Worked example.** A segment table has S0: base 2000, limit 600; S1: base 5200, limit 500; S2: base 900, limit 1100. Translate the logical addresses (1, 120), (0, 599) and (2, 1100).\n\n1. Each segment has its own base and limit, and it is placed anywhere in physical memory. The strip shows where the three segments lie.\n2. (1, 120): segment 1, offset 120. Check 120 < 500: legal. Physical = 5200 + 120 = 5320.\n3. (0, 599): segment 0, offset 599. Limit is 600 so legal offsets are 0 to 599, and 599 is the last one. Physical = 2000 + 599 = 2599.\n4. (2, 1100): segment 2 has limit 1100, so legal offsets are 0 to 1099. 1100 < 1100 is false, so the hardware traps (segmentation fault).\n5. Segments have different sizes (500, 600, 1100), so they leave holes of different sizes when freed. That is external fragmentation. There is no internal waste.\n\n**Answer:** (1, 120) maps to 5320, (0, 599) maps to 2599, and (2, 1100) traps.",
+   "why_full": "Segmentation questions are short translation exercises with a trap on the limit check. In GATE: translate (segment, offset), decide whether it traps, or choose the true statements about paging and segmentation (2021 CS1 Q21, 2020 CS Q21).\n\nAsked: 2021 CS1 Q21, 2020 CS Q21",
+   "trap": "Allowing an offset equal to the limit. The legal offsets are 0 to limit - 1, so d = limit traps. Another slip is mixing up the table fields: the entry holds the physical base and the length, not the physical end address."
+  },
+  {
+   "atom_id": "m7",
+   "title": "Page size trade-off",
+   "simple": "Think of cutting a long ribbon into pieces to hand out. If the pieces are tiny, you need a huge list to keep track of them, which costs paper. If the pieces are big, you need a short list, but most people only need part of their last piece, so a lot of ribbon is wasted. There is a size in the middle where the paper for the list and the wasted ribbon are both small. For memory, the list is the page table and the wasted ribbon is the empty part of each process's last page. In exam words: overhead = (s × e / p) + (p / 2), minimised at p = sqrt(2 s e).",
+   "idea": "The page size has a trade-off. **Small pages** waste little in the last page but make the page table large. **Large pages** give a small table but waste more in each last page. The total overhead is lowest at a page size where the two costs are equal.",
+   "definition": "Let s = average process size, e = bytes per page-table entry, p = page size.\n\n**Page-table size** = (s / p) × e = s e / p. It falls as p grows.\n\n**Average internal waste** = p / 2 (half a page per process). It rises with p.\n\n**Overhead(p) = s e / p + p / 2.**\n\nSetting the derivative to zero gives **p = sqrt(2 s e)**. At this p the two terms are equal.\n\nPage sizes are powers of two, so if the result is not one, compare the two nearest powers of two.",
+   "intuition_full": "The overhead curve is a sum of a falling curve and a rising curve, so it has a single minimum, like a valley. The falling term s e / p is a hyperbola. The rising term p / 2 is a line. At the bottom of the valley, the two terms are equal, which is a useful check on the answer. Larger pages also have other effects: fewer TLB entries are needed to cover the same memory, and disk transfers of bigger units are more efficient per byte. Smaller pages fit a process's actual memory use more closely, which helps when the working set is small. So real systems use sizes around 4 KB, with bigger pages for special cases. The exam asks only the overhead calculation or the direction of the trade-off.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A process is 512 KB (2^19 bytes). Each page-table entry takes 4 bytes. Overhead = page-table size + average internal waste, where the waste is half a page. Which page size, a power of two, gives the least overhead? Compare 512, 1024, 2048, 4096 and 8192 bytes.",
+     "steps": [
+      "Overhead(p) = s × e / p + p / 2 with s = 2^19, e = 4. The first term is the table: (number of pages) × (entry size). The second is the average waste.",
+      "Table size s × e / p for p = 512, 1K, 2K, 4K, 8K: 4096, 2048, 1024, 512, 256 bytes. It falls as the page grows.",
+      "Average waste p / 2: 256, 512, 1024, 2048, 4096 bytes. It rises as the page grows.",
+      "Add them: 4352, 2560, 2048, 2560, 4352. The smallest is 2048 bytes, at p = 2048.",
+      "Check with the formula p = sqrt(2 s e) = sqrt(2 × 2^19 × 4) = sqrt(2^22) = 2^11 = 2048. It matches."
+     ],
+     "answer": "2048 bytes (2 KB), with a total overhead of 2048 bytes."
+    },
+    {
+     "level": "gate",
+     "setup": "The average process size is 4 MB and each page-table entry is 8 bytes. What page size minimises overhead (table size plus half a page of waste), and what is the minimum overhead?",
+     "steps": [
+      "p = sqrt(2 s e) with s = 4 MB = 2^22 and e = 8 = 2^3.",
+      "2 s e = 2 × 2^22 × 2^3 = 2^26. The square root is 2^13 = 8192 bytes = 8 KB.",
+      "Table size = s × e / p = 2^22 × 2^3 / 2^13 = 2^12 = 4096 bytes. Waste = p / 2 = 2^12 = 4096 bytes.",
+      "At the optimum the two terms are equal. Overhead = 4096 + 4096 = 8192 bytes."
+     ],
+     "answer": "The best page size is 8 KB, with overhead 8192 bytes. At the optimum, table size equals average waste."
+    },
+    {
+     "level": "twist",
+     "setup": "A process is 1 MB (2^20 bytes) and each entry is 6 bytes. The formula gives a page size that is not a power of two. Which power of two is best?",
+     "steps": [
+      "p = sqrt(2 s e) = sqrt(2 × 1,048,576 × 6) = sqrt(12,582,912) ≈ 3547 bytes. Page sizes must be powers of two, so test the neighbours 2048 and 4096.",
+      "For p = 2048: table = 2^20 × 6 / 2048 = 3072 bytes, waste = 1024. Overhead = 4096.",
+      "For p = 4096: table = 2^20 × 6 / 4096 = 1536 bytes, waste = 2048. Overhead = 3584.",
+      "4096 has the lower overhead. The curve is flat near its minimum, but the choice still matters."
+     ],
+     "answer": "4096 bytes. When the optimum is not a power of two, compare the two neighbouring powers of two."
+    }
+   ],
+   "why": "This is a standard optimisation with one formula, and it also appears as a conceptual question on what changes with page size. In GATE: find the page size minimising overhead, or decide how table size and waste change when the page size grows (2021 CS1 Q21, 2020 CS Q21).",
+   "how": [
+    "Write s, e and check the units (bytes).",
+    "Compute p = sqrt(2 s e). If it is a power of two, done.",
+    "Otherwise compute overhead for the two neighbouring powers of two and pick the smaller.",
+    "Check: at the optimum, table size equals average waste.",
+    "For direction questions: larger pages mean a smaller table, more waste, fewer TLB misses."
+   ],
+   "mistake": "Using the full page for the waste instead of half a page, or forgetting that the optimum must be a power of two. Another slip is saying that bigger pages always reduce overhead; the waste term grows.",
+   "edge_cases": [
+    "If the question says the average waste is a full page, the formula changes: minimise s e / p + p.",
+    "If entry size e is given in bits, convert to bytes first.",
+    "For a very small process, the waste can exceed the table size at any page size."
+   ],
+   "connections": [
+    "It combines the table of the paging card with its internal fragmentation (see Paging basics).",
+    "The TLB covers more memory with bigger pages (see TLB and effective access time in the virtual-memory chapter).",
+    "Multi-level page tables reduce table size without changing the page size."
+   ],
+   "check": [
+    {
+     "q": "s = 2^20, e = 8. Optimum page size?",
+     "a": "sqrt(2 × 2^20 × 2^3) = sqrt(2^24) = 2^12 = 4096 bytes."
+    },
+    {
+     "q": "If the page size doubles, what happens to the table size and to the average waste?",
+     "a": "The table size halves and the average waste doubles."
+    },
+    {
+     "q": "At the optimum page size, how do the table size and the waste compare?",
+     "a": "They are equal."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q21, 2020 CS Q21",
+   "try": {
+    "id": "gen.mem.012",
+    "label": "Try: what happens when the page size is increased (L2)"
+   },
+   "scene": "os.memory.pagesize",
+   "example": {
+    "setup": "A process is 512 KB (2^19 bytes). Each page-table entry takes 4 bytes. Overhead = page-table size + average internal waste, where the waste is half a page. Which page size, a power of two, gives the least overhead? Compare 512, 1024, 2048, 4096 and 8192 bytes.",
+    "steps": [
+     "Overhead(p) = s × e / p + p / 2 with s = 2^19, e = 4. The first term is the table: (number of pages) × (entry size). The second is the average waste.",
+     "Table size s × e / p for p = 512, 1K, 2K, 4K, 8K: 4096, 2048, 1024, 512, 256 bytes. It falls as the page grows.",
+     "Average waste p / 2: 256, 512, 1024, 2048, 4096 bytes. It rises as the page grows.",
+     "Add them: 4352, 2560, 2048, 2560, 4352. The smallest is 2048 bytes, at p = 2048.",
+     "Check with the formula p = sqrt(2 s e) = sqrt(2 × 2^19 × 4) = sqrt(2^22) = 2^11 = 2048. It matches."
+    ],
+    "answer": "2048 bytes (2 KB), with a total overhead of 2048 bytes."
+   },
+   "what": "The page size has a trade-off. **Small pages** waste little in the last page but make the page table large. **Large pages** give a small table but waste more in each last page. The total overhead is lowest at a page size where the two costs are equal.",
+   "what_full": "The page size has a trade-off. **Small pages** waste little in the last page but make the page table large. **Large pages** give a small table but waste more in each last page. The total overhead is lowest at a page size where the two costs are equal.\n\nLet s = average process size, e = bytes per page-table entry, p = page size.\n\n**Page-table size** = (s / p) × e = s e / p. It falls as p grows.\n\n**Average internal waste** = p / 2 (half a page per process). It rises with p.\n\n**Overhead(p) = s e / p + p / 2.**\n\nSetting the derivative to zero gives **p = sqrt(2 s e)**. At this p the two terms are equal.\n\nPage sizes are powers of two, so if the result is not one, compare the two nearest powers of two.\n\n**Worked example.** A process is 512 KB (2^19 bytes). Each page-table entry takes 4 bytes. Overhead = page-table size + average internal waste, where the waste is half a page. Which page size, a power of two, gives the least overhead? Compare 512, 1024, 2048, 4096 and 8192 bytes.\n\n1. Overhead(p) = s × e / p + p / 2 with s = 2^19, e = 4. The first term is the table: (number of pages) × (entry size). The second is the average waste.\n2. Table size s × e / p for p = 512, 1K, 2K, 4K, 8K: 4096, 2048, 1024, 512, 256 bytes. It falls as the page grows.\n3. Average waste p / 2: 256, 512, 1024, 2048, 4096 bytes. It rises as the page grows.\n4. Add them: 4352, 2560, 2048, 2560, 4352. The smallest is 2048 bytes, at p = 2048.\n5. Check with the formula p = sqrt(2 s e) = sqrt(2 × 2^19 × 4) = sqrt(2^22) = 2^11 = 2048. It matches.\n\n**Answer:** 2048 bytes (2 KB), with a total overhead of 2048 bytes.",
+   "why_full": "This is a standard optimisation with one formula, and it also appears as a conceptual question on what changes with page size. In GATE: find the page size minimising overhead, or decide how table size and waste change when the page size grows (2021 CS1 Q21, 2020 CS Q21).\n\nAsked: 2021 CS1 Q21, 2020 CS Q21",
+   "trap": "Using the full page for the waste instead of half a page, or forgetting that the optimum must be a power of two. Another slip is saying that bigger pages always reduce overhead; the waste term grows."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "os.memory.baselimit",
+   "title": "Base and limit registers",
+   "viewBox": [
+    0,
+    0,
+    360,
+    215
+   ],
+   "objects": [
+    {
+     "id": "regs",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "base = 5000    limit = 1200",
+     "size": 13,
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "mem",
+     "kind": "box",
+     "x": 20,
+     "y": 68,
+     "w": 320,
+     "h": 36,
+     "fill": false
+    },
+    {
+     "id": "proc",
+     "kind": "box",
+     "x": 220,
+     "y": 68,
+     "w": 48,
+     "h": 36,
+     "label": "P",
+     "tone": "accent"
+    },
+    {
+     "id": "t0",
+     "kind": "text",
+     "x": 20,
+     "y": 58,
+     "text": "0",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "tb",
+     "kind": "text",
+     "x": 220,
+     "y": 58,
+     "text": "5000",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "te",
+     "kind": "text",
+     "x": 268,
+     "y": 58,
+     "text": "6200",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "t8",
+     "kind": "text",
+     "x": 340,
+     "y": 58,
+     "text": "8000",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "pa",
+     "kind": "arrow",
+     "x1": 248,
+     "y1": 152,
+     "x2": 248,
+     "y2": 110
+    },
+    {
+     "id": "pb",
+     "kind": "arrow",
+     "x1": 266,
+     "y1": 152,
+     "x2": 266,
+     "y2": 110
+    },
+    {
+     "id": "pc",
+     "kind": "arrow",
+     "x1": 276,
+     "y1": 152,
+     "x2": 276,
+     "y2": 110
+    },
+    {
+     "id": "chk",
+     "kind": "text",
+     "x": 105,
+     "y": 170,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "add",
+     "kind": "text",
+     "x": 105,
+     "y": 194,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The OS loads two registers for this process: base = 5000 and limit = 1200. The process owns physical addresses 5000 to 6199.",
+     "show": [
+      "proc"
+     ],
+     "hide": [
+      "pa",
+      "pb",
+      "pc"
+     ],
+     "highlight": [
+      "proc"
+     ],
+     "set": [
+      {
+       "id": "chk",
+       "text": "memory 0..7999"
+      },
+      {
+       "id": "add",
+       "text": "block 5000..6199"
+      }
+     ]
+    },
+    {
+     "caption": "The CPU issues offset 700. First the hardware checks offset < limit: 700 < 1200, so it is allowed.",
+     "set": [
+      {
+       "id": "chk",
+       "text": "700 < 1200 : ok",
+       "tone": "good"
+      },
+      {
+       "id": "add",
+       "text": ""
+      }
+     ]
+    },
+    {
+     "caption": "Then it adds the base: physical address = 5000 + 700 = 5700. That lies inside the process's block.",
+     "show": [
+      "pa"
+     ],
+     "draw": [
+      "pa"
+     ],
+     "set": [
+      {
+       "id": "add",
+       "text": "5000 + 700 = 5700"
+      }
+     ],
+     "highlight": [
+      "pa"
+     ]
+    },
+    {
+     "caption": "Offset 1199 is the last legal one: 1199 < 1200, and 5000 + 1199 = 6199, the last byte of the block.",
+     "hide": [
+      "pa"
+     ],
+     "show": [
+      "pb"
+     ],
+     "draw": [
+      "pb"
+     ],
+     "set": [
+      {
+       "id": "chk",
+       "text": "1199 < 1200 : ok",
+       "tone": "good"
+      },
+      {
+       "id": "add",
+       "text": "5000 + 1199 = 6199"
+      }
+     ],
+     "highlight": [
+      "pb"
+     ]
+    },
+    {
+     "caption": "Offset 1200: 1200 < 1200 is false, so the hardware traps to the OS. Physical address 6200 belongs to someone else.",
+     "hide": [
+      "pb"
+     ],
+     "show": [
+      "pc"
+     ],
+     "draw": [
+      "pc"
+     ],
+     "set": [
+      {
+       "id": "chk",
+       "text": "1200 < 1200 : NO",
+       "tone": "bad"
+      },
+      {
+       "id": "add",
+       "text": "TRAP to the OS",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pc",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.memory.holes",
+   "title": "Allocation, release and merging of holes",
+   "viewBox": [
+    0,
+    0,
+    360,
+    200
+   ],
+   "objects": [
+    {
+     "id": "ttl",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "memory 120 KB, 2.5 px per KB",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "h0",
+     "kind": "box",
+     "x": 30,
+     "y": 70,
+     "w": 300,
+     "h": 40,
+     "label": "free 120 KB",
+     "dash": true
+    },
+    {
+     "id": "A",
+     "kind": "box",
+     "x": 30,
+     "y": 70,
+     "w": 75,
+     "h": 40,
+     "label": "A 30",
+     "tone": "accent"
+    },
+    {
+     "id": "B",
+     "kind": "box",
+     "x": 105,
+     "y": 70,
+     "w": 50,
+     "h": 40,
+     "label": "B 20",
+     "tone": "accent"
+    },
+    {
+     "id": "C",
+     "kind": "box",
+     "x": 155,
+     "y": 70,
+     "w": 100,
+     "h": 40,
+     "label": "C 40",
+     "tone": "accent"
+    },
+    {
+     "id": "D",
+     "kind": "box",
+     "x": 255,
+     "y": 70,
+     "w": 25,
+     "h": 40,
+     "label": "D",
+     "tone": "accent"
+    },
+    {
+     "id": "hEnd",
+     "kind": "box",
+     "x": 280,
+     "y": 70,
+     "w": 50,
+     "h": 40,
+     "label": "20",
+     "dash": true
+    },
+    {
+     "id": "hB",
+     "kind": "box",
+     "x": 105,
+     "y": 70,
+     "w": 50,
+     "h": 40,
+     "label": "20",
+     "dash": true
+    },
+    {
+     "id": "hDE",
+     "kind": "box",
+     "x": 255,
+     "y": 70,
+     "w": 75,
+     "h": 40,
+     "label": "30",
+     "dash": true
+    },
+    {
+     "id": "hAB",
+     "kind": "box",
+     "x": 30,
+     "y": 70,
+     "w": 125,
+     "h": 40,
+     "label": "50",
+     "dash": true
+    },
+    {
+     "id": "E",
+     "kind": "box",
+     "x": 30,
+     "y": 70,
+     "w": 112.5,
+     "h": 40,
+     "label": "E 45",
+     "tone": "good"
+    },
+    {
+     "id": "hE",
+     "kind": "box",
+     "x": 142.5,
+     "y": 70,
+     "w": 12.5,
+     "h": 40,
+     "dash": true
+    },
+    {
+     "id": "t0",
+     "kind": "text",
+     "x": 30,
+     "y": 126,
+     "text": "0",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "t1",
+     "kind": "text",
+     "x": 330,
+     "y": 126,
+     "text": "120",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 164,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "At the start, memory is one hole of 120 KB.",
+     "show": [
+      "h0"
+     ],
+     "hide": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "hEnd",
+      "hB",
+      "hDE",
+      "hAB",
+      "E",
+      "hE"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "one hole: 120 KB"
+      }
+     ]
+    },
+    {
+     "caption": "Load A, B, C and D from the low end: A at 0-30, B at 30-50, C at 50-90, D at 90-100. A hole of 20 KB remains at 100-120.",
+     "hide": [
+      "h0"
+     ],
+     "show": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "hEnd"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "hole at the end: 20 KB"
+      }
+     ],
+     "highlight": [
+      "hEnd"
+     ]
+    },
+    {
+     "caption": "B terminates. Its 20 KB become a hole at 30-50, between A and C. Holes: 20 KB (30-50) and 20 KB (100-120).",
+     "hide": [
+      "B"
+     ],
+     "show": [
+      "hB"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "holes: 20 KB, 20 KB"
+      }
+     ],
+     "highlight": [
+      "hB"
+     ]
+    },
+    {
+     "caption": "D terminates. Its 10 KB touch the free end, so they merge into one hole of 30 KB at 90-120. Holes: 20 KB and 30 KB.",
+     "hide": [
+      "D",
+      "hEnd"
+     ],
+     "show": [
+      "hDE"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "D + end merge: 20, 30 KB"
+      }
+     ],
+     "highlight": [
+      "hDE"
+     ]
+    },
+    {
+     "caption": "A terminates. Its 30 KB sit next to B's old hole, so they merge into a hole of 50 KB at 0-50. Holes: 50 KB and 30 KB, with C between them.",
+     "hide": [
+      "A",
+      "hB"
+     ],
+     "show": [
+      "hAB"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "A + B hole merge: 50, 30 KB"
+      }
+     ],
+     "highlight": [
+      "hAB"
+     ]
+    },
+    {
+     "caption": "Two holes, 50 KB and 30 KB, are separated by the running process C. Free memory totals 80 KB, but it is in two pieces.",
+     "set": [
+      {
+       "id": "note",
+       "text": "free 80 KB in two holes"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "hAB",
+       "tone": "good"
+      },
+      {
+       "id": "hDE",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "E (45 KB) arrives. It fits in the 50 KB hole: E takes 0-45 and a 5 KB hole is left over at 45-50.",
+     "hide": [
+      "hAB"
+     ],
+     "show": [
+      "E",
+      "hE"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "E fits: holes 5 KB, 30 KB"
+      }
+     ],
+     "highlight": [
+      "E"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.memory.fit",
+   "title": "First, best and worst fit on the same requests",
+   "viewBox": [
+    0,
+    0,
+    360,
+    274
+   ],
+   "objects": [
+    {
+     "id": "req",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "requests: 10, 30, 40, 55 KB",
+     "size": 13,
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "l1",
+     "kind": "text",
+     "x": 8,
+     "y": 64,
+     "text": "first",
+     "size": 13,
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "b1",
+     "kind": "bar",
+     "x": 62,
+     "y": 46,
+     "values": [
+      65,
+      25,
+      60,
+      45,
+      15
+     ],
+     "w": 280,
+     "h": 40,
+     "max": 70
+    },
+    {
+     "id": "l2",
+     "kind": "text",
+     "x": 8,
+     "y": 138,
+     "text": "best",
+     "size": 13,
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "b2",
+     "kind": "bar",
+     "x": 62,
+     "y": 120,
+     "values": [
+      65,
+      25,
+      60,
+      45,
+      15
+     ],
+     "w": 280,
+     "h": 40,
+     "max": 70
+    },
+    {
+     "id": "l3",
+     "kind": "text",
+     "x": 8,
+     "y": 212,
+     "text": "worst",
+     "size": 13,
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "b3",
+     "kind": "bar",
+     "x": 62,
+     "y": 194,
+     "values": [
+      65,
+      25,
+      60,
+      45,
+      15
+     ],
+     "w": 280,
+     "h": 40,
+     "max": 70
+    },
+    {
+     "id": "msg",
+     "kind": "text",
+     "x": 180,
+     "y": 264,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The three policies start with the same holes h1 to h5: 65, 25, 60, 45, 15.",
+     "set": [
+      {
+       "id": "msg",
+       "text": "holes h1..h5 in address order"
+      }
+     ]
+    },
+    {
+     "caption": "Request 10. First fit takes the first hole that fits: h1, leaving 55. Best fit takes the smallest hole that fits: h5 (15), leaving 5. Worst fit takes the largest: h1 (65), leaving 55.",
+     "set": [
+      {
+       "id": "b1",
+       "values": [
+        55,
+        25,
+        60,
+        45,
+        15
+       ]
+      },
+      {
+       "id": "b2",
+       "values": [
+        65,
+        25,
+        60,
+        45,
+        5
+       ]
+      },
+      {
+       "id": "b3",
+       "values": [
+        55,
+        25,
+        60,
+        45,
+        15
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "10: first h1, best h5, worst h1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b1",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "b2",
+       "cells": [
+        4
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "b3",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Request 30. First fit: h1 (55 ≥ 30), leaving 25. Best fit: the smallest hole ≥ 30 is h4 (45), leaving 15. Worst fit: the largest is h3 (60), leaving 30.",
+     "set": [
+      {
+       "id": "b1",
+       "values": [
+        25,
+        25,
+        60,
+        45,
+        15
+       ]
+      },
+      {
+       "id": "b2",
+       "values": [
+        65,
+        25,
+        60,
+        15,
+        5
+       ]
+      },
+      {
+       "id": "b3",
+       "values": [
+        55,
+        25,
+        30,
+        45,
+        15
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "30: first h1, best h4, worst h3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b1",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "b2",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "b3",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Request 40. First fit: h1 now has 25, h2 has 25, so h3 (60) is the first that fits, leaving 20. Best fit: smallest ≥ 40 is h3 (60), leaving 20. Worst fit: largest is h1 (55), leaving 15.",
+     "set": [
+      {
+       "id": "b1",
+       "values": [
+        25,
+        25,
+        20,
+        45,
+        15
+       ]
+      },
+      {
+       "id": "b2",
+       "values": [
+        65,
+        25,
+        20,
+        15,
+        5
+       ]
+      },
+      {
+       "id": "b3",
+       "values": [
+        15,
+        25,
+        30,
+        45,
+        15
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "40: first h3, best h3, worst h1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b1",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "b2",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "b3",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Request 55. First fit: the holes are 25, 25, 20, 45, 15, none is 55 or more, so it fails. Best fit: h1 still has 65 and takes it, leaving 10. Worst fit: the largest is 45, so it fails.",
+     "set": [
+      {
+       "id": "b1",
+       "values": [
+        25,
+        25,
+        20,
+        45,
+        15
+       ]
+      },
+      {
+       "id": "b2",
+       "values": [
+        10,
+        25,
+        20,
+        15,
+        5
+       ]
+      },
+      {
+       "id": "b3",
+       "values": [
+        15,
+        25,
+        30,
+        45,
+        15
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "55: only best fit has a hole"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b1",
+       "tone": "bad"
+      },
+      {
+       "id": "b2",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "b3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Best fit placed all four requests. First fit and worst fit both failed on the 55 KB request.",
+     "set": [
+      {
+       "id": "msg",
+       "text": "best places all 4; first, worst fail",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b2",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.memory.compact",
+   "title": "External fragmentation and compaction",
+   "viewBox": [
+    0,
+    0,
+    360,
+    205
+   ],
+   "objects": [
+    {
+     "id": "ttl",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "memory 200 KB (1.6 px per KB)",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "b0",
+     "kind": "box",
+     "x": 20,
+     "y": 80,
+     "w": 32.0,
+     "h": 44,
+     "label": "OS",
+     "tone": "muted"
+    },
+    {
+     "id": "z0",
+     "kind": "text",
+     "x": 36.0,
+     "y": 68,
+     "text": "20",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "b1",
+     "kind": "box",
+     "x": 52.0,
+     "y": 80,
+     "w": 48.0,
+     "h": 44,
+     "label": "P1",
+     "tone": "accent"
+    },
+    {
+     "id": "z1",
+     "kind": "text",
+     "x": 76.0,
+     "y": 68,
+     "text": "30",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "b2",
+     "kind": "box",
+     "x": 100.0,
+     "y": 80,
+     "w": 24.0,
+     "h": 44,
+     "dash": true
+    },
+    {
+     "id": "z2",
+     "kind": "text",
+     "x": 112.0,
+     "y": 50,
+     "text": "15",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "b3",
+     "kind": "box",
+     "x": 124.0,
+     "y": 80,
+     "w": 64.0,
+     "h": 44,
+     "label": "P2",
+     "tone": "accent"
+    },
+    {
+     "id": "z3",
+     "kind": "text",
+     "x": 156.0,
+     "y": 68,
+     "text": "40",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "b4",
+     "kind": "box",
+     "x": 188.0,
+     "y": 80,
+     "w": 40.0,
+     "h": 44,
+     "dash": true
+    },
+    {
+     "id": "z4",
+     "kind": "text",
+     "x": 208.0,
+     "y": 50,
+     "text": "25",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "b5",
+     "kind": "box",
+     "x": 228.0,
+     "y": 80,
+     "w": 32.0,
+     "h": 44,
+     "label": "P3",
+     "tone": "accent"
+    },
+    {
+     "id": "z5",
+     "kind": "text",
+     "x": 244.0,
+     "y": 68,
+     "text": "20",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "b6",
+     "kind": "box",
+     "x": 260.0,
+     "y": 80,
+     "w": 16.0,
+     "h": 44,
+     "dash": true
+    },
+    {
+     "id": "z6",
+     "kind": "text",
+     "x": 268.0,
+     "y": 50,
+     "text": "10",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "b7",
+     "kind": "box",
+     "x": 276.0,
+     "y": 80,
+     "w": 64.0,
+     "h": 44,
+     "label": "P4",
+     "tone": "accent"
+    },
+    {
+     "id": "z7",
+     "kind": "text",
+     "x": 308.0,
+     "y": 68,
+     "text": "40",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "HM",
+     "kind": "box",
+     "x": 260,
+     "y": 80,
+     "w": 80,
+     "h": 44,
+     "dash": true,
+     "label": "50 KB"
+    },
+    {
+     "id": "NEW",
+     "kind": "box",
+     "x": 260,
+     "y": 80,
+     "w": 72,
+     "h": 44,
+     "label": "new 45",
+     "tone": "good"
+    },
+    {
+     "id": "HL",
+     "kind": "box",
+     "x": 332,
+     "y": 80,
+     "w": 8,
+     "h": 44,
+     "dash": true
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 160,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "mv",
+     "kind": "text",
+     "x": 180,
+     "y": 186,
+     "text": "",
+     "size": 13,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The layout adds up: 20 + 30 + 15 + 40 + 25 + 20 + 10 + 40 = 200 KB. The holes are 15, 25 and 10 KB.",
+     "show": [
+      "b0",
+      "b1",
+      "b2",
+      "b3",
+      "b4",
+      "b5",
+      "b6",
+      "b7",
+      "z0",
+      "z1",
+      "z2",
+      "z3",
+      "z4",
+      "z5",
+      "z6",
+      "z7"
+     ],
+     "hide": [
+      "HM",
+      "NEW",
+      "HL"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "holes: 15, 25, 10 KB"
+      }
+     ]
+    },
+    {
+     "caption": "Free memory is 15 + 25 + 10 = 50 KB, which is more than 45. But the largest hole is 25 KB. The 45 KB process cannot be loaded. This is external fragmentation.",
+     "set": [
+      {
+       "id": "note",
+       "text": "free 50 KB, largest hole 25",
+       "tone": "bad"
+      },
+      {
+       "id": "mv",
+       "text": "45 KB request: FAILS"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b2",
+       "tone": "bad"
+      },
+      {
+       "id": "b4",
+       "tone": "bad"
+      },
+      {
+       "id": "b6",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Compaction: slide P2 down by 15 KB to close the first hole. P2 is 40 KB, so 40 KB of data are copied.",
+     "hide": [
+      "z0",
+      "z1",
+      "z2",
+      "z3",
+      "z4",
+      "z5",
+      "z6",
+      "z7",
+      "b2"
+     ],
+     "move": [
+      {
+       "id": "b3",
+       "x": 100.0
+      }
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "slide P2 down 15 KB",
+       "tone": "accent"
+      },
+      {
+       "id": "mv",
+       "text": "copied so far: 40 KB"
+      }
+     ],
+     "highlight": [
+      "b3"
+     ]
+    },
+    {
+     "caption": "Slide P3 down by 15 + 25 = 40 KB. P3 is 20 KB, so 20 KB are copied.",
+     "move": [
+      {
+       "id": "b5",
+       "x": 164.0
+      }
+     ],
+     "hide": [
+      "b4"
+     ],
+     "set": [
+      {
+       "id": "mv",
+       "text": "copied so far: 40 + 20 = 60 KB"
+      }
+     ],
+     "highlight": [
+      "b5"
+     ]
+    },
+    {
+     "caption": "Slide P4 down by 15 + 25 + 10 = 50 KB. P4 is 40 KB, so 40 KB are copied.",
+     "move": [
+      {
+       "id": "b7",
+       "x": 196.0
+      }
+     ],
+     "hide": [
+      "b6"
+     ],
+     "set": [
+      {
+       "id": "mv",
+       "text": "copied so far: 60 + 40 = 100 KB"
+      }
+     ],
+     "highlight": [
+      "b7"
+     ]
+    },
+    {
+     "caption": "All free memory is now one hole of 50 KB at the top. Total copied = 40 + 20 + 40 = 100 KB.",
+     "show": [
+      "HM"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "one hole: 50 KB",
+       "tone": "good"
+      },
+      {
+       "id": "mv",
+       "text": "total moved: 100 KB"
+      }
+     ],
+     "highlight": [
+      "HM"
+     ]
+    },
+    {
+     "caption": "The 45 KB process now fits, leaving a 5 KB hole.",
+     "hide": [
+      "HM"
+     ],
+     "show": [
+      "NEW",
+      "HL"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "45 KB fits; 5 KB left",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "NEW"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.memory.paging",
+   "title": "Translating an address with a page table",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "lm",
+     "kind": "array",
+     "x": 60,
+     "y": 40,
+     "cells": [
+      "p0",
+      "p1",
+      "p2",
+      "p3"
+     ],
+     "cw": 60,
+     "ch": 30,
+     "dir": "right",
+     "indices": false
+    },
+    {
+     "id": "lL",
+     "kind": "text",
+     "x": 348,
+     "y": 55,
+     "text": "pages",
+     "size": 12,
+     "anchor": "end",
+     "tone": "muted"
+    },
+    {
+     "id": "pt",
+     "kind": "array",
+     "x": 60,
+     "y": 110,
+     "cells": [
+      5,
+      2,
+      7,
+      0
+     ],
+     "cw": 60,
+     "ch": 30,
+     "indices": true
+    },
+    {
+     "id": "lT",
+     "kind": "text",
+     "x": 348,
+     "y": 125,
+     "text": "table",
+     "size": 12,
+     "anchor": "end",
+     "tone": "muted"
+    },
+    {
+     "id": "fr",
+     "kind": "array",
+     "x": 36,
+     "y": 188,
+     "cells": [
+      "p3",
+      "",
+      "p1",
+      "",
+      "",
+      "p0",
+      "",
+      "p2"
+     ],
+     "cw": 36,
+     "ch": 30,
+     "indices": true
+    },
+    {
+     "id": "lF",
+     "kind": "text",
+     "x": 180,
+     "y": 248,
+     "text": "physical frames",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "aP",
+     "kind": "arrow",
+     "x1": 150,
+     "y1": 72,
+     "x2": 150,
+     "y2": 108,
+     "dash": true
+    },
+    {
+     "id": "aF",
+     "kind": "arrow",
+     "x1": 150,
+     "y1": 142,
+     "x2": 306,
+     "y2": 186
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Pages needed = ceil(3400 / 1024) = ceil(3.32) = 4. The page table maps 0 → 5, 1 → 2, 2 → 7, 3 → 0.",
+     "hide": [
+      "aP",
+      "aF"
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "ceil(3400/1024) = 4 pages"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "lm",
+       "tone": "accent"
+      },
+      {
+       "id": "pt",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Split the address: page number = 2600 div 1024 = 2, offset = 2600 mod 1024 = 552.",
+     "show": [
+      "aP"
+     ],
+     "draw": [
+      "aP"
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "2600 = 2 x 1024 + 552"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "lm",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Look up the page table at index 2. It holds frame 7.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "page table[2] = frame 7"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pt",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Physical address = frame × page size + offset = 7 × 1024 + 552 = 7168 + 552 = 7720.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "7 x 1024 + 552 = 7720"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "fr",
+       "cells": [
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "So page 2 sits in frame 7, and byte 552 of that page is byte 552 of frame 7. Frames need not be in order.",
+     "show": [
+      "aF"
+     ],
+     "draw": [
+      "aF"
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "page 2 lives in frame 7"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "fr",
+       "cells": [
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The last page holds only 3400 - 3 × 1024 = 328 bytes. The unused part is 1024 - 328 = 696 bytes: internal fragmentation.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "last page: 328 used, 696 wasted",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "lm",
+       "cells": [
+        3
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "fr",
+       "cells": [
+        0
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.memory.segments",
+   "title": "Segment table translation",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "st",
+     "kind": "grid",
+     "x": 40,
+     "y": 44,
+     "rows": 3,
+     "cols": 2,
+     "cw": 56,
+     "ch": 26,
+     "cells": [
+      [
+       2000,
+       600
+      ],
+      [
+       5200,
+       500
+      ],
+      [
+       900,
+       1100
+      ]
+     ],
+     "colLabels": [
+      "base",
+      "limit"
+     ],
+     "rowLabels": [
+      "S0",
+      "S1",
+      "S2"
+     ]
+    },
+    {
+     "id": "tr",
+     "kind": "text",
+     "x": 262,
+     "y": 72,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "tt",
+     "kind": "text",
+     "x": 262,
+     "y": 118,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "mem",
+     "kind": "box",
+     "x": 20,
+     "y": 170,
+     "w": 330,
+     "h": 36,
+     "fill": false
+    },
+    {
+     "id": "s2",
+     "kind": "box",
+     "x": 69.5,
+     "y": 170,
+     "w": 60.5,
+     "h": 36,
+     "label": "S2",
+     "tone": "accent"
+    },
+    {
+     "id": "s0",
+     "kind": "box",
+     "x": 130.0,
+     "y": 170,
+     "w": 33.0,
+     "h": 36,
+     "label": "S0",
+     "tone": "accent"
+    },
+    {
+     "id": "s1",
+     "kind": "box",
+     "x": 306.0,
+     "y": 170,
+     "w": 27.5,
+     "h": 36,
+     "label": "S1",
+     "tone": "accent"
+    },
+    {
+     "id": "t0",
+     "kind": "text",
+     "x": 20,
+     "y": 222,
+     "text": "0",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "t6",
+     "kind": "text",
+     "x": 350,
+     "y": 222,
+     "text": "6000",
+     "size": 12,
+     "anchor": "end",
+     "tone": "muted"
+    },
+    {
+     "id": "a1",
+     "kind": "arrow",
+     "x1": 312.6,
+     "y1": 150,
+     "x2": 312.6,
+     "y2": 168
+    },
+    {
+     "id": "a2",
+     "kind": "arrow",
+     "x1": 162.9,
+     "y1": 150,
+     "x2": 162.9,
+     "y2": 168
+    },
+    {
+     "id": "a3",
+     "kind": "arrow",
+     "x1": 190.5,
+     "y1": 150,
+     "x2": 190.5,
+     "y2": 168
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Each segment has its own base and limit, and it is placed anywhere in physical memory. The strip shows where the three segments lie.",
+     "show": [
+      "s2",
+      "s0",
+      "s1"
+     ],
+     "hide": [
+      "a1",
+      "a2",
+      "a3"
+     ],
+     "set": [
+      {
+       "id": "tr",
+       "text": "3 segments"
+      },
+      {
+       "id": "tt",
+       "text": ""
+      }
+     ],
+     "highlight": [
+      {
+       "id": "st",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "(1, 120): segment 1, offset 120. Check 120 < 500: legal. Physical = 5200 + 120 = 5320.",
+     "show": [
+      "a1"
+     ],
+     "draw": [
+      "a1"
+     ],
+     "set": [
+      {
+       "id": "tr",
+       "text": "(1,120): 120 < 500 ok"
+      },
+      {
+       "id": "tt",
+       "text": "5200+120 = 5320"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "st",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "s1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "(0, 599): segment 0, offset 599. Limit is 600 so legal offsets are 0 to 599, and 599 is the last one. Physical = 2000 + 599 = 2599.",
+     "hide": [
+      "a1"
+     ],
+     "show": [
+      "a2"
+     ],
+     "draw": [
+      "a2"
+     ],
+     "set": [
+      {
+       "id": "tr",
+       "text": "(0,599): 599 < 600 ok"
+      },
+      {
+       "id": "tt",
+       "text": "2000+599 = 2599"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "st",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "s0",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "(2, 1100): segment 2 has limit 1100, so legal offsets are 0 to 1099. 1100 < 1100 is false, so the hardware traps (segmentation fault).",
+     "hide": [
+      "a2"
+     ],
+     "set": [
+      {
+       "id": "tr",
+       "text": "(2,1100): 1100 < 1100 ?",
+       "tone": "bad"
+      },
+      {
+       "id": "tt",
+       "text": "NO: TRAP",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "st",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "s2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Segments have different sizes (500, 600, 1100), so they leave holes of different sizes when freed. That is external fragmentation. There is no internal waste.",
+     "set": [
+      {
+       "id": "tr",
+       "text": "sizes 500, 600, 1100"
+      },
+      {
+       "id": "tt",
+       "text": "external waste only",
+       "tone": "muted"
+      }
+     ],
+     "highlight": [
+      "s2",
+      "s0",
+      "s1"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.memory.pagesize",
+   "title": "Page size: table cost versus waste",
+   "viewBox": [
+    0,
+    0,
+    360,
+    236
+   ],
+   "objects": [
+    {
+     "id": "ttl",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "b",
+     "kind": "bar",
+     "x": 40,
+     "y": 52,
+     "values": [
+      4096,
+      2048,
+      1024,
+      512,
+      256
+     ],
+     "labels": [
+      "512",
+      "1K",
+      "2K",
+      "4K",
+      "8K"
+     ],
+     "w": 290,
+     "h": 110,
+     "max": 5000
+    },
+    {
+     "id": "xl",
+     "kind": "text",
+     "x": 185,
+     "y": 196,
+     "text": "page size p (bytes)",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "msg",
+     "kind": "text",
+     "x": 180,
+     "y": 220,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Overhead(p) = s × e / p + p / 2 with s = 2^19, e = 4. The first term is the table: (number of pages) × (entry size). The second is the average waste.",
+     "set": [
+      {
+       "id": "ttl",
+       "text": "overhead = s*e/p + p/2"
+      },
+      {
+       "id": "msg",
+       "text": "s = 2^19 bytes, e = 4"
+      },
+      {
+       "id": "b",
+       "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Table size s × e / p for p = 512, 1K, 2K, 4K, 8K: 4096, 2048, 1024, 512, 256 bytes. It falls as the page grows.",
+     "set": [
+      {
+       "id": "ttl",
+       "text": "table size s*e/p falls"
+      },
+      {
+       "id": "b",
+       "values": [
+        4096,
+        2048,
+        1024,
+        512,
+        256
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Average waste p / 2: 256, 512, 1024, 2048, 4096 bytes. It rises as the page grows.",
+     "set": [
+      {
+       "id": "ttl",
+       "text": "waste p/2 rises"
+      },
+      {
+       "id": "b",
+       "values": [
+        256,
+        512,
+        1024,
+        2048,
+        4096
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Add them: 4352, 2560, 2048, 2560, 4352. The smallest is 2048 bytes, at p = 2048.",
+     "set": [
+      {
+       "id": "ttl",
+       "text": "total = table + waste"
+      },
+      {
+       "id": "b",
+       "values": [
+        4352,
+        2560,
+        2048,
+        2560,
+        4352
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "minimum 2048 at p = 2048"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Check with the formula p = sqrt(2 s e) = sqrt(2 × 2^19 × 4) = sqrt(2^22) = 2^11 = 2048. It matches.",
+     "set": [
+      {
+       "id": "ttl",
+       "text": "p = sqrt(2*s*e) = 2048"
+      },
+      {
+       "id": "msg",
+       "text": "table = waste = 1024 at the optimum",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

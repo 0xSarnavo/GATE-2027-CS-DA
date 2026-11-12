@@ -1,0 +1,2301 @@
+{
+ "topic_id": "ml.nb",
+ "title": "Naive Bayes",
+ "chapter_note": {
+  "about": "Naive Bayes classifies by asking which class would most likely have produced the data. It multiplies how common each class is by how well the features fit that class. The 'naive' part is one assumption: the features are independent once the class is known. This chapter covers the decision rule, that assumption, building the numbers from a table, smoothing zero counts, counting parameters, the Gaussian version for measured features, and the error probability.",
+  "concept_map": [
+   {
+    "atom_id": "n1",
+    "title": "Bayes rule and the MAP decision",
+    "one_line": "Score each class as prior times likelihood and pick the largest."
+   },
+   {
+    "atom_id": "n2",
+    "title": "Conditional independence",
+    "one_line": "Features are independent given the class, which turns the likelihood into a product."
+   },
+   {
+    "atom_id": "n3",
+    "title": "Priors and likelihoods from counts",
+    "one_line": "Prior is the class share of all rows. Likelihood divides by the class size."
+   },
+   {
+    "atom_id": "n4",
+    "title": "Laplace smoothing",
+    "one_line": "Add 1 to each count and the number of values V to the class count."
+   },
+   {
+    "atom_id": "n5",
+    "title": "Counting parameters",
+    "one_line": "Linear in the number of features: K d (V-1) plus K-1 priors."
+   },
+   {
+    "atom_id": "n6",
+    "title": "Gaussian naive Bayes",
+    "one_line": "One mean and variance per class and feature. The likelihood is the density at x."
+   },
+   {
+    "atom_id": "n7",
+    "title": "Generative model and error probability",
+    "one_line": "It models P(x,y). The error at x is the smaller normalised posterior."
+   }
+  ],
+  "gate_patterns": [
+   "Count the parameters: binary or V-valued features and K classes give a count that is linear in the features, not exponential. Asked in 2024 DA Q20 and 2024 DA sample Q28.",
+   "Probability of misclassification: score each class, normalise, and take the smaller posterior. Asked in 2025 DA Q35.",
+   "Place naive Bayes among methods: it is a generative classifier, unlike PCA (reduction), K-medoid (clustering) or logistic regression (discriminative). Asked in 2024 DA Q18 and 2026 DA Q23. About 0.67 marks per DA paper."
+  ],
+  "simple": "Naive Bayes is a guess-the-group method. To decide which group a new item belongs to, it asks two things for every group: how common is the group, and how well does this item fit it. It multiplies the two answers and picks the biggest. To make the fitting part easy, it pretends the clues are unrelated once you know the group, which is the 'naive' part. Training is only counting rows in a table, plus a small trick so that no count is ever exactly zero. Because it only keeps a few simple numbers, it works even with little data."
+ },
+ "cards": [
+  {
+   "atom_id": "n1",
+   "title": "Bayes rule and the MAP decision",
+   "simple": "Think of a doctor choosing between two illnesses. She first asks how common each illness is. Then she asks how well this patient's symptom fits each one. A common illness with a good fit wins. Naive Bayes does the same with emails: it multiplies how common each class is by how well the words fit that class, and picks the bigger answer. The total chance of seeing those words is the same for every class, so it can never change who wins and you can ignore it. In exam words: predict $\\arg\\max_y P(y)\\,P(x\\mid y)$, the MAP (maximum a posteriori) class; $P(x)$ cancels.",
+   "idea": "To label a new item, score **every class** by two things: how common the class is (the **prior**) and how likely this item is if it came from that class (the **likelihood**). Multiply the two and pick the biggest score. The chance of seeing the item at all is the same for every class, so it never changes the winner.",
+   "definition": "$$\\hat y=\\arg\\max_y\\ P(y)\\,P(x\\mid y),\\qquad P(y\\mid x)=\\frac{P(y)\\,P(x\\mid y)}{P(x)}$$\n\nSymbols: $y$ is a class and $x$ the observed features. $P(y)$ is the prior, $P(x\\mid y)$ the likelihood and $P(y\\mid x)$ the posterior. $P(x)=\\sum_y P(y)P(x\\mid y)$ is the evidence. The argmax means: the class that gives the largest value.",
+   "intuition_full": "Bayes rule turns a hard question into an easy one. 'Given these words, is it spam?' is hard to count directly. 'Given that it is spam, how often are these words there?' is easy: look inside the spam pile. Picture two buckets of marbles. The prior says how many marbles each bucket holds. The likelihood says what fraction of each bucket has the colour you just drew. Prior times likelihood is the number of matching marbles in each bucket, so the bigger count is the better guess. The evidence is the matching marbles of both buckets together. It is one shared number, so dividing by it rescales the scores to add up to 1 but never changes their order. That is why the decision rule drops it. Keep it only when a question asks for an actual probability.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "In a mailbox 40% of emails are spam and 60% are ham. The word 'free' appears in 50% of spam and in 10% of ham. A new email contains 'free'. Which class does MAP pick, and what is the posterior of spam?",
+     "steps": [
+      "Priors: $P(\\text{spam})=0.4$ and $P(\\text{ham})=0.6$.",
+      "Likelihoods of 'free': $P(\\text{free}\\mid\\text{spam})=0.5$ and $P(\\text{free}\\mid\\text{ham})=0.1$.",
+      "Scores: spam $0.4\\times0.5=0.20$. Ham $0.6\\times0.1=0.06$.",
+      "Spam has the bigger score, so MAP predicts spam.",
+      "Evidence $P(\\text{free})=0.20+0.06=0.26$. Posterior of spam $=0.20/0.26=0.769$ and of ham $=0.06/0.26=0.231$."
+     ],
+     "answer": "Predict spam. The posterior of spam is 0.769 (20/26)."
+    },
+    {
+     "level": "gate",
+     "setup": "Three classes have priors 0.5, 0.3 and 0.2. For the observed $x$ the likelihoods are $P(x\\mid y_1)=0.1$, $P(x\\mid y_2)=0.4$ and $P(x\\mid y_3)=0.5$. Which class does naive Bayes predict, and what is its posterior?",
+     "steps": [
+      "Class 1 has the biggest prior and class 3 the biggest likelihood. Neither alone decides.",
+      "Scores: $y_1$: $0.5\\times0.1=0.05$. $y_2$: $0.3\\times0.4=0.12$. $y_3$: $0.2\\times0.5=0.10$.",
+      "The largest score is $0.12$, so predict $y_2$.",
+      "Evidence $=0.05+0.12+0.10=0.27$. Posterior of $y_2=0.12/0.27=0.444$."
+     ],
+     "answer": "Predict $y_2$ with posterior 0.444. Picking the biggest prior or the biggest likelihood alone would be wrong."
+    },
+    {
+     "level": "twist",
+     "setup": "Use the likelihoods of the basic example, but suppose only 10% of emails are spam (ham is 90%). Does the email with 'free' still go to spam?",
+     "steps": [
+      "Scores: spam $0.1\\times0.5=0.05$. Ham $0.9\\times0.1=0.09$.",
+      "Ham is larger, so MAP predicts ham, even though 'free' is five times likelier in spam.",
+      "Posterior of spam $=0.05/0.14=0.357$."
+     ],
+     "answer": "Ham wins. A small prior can overturn a strong likelihood."
+    }
+   ],
+   "why": "Every naive Bayes question starts here. If you can compare prior times likelihood, the rest of the chapter is bookkeeping. In GATE: the decision rule itself, and placing naive Bayes among methods as a generative classifier.",
+   "how": [
+    "Write the **prior** of each class.",
+    "Write the **likelihood** of the observed features under each class.",
+    "Multiply prior by likelihood for every class.",
+    "Pick the **largest** score. Divide by the sum of all scores only if a probability is asked."
+   ],
+   "mistake": "Choosing the class with the biggest prior, or the biggest likelihood alone. The decision needs both, multiplied. Also, raw scores are not probabilities: they add up to the evidence, not to 1. Divide by their sum before quoting a posterior.",
+   "edge_cases": [
+    "Equal scores: the classes tie and either answer is a valid MAP choice.",
+    "Equal priors: the prior is the same factor in every score, so the larger likelihood wins.",
+    "A score of 0 rules a class out completely. That is why zero counts are a problem (see Laplace smoothing).",
+    "Only the order of the scores matters for the decision, so any common positive factor can be dropped."
+   ],
+   "connections": [
+    "Probability: Bayes theorem is this same formula, applied to one class pair at a time.",
+    "Next card: conditional independence is what makes the likelihood computable when there are many features.",
+    "Logistic regression models $P(y\\mid x)$ directly. Naive Bayes builds it from $P(y)P(x\\mid y)$."
+   ],
+   "check": [
+    {
+     "q": "Priors are 0.7 and 0.3. Likelihoods are 0.2 and 0.6. Which class wins?",
+     "a": "Scores $0.7\\times0.2=0.14$ and $0.3\\times0.6=0.18$. The second class wins."
+    },
+    {
+     "q": "In that question, what is the posterior of the winner?",
+     "a": "$0.18/(0.14+0.18)=0.18/0.32=0.5625$."
+    },
+    {
+     "q": "Two classes have equal priors. Does the prior matter for the decision?",
+     "a": "No. It is the same factor in both scores, so the larger likelihood wins."
+    }
+   ],
+   "asked": "Asked: 2024 DA Q18 and 2026 DA Q23 (placing naive Bayes among methods: it is a generative classifier).",
+   "scene": "ml.nb.argmax",
+   "try": {
+    "id": "gen.ml.nb.003",
+    "label": "The naive Bayes prediction rule"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "In a mailbox 40% of emails are spam and 60% are ham. The word 'free' appears in 50% of spam and in 10% of ham. A new email contains 'free'. Which class does MAP pick, and what is the posterior of spam?",
+    "steps": [
+     "Priors: $P(\\text{spam})=0.4$ and $P(\\text{ham})=0.6$.",
+     "Likelihoods of 'free': $P(\\text{free}\\mid\\text{spam})=0.5$ and $P(\\text{free}\\mid\\text{ham})=0.1$.",
+     "Scores: spam $0.4\\times0.5=0.20$. Ham $0.6\\times0.1=0.06$.",
+     "Spam has the bigger score, so MAP predicts spam.",
+     "Evidence $P(\\text{free})=0.20+0.06=0.26$. Posterior of spam $=0.20/0.26=0.769$ and of ham $=0.06/0.26=0.231$."
+    ],
+    "answer": "Predict spam. The posterior of spam is 0.769 (20/26)."
+   },
+   "what": "To label a new item, score **every class** by two things: how common the class is (the **prior**) and how likely this item is if it came from that class (the **likelihood**). Multiply the two and pick the biggest score. The chance of seeing the item at all is the same for every class, so it never changes the winner.",
+   "what_full": "To label a new item, score **every class** by two things: how common the class is (the **prior**) and how likely this item is if it came from that class (the **likelihood**). Multiply the two and pick the biggest score. The chance of seeing the item at all is the same for every class, so it never changes the winner.\n\n$$\\hat y=\\arg\\max_y\\ P(y)\\,P(x\\mid y),\\qquad P(y\\mid x)=\\frac{P(y)\\,P(x\\mid y)}{P(x)}$$\n\nSymbols: $y$ is a class and $x$ the observed features. $P(y)$ is the prior, $P(x\\mid y)$ the likelihood and $P(y\\mid x)$ the posterior. $P(x)=\\sum_y P(y)P(x\\mid y)$ is the evidence. The argmax means: the class that gives the largest value.\n\n**Worked example.** In a mailbox 40% of emails are spam and 60% are ham. The word 'free' appears in 50% of spam and in 10% of ham. A new email contains 'free'. Which class does MAP pick, and what is the posterior of spam?\n\n1. Priors: $P(\\text{spam})=0.4$ and $P(\\text{ham})=0.6$.\n2. Likelihoods of 'free': $P(\\text{free}\\mid\\text{spam})=0.5$ and $P(\\text{free}\\mid\\text{ham})=0.1$.\n3. Scores: spam $0.4\\times0.5=0.20$. Ham $0.6\\times0.1=0.06$.\n4. Spam has the bigger score, so MAP predicts spam.\n5. Evidence $P(\\text{free})=0.20+0.06=0.26$. Posterior of spam $=0.20/0.26=0.769$ and of ham $=0.06/0.26=0.231$.\n\n**Answer:** Predict spam. The posterior of spam is 0.769 (20/26).\n\n**Check yourself:** Priors are 0.7 and 0.3. Likelihoods are 0.2 and 0.6. Which class wins?\n\n*Answer:* Scores $0.7\\times0.2=0.14$ and $0.3\\times0.6=0.18$. The second class wins.",
+   "why_full": "Every naive Bayes question starts here. If you can compare prior times likelihood, the rest of the chapter is bookkeeping. In GATE: the decision rule itself, and placing naive Bayes among methods as a generative classifier.\n\nAsked: 2024 DA Q18 and 2026 DA Q23 (placing naive Bayes among methods: it is a generative classifier).",
+   "trap": "Choosing the class with the biggest prior, or the biggest likelihood alone. The decision needs both, multiplied. Also, raw scores are not probabilities: they add up to the evidence, not to 1. Divide by their sum before quoting a posterior.",
+   "trap_full": "Choosing the class with the biggest prior, or the biggest likelihood alone. The decision needs both, multiplied. Also, raw scores are not probabilities: they add up to the evidence, not to 1. Divide by their sum before quoting a posterior."
+  },
+  {
+   "atom_id": "n2",
+   "title": "Conditional independence",
+   "simple": "Say you guess who sent a text from two clues: it says 'lol' and it says 'bro'. Take only your cricket friends. Among them, 'lol' tells you nothing new about 'bro', and the same holds among your school friends. Naive Bayes pretends this is true inside every group, so it can just multiply the chances of the clues. But mix both groups together and the words travel together, because cricket friends use both a lot and school friends use neither much. So the pretend applies only once you know the group. In exam words: features are conditionally independent given the class, $P(x\\mid y)=\\prod_j P(x_j\\mid y)$, which is not the same as plain independence.",
+   "idea": "A message has many features, such as several words, and one number per combination of them is far too many to estimate. Naive Bayes assumes that, **once you know the class**, the features do not affect each other. Then the likelihood is just a product of one-feature likelihoods. The assumption holds inside each class, not overall.",
+   "definition": "$$P(x_1,\\dots,x_d\\mid y)=\\prod_{j=1}^{d}P(x_j\\mid y)$$\n\nSymbols: $x_j$ is the $j$-th feature, $d$ the number of features, $y$ the class, and $\\prod$ means multiply the terms. This is independence **given the class**. It does not claim $P(x_1,x_2)=P(x_1)P(x_2)$.",
+   "intuition_full": "Think of two boxes, a spam box and a ham box. Inside the spam box, whether an email has 'offer' tells you nothing about whether it has 'free'. The same is true inside the ham box. Now pour both boxes into one pile. Both words are common in spam and rare in ham, so seeing 'offer' makes 'free' more likely. The hidden reason for the link is the class. Fix the class and the reason disappears, so the link disappears too. That is what 'conditionally independent' means. The assumption is rarely exactly true. But the classifier only needs the right winner, not exact probabilities, so it often works anyway. One cost: a feature that is copied twice counts twice, which pushes the posterior too far.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "There are 40 spam and 50 ham emails. Counts of emails with 'offer' and 'free' are in the tables. Spam: both 12, offer only 12, free only 8, neither 8. Ham: both 1, offer only 4, free only 9, neither 36. Test independence inside each class, then over all 90 emails.",
+     "steps": [
+      "Spam (40): $P(\\text{offer})=24/40=0.6$, $P(\\text{free})=20/40=0.5$. Product $=0.30$. Actual $P(\\text{both})=12/40=0.30$. Equal, so independent inside spam.",
+      "Ham (50): $P(\\text{offer})=5/50=0.1$, $P(\\text{free})=10/50=0.2$. Product $=0.02$. Actual $P(\\text{both})=1/50=0.02$. Independent inside ham.",
+      "Add the two tables cell by cell: both $=13$, offer $=29$, free $=30$, total $=90$.",
+      "Over all emails: $P(\\text{offer})=29/90=0.322$ and $P(\\text{free})=30/90=0.333$. Product $=0.107$. Actual $P(\\text{both})=13/90=0.144$.",
+      "$0.107\\ne0.144$, so the words are not independent overall. They are independent only once the class is known."
+     ],
+     "answer": "Independent given the class, but not independent overall."
+    },
+    {
+     "level": "gate",
+     "setup": "Two classes have equal priors. Class A: $P(x_1{=}1\\mid A)=0.7$, $P(x_2{=}1\\mid A)=0.4$ and the true joint $P(1,1\\mid A)=0.35$. Class B: $P(x_1{=}1\\mid B)=0.2$, $P(x_2{=}1\\mid B)=0.5$ and the true joint $P(1,1\\mid B)=0.10$. For $x=(1,1)$ compare the naive posterior of A with the true one.",
+     "steps": [
+      "Naive likelihoods: A: $0.7\\times0.4=0.28$. B: $0.2\\times0.5=0.10$ (B really is independent).",
+      "Naive scores: A $0.5\\times0.28=0.14$. B $0.5\\times0.10=0.05$. Posterior of A $=0.14/0.19=0.737$.",
+      "True scores: A $0.5\\times0.35=0.175$. B $0.5\\times0.10=0.05$. Posterior of A $=0.175/0.225=0.778$."
+     ],
+     "answer": "Naive 0.737, true 0.778. Both predict A, but dependence inside A makes naive Bayes under-confident."
+    },
+    {
+     "level": "twist",
+     "setup": "Let $y=x_1\\text{ XOR }x_2$, where $x_1,x_2$ are independent fair coins. Priors are 0.5 each. What does naive Bayes say for $x=(1,1)$?",
+     "steps": [
+      "Inside $y=1$ the pairs are $(0,1)$ and $(1,0)$, each with probability 0.5. So $P(x_1{=}1\\mid y{=}1)=0.5$ and $P(x_2{=}1\\mid y{=}1)=0.5$.",
+      "Inside $y=0$ the pairs are $(0,0)$ and $(1,1)$. So $P(x_1{=}1\\mid y{=}0)=0.5$ and $P(x_2{=}1\\mid y{=}0)=0.5$.",
+      "Scores for $(1,1)$: both classes get $0.5\\times0.5\\times0.5=0.125$. A tie, posterior 0.5 each.",
+      "The truth is $y=0$ with certainty. The features are independent overall but fully dependent given the class."
+     ],
+     "answer": "Naive Bayes ties at 0.5 and cannot learn XOR."
+    }
+   ],
+   "why": "The independence assumption is why naive Bayes is cheap and works with little data. In GATE: statements about what naive Bayes assumes (conditional, not plain independence), and the parameter count, which depends on it.",
+   "how": [
+    "Fix the class first.",
+    "Write the likelihood of the features as **one factor per feature**.",
+    "Multiply the factors.",
+    "Always use $P(x_j\\mid y)$, never $P(x_j)$, inside the product."
+   ],
+   "mistake": "Reading 'naive' as 'the features are independent'. They need not be. They only need to be independent after the class is known. In the example the words were linked overall (0.107 against 0.144) and still independent inside each class.",
+   "edge_cases": [
+    "One feature only: nothing to assume, the product has a single factor.",
+    "A copied feature is counted twice, so the posterior becomes over-confident.",
+    "XOR-type dependence given the class cannot be represented by naive Bayes.",
+    "Independent overall does not mean independent given the class."
+   ],
+   "connections": [
+    "Previous card: this assumption is what makes the likelihood computable.",
+    "Probability: Marginal, joint and conditional probability, and Probability axioms, events and independence cover the rules used here.",
+    "Logistic regression does not need this assumption."
+   ],
+   "check": [
+    {
+     "q": "True or false: naive Bayes assumes the features are independent of each other.",
+     "a": "False as stated. It assumes they are independent given the class."
+    },
+    {
+     "q": "Inside one class $P(x_1{=}1)=0.5$ and $P(x_2{=}1)=0.3$. Under the naive assumption, what is $P(x_1{=}1,x_2{=}1)$ in that class?",
+     "a": "$0.5\\times0.3=0.15$."
+    },
+    {
+     "q": "Why is a copied feature a problem?",
+     "a": "It is counted twice, as if it were two independent pieces of evidence, so the posterior is pushed too far."
+    }
+   ],
+   "asked": "Asked: not as its own question. It sits underneath the parameter-count items (2024 DA Q20, 2024 DA sample Q28).",
+   "scene": "ml.nb.indep",
+   "try": {
+    "id": "gen.ml.nb.001",
+    "label": "What naive Bayes assumes about features"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "There are 40 spam and 50 ham emails. Counts of emails with 'offer' and 'free' are in the tables. Spam: both 12, offer only 12, free only 8, neither 8. Ham: both 1, offer only 4, free only 9, neither 36. Test independence inside each class, then over all 90 emails.",
+    "steps": [
+     "Spam (40): $P(\\text{offer})=24/40=0.6$, $P(\\text{free})=20/40=0.5$. Product $=0.30$. Actual $P(\\text{both})=12/40=0.30$. Equal, so independent inside spam.",
+     "Ham (50): $P(\\text{offer})=5/50=0.1$, $P(\\text{free})=10/50=0.2$. Product $=0.02$. Actual $P(\\text{both})=1/50=0.02$. Independent inside ham.",
+     "Add the two tables cell by cell: both $=13$, offer $=29$, free $=30$, total $=90$.",
+     "Over all emails: $P(\\text{offer})=29/90=0.322$ and $P(\\text{free})=30/90=0.333$. Product $=0.107$. Actual $P(\\text{both})=13/90=0.144$.",
+     "$0.107\\ne0.144$, so the words are not independent overall. They are independent only once the class is known."
+    ],
+    "answer": "Independent given the class, but not independent overall."
+   },
+   "what": "A message has many features, such as several words, and one number per combination of them is far too many to estimate. Naive Bayes assumes that, **once you know the class**, the features do not affect each other. Then the likelihood is just a product of one-feature likelihoods. The assumption holds inside each class, not overall.",
+   "what_full": "A message has many features, such as several words, and one number per combination of them is far too many to estimate. Naive Bayes assumes that, **once you know the class**, the features do not affect each other. Then the likelihood is just a product of one-feature likelihoods. The assumption holds inside each class, not overall.\n\n$$P(x_1,\\dots,x_d\\mid y)=\\prod_{j=1}^{d}P(x_j\\mid y)$$\n\nSymbols: $x_j$ is the $j$-th feature, $d$ the number of features, $y$ the class, and $\\prod$ means multiply the terms. This is independence **given the class**. It does not claim $P(x_1,x_2)=P(x_1)P(x_2)$.\n\n**Worked example.** There are 40 spam and 50 ham emails. Counts of emails with 'offer' and 'free' are in the tables. Spam: both 12, offer only 12, free only 8, neither 8. Ham: both 1, offer only 4, free only 9, neither 36. Test independence inside each class, then over all 90 emails.\n\n1. Spam (40): $P(\\text{offer})=24/40=0.6$, $P(\\text{free})=20/40=0.5$. Product $=0.30$. Actual $P(\\text{both})=12/40=0.30$. Equal, so independent inside spam.\n2. Ham (50): $P(\\text{offer})=5/50=0.1$, $P(\\text{free})=10/50=0.2$. Product $=0.02$. Actual $P(\\text{both})=1/50=0.02$. Independent inside ham.\n3. Add the two tables cell by cell: both $=13$, offer $=29$, free $=30$, total $=90$.\n4. Over all emails: $P(\\text{offer})=29/90=0.322$ and $P(\\text{free})=30/90=0.333$. Product $=0.107$. Actual $P(\\text{both})=13/90=0.144$.\n5. $0.107\\ne0.144$, so the words are not independent overall. They are independent only once the class is known.\n\n**Answer:** Independent given the class, but not independent overall.\n\n**Check yourself:** True or false: naive Bayes assumes the features are independent of each other.\n\n*Answer:* False as stated. It assumes they are independent given the class.",
+   "why_full": "The independence assumption is why naive Bayes is cheap and works with little data. In GATE: statements about what naive Bayes assumes (conditional, not plain independence), and the parameter count, which depends on it.\n\nAsked: not as its own question. It sits underneath the parameter-count items (2024 DA Q20, 2024 DA sample Q28).",
+   "trap": "Reading 'naive' as 'the features are independent'. They need not be. They only need to be independent after the class is known. In the example the words were linked overall (0.107 against 0.144) and still independent inside each class.",
+   "trap_full": "Reading 'naive' as 'the features are independent'. They need not be. They only need to be independent after the class is known. In the example the words were linked overall (0.107 against 0.144) and still independent inside each class."
+  },
+  {
+   "atom_id": "n3",
+   "title": "Priors and likelihoods from counts",
+   "simple": "Training naive Bayes is just counting. Say you ask 20 classmates whether they passed and whether they studied. First, count how many passed out of everyone, which tells you how common 'passed' is. Then look only at the passers and count how many studied, which tells you how likely a passer is to have studied. Always divide by the size of the group you are looking inside. In exam words: prior $=n_y/n$, likelihood $=n_{v,y}/n_y$.",
+   "idea": "Naive Bayes has no learning loop. You **count rows** in a table. The **prior** of a class is its share of all rows. The **likelihood** of a value is its share *inside that class only*, so you divide by the class size, not by the whole table.",
+   "definition": "$$P(y)=\\frac{n_y}{n},\\qquad P(v\\mid y)=\\frac{n_{v,y}}{n_y}$$\n\nSymbols: $n$ is the number of rows. $n_y$ is the number of rows in class $y$. $n_{v,y}$ is the number of rows in class $y$ where the feature equals $v$. Dividing $n_{v,y}$ by $n$ gives the joint probability $P(v,y)$, not the likelihood.",
+   "intuition_full": "A probability from data is a proportion. A prior is a proportion of the whole table. A likelihood is a proportion of one slice: cut the table down to rows of class $y$ first, then count how many of those have the value. That is why the denominator changes. Think of a school register. 'What share of the school is in class 10B?' divides by the school. 'What share of class 10B wears glasses?' divides by class 10B. Multiply the two answers and you get 'what share of the whole school is in 10B and wears glasses?', which is the joint. So prior times likelihood is exactly the joint count over $n$. That is why a naive Bayes score is a joint probability, $P(y)P(x\\mid y)=P(x,y)$.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Twenty students are recorded as passed or failed, and as studied 2+ hours or not. Counts: passed and studied 9, passed and not studied 3, failed and studied 2, failed and not studied 6. Find both priors and the likelihood of 'studied' in each class.",
+     "steps": [
+      "Row totals: passed $9+3=12$, failed $2+6=8$. Total $n=20$.",
+      "Priors: $P(\\text{pass})=12/20=0.6$ and $P(\\text{fail})=8/20=0.4$.",
+      "Inside the 12 who passed, 9 studied: $P(\\text{studied}\\mid\\text{pass})=9/12=0.75$.",
+      "Inside the 8 who failed, 2 studied: $P(\\text{studied}\\mid\\text{fail})=2/8=0.25$.",
+      "Check: $0.6\\times0.75=0.45=9/20$. Dividing 9 by 20 gives the **joint**, not the likelihood."
+     ],
+     "answer": "Priors 0.6 and 0.4. Likelihoods of 'studied': 0.75 for pass and 0.25 for fail."
+    },
+    {
+     "level": "gate",
+     "setup": "Ten loan applicants. Approved (6): (High income, Employed) x3, (High, Not) x1, (Low, Employed) x2. Rejected (4): (High, Not) x1, (Low, Employed) x1, (Low, Not) x2. A new applicant has High income and is Employed. Using raw counts, find the posterior of Approved.",
+     "steps": [
+      "Priors: $P(A)=6/10=0.6$, $P(R)=4/10=0.4$.",
+      "Approved: High income in 4 of 6 rows, Employed in 5 of 6 rows. Likelihoods $4/6$ and $5/6$.",
+      "Rejected: High income in 1 of 4 rows, Employed in 1 of 4 rows. Likelihoods $1/4$ and $1/4$.",
+      "Scores: A $0.6\\times\\frac46\\times\\frac56=0.3333$. R $0.4\\times\\frac14\\times\\frac14=0.025$.",
+      "Posterior of A $=0.3333/(0.3333+0.025)=0.930$."
+     ],
+     "answer": "About 0.93. Every likelihood divides by the size of its own class (6 or 4), never by 10."
+    },
+    {
+     "level": "twist",
+     "setup": "In the student table, suppose none of the 8 failed students had a 'tutor' (a third feature). What does the count give for $P(\\text{tutor}\\mid\\text{fail})$?",
+     "steps": [
+      "Count of failed students with a tutor $=0$ out of $8$.",
+      "$P(\\text{tutor}\\mid\\text{fail})=0/8=0$.",
+      "Any fail score containing this factor becomes $0$, whatever the other features say."
+     ],
+     "answer": "The likelihood is 0 and it wipes out the whole product. Smoothing fixes this (the next card)."
+    }
+   ],
+   "why": "Every table question in GATE starts by turning rows into priors and likelihoods. A wrong denominator spoils every later step. In GATE: 2025 DA Q35 hands you the finished numbers, and hand-built tables test this card first.",
+   "how": [
+    "Count the rows in each class. Their sum is $n$.",
+    "Prior = class count divided by $n$.",
+    "For each feature value, count the rows **of that class** that have it.",
+    "Likelihood = that count divided by the **class count**, not by $n$."
+   ],
+   "mistake": "Dividing by the total $n$ when finding a likelihood. That gives the joint $P(v,y)$, which is smaller by exactly the prior factor. The denominator of a likelihood is always the size of the class you are inside.",
+   "edge_cases": [
+    "Priors of all classes add up to 1.",
+    "Likelihoods of all values of one feature, inside one class, add up to 1.",
+    "A count of 0 gives a likelihood of 0 and wipes out the product (see Laplace smoothing).",
+    "A class with no rows has no likelihoods at all: there is nothing to divide by."
+   ],
+   "connections": [
+    "Foundations: Algebra covers fractions and proportions.",
+    "Previous cards: the prior and the likelihood are the two factors of the decision rule.",
+    "Next: Laplace smoothing repairs zero counts."
+   ],
+   "check": [
+    {
+     "q": "In 50 rows, 20 belong to class A. Of those 20, 5 have value $v$. Find $P(A)$ and $P(v\\mid A)$.",
+     "a": "$P(A)=20/50=0.4$ and $P(v\\mid A)=5/20=0.25$."
+    },
+    {
+     "q": "In that question, what does $5/50=0.1$ represent?",
+     "a": "The joint $P(v,A)=0.4\\times0.25=0.1$."
+    },
+    {
+     "q": "Do the likelihoods $P(v\\mid A)$ over all values $v$ of one feature add up to 1?",
+     "a": "Yes. Inside class A every row has exactly one value."
+    }
+   ],
+   "asked": "Asked: 2025 DA Q35 gives these numbers ready-made. Table questions build them first.",
+   "scene": "ml.nb.counts",
+   "try": {
+    "id": "gen.ml.nb.005",
+    "label": "Spam prior from 40 training emails"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "Twenty students are recorded as passed or failed, and as studied 2+ hours or not. Counts: passed and studied 9, passed and not studied 3, failed and studied 2, failed and not studied 6. Find both priors and the likelihood of 'studied' in each class.",
+    "steps": [
+     "Row totals: passed $9+3=12$, failed $2+6=8$. Total $n=20$.",
+     "Priors: $P(\\text{pass})=12/20=0.6$ and $P(\\text{fail})=8/20=0.4$.",
+     "Inside the 12 who passed, 9 studied: $P(\\text{studied}\\mid\\text{pass})=9/12=0.75$.",
+     "Inside the 8 who failed, 2 studied: $P(\\text{studied}\\mid\\text{fail})=2/8=0.25$.",
+     "Check: $0.6\\times0.75=0.45=9/20$. Dividing 9 by 20 gives the **joint**, not the likelihood."
+    ],
+    "answer": "Priors 0.6 and 0.4. Likelihoods of 'studied': 0.75 for pass and 0.25 for fail."
+   },
+   "what": "Naive Bayes has no learning loop. You **count rows** in a table. The **prior** of a class is its share of all rows. The **likelihood** of a value is its share *inside that class only*, so you divide by the class size, not by the whole table.",
+   "what_full": "Naive Bayes has no learning loop. You **count rows** in a table. The **prior** of a class is its share of all rows. The **likelihood** of a value is its share *inside that class only*, so you divide by the class size, not by the whole table.\n\n$$P(y)=\\frac{n_y}{n},\\qquad P(v\\mid y)=\\frac{n_{v,y}}{n_y}$$\n\nSymbols: $n$ is the number of rows. $n_y$ is the number of rows in class $y$. $n_{v,y}$ is the number of rows in class $y$ where the feature equals $v$. Dividing $n_{v,y}$ by $n$ gives the joint probability $P(v,y)$, not the likelihood.\n\n**Worked example.** Twenty students are recorded as passed or failed, and as studied 2+ hours or not. Counts: passed and studied 9, passed and not studied 3, failed and studied 2, failed and not studied 6. Find both priors and the likelihood of 'studied' in each class.\n\n1. Row totals: passed $9+3=12$, failed $2+6=8$. Total $n=20$.\n2. Priors: $P(\\text{pass})=12/20=0.6$ and $P(\\text{fail})=8/20=0.4$.\n3. Inside the 12 who passed, 9 studied: $P(\\text{studied}\\mid\\text{pass})=9/12=0.75$.\n4. Inside the 8 who failed, 2 studied: $P(\\text{studied}\\mid\\text{fail})=2/8=0.25$.\n5. Check: $0.6\\times0.75=0.45=9/20$. Dividing 9 by 20 gives the **joint**, not the likelihood.\n\n**Answer:** Priors 0.6 and 0.4. Likelihoods of 'studied': 0.75 for pass and 0.25 for fail.\n\n**Check yourself:** In 50 rows, 20 belong to class A. Of those 20, 5 have value $v$. Find $P(A)$ and $P(v\\mid A)$.\n\n*Answer:* $P(A)=20/50=0.4$ and $P(v\\mid A)=5/20=0.25$.",
+   "why_full": "Every table question in GATE starts by turning rows into priors and likelihoods. A wrong denominator spoils every later step. In GATE: 2025 DA Q35 hands you the finished numbers, and hand-built tables test this card first.\n\nAsked: 2025 DA Q35 gives these numbers ready-made. Table questions build them first.",
+   "trap": "Dividing by the total $n$ when finding a likelihood. That gives the joint $P(v,y)$, which is smaller by exactly the prior factor. The denominator of a likelihood is always the size of the class you are inside.",
+   "trap_full": "Dividing by the total $n$ when finding a likelihood. That gives the joint $P(v,y)$, which is smaller by exactly the prior factor. The denominator of a likelihood is always the size of the class you are inside."
+  },
+  {
+   "atom_id": "n4",
+   "title": "Laplace smoothing",
+   "simple": "Imagine you have seen 8 spam emails and none of them mentions 'agenda'. You decide the chance of that is exactly zero. That is too bold: you have just not seen it yet. Naive Bayes multiplies chances, and one zero kills the whole product, however strong the other clues are. The fix is to pretend you saw every possible answer once more than you really did. That makes every chance a little above zero. In exam words: Laplace (add-one) smoothing, $\\hat P(v\\mid y)=\\dfrac{n_{v,y}+\\alpha}{n_y+\\alpha V}$, where $V$ is the number of values the feature can take.",
+   "idea": "A value that never appeared in a class has count 0, and one zero factor kills the **whole product**. Smoothing adds a small pseudo-count $\\alpha$ (usually 1) to every count, so nothing is exactly zero. To keep the fractions adding up to 1, add $\\alpha$ times the **number of values** $V$ to the class count in the denominator.",
+   "definition": "$$\\hat P(v\\mid y)=\\frac{n_{v,y}+\\alpha}{n_y+\\alpha V}$$\n\nSymbols: $n_{v,y}$ is the count of value $v$ in class $y$. $n_y$ is the size of class $y$. $\\alpha$ is the pseudo-count (1 for add-one). $V$ is the number of different values the feature can take (2 for a yes/no feature).",
+   "intuition_full": "Zero is a claim of impossibility, and a handful of rows cannot prove that. A product of probabilities is also unforgiving: five strong clues for spam and one zero still gives spam a score of zero. Smoothing says: before looking at the data, pretend each of the $V$ values already appeared $\\alpha$ times. Then every value has at least $\\alpha$ pretend occurrences. The class now has $n_y+\\alpha V$ rows in total (real plus pretend), which is why the denominator grows by $\\alpha V$ and not by $\\alpha$. Fractions over that denominator add up to $(n_y+\\alpha V)/(n_y+\\alpha V)=1$, so they are still a proper distribution. The more real rows you have, the less the pretend rows matter. With 8 rows they matter a lot. With 800 rows they hardly move anything.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "There are 8 spam and 8 ham emails, so both priors are 0.5. Spam: 7 contain 'offer' and 0 contain 'agenda'. Ham: 1 contains 'offer' and 2 contain 'agenda'. A new email contains both words. Compare plain counting with add-one smoothing (each word is a yes/no feature, so $V=2$).",
+     "steps": [
+      "Without smoothing, spam: $0.5\\times\\frac78\\times\\frac08=0$. One zero kills it.",
+      "Ham: $0.5\\times\\frac18\\times\\frac28=0.0156$. Ham wins with posterior 1, although 'offer' points strongly to spam.",
+      "Add 1 to every count and $\\alpha V=2$ to every class total (8 becomes 10).",
+      "Spam: $\\frac{7+1}{10}=0.8$ and $\\frac{0+1}{10}=0.1$, so the score is $0.5\\times0.8\\times0.1=0.04$.",
+      "Ham: $\\frac{1+1}{10}=0.2$ and $\\frac{2+1}{10}=0.3$, so the score is $0.5\\times0.2\\times0.3=0.03$. Spam wins, posterior $0.04/0.07=0.571$."
+     ],
+     "answer": "Plain counting says ham with certainty. With smoothing spam wins with posterior 0.571."
+    },
+    {
+     "level": "gate",
+     "setup": "A feature Colour takes 3 values (R, G, B). Class P has 10 rows: R 5, G 5, B 0. Using add-one smoothing, find all three likelihoods and check that they sum to 1.",
+     "steps": [
+      "$V=3$ values, so the denominator is $10+1\\times3=13$.",
+      "R: $(5+1)/13=6/13=0.462$. G: $(5+1)/13=0.462$.",
+      "B: $(0+1)/13=1/13=0.077$. Not zero any more.",
+      "Sum $=6/13+6/13+1/13=13/13=1$. Using $10+2=12$ by mistake would give $13/12$, which is more than 1."
+     ],
+     "answer": "0.462, 0.462 and 0.077. The sum check exposes a wrong $V$."
+    },
+    {
+     "level": "twist",
+     "setup": "A binary feature has count 0 in a class of 2 rows, and count 0 in another class of 200 rows. Compare the smoothed likelihoods ($\\alpha=1$, $V=2$).",
+     "steps": [
+      "Small class: $(0+1)/(2+2)=1/4=0.25$.",
+      "Large class: $(0+1)/(200+2)=1/202=0.0050$."
+     ],
+     "answer": "The same zero count becomes 0.25 in the small class and 0.005 in the large one. Smoothing matters most when data is scarce."
+    }
+   ],
+   "why": "One unseen value would otherwise decide the whole classification. Smoothing keeps every probability above zero while keeping the sums at 1. In GATE: hand-computed naive Bayes tables that contain a zero cell, and the check that smoothed values still add to 1.",
+   "how": [
+    "Pick $\\alpha$ (usually 1).",
+    "Numerator: the **observed count** plus $\\alpha$.",
+    "Denominator: the class count plus $\\alpha$ times $V$, the number of values of that feature.",
+    "Redo the product. Check that the fractions of one feature sum to 1."
+   ],
+   "mistake": "Adding 1 to the denominator, or adding the number of classes instead of $V$. For a yes/no feature $V=2$ whatever the number of classes. The quick check is that the smoothed fractions of one feature, inside one class, must add up to 1.",
+   "edge_cases": [
+    "$\\alpha=0$ is plain counting, with no smoothing.",
+    "A bigger $\\alpha$ pulls every likelihood toward $1/V$, the uniform answer.",
+    "Priors are normally left alone unless a class has no rows at all.",
+    "In text models $V$ is the vocabulary size and $n_y$ counts word tokens in the class."
+   ],
+   "connections": [
+    "Foundations: Algebra covers the fractions.",
+    "Previous card: the unsmoothed counts it starts from.",
+    "Bayesian estimation treats $\\alpha$ as pseudo-counts from a prior belief."
+   ],
+   "check": [
+    {
+     "q": "A yes/no feature has count 0 out of 5 rows in a class. What is the smoothed likelihood of 'yes' with $\\alpha=1$?",
+     "a": "$(0+1)/(5+2)=1/7=0.143$."
+    },
+    {
+     "q": "A feature has 4 values, $\\alpha=1$ and the class has 20 rows. What is the denominator?",
+     "a": "$20+1\\times4=24$."
+    },
+    {
+     "q": "Why not just replace each zero by a tiny number?",
+     "a": "You could, but add-one has a clear meaning (pretend each value was seen once more) and the fractions still add up to 1."
+    }
+   ],
+   "asked": "Asked: no GATE year isolates it yet. It appears in hand-built table questions.",
+   "scene": "ml.nb.laplace",
+   "try": {
+    "id": "gen.ml.nb.004",
+    "label": "Why add-one smoothing is used"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "There are 8 spam and 8 ham emails, so both priors are 0.5. Spam: 7 contain 'offer' and 0 contain 'agenda'. Ham: 1 contains 'offer' and 2 contain 'agenda'. A new email contains both words. Compare plain counting with add-one smoothing (each word is a yes/no feature, so $V=2$).",
+    "steps": [
+     "Without smoothing, spam: $0.5\\times\\frac78\\times\\frac08=0$. One zero kills it.",
+     "Ham: $0.5\\times\\frac18\\times\\frac28=0.0156$. Ham wins with posterior 1, although 'offer' points strongly to spam.",
+     "Add 1 to every count and $\\alpha V=2$ to every class total (8 becomes 10).",
+     "Spam: $\\frac{7+1}{10}=0.8$ and $\\frac{0+1}{10}=0.1$, so the score is $0.5\\times0.8\\times0.1=0.04$.",
+     "Ham: $\\frac{1+1}{10}=0.2$ and $\\frac{2+1}{10}=0.3$, so the score is $0.5\\times0.2\\times0.3=0.03$. Spam wins, posterior $0.04/0.07=0.571$."
+    ],
+    "answer": "Plain counting says ham with certainty. With smoothing spam wins with posterior 0.571."
+   },
+   "what": "A value that never appeared in a class has count 0, and one zero factor kills the **whole product**. Smoothing adds a small pseudo-count $\\alpha$ (usually 1) to every count, so nothing is exactly zero. To keep the fractions adding up to 1, add $\\alpha$ times the **number of values** $V$ to the class count in the denominator.",
+   "what_full": "A value that never appeared in a class has count 0, and one zero factor kills the **whole product**. Smoothing adds a small pseudo-count $\\alpha$ (usually 1) to every count, so nothing is exactly zero. To keep the fractions adding up to 1, add $\\alpha$ times the **number of values** $V$ to the class count in the denominator.\n\n$$\\hat P(v\\mid y)=\\frac{n_{v,y}+\\alpha}{n_y+\\alpha V}$$\n\nSymbols: $n_{v,y}$ is the count of value $v$ in class $y$. $n_y$ is the size of class $y$. $\\alpha$ is the pseudo-count (1 for add-one). $V$ is the number of different values the feature can take (2 for a yes/no feature).\n\n**Worked example.** There are 8 spam and 8 ham emails, so both priors are 0.5. Spam: 7 contain 'offer' and 0 contain 'agenda'. Ham: 1 contains 'offer' and 2 contain 'agenda'. A new email contains both words. Compare plain counting with add-one smoothing (each word is a yes/no feature, so $V=2$).\n\n1. Without smoothing, spam: $0.5\\times\\frac78\\times\\frac08=0$. One zero kills it.\n2. Ham: $0.5\\times\\frac18\\times\\frac28=0.0156$. Ham wins with posterior 1, although 'offer' points strongly to spam.\n3. Add 1 to every count and $\\alpha V=2$ to every class total (8 becomes 10).\n4. Spam: $\\frac{7+1}{10}=0.8$ and $\\frac{0+1}{10}=0.1$, so the score is $0.5\\times0.8\\times0.1=0.04$.\n5. Ham: $\\frac{1+1}{10}=0.2$ and $\\frac{2+1}{10}=0.3$, so the score is $0.5\\times0.2\\times0.3=0.03$. Spam wins, posterior $0.04/0.07=0.571$.\n\n**Answer:** Plain counting says ham with certainty. With smoothing spam wins with posterior 0.571.\n\n**Check yourself:** A yes/no feature has count 0 out of 5 rows in a class. What is the smoothed likelihood of 'yes' with $\\alpha=1$?\n\n*Answer:* $(0+1)/(5+2)=1/7=0.143$.",
+   "why_full": "One unseen value would otherwise decide the whole classification. Smoothing keeps every probability above zero while keeping the sums at 1. In GATE: hand-computed naive Bayes tables that contain a zero cell, and the check that smoothed values still add to 1.\n\nAsked: no GATE year isolates it yet. It appears in hand-built table questions.",
+   "trap": "Adding 1 to the denominator, or adding the number of classes instead of $V$. For a yes/no feature $V=2$ whatever the number of classes. The quick check is that the smoothed fractions of one feature, inside one class, must add up to 1.",
+   "trap_full": "Adding 1 to the denominator, or adding the number of classes instead of $V$. For a yes/no feature $V=2$ whatever the number of classes. The quick check is that the smoothed fractions of one feature, inside one class, must add up to 1."
+  },
+  {
+   "atom_id": "n5",
+   "title": "Counting parameters",
+   "simple": "A parameter is a number the model must learn from data. Picture a restaurant that records how often each type of customer orders each dish. If it tries to record every combination of dishes together, the sheet explodes. If it assumes the dishes are ordered independently, it needs one number per dish for each customer type, and the sheet grows in a straight line. Naive Bayes does the second thing. Also, a set of chances that must add to 1 has one number that is not free, because the last one is forced. In exam words: $Kd+(K-1)$ free parameters for $K$ classes and $d$ binary features, against $K(2^d-1)+(K-1)$ for a full joint.",
+   "idea": "A **parameter** is a number you must estimate from training data. With binary features, naive Bayes needs one number per (class, feature) pair, $P(x_j=1\\mid y)$, because the other value is one minus it. The class priors add up to 1, so only $K-1$ of them are free. The total grows in a straight line with the number of features.",
+   "definition": "$$\\#\\text{params}=K\\,d\\,(V-1)+(K-1)\\qquad(\\text{binary: }V=2\\ \\Rightarrow\\ Kd+K-1)$$\n\nSymbols: $K$ is the number of classes, $d$ the number of features and $V$ the number of values of each feature. The full joint without independence needs $K(V^d-1)+(K-1)$.",
+   "intuition_full": "Why $V-1$ and not $V$? A distribution over $V$ values has $V$ numbers that must add up to 1. Fix $V-1$ of them and the last is forced. So each distribution costs $V-1$ free numbers. Naive Bayes keeps one small distribution for every (class, feature) pair, so $Kd$ of them. Without the independence assumption you would need one distribution over all $V^d$ combinations of features, for each class. That is $V^d-1$ free numbers per class. For $d=10$ binary features that is 1023 per class against 10. This gap is why naive Bayes works with few training rows: it has far fewer numbers to pin down.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A dataset has $K=4$ classes and $d=3$ binary features. Count the free parameters of naive Bayes, then of a model with no independence assumption.",
+     "steps": [
+      "Each (class, feature) pair needs one number $P(x_j=1\\mid y)$. The table has 4 rows and 3 columns.",
+      "That is $4\\times3=12$ numbers.",
+      "Priors: 4 classes add up to 1, so only $4-1=3$ are free.",
+      "Naive Bayes total: $12+3=15$.",
+      "Without independence each class needs a table over $2^3=8$ feature combinations, which has $8-1=7$ free numbers. Total $4\\times7+3=31$."
+     ],
+     "answer": "15 for naive Bayes against 31 for the full joint."
+    },
+    {
+     "level": "gate",
+     "setup": "There are $K=4$ classes and three categorical features with 3, 4 and 2 values. How many free parameters does naive Bayes have? How many would a full joint need?",
+     "steps": [
+      "Free numbers per class: $(3-1)+(4-1)+(2-1)=2+3+1=6$.",
+      "Over 4 classes: $4\\times6=24$.",
+      "Priors: $4-1=3$. Naive Bayes total $24+3=27$.",
+      "Full joint: $3\\times4\\times2=24$ combinations per class, so $24-1=23$ free numbers each. Total $4\\times23+3=95$."
+     ],
+     "answer": "27 for naive Bayes against 95. Linear beats exponential."
+    },
+    {
+     "level": "twist",
+     "setup": "A question has $K=3$ classes, $d=2$ features with $V=5$ values each, and offers 'stored table entries' options such as $VdK$. Compare free parameters with stored entries.",
+     "steps": [
+      "Stored entries: one probability per value, feature and class: $K\\,d\\,V=3\\times2\\times5=30$.",
+      "Free parameters: $3\\times2\\times(5-1)+(3-1)=24+2=26$.",
+      "When the options are written like $VdK$ the question counts stored entries, so pick the linear option, not the exponential $V^dK$."
+     ],
+     "answer": "30 entries but 26 free numbers. Read the options to see which one is meant."
+    }
+   ],
+   "why": "Parameter counts are the most predictable naive Bayes marks. In GATE: count parameters for binary or $V$-valued features and $K$ classes, and choose the linear option over the exponential one.",
+   "how": [
+    "Count the (class, feature) pairs: $K\\times d$.",
+    "Each pair costs $V-1$ free numbers (1 for a binary feature).",
+    "Add $K-1$ for the priors.",
+    "If an option looks like $VdK$ the question counts stored entries, so choose the linear option."
+   ],
+   "mistake": "Counting $K$ priors instead of $K-1$, $V$ values instead of $V-1$, or choosing an exponential option because the data lives in $V^d$ combinations. Naive Bayes never builds that table.",
+   "edge_cases": [
+    "Two classes: only one free prior, so $d$ binary features give $2d+1$.",
+    "Gaussian features need 2 numbers (mean and variance) per (class, feature), with no 'minus 1'.",
+    "Features with different $V$: add $V_j-1$ over the features first, then multiply by $K$.",
+    "Some questions count stored entries ($KdV$) rather than free numbers. Read the options."
+   ],
+   "connections": [
+    "Foundations: Exponents and logarithms covers $2^d$ and how fast powers grow.",
+    "Previous card: the independence assumption is what turns the exponent into a product.",
+    "Bias and variance: fewer parameters mean lower variance but more bias."
+   ],
+   "check": [
+    {
+     "q": "$K=3$ classes and $d=5$ binary features. How many free parameters does naive Bayes have?",
+     "a": "$3\\times5+(3-1)=17$."
+    },
+    {
+     "q": "How many would the full joint need for the same data?",
+     "a": "$3\\times(2^5-1)+2=3\\times31+2=95$."
+    },
+    {
+     "q": "Two classes and $d$ binary features. What is the count as a formula in $d$?",
+     "a": "$2d+1$."
+    }
+   ],
+   "asked": "Asked: 2024 DA Q20 (answer $2K+1$ for two classes) and 2024 DA sample Q28 (the $VDK$ option).",
+   "scene": "ml.nb.params",
+   "try": {
+    "id": "gen.ml.nb.009",
+    "label": "Parameters with d binary features and 3 classes"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "A dataset has $K=4$ classes and $d=3$ binary features. Count the free parameters of naive Bayes, then of a model with no independence assumption.",
+    "steps": [
+     "Each (class, feature) pair needs one number $P(x_j=1\\mid y)$. The table has 4 rows and 3 columns.",
+     "That is $4\\times3=12$ numbers.",
+     "Priors: 4 classes add up to 1, so only $4-1=3$ are free.",
+     "Naive Bayes total: $12+3=15$.",
+     "Without independence each class needs a table over $2^3=8$ feature combinations, which has $8-1=7$ free numbers. Total $4\\times7+3=31$."
+    ],
+    "answer": "15 for naive Bayes against 31 for the full joint."
+   },
+   "what": "A **parameter** is a number you must estimate from training data. With binary features, naive Bayes needs one number per (class, feature) pair, $P(x_j=1\\mid y)$, because the other value is one minus it. The class priors add up to 1, so only $K-1$ of them are free. The total grows in a straight line with the number of features.",
+   "what_full": "A **parameter** is a number you must estimate from training data. With binary features, naive Bayes needs one number per (class, feature) pair, $P(x_j=1\\mid y)$, because the other value is one minus it. The class priors add up to 1, so only $K-1$ of them are free. The total grows in a straight line with the number of features.\n\n$$\\#\\text{params}=K\\,d\\,(V-1)+(K-1)\\qquad(\\text{binary: }V=2\\ \\Rightarrow\\ Kd+K-1)$$\n\nSymbols: $K$ is the number of classes, $d$ the number of features and $V$ the number of values of each feature. The full joint without independence needs $K(V^d-1)+(K-1)$.\n\n**Worked example.** A dataset has $K=4$ classes and $d=3$ binary features. Count the free parameters of naive Bayes, then of a model with no independence assumption.\n\n1. Each (class, feature) pair needs one number $P(x_j=1\\mid y)$. The table has 4 rows and 3 columns.\n2. That is $4\\times3=12$ numbers.\n3. Priors: 4 classes add up to 1, so only $4-1=3$ are free.\n4. Naive Bayes total: $12+3=15$.\n5. Without independence each class needs a table over $2^3=8$ feature combinations, which has $8-1=7$ free numbers. Total $4\\times7+3=31$.\n\n**Answer:** 15 for naive Bayes against 31 for the full joint.\n\n**Check yourself:** $K=3$ classes and $d=5$ binary features. How many free parameters does naive Bayes have?\n\n*Answer:* $3\\times5+(3-1)=17$.",
+   "why_full": "Parameter counts are the most predictable naive Bayes marks. In GATE: count parameters for binary or $V$-valued features and $K$ classes, and choose the linear option over the exponential one.\n\nAsked: 2024 DA Q20 (answer $2K+1$ for two classes) and 2024 DA sample Q28 (the $VDK$ option).",
+   "trap": "Counting $K$ priors instead of $K-1$, $V$ values instead of $V-1$, or choosing an exponential option because the data lives in $V^d$ combinations. Naive Bayes never builds that table.",
+   "trap_full": "Counting $K$ priors instead of $K-1$, $V$ values instead of $V-1$, or choosing an exponential option because the data lives in $V^d$ combinations. Naive Bayes never builds that table."
+  },
+  {
+   "atom_id": "n6",
+   "title": "Gaussian naive Bayes",
+   "simple": "Some clues are measured, like height or temperature, not counted. For those, naive Bayes draws a bell-shaped hill for each class. To ask how well a reading fits a class, you read the height of that class's hill at the reading. A reading near the top of a hill fits well, and a reading far out on the slope fits badly. A hill that is narrow is tall, and a hill that is wide is low. Then you multiply by how common the class is, just as before. In exam words: Gaussian naive Bayes uses a normal density $P(x_j\\mid y)=\\mathcal N(x_j;\\mu_{y,j},\\sigma^2_{y,j})$, with one mean and one variance per class and feature.",
+   "idea": "For a measured feature, estimate the **mean** and the **variance** of that feature inside each class from the training rows. The likelihood is the height of that class's bell curve (the normal density) at the observed value. A density is a height, not a probability, but heights can be compared across classes. After that, multiply by the prior and compare, exactly as before.",
+   "definition": "$$P(x\\mid y)=\\frac{1}{\\sqrt{2\\pi\\sigma^2}}\\exp\\!\\Bigl(-\\frac{(x-\\mu)^2}{2\\sigma^2}\\Bigr),\\quad \\mu=\\frac1{n_y}\\sum x_i,\\quad \\sigma^2=\\frac1{n_y}\\sum(x_i-\\mu)^2$$\n\nSymbols: $\\mu$ is the class mean of the feature, $\\sigma^2$ its variance, and $n_y$ the number of rows in the class. $\\exp(t)$ means $e^{t}$. The variance here divides by $n_y$ (maximum likelihood).",
+   "intuition_full": "A bell curve is tallest at its mean and falls away on both sides. The variance sets the width: a small variance gives a tall narrow hill, a large variance a low wide one. The exponent $-(x-\\mu)^2/(2\\sigma^2)$ measures how far $x$ is from the middle in units of spread: it is 0 at the mean and more negative further out. The factor in front, $1/\\sqrt{2\\pi\\sigma^2}$, makes the area under the hill equal to 1, so a wide hill must be lower. The two classes compete using these heights. A narrow class wins right at its own mean but loses quickly in the tails, and a wide class wins far out. With equal variances and equal priors the nearer mean always wins.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Class A has mean 2, variance 1 and prior 0.6. Class B has mean 6, variance 9 and prior 0.4. A new reading is $x=3$. Find the posterior of A.",
+     "steps": [
+      "Class A exponent: $-(3-2)^2/(2\\times1)=-0.5$. Front factor $1/\\sqrt{2\\pi}=0.3989$. Density $=0.3989\\times e^{-0.5}=0.3989\\times0.6065=0.2420$.",
+      "Class B exponent: $-(3-6)^2/(2\\times9)=-9/18=-0.5$. Front factor $1/\\sqrt{2\\pi\\cdot9}=0.1330$. Density $=0.1330\\times0.6065=0.0807$.",
+      "Scores: A $0.6\\times0.2420=0.1452$. B $0.4\\times0.0807=0.0323$.",
+      "Posterior of A $=0.1452/(0.1452+0.0323)=0.818$. Predict A."
+     ],
+     "answer": "Posterior of A is 0.818 (9/11), so predict A."
+    },
+    {
+     "level": "gate",
+     "setup": "Equal priors. Training values of one feature: class P has 2, 4, 4, 6 and class Q has 6, 8, 8, 10. Estimate each class by maximum likelihood and classify $x=5.5$.",
+     "steps": [
+      "Class P: mean $=(2+4+4+6)/4=4$. Variance $=(4+0+0+4)/4=2$.",
+      "Class Q: mean $=(6+8+8+10)/4=8$. Variance $=(4+0+0+4)/4=2$. Same variance as P.",
+      "The front factors are equal and cancel, so compare the exponents: P: $-(5.5-4)^2/4=-0.5625$. Q: $-(5.5-8)^2/4=-1.5625$.",
+      "Densities: P $0.1607$, Q $0.0591$. Posterior of P $=0.1607/(0.1607+0.0591)=0.731$."
+     ],
+     "answer": "Predict P with posterior 0.731. With equal priors and equal variances, the nearer mean wins."
+    },
+    {
+     "level": "twist",
+     "setup": "Two classes have the same mean 0 and equal priors. Class A has variance 1 and class B has variance 9. Which class wins at $x=0$ and at $x=4$?",
+     "steps": [
+      "At $x=0$: A density $=0.3989$. B density $=1/\\sqrt{2\\pi\\cdot9}=0.1330$. A wins.",
+      "At $x=4$: A density $=0.3989\\,e^{-16/2}=0.00013$. B density $=0.1330\\,e^{-16/18}=0.0547$. B wins.",
+      "The wide class wins in the tails even though both share a mean."
+     ],
+     "answer": "A at 0, B at 4. When variances differ, the winner can change on both sides, so the boundary is not a single straight cut."
+    }
+   ],
+   "why": "Most real features are measured, so this is the version that is actually used. In GATE: compute a class density from a mean and variance, classify a point, or reason about the decision boundary and the parameter count ($2Kd$ plus $K-1$ priors).",
+   "how": [
+    "For each class and feature, find the mean and the variance (divide by $n_y$ unless told otherwise).",
+    "Plug the observed value into each normal density.",
+    "Multiply the densities of all features and the class prior.",
+    "Compare the scores. Divide by their sum if a probability is asked."
+   ],
+   "mistake": "Treating a density as a probability, or dropping the factor $1/\\sqrt{2\\pi\\sigma^2}$ when the variances differ. That factor cancels only when the variances are equal. Also watch for dividing by $n-1$ when the question says maximum likelihood, which divides by $n$.",
+   "edge_cases": [
+    "Equal variances and equal priors: the nearer mean wins, boundary at the midpoint.",
+    "Equal variances, unequal priors: the boundary shifts toward the less likely class but stays a single point or line.",
+    "Different variances: the wide class wins in the tails and the boundary is curved. In the twist the classes cross at $x=\\pm1.57$.",
+    "Variance 0: the density is infinite at the mean and 0 elsewhere. Add a small floor to the variance."
+   ],
+   "connections": [
+    "Foundations: Exponents and logarithms covers $e^{x}$ and negative exponents.",
+    "Linear discriminant analysis (next chapter) is the same Gaussian model with one shared covariance, so its boundary is linear.",
+    "Probability: Continuous distributions covers the normal density."
+   ],
+   "check": [
+    {
+     "q": "A class has mean 10 and variance 4. Where is its density highest, and what is the exponent at $x=12$?",
+     "a": "Highest at the mean, $x=10$. Exponent $=-(12-10)^2/(2\\times4)=-0.5$."
+    },
+    {
+     "q": "Equal priors and variances. Class means are 3 and 9. Which class is predicted for $x=5$?",
+     "a": "The class with mean 3, because $x=5$ is 2 away from it and 4 away from 9."
+    },
+    {
+     "q": "Is $P(x\\mid y)$ in Gaussian naive Bayes a probability?",
+     "a": "No. It is a density, a height. It can exceed 1 when the variance is small. Compare heights across classes."
+    }
+   ],
+   "asked": "Asked: no GATE year has asked it directly yet. The ladder drills the density value and the boundary.",
+   "scene": "ml.nb.gauss",
+   "try": {
+    "id": "gen.ml.nb.010",
+    "label": "Gaussian density with mean 1 and variance 4"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "Class A has mean 2, variance 1 and prior 0.6. Class B has mean 6, variance 9 and prior 0.4. A new reading is $x=3$. Find the posterior of A.",
+    "steps": [
+     "Class A exponent: $-(3-2)^2/(2\\times1)=-0.5$. Front factor $1/\\sqrt{2\\pi}=0.3989$. Density $=0.3989\\times e^{-0.5}=0.3989\\times0.6065=0.2420$.",
+     "Class B exponent: $-(3-6)^2/(2\\times9)=-9/18=-0.5$. Front factor $1/\\sqrt{2\\pi\\cdot9}=0.1330$. Density $=0.1330\\times0.6065=0.0807$.",
+     "Scores: A $0.6\\times0.2420=0.1452$. B $0.4\\times0.0807=0.0323$.",
+     "Posterior of A $=0.1452/(0.1452+0.0323)=0.818$. Predict A."
+    ],
+    "answer": "Posterior of A is 0.818 (9/11), so predict A."
+   },
+   "what": "For a measured feature, estimate the **mean** and the **variance** of that feature inside each class from the training rows. The likelihood is the height of that class's bell curve (the normal density) at the observed value. A density is a height, not a probability, but heights can be compared across classes. After that, multiply by the prior and compare, exactly as before.",
+   "what_full": "For a measured feature, estimate the **mean** and the **variance** of that feature inside each class from the training rows. The likelihood is the height of that class's bell curve (the normal density) at the observed value. A density is a height, not a probability, but heights can be compared across classes. After that, multiply by the prior and compare, exactly as before.\n\n$$P(x\\mid y)=\\frac{1}{\\sqrt{2\\pi\\sigma^2}}\\exp\\!\\Bigl(-\\frac{(x-\\mu)^2}{2\\sigma^2}\\Bigr),\\quad \\mu=\\frac1{n_y}\\sum x_i,\\quad \\sigma^2=\\frac1{n_y}\\sum(x_i-\\mu)^2$$\n\nSymbols: $\\mu$ is the class mean of the feature, $\\sigma^2$ its variance, and $n_y$ the number of rows in the class. $\\exp(t)$ means $e^{t}$. The variance here divides by $n_y$ (maximum likelihood).\n\n**Worked example.** Class A has mean 2, variance 1 and prior 0.6. Class B has mean 6, variance 9 and prior 0.4. A new reading is $x=3$. Find the posterior of A.\n\n1. Class A exponent: $-(3-2)^2/(2\\times1)=-0.5$. Front factor $1/\\sqrt{2\\pi}=0.3989$. Density $=0.3989\\times e^{-0.5}=0.3989\\times0.6065=0.2420$.\n2. Class B exponent: $-(3-6)^2/(2\\times9)=-9/18=-0.5$. Front factor $1/\\sqrt{2\\pi\\cdot9}=0.1330$. Density $=0.1330\\times0.6065=0.0807$.\n3. Scores: A $0.6\\times0.2420=0.1452$. B $0.4\\times0.0807=0.0323$.\n4. Posterior of A $=0.1452/(0.1452+0.0323)=0.818$. Predict A.\n\n**Answer:** Posterior of A is 0.818 (9/11), so predict A.\n\n**Check yourself:** A class has mean 10 and variance 4. Where is its density highest, and what is the exponent at $x=12$?\n\n*Answer:* Highest at the mean, $x=10$. Exponent $=-(12-10)^2/(2\\times4)=-0.5$.",
+   "why_full": "Most real features are measured, so this is the version that is actually used. In GATE: compute a class density from a mean and variance, classify a point, or reason about the decision boundary and the parameter count ($2Kd$ plus $K-1$ priors).\n\nAsked: no GATE year has asked it directly yet. The ladder drills the density value and the boundary.",
+   "trap": "Treating a density as a probability, or dropping the factor $1/\\sqrt{2\\pi\\sigma^2}$ when the variances differ. That factor cancels only when the variances are equal. Also watch for dividing by $n-1$ when the question says maximum likelihood, which divides by $n$.",
+   "trap_full": "Treating a density as a probability, or dropping the factor $1/\\sqrt{2\\pi\\sigma^2}$ when the variances differ. That factor cancels only when the variances are equal. Also watch for dividing by $n-1$ when the question says maximum likelihood, which divides by $n$."
+  },
+  {
+   "atom_id": "n7",
+   "title": "Generative model and error probability",
+   "simple": "A generative model learns how each class makes its data, like a chef who knows the recipe for every dish. It stores how often each class happens and what the data looks like inside it. To classify, it asks which recipe most likely made the item in front of it. Since it knows the recipes, it could even cook up new fake samples. Even the best guess can be wrong, and the chance of being wrong at an item is just the probability of the class you did not pick. In exam words: naive Bayes models the joint $P(x,y)=P(y)P(x\\mid y)$ (generative), while logistic regression models $P(y\\mid x)$ directly (discriminative). The error at $x$ is $\\min_y P(y\\mid x)$.",
+   "idea": "Naive Bayes is a **generative** classifier. It models how data is produced (pick a class, then its features), which is the joint distribution $P(x,y)$. To classify, it runs Bayes rule backwards and predicts the class with the larger posterior. It is still wrong with probability equal to the **smaller posterior**.",
+   "definition": "$$P(x,y)=P(y)\\,P(x\\mid y),\\qquad \\text{error at }x=\\min_y P(y\\mid x)=1-\\max_y P(y\\mid x)$$\n\nSymbols: $P(x,y)$ is the joint probability of the features and the class. $P(y\\mid x)$ is the posterior. The overall error rate averages the error over all $x$: it equals $\\sum_x\\min_y P(x,y)$.",
+   "intuition_full": "A generative model is a recipe: roll a die for the class, then roll class-specific dice for each feature. Following the recipe forward produces data. Classifying runs the recipe backward: given the data, which first roll most likely led to it? Logistic regression never learns the recipe. It learns only the dividing line between classes, so it cannot produce data. That is the generative versus discriminative split that GATE uses to place models. For the error, picture the two posteriors as shares of a pie that add to 1. You bet on the bigger slice. You lose exactly when the true class is the smaller slice, which happens with that slice's probability. At 0.5625 against 0.4375 you are wrong 43.75% of the time at that $x$. Averaging over all possible $x$ gives the overall error rate.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Priors: $P(y_1)=0.3$ and $P(y_2)=0.7$. A binary feature has $P(x{=}1\\mid y_1)=0.9$ and $P(x{=}1\\mid y_2)=0.3$. For $x=1$, find both posteriors and the probability that the predicted class is wrong.",
+     "steps": [
+      "The recipe starts by picking a class: $y_1$ with probability 0.3, $y_2$ with 0.7.",
+      "Given the class, $x=1$ happens with probability 0.9 in $y_1$ and 0.3 in $y_2$.",
+      "Joint probabilities along each branch: $0.3\\times0.9=0.27$ and $0.7\\times0.3=0.21$.",
+      "Evidence $P(x{=}1)=0.27+0.21=0.48$. Posteriors: $y_1$ $0.27/0.48=0.5625$ and $y_2$ $0.21/0.48=0.4375$.",
+      "Predict $y_1$. The error at $x=1$ is the smaller posterior, $0.4375$."
+     ],
+     "answer": "Predict $y_1$. The error probability at $x=1$ is 0.4375."
+    },
+    {
+     "level": "gate",
+     "setup": "Two classes with priors 0.4 and 0.6. Two binary features are independent given the class. $P(x_1{=}1\\mid y_1)=0.5$, $P(x_2{=}1\\mid y_1)=0.8$, $P(x_1{=}1\\mid y_2)=0.25$, $P(x_2{=}1\\mid y_2)=0.4$. For $x=(1,1)$ find the probability of misclassification.",
+     "steps": [
+      "Score of $y_1$: $0.4\\times0.5\\times0.8=0.16$.",
+      "Score of $y_2$: $0.6\\times0.25\\times0.4=0.06$.",
+      "Evidence $=0.16+0.06=0.22$. Posteriors: $y_1$ $0.16/0.22=0.727$ and $y_2$ $0.06/0.22=0.273$.",
+      "Predict $y_1$. The error is the smaller posterior, $0.273$."
+     ],
+     "answer": "0.27 (that is 3/11). Reporting 0.06 (the raw score) would be the trap."
+    },
+    {
+     "level": "twist",
+     "setup": "Use the numbers of the basic example. What is the overall error rate over both values of $x$, not just $x=1$?",
+     "steps": [
+      "For $x=0$: joints are $0.3\\times0.1=0.03$ and $0.7\\times0.7=0.49$. The classifier predicts $y_2$ and errs only on the smaller joint, 0.03.",
+      "For $x=1$ it errs on the smaller joint, 0.21.",
+      "Overall error $=0.21+0.03=0.24$. Check with weights: $0.48\\times0.4375+0.52\\times0.0577=0.21+0.03=0.24$."
+     ],
+     "answer": "0.24 overall, against 0.4375 at the single point $x=1$."
+    }
+   ],
+   "why": "Two ideas live here and GATE asks both. Naive Bayes is generative, and the error at an input is the smaller normalised posterior. In GATE: 2025 DA Q35 (misclassification probability from priors and likelihoods), and 2024 DA Q18 and 2026 DA Q23 (placing methods).",
+   "how": [
+    "Score each class: prior times likelihood.",
+    "Divide each score by the sum of the scores to get posteriors.",
+    "The larger posterior is the prediction.",
+    "The error probability is the **smaller** posterior, which is $1-$ the larger."
+   ],
+   "mistake": "Giving an unnormalised score (such as 0.06 or 0.16) as the error, or giving the posterior of the predicted class. The error is the smaller of the **normalised** posteriors.",
+   "edge_cases": [
+    "Posteriors of 0.5 and 0.5: the error is 0.5, a coin flip.",
+    "With more than two classes the error is $1-$ the largest posterior, not the smaller of two.",
+    "The error at one $x$ differs from the overall error rate, which averages over all $x$.",
+    "Generative models can sample new data. Discriminative ones such as logistic regression cannot."
+   ],
+   "connections": [
+    "Logistic regression (an earlier chapter) is discriminative: it models $P(y\\mid x)$ directly.",
+    "Linear discriminant analysis (next chapter) is also generative, with Gaussian classes.",
+    "Probability: Bayes theorem covers the normalisation step."
+   ],
+   "check": [
+    {
+     "q": "The posteriors at $x$ are 0.8 and 0.2. What is predicted and what is the error?",
+     "a": "The class with 0.8. The error is 0.2."
+    },
+    {
+     "q": "Three classes have posteriors 0.5, 0.3 and 0.2. What is the error at $x$?",
+     "a": "$1-0.5=0.5$."
+    },
+    {
+     "q": "Naive Bayes or logistic regression: which is generative?",
+     "a": "Naive Bayes. It models $P(x,y)$. Logistic regression models $P(y\\mid x)$."
+    }
+   ],
+   "asked": "Asked: 2025 DA Q35 (misclassification probability), 2024 DA Q18 and 2026 DA Q23 (naive Bayes placed as a generative classifier).",
+   "scene": "ml.nb.tree",
+   "try": {
+    "id": "gen.ml.nb.008",
+    "label": "Probability that a naive Bayes prediction is wrong"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "Priors: $P(y_1)=0.3$ and $P(y_2)=0.7$. A binary feature has $P(x{=}1\\mid y_1)=0.9$ and $P(x{=}1\\mid y_2)=0.3$. For $x=1$, find both posteriors and the probability that the predicted class is wrong.",
+    "steps": [
+     "The recipe starts by picking a class: $y_1$ with probability 0.3, $y_2$ with 0.7.",
+     "Given the class, $x=1$ happens with probability 0.9 in $y_1$ and 0.3 in $y_2$.",
+     "Joint probabilities along each branch: $0.3\\times0.9=0.27$ and $0.7\\times0.3=0.21$.",
+     "Evidence $P(x{=}1)=0.27+0.21=0.48$. Posteriors: $y_1$ $0.27/0.48=0.5625$ and $y_2$ $0.21/0.48=0.4375$.",
+     "Predict $y_1$. The error at $x=1$ is the smaller posterior, $0.4375$."
+    ],
+    "answer": "Predict $y_1$. The error probability at $x=1$ is 0.4375."
+   },
+   "what": "Naive Bayes is a **generative** classifier. It models how data is produced (pick a class, then its features), which is the joint distribution $P(x,y)$. To classify, it runs Bayes rule backwards and predicts the class with the larger posterior. It is still wrong with probability equal to the **smaller posterior**.",
+   "what_full": "Naive Bayes is a **generative** classifier. It models how data is produced (pick a class, then its features), which is the joint distribution $P(x,y)$. To classify, it runs Bayes rule backwards and predicts the class with the larger posterior. It is still wrong with probability equal to the **smaller posterior**.\n\n$$P(x,y)=P(y)\\,P(x\\mid y),\\qquad \\text{error at }x=\\min_y P(y\\mid x)=1-\\max_y P(y\\mid x)$$\n\nSymbols: $P(x,y)$ is the joint probability of the features and the class. $P(y\\mid x)$ is the posterior. The overall error rate averages the error over all $x$: it equals $\\sum_x\\min_y P(x,y)$.\n\n**Worked example.** Priors: $P(y_1)=0.3$ and $P(y_2)=0.7$. A binary feature has $P(x{=}1\\mid y_1)=0.9$ and $P(x{=}1\\mid y_2)=0.3$. For $x=1$, find both posteriors and the probability that the predicted class is wrong.\n\n1. The recipe starts by picking a class: $y_1$ with probability 0.3, $y_2$ with 0.7.\n2. Given the class, $x=1$ happens with probability 0.9 in $y_1$ and 0.3 in $y_2$.\n3. Joint probabilities along each branch: $0.3\\times0.9=0.27$ and $0.7\\times0.3=0.21$.\n4. Evidence $P(x{=}1)=0.27+0.21=0.48$. Posteriors: $y_1$ $0.27/0.48=0.5625$ and $y_2$ $0.21/0.48=0.4375$.\n5. Predict $y_1$. The error at $x=1$ is the smaller posterior, $0.4375$.\n\n**Answer:** Predict $y_1$. The error probability at $x=1$ is 0.4375.\n\n**Check yourself:** The posteriors at $x$ are 0.8 and 0.2. What is predicted and what is the error?\n\n*Answer:* The class with 0.8. The error is 0.2.",
+   "why_full": "Two ideas live here and GATE asks both. Naive Bayes is generative, and the error at an input is the smaller normalised posterior. In GATE: 2025 DA Q35 (misclassification probability from priors and likelihoods), and 2024 DA Q18 and 2026 DA Q23 (placing methods).\n\nAsked: 2025 DA Q35 (misclassification probability), 2024 DA Q18 and 2026 DA Q23 (naive Bayes placed as a generative classifier).",
+   "trap": "Giving an unnormalised score (such as 0.06 or 0.16) as the error, or giving the posterior of the predicted class. The error is the smaller of the **normalised** posteriors.",
+   "trap_full": "Giving an unnormalised score (such as 0.06 or 0.16) as the error, or giving the posterior of the predicted class. The error is the smaller of the **normalised** posteriors."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "ml.nb.argmax",
+   "title": "Prior times likelihood, then pick the bigger score",
+   "viewBox": [
+    0,
+    0,
+    360,
+    260
+   ],
+   "objects": [
+    {
+     "id": "t0",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "Is an email with 'free' spam or ham?",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "hP",
+     "kind": "text",
+     "x": 64,
+     "y": 44,
+     "text": "prior",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "hL",
+     "kind": "text",
+     "x": 180,
+     "y": 44,
+     "text": "likelihood of 'free'",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "hS",
+     "kind": "text",
+     "x": 296,
+     "y": 44,
+     "text": "score",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "bP",
+     "kind": "bar",
+     "x": 16,
+     "y": 56,
+     "w": 96,
+     "h": 110,
+     "max": 1,
+     "labels": [
+      "spam",
+      "ham"
+     ],
+     "values": [
+      0.4,
+      0.6
+     ]
+    },
+    {
+     "id": "bL",
+     "kind": "bar",
+     "x": 132,
+     "y": 56,
+     "w": 96,
+     "h": 110,
+     "max": 1,
+     "labels": [
+      "spam",
+      "ham"
+     ],
+     "values": [
+      0.5,
+      0.1
+     ]
+    },
+    {
+     "id": "bS",
+     "kind": "bar",
+     "x": 248,
+     "y": 56,
+     "w": 96,
+     "h": 110,
+     "max": 1,
+     "labels": [
+      "spam",
+      "ham"
+     ],
+     "values": [
+      0.2,
+      0.06
+     ],
+     "tone": "good"
+    },
+    {
+     "id": "x1",
+     "kind": "text",
+     "x": 122,
+     "y": 118,
+     "text": "×",
+     "size": 22,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "x2",
+     "kind": "text",
+     "x": 238,
+     "y": 118,
+     "text": "=",
+     "size": 22,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "res2",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Priors: 40% of emails are spam and 60% are ham.",
+     "show": [
+      "hP",
+      "bP"
+     ],
+     "highlight": "bP"
+    },
+    {
+     "caption": "Likelihood of the word 'free': it appears in 50% of spam and in 10% of ham.",
+     "show": [
+      "hL",
+      "bL",
+      "x1"
+     ],
+     "highlight": "bL"
+    },
+    {
+     "caption": "Score = prior × likelihood. Spam: 0.4 × 0.5 = 0.20. Ham: 0.6 × 0.1 = 0.06.",
+     "show": [
+      "hS",
+      "bS",
+      "x2"
+     ],
+     "highlight": "bS",
+     "set": {
+      "id": "res",
+      "text": "0.4 × 0.5 = 0.20     0.6 × 0.1 = 0.06"
+     }
+    },
+    {
+     "caption": "Spam has the bigger score, so MAP predicts spam.",
+     "highlight": {
+      "id": "bS",
+      "cells": [
+       0
+      ],
+      "tone": "good"
+     },
+     "set": {
+      "id": "res",
+      "text": "0.20 > 0.06: predict spam",
+      "tone": "good"
+     }
+    },
+    {
+     "caption": "To get posteriors divide by the evidence 0.20 + 0.06 = 0.26. The bars keep their ratio, so the winner does not change.",
+     "set": [
+      {
+       "id": "bS",
+       "values": [
+        0.769,
+        0.231
+       ]
+      },
+      {
+       "id": "hS",
+       "text": "posterior"
+      },
+      {
+       "id": "res",
+       "text": "0.20 / 0.26 = 0.769     0.06 / 0.26 = 0.231"
+      },
+      {
+       "id": "res2",
+       "text": "evidence = 0.26"
+      }
+     ],
+     "highlight": {
+      "id": "bS",
+      "cells": [
+       0
+      ],
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ml.nb.indep",
+   "title": "Independent inside each class, not overall",
+   "viewBox": [
+    0,
+    0,
+    380,
+    296
+   ],
+   "objects": [
+    {
+     "id": "tSp",
+     "kind": "text",
+     "x": 124,
+     "y": 20,
+     "text": "Spam: 40 emails",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "tHm",
+     "kind": "text",
+     "x": 304,
+     "y": 20,
+     "text": "Ham: 50 emails",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "gS",
+     "kind": "grid",
+     "x": 72,
+     "y": 56,
+     "rows": 2,
+     "cols": 2,
+     "cw": 52,
+     "ch": 28,
+     "rowLabels": [
+      "offer",
+      "no offer"
+     ],
+     "colLabels": [
+      "free",
+      "no free"
+     ],
+     "cells": [
+      [
+       12,
+       12
+      ],
+      [
+       8,
+       8
+      ]
+     ]
+    },
+    {
+     "id": "gH",
+     "kind": "grid",
+     "x": 252,
+     "y": 56,
+     "rows": 2,
+     "cols": 2,
+     "cw": 52,
+     "ch": 28,
+     "rowLabels": [
+      "offer",
+      "no offer"
+     ],
+     "colLabels": [
+      "free",
+      "no free"
+     ],
+     "cells": [
+      [
+       1,
+       4
+      ],
+      [
+       9,
+       36
+      ]
+     ]
+    },
+    {
+     "id": "chS",
+     "kind": "text",
+     "x": 124,
+     "y": 144,
+     "text": "0.6 × 0.5 = 0.30\nboth = 12/40 = 0.30",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "good"
+    },
+    {
+     "id": "chH",
+     "kind": "text",
+     "x": 304,
+     "y": 144,
+     "text": "0.1 × 0.2 = 0.02\nboth = 1/50 = 0.02",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "good"
+    },
+    {
+     "id": "tAll",
+     "kind": "text",
+     "x": 190,
+     "y": 180,
+     "text": "All 90 emails",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "gT",
+     "kind": "grid",
+     "x": 138,
+     "y": 208,
+     "rows": 2,
+     "cols": 2,
+     "cw": 52,
+     "ch": 28,
+     "rowLabels": [
+      "offer",
+      "no offer"
+     ],
+     "colLabels": [
+      "free",
+      "no free"
+     ],
+     "cells": [
+      [
+       13,
+       16
+      ],
+      [
+       17,
+       44
+      ]
+     ]
+    },
+    {
+     "id": "chA",
+     "kind": "text",
+     "x": 190,
+     "y": 280,
+     "text": "0.322 × 0.333 = 0.107, but both = 13/90 = 0.144",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "bad"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Spam (40 emails). Rows: has 'offer' or not. Columns: has 'free' or not. P(offer) = 24/40 = 0.6 and P(free) = 20/40 = 0.5. Their product 0.30 equals P(both) = 12/40.",
+     "show": [
+      "tSp",
+      "gS",
+      "chS"
+     ],
+     "highlight": {
+      "id": "gS",
+      "cells": [
+       0
+      ],
+      "tone": "good"
+     }
+    },
+    {
+     "caption": "Ham (50 emails). P(offer) = 5/50 = 0.1 and P(free) = 10/50 = 0.2. Product 0.02 equals P(both) = 1/50. Independent inside ham too.",
+     "show": [
+      "tHm",
+      "gH",
+      "chH"
+     ],
+     "highlight": {
+      "id": "gH",
+      "cells": [
+       0
+      ],
+      "tone": "good"
+     }
+    },
+    {
+     "caption": "Now pour both classes into one pile: add the tables cell by cell. 12 + 1 = 13, 12 + 4 = 16, 8 + 9 = 17, 8 + 36 = 44. Total 90.",
+     "show": [
+      "tAll",
+      "gT"
+     ],
+     "dim": [
+      "tSp",
+      "gS",
+      "chS",
+      "tHm",
+      "gH",
+      "chH"
+     ],
+     "highlight": "gT"
+    },
+    {
+     "caption": "Overall: P(offer) = 29/90 = 0.322 and P(free) = 30/90 = 0.333. Product 0.107. But P(both) = 13/90 = 0.144.",
+     "show": "chA",
+     "highlight": {
+      "id": "gT",
+      "cells": [
+       0
+      ],
+      "tone": "bad"
+     }
+    },
+    {
+     "caption": "0.107 is not 0.144, so the words are linked overall. They are independent only once the class is known.",
+     "set": {
+      "id": "tAll",
+      "text": "Independent given the class, not overall"
+     },
+     "highlight": [
+      {
+       "id": "chA",
+       "tone": "bad"
+      },
+      "tAll"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ml.nb.counts",
+   "title": "Priors and likelihoods are fractions of counts",
+   "viewBox": [
+    0,
+    0,
+    360,
+    280
+   ],
+   "objects": [
+    {
+     "id": "t0",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "20 students: passed? studied 2+ hours?",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 94,
+     "y": 60,
+     "rows": 3,
+     "cols": 3,
+     "cw": 62,
+     "ch": 32,
+     "rowLabels": [
+      "pass",
+      "fail",
+      "all"
+     ],
+     "colLabels": [
+      "studied",
+      "not",
+      "total"
+     ],
+     "cells": [
+      [
+       9,
+       3,
+       12
+      ],
+      [
+       2,
+       6,
+       8
+      ],
+      [
+       11,
+       9,
+       20
+      ]
+     ]
+    },
+    {
+     "id": "p1",
+     "kind": "text",
+     "x": 24,
+     "y": 184,
+     "text": "P(pass) = 12/20 = 0.6,  P(fail) = 8/20 = 0.4",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "l1",
+     "kind": "text",
+     "x": 24,
+     "y": 208,
+     "text": "P(studied | pass) = 9/12 = 0.75",
+     "size": 13,
+     "anchor": "start",
+     "tone": "good"
+    },
+    {
+     "id": "l2",
+     "kind": "text",
+     "x": 24,
+     "y": 232,
+     "text": "P(studied | fail) = 2/8 = 0.25",
+     "size": 13,
+     "anchor": "start",
+     "tone": "accent"
+    },
+    {
+     "id": "jt",
+     "kind": "text",
+     "x": 24,
+     "y": 258,
+     "text": "9/20 = 0.45 is the joint = 0.6 × 0.75",
+     "size": 13,
+     "anchor": "start",
+     "tone": "bad"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Twenty students. Each cell counts the students in that row and column. Passed: 9 + 3 = 12. Failed: 2 + 6 = 8.",
+     "show": [
+      "t0",
+      "g"
+     ],
+     "highlight": "g"
+    },
+    {
+     "caption": "Priors: divide each class total by all 20 rows. 12/20 = 0.6 and 8/20 = 0.4.",
+     "show": "p1",
+     "highlight": {
+      "id": "g",
+      "cells": [
+       2,
+       5,
+       8
+      ],
+      "tone": "accent"
+     }
+    },
+    {
+     "caption": "Likelihood of 'studied' for passers: look only inside the pass row. 9 of those 12 studied, so 9/12 = 0.75.",
+     "show": "l1",
+     "highlight": {
+      "id": "g",
+      "cells": [
+       0,
+       2
+      ],
+      "tone": "good"
+     }
+    },
+    {
+     "caption": "For failers, look only inside the fail row. 2 of 8 studied, so 2/8 = 0.25. Each row is divided by its own total.",
+     "show": "l2",
+     "highlight": {
+      "id": "g",
+      "cells": [
+       3,
+       5
+      ],
+      "tone": "accent"
+     }
+    },
+    {
+     "caption": "Trap: 9 divided by all 20 is 0.45. That is the joint (pass and studied), and it equals prior × likelihood = 0.6 × 0.75. It is not the likelihood.",
+     "show": "jt",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        8
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "jt",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ml.nb.laplace",
+   "title": "Add-one smoothing rescues a zero count",
+   "viewBox": [
+    0,
+    0,
+    360,
+    270
+   ],
+   "objects": [
+    {
+     "id": "t0",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "New email contains 'offer' and 'agenda'",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 86,
+     "y": 64,
+     "rows": 2,
+     "cols": 3,
+     "cw": 66,
+     "ch": 30,
+     "rowLabels": [
+      "spam",
+      "ham"
+     ],
+     "colLabels": [
+      "emails",
+      "offer",
+      "agenda"
+     ],
+     "cells": [
+      [
+       8,
+       7,
+       0
+      ],
+      [
+       8,
+       1,
+       2
+      ]
+     ]
+    },
+    {
+     "id": "ps",
+     "kind": "text",
+     "x": 24,
+     "y": 156,
+     "text": "Spam: 0.5 × 7/8 × 0/8 = 0",
+     "size": 13,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "ph",
+     "kind": "text",
+     "x": 24,
+     "y": 180,
+     "text": "Ham:  0.5 × 1/8 × 2/8 = 0.0156",
+     "size": 13,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 24,
+     "y": 212,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "tone": "bad"
+    },
+    {
+     "id": "pl",
+     "kind": "text",
+     "x": 24,
+     "y": 240,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Eight spam and eight ham emails, priors 0.5 each. The table counts how many contain each word. The new email has both words.",
+     "show": [
+      "t0",
+      "g"
+     ],
+     "highlight": "g"
+    },
+    {
+     "caption": "Spam score with plain counts: 'agenda' never appears in spam, so that factor is 0/8 = 0 and the whole product is 0.",
+     "show": "ps",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      },
+      "ps"
+     ],
+     "set": {
+      "id": "nt",
+      "text": "one zero factor kills the spam score"
+     }
+    },
+    {
+     "caption": "Ham score: 0.5 × 1/8 × 2/8 = 0.0156. Ham wins with posterior 1, although 'offer' points strongly to spam.",
+     "show": "ph",
+     "highlight": "ph",
+     "set": {
+      "id": "nt",
+      "text": "ham wins by default, not by evidence"
+     }
+    },
+    {
+     "caption": "Laplace: add 1 to every count and 2 to every class total (2 values per feature: has it or not). Watch the cells change.",
+     "hide": [
+      "ps",
+      "ph"
+     ],
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         10,
+         "8/10",
+         "1/10"
+        ],
+        [
+         10,
+         "2/10",
+         "3/10"
+        ]
+       ]
+      },
+      {
+       "id": "nt",
+       "text": ""
+      },
+      {
+       "id": "pl",
+       "text": "+1 on each count, +2 on each total"
+      }
+     ],
+     "highlight": {
+      "id": "g",
+      "cells": [
+       1,
+       2,
+       4,
+       5
+      ],
+      "tone": "good"
+     }
+    },
+    {
+     "caption": "Spam: 0.5 × 0.8 × 0.1 = 0.04. Ham: 0.5 × 0.2 × 0.3 = 0.03. Spam wins now. Posterior of spam = 0.04 / 0.07 = 0.571.",
+     "show": [
+      "ps",
+      "ph"
+     ],
+     "set": [
+      {
+       "id": "ps",
+       "text": "Spam: 0.5 × 0.8 × 0.1 = 0.04"
+      },
+      {
+       "id": "ph",
+       "text": "Ham:  0.5 × 0.2 × 0.3 = 0.03"
+      },
+      {
+       "id": "pl",
+       "text": "spam wins, posterior 0.571"
+      }
+     ],
+     "highlight": [
+      "ps",
+      "ph"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ml.nb.params",
+   "title": "Counting the free numbers in naive Bayes",
+   "viewBox": [
+    0,
+    0,
+    360,
+    290
+   ],
+   "objects": [
+    {
+     "id": "t0",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "4 classes, 3 binary features",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "gP",
+     "kind": "grid",
+     "x": 96,
+     "y": 62,
+     "rows": 4,
+     "cols": 3,
+     "cw": 52,
+     "ch": 30,
+     "rowLabels": [
+      "class 1",
+      "class 2",
+      "class 3",
+      "class 4"
+     ],
+     "colLabels": [
+      "x1",
+      "x2",
+      "x3"
+     ],
+     "cells": [
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ]
+     ]
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 306,
+     "y": 122,
+     "text": "4 × 3\n= 12",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "ar",
+     "kind": "array",
+     "x": 96,
+     "y": 208,
+     "cells": [
+      "π1",
+      "π2",
+      "π3",
+      "π4"
+     ],
+     "cw": 44,
+     "ch": 30,
+     "indices": false,
+     "label": "class priors"
+    },
+    {
+     "id": "cn2",
+     "kind": "text",
+     "x": 318,
+     "y": 223,
+     "text": "4 − 1 = 3",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 268,
+     "text": "12 + 3 = 15 numbers",
+     "size": 15,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "fj",
+     "kind": "array",
+     "x": 28,
+     "y": 96,
+     "cells": [
+      "000",
+      "001",
+      "010",
+      "011",
+      "100",
+      "101",
+      "110",
+      "111"
+     ],
+     "cw": 38,
+     "ch": 30,
+     "indices": false,
+     "label": "one class: every combination of (x1, x2, x3)"
+    },
+    {
+     "id": "f7",
+     "kind": "text",
+     "x": 180,
+     "y": 160,
+     "text": "8 combinations, 8 − 1 = 7 free numbers",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "f31",
+     "kind": "text",
+     "x": 180,
+     "y": 190,
+     "text": "4 × 7 + 3 = 31",
+     "size": 15,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "bad"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Each (class, feature) pair needs one number: P(feature = 1 | class). The other value is 1 minus it, so it is not free. The table has 4 rows and 3 columns.",
+     "show": [
+      "t0",
+      "gP"
+     ],
+     "highlight": "gP"
+    },
+    {
+     "caption": "Fill every cell: 4 × 3 = 12 numbers to estimate.",
+     "show": "cnt",
+     "set": {
+      "id": "gP",
+      "cells": [
+       [
+        "p",
+        "p",
+        "p"
+       ],
+       [
+        "p",
+        "p",
+        "p"
+       ],
+       [
+        "p",
+        "p",
+        "p"
+       ],
+       [
+        "p",
+        "p",
+        "p"
+       ]
+      ]
+     },
+     "highlight": "gP"
+    },
+    {
+     "caption": "Class priors: four numbers that must add up to 1. Once three are fixed the fourth is forced, so only 4 − 1 = 3 are free.",
+     "show": [
+      "ar",
+      "cn2"
+     ],
+     "dim": {
+      "id": "ar",
+      "cells": [
+       3
+      ]
+     },
+     "highlight": {
+      "id": "ar",
+      "cells": [
+       0,
+       1,
+       2
+      ]
+     }
+    },
+    {
+     "caption": "Naive Bayes total: 12 + 3 = 15 free numbers.",
+     "show": "tot",
+     "highlight": [
+      "tot",
+      "cnt",
+      "cn2"
+     ]
+    },
+    {
+     "caption": "Without independence, one class needs a number for every combination of the 3 features: 2³ = 8 combinations, 7 free. Four classes plus 3 priors give 31.",
+     "hide": [
+      "gP",
+      "cnt",
+      "ar",
+      "cn2"
+     ],
+     "show": [
+      "fj",
+      "f7",
+      "f31"
+     ],
+     "dim": {
+      "id": "fj",
+      "cells": [
+       7
+      ]
+     },
+     "set": {
+      "id": "tot",
+      "text": "naive Bayes 15     full joint 31"
+     },
+     "highlight": "f31"
+    }
+   ]
+  },
+  {
+   "id": "ml.nb.gauss",
+   "title": "Gaussian naive Bayes reads the height of each bell curve",
+   "viewBox": [
+    0,
+    0,
+    360,
+    308
+   ],
+   "objects": [
+    {
+     "id": "ax",
+     "kind": "axis",
+     "x": 34,
+     "y": 190,
+     "unit": 30,
+     "xr": [
+      0,
+      9.5
+     ],
+     "yr": [
+      0,
+      4.5
+     ],
+     "xlabel": "x",
+     "ylabel": "density × 10"
+    },
+    {
+     "id": "cA",
+     "kind": "curve",
+     "axis": "ax",
+     "fn": "3.989*exp(-(x-2)^2/2)",
+     "domain": [
+      0,
+      9.5
+     ],
+     "tone": "accent"
+    },
+    {
+     "id": "cB",
+     "kind": "curve",
+     "axis": "ax",
+     "fn": "1.33*exp(-(x-6)^2/18)",
+     "domain": [
+      0,
+      9.5
+     ],
+     "tone": "mid"
+    },
+    {
+     "id": "vx",
+     "kind": "edge",
+     "x1": 124,
+     "y1": 190,
+     "x2": 124,
+     "y2": 62,
+     "dash": true
+    },
+    {
+     "id": "lx",
+     "kind": "text",
+     "x": 130,
+     "y": 64,
+     "text": "x = 3",
+     "size": 13,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "pA",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      3,
+      2.42
+     ],
+     "tone": "accent"
+    },
+    {
+     "id": "pB",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      3,
+      0.81
+     ],
+     "tone": "mid"
+    },
+    {
+     "id": "la",
+     "kind": "text",
+     "x": 260,
+     "y": 86,
+     "text": "A: mean 2, var 1",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "accent"
+    },
+    {
+     "id": "lb",
+     "kind": "text",
+     "x": 260,
+     "y": 106,
+     "text": "B: mean 6, var 9",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "mid"
+    },
+    {
+     "id": "L1",
+     "kind": "text",
+     "x": 24,
+     "y": 228,
+     "text": "A: −(3−2)²/(2·1) = −0.5, density 0.242",
+     "size": 12,
+     "anchor": "start",
+     "tone": "accent"
+    },
+    {
+     "id": "L2",
+     "kind": "text",
+     "x": 24,
+     "y": 248,
+     "text": "B: −(3−6)²/(2·9) = −0.5, density 0.081",
+     "size": 12,
+     "anchor": "start",
+     "tone": "mid"
+    },
+    {
+     "id": "L3",
+     "kind": "text",
+     "x": 24,
+     "y": 270,
+     "text": "scores: 0.6 × 0.242 = 0.145,  0.4 × 0.081 = 0.032",
+     "size": 12,
+     "anchor": "start"
+    },
+    {
+     "id": "L4",
+     "kind": "text",
+     "x": 24,
+     "y": 290,
+     "text": "P(A | x=3) = 0.145 / 0.177 = 0.818",
+     "size": 13,
+     "anchor": "start",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Class A: mean 2, variance 1, prior 0.6 (tall and narrow). Class B: mean 6, variance 9, prior 0.4 (low and wide). A new reading arrives at x = 3.",
+     "show": [
+      "ax",
+      "cA",
+      "cB",
+      "vx",
+      "lx",
+      "la",
+      "lb"
+     ],
+     "draw": [
+      "cA",
+      "cB"
+     ]
+    },
+    {
+     "caption": "Read curve A at x = 3: exponent −(3−2)²/(2·1) = −0.5, density 0.3989 × e^−0.5 = 0.242.",
+     "show": [
+      "pA",
+      "L1"
+     ],
+     "highlight": [
+      "pA",
+      "L1"
+     ]
+    },
+    {
+     "caption": "Read curve B at x = 3: exponent −(3−6)²/(2·9) = −0.5, density 0.1330 × e^−0.5 = 0.081. The wide hill is lower here.",
+     "show": [
+      "pB",
+      "L2"
+     ],
+     "highlight": [
+      "pB",
+      "L2"
+     ]
+    },
+    {
+     "caption": "Multiply each height by its prior: A 0.6 × 0.242 = 0.145. B 0.4 × 0.081 = 0.032.",
+     "show": "L3",
+     "highlight": "L3"
+    },
+    {
+     "caption": "Divide by the sum 0.145 + 0.032 = 0.177. Posterior of A is 0.818, so predict A.",
+     "show": "L4",
+     "highlight": "L4"
+    }
+   ]
+  },
+  {
+   "id": "ml.nb.tree",
+   "title": "Generate a class, then the feature; classify by running it backwards",
+   "viewBox": [
+    0,
+    0,
+    360,
+    310
+   ],
+   "objects": [
+    {
+     "id": "h",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "r",
+     "kind": "node",
+     "x": 34,
+     "y": 140,
+     "r": 22,
+     "label": "start"
+    },
+    {
+     "id": "y1",
+     "kind": "node",
+     "x": 126,
+     "y": 80,
+     "r": 18,
+     "label": "y1"
+    },
+    {
+     "id": "y2",
+     "kind": "node",
+     "x": 126,
+     "y": 200,
+     "r": 18,
+     "label": "y2"
+    },
+    {
+     "id": "e1",
+     "kind": "arrow",
+     "from": "r",
+     "to": "y1",
+     "label": "0.3"
+    },
+    {
+     "id": "e2",
+     "kind": "arrow",
+     "from": "r",
+     "to": "y2",
+     "label": "0.7"
+    },
+    {
+     "id": "a1",
+     "kind": "node",
+     "x": 214,
+     "y": 50,
+     "r": 18,
+     "label": "x=1"
+    },
+    {
+     "id": "a0",
+     "kind": "node",
+     "x": 214,
+     "y": 110,
+     "r": 18,
+     "label": "x=0"
+    },
+    {
+     "id": "b1",
+     "kind": "node",
+     "x": 214,
+     "y": 170,
+     "r": 18,
+     "label": "x=1"
+    },
+    {
+     "id": "b0",
+     "kind": "node",
+     "x": 214,
+     "y": 230,
+     "r": 18,
+     "label": "x=0"
+    },
+    {
+     "id": "f1",
+     "kind": "arrow",
+     "from": "y1",
+     "to": "a1",
+     "label": "0.9"
+    },
+    {
+     "id": "f2",
+     "kind": "arrow",
+     "from": "y1",
+     "to": "a0",
+     "label": "0.1"
+    },
+    {
+     "id": "f3",
+     "kind": "arrow",
+     "from": "y2",
+     "to": "b1",
+     "label": "0.3"
+    },
+    {
+     "id": "f4",
+     "kind": "arrow",
+     "from": "y2",
+     "to": "b0",
+     "label": "0.7"
+    },
+    {
+     "id": "ja1",
+     "kind": "text",
+     "x": 246,
+     "y": 50,
+     "text": "0.27",
+     "size": 14,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "ja0",
+     "kind": "text",
+     "x": 246,
+     "y": 110,
+     "text": "0.03",
+     "size": 14,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "jb1",
+     "kind": "text",
+     "x": 246,
+     "y": 170,
+     "text": "0.21",
+     "size": 14,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "jb0",
+     "kind": "text",
+     "x": 246,
+     "y": 230,
+     "text": "0.49",
+     "size": 14,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "rs",
+     "kind": "text",
+     "x": 180,
+     "y": 272,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "rs2",
+     "kind": "text",
+     "x": 180,
+     "y": 295,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The recipe, part 1: pick a class from the prior. y1 with probability 0.3, y2 with probability 0.7.",
+     "show": [
+      "h",
+      "r",
+      "y1",
+      "y2",
+      "e1",
+      "e2"
+     ],
+     "set": {
+      "id": "h",
+      "text": "1. pick the class (prior)"
+     },
+     "highlight": [
+      "e1",
+      "e2"
+     ]
+    },
+    {
+     "caption": "Part 2: given the class, pick x. In y1 the value x = 1 has probability 0.9. In y2 it has probability 0.3.",
+     "show": [
+      "a1",
+      "a0",
+      "b1",
+      "b0",
+      "f1",
+      "f2",
+      "f3",
+      "f4"
+     ],
+     "set": {
+      "id": "h",
+      "text": "2. pick x given the class (likelihood)"
+     },
+     "highlight": [
+      "f1",
+      "f3"
+     ]
+    },
+    {
+     "caption": "Multiply along each branch to get the joint: 0.3 × 0.9 = 0.27, 0.3 × 0.1 = 0.03, 0.7 × 0.3 = 0.21, 0.7 × 0.7 = 0.49.",
+     "show": [
+      "ja1",
+      "ja0",
+      "jb1",
+      "jb0"
+     ],
+     "set": {
+      "id": "h",
+      "text": "3. joint = product along the branch"
+     },
+     "highlight": [
+      "ja1",
+      "ja0",
+      "jb1",
+      "jb0"
+     ]
+    },
+    {
+     "caption": "We observed x = 1, so only those two leaves remain. Evidence = 0.27 + 0.21 = 0.48. Posteriors: 0.27/0.48 = 0.5625 and 0.21/0.48 = 0.4375.",
+     "dim": [
+      "a0",
+      "b0",
+      "ja0",
+      "jb0",
+      "f2",
+      "f4"
+     ],
+     "show": "rs",
+     "set": [
+      {
+       "id": "h",
+       "text": "4. keep x = 1, divide by the evidence"
+      },
+      {
+       "id": "ja1",
+       "text": "0.5625"
+      },
+      {
+       "id": "jb1",
+       "text": "0.4375"
+      },
+      {
+       "id": "rs",
+       "text": "evidence P(x=1) = 0.27 + 0.21 = 0.48"
+      }
+     ],
+     "highlight": [
+      "ja1",
+      "jb1"
+     ]
+    },
+    {
+     "caption": "Predict y1. It is wrong exactly when the truth is y2, which has the smaller posterior: error = 0.4375.",
+     "show": "rs2",
+     "set": [
+      {
+       "id": "h",
+       "text": "5. error = smaller posterior"
+      },
+      {
+       "id": "rs2",
+       "text": "predict y1, error = 0.4375",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "jb1",
+       "tone": "bad"
+      },
+      {
+       "id": "ja1",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

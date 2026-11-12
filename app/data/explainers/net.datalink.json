@@ -1,0 +1,4409 @@
+{
+ "topic_id": "net.datalink",
+ "title": "Data link layer",
+ "chapter_note": {
+  "about": "The data link layer moves frames over one link and shares that link between stations. This chapter covers four jobs. Framing cuts the bit stream into frames, and error codes (parity, Hamming, CRC) catch or fix damaged bits. Flow control with stop-and-wait and sliding windows decides how many frames can be in flight, and how many sequence-number bits that needs. Medium access (CSMA/CD and ALOHA) decides who may send on a shared cable. The last card is about MAC addresses and switches. Almost every numeric question is a short calculation on delays, so careful unit conversion matters.",
+  "simple": "A cable between two computers carries a river of bits, and the data link layer cuts it into frames and checks each one. A check can be a simple count of 1s, a clever division (CRC), or a code that even says which bit is broken (Hamming). To keep the cable busy, the sender sends several frames before waiting for the 'got it' replies, and the number it may send is the window. If several computers share one cable, they follow rules to avoid talking at once. A switch learns who sits behind which plug, so it can pass each frame to the right place. In exam words: framing, parity, CRC, Hamming, stop-and-wait, sliding window, CSMA/CD, ALOHA, switches.",
+  "concept_map": [
+   {
+    "atom_id": "d1",
+    "title": "Framing and bit stuffing",
+    "one_line": "Flag 01111110; insert a 0 after five 1s; the receiver removes it."
+   },
+   {
+    "atom_id": "d2",
+    "title": "Parity and Hamming distance",
+    "one_line": "Parity catches odd flips; distance d detects d-1 and corrects floor((d-1)/2)."
+   },
+   {
+    "atom_id": "d3",
+    "title": "CRC",
+    "one_line": "Append r zeros, XOR-divide, append the remainder; receiver remainder 0 means accept."
+   },
+   {
+    "atom_id": "d4",
+    "title": "Hamming single-error-correcting code",
+    "one_line": "Check bits at powers of 2; the syndrome is the error position."
+   },
+   {
+    "atom_id": "d5",
+    "title": "Stop-and-wait",
+    "one_line": "U = Tt / (Tt + 2Tp); the round trip makes it idle on long links."
+   },
+   {
+    "atom_id": "d6",
+    "title": "Sliding window efficiency",
+    "one_line": "U = min(1, W Tt / (Tt + 2Tp)); full use needs W = 1 + 2Tp/Tt."
+   },
+   {
+    "atom_id": "d7",
+    "title": "Sequence number bits",
+    "one_line": "Go-Back-N needs W + 1 numbers, Selective Repeat needs 2W."
+   },
+   {
+    "atom_id": "d8",
+    "title": "Go-Back-N versus selective repeat",
+    "one_line": "GBN resends the lost frame and all later ones; SR only the lost one."
+   },
+   {
+    "atom_id": "d9",
+    "title": "CSMA/CD and minimum frame size",
+    "one_line": "Frame time at least 2Tp; backoff range doubles each collision."
+   },
+   {
+    "atom_id": "d10",
+    "title": "ALOHA and slotted contention",
+    "one_line": "Pure S = G e^(-2G), max 0.184; slotted S = G e^(-G), max 0.368."
+   },
+   {
+    "atom_id": "d11",
+    "title": "MAC addresses, switches and frame addressing",
+    "one_line": "Switch learns from the source MAC; MAC changes per hop, IP does not."
+   }
+  ],
+  "gate_patterns": [
+   "Stop-and-wait and sliding window: utilisation, throughput, frame size, or the window and sequence-number bits that fill the link (2025 CS2 Q36, 2017 CS1 Q45, 2021 CS1 Q59, 2026 CS2 Q65, 2014 CS1 Q28; about 18 questions in all).",
+   "CSMA/CD: minimum frame size, cable length, backoff probability and Ethernet facts (2024 CS2 Q55, 2013 CS Q36, 2016 CS2 Q53, 2005 CS Q74; 8 questions). ALOHA and contention add 4 more.",
+   "Error control: the CRC remainder (2021 CS2 Q44, 2026 CS2 Q43, 2017 CS1 Q32, 2007 CS Q68), distance and Hamming bits (2017 CS2 Q34, 2021 CS1 Q39), and bit unstuffing (2014 CS3 Q24). Weightage: about 1.7 marks per CS paper; 14 questions in 8 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "d1",
+   "title": "Framing and bit stuffing",
+   "simple": "Suppose you send a long line of 0s and 1s with no gaps, and the end of every message is shown by a special pattern, say 01111110. The danger is that the same pattern might appear inside the message by accident, and the receiver would stop too early. The fix is a small trick. Whenever the sender sees five 1s in a row, it quietly slips in a 0. The receiver knows the trick and removes that 0 again. Now the special pattern can only mean 'end'. In exam words: the flag is 01111110, the sender inserts a 0 after every five consecutive 1s (bit stuffing), and the receiver deletes it.",
+   "idea": "The data link layer must show where a frame starts and ends in a stream of bits. A fixed **flag** pattern does this. To stop the flag appearing inside the data, the sender **stuffs** an extra 0 after every five 1s.",
+   "definition": "**Flag:** 01111110 marks the start and end of a frame (it has six 1s in a row).\n\n**Sender rule:** after five consecutive 1s in the data, insert a 0, whatever the next data bit is.\n\n**Receiver rule:** after five consecutive 1s, the next bit is a stuffed 0. Delete it.\n\nSo the data stream never has six 1s in a row. Six 1s mean a flag.\n\n**Overhead:** the number of stuffed bits is the number of runs of five 1s (the count restarts after each stuffed 0).\n\nOther framing methods exist: character count, and byte stuffing with an escape byte. GATE asks mainly for bit stuffing.",
+   "intuition_full": "A receiver reading a stream of bits has no gaps to tell it where a frame ends, so it needs a marker. A marker only works if ordinary data can never look like it. Bit stuffing guarantees this by a rule that is cheap to apply in hardware: count 1s, and after five of them force a 0. The longest run of 1s the data can then produce is five, so six 1s can only be the flag. The cost is a few extra bits, about one in 32 for random data and more for long runs of 1s. Receiver and sender must count the same way. After each stuffed 0 the count restarts from zero, because the stuffed 0 breaks the run. The count also restarts after any ordinary 0. That is why a run of ten 1s gets two stuffed zeros: 11111 0 11111 0.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A link uses the flag 01111110 and bit stuffing. The data bits 0111110111111010 must be sent. Show the bits on the wire between the flags, and how the receiver recovers the data.",
+     "steps": [
+      "A frame is marked by the flag 01111110. The data must never contain a run that the receiver could mistake for a flag, so the data is sent through the stuffing rule: after **five consecutive 1s, insert a 0**.",
+      "Scan the data from the left. The first run of 1s is at positions 1 to 5, and it has exactly five 1s.",
+      "After those five 1s the sender inserts a 0. The wire now carries 01111100 so far. The inserted 0 is not data.",
+      "The next run is 111111 (six 1s). After its first five 1s, insert a 0, and the sixth 1 starts a new count. The wire carries 01111100111110 so far.",
+      "The remaining bits 1010 contain no run of five. The wire carries 011111001111101010: 16 data bits plus 2 stuffed zeros = 18 bits, between the two flags.",
+      "The receiver counts 1s too. After every five 1s it drops the next bit, which must be a stuffed 0. It gets back 0111110111111010, exactly the data."
+     ],
+     "answer": "On the wire: 01111110 011111001111101010 01111110. The receiver removes the 2 stuffed zeros and recovers 0111110111111010."
+    },
+    {
+     "level": "gate",
+     "setup": "A receiver reads the bits 101111100111110001 between two flags in a bit-stuffed frame. What data was sent, and how many bits were stuffed?",
+     "steps": [
+      "The receiver reverses the rule: after five consecutive 1s, the next bit is a stuffed 0 and is removed.",
+      "Read 101111100111110001 from the left. The bits 1 and 0 are ordinary. Then 11111 is a run of five 1s, so the next bit, a 0, is stuffed. Remove it.",
+      "The count restarts. The next bit, a 0, is ordinary data. Then 11111 is another run of five 1s, so the 0 after it is stuffed. Remove it too.",
+      "What is left is 1011111011111001, which has 16 bits. So 18 - 16 = 2 bits were stuffed."
+     ],
+     "answer": "Data sent: 1011111011111001. Stuffed bits: 2."
+    },
+    {
+     "level": "twist",
+     "setup": "The data is 00011111, and it ends with exactly five 1s. Does the sender still stuff a 0 before the closing flag 01111110?",
+     "steps": [
+      "The rule has no exception for the end of the data: after five consecutive 1s, always insert a 0.",
+      "So the wire carries 000111110 followed by the flag 01111110, which gives 00011111001111110.",
+      "Without the stuffed 0 the stream would be 11111 01111110. The receiver would see 11111 followed by 0 and drop that 0 as a stuffed bit. It would then read 1111110 and corrupt the closing flag.",
+      "With the stuffing the receiver sees 11111, drops the stuffed 0, then reads 01111110 as the real flag."
+     ],
+     "answer": "Yes. The data goes out as 000111110. The stuffed 0 is needed even at the end."
+    }
+   ],
+   "why": "Framing is the first job of the data link layer and a quick, sure GATE mark. In GATE: unstuff a received bit string, or count how many bits are on the wire after stuffing.",
+   "how": [
+    "To stuff: read left to right, count consecutive 1s, and write a 0 after every fifth 1.",
+    "Restart the count after each inserted 0 and after any 0 in the data.",
+    "To unstuff: after every five consecutive 1s, drop the next bit.",
+    "Count overhead as stuffed zeros only. Flags are extra and are counted only if the question says so."
+   ],
+   "mistake": "Forgetting to restart the count after the stuffed 0, or stuffing only when the next data bit is 0. The rule applies after five 1s, whatever follows. Also, six 1s in a row in the received stream are never data: they belong to a flag.",
+   "edge_cases": [
+    "A run of 12 ones gets two stuffed zeros (after the 5th and the 10th), not one.",
+    "Data ending with five 1s still gets a 0 before the closing flag.",
+    "The flag itself is not stuffed; only the data between flags is."
+   ],
+   "connections": [
+    "The frame produced here is the data that CRC protects (next cards).",
+    "Framing is why Ethernet needs a minimum frame length and an inter-frame gap (d9).",
+    "Foundations: **Binary** (found.binary) covers reading and counting bit patterns."
+   ],
+   "check": [
+    {
+     "q": "Stuff the data 1111100. What is sent between the flags?",
+     "a": "After the five 1s insert a 0: 11111000."
+    },
+    {
+     "q": "The receiver gets 0111110101. What was the data?",
+     "a": "After 11111 the next 0 is stuffed. Removing it gives 011111101."
+    },
+    {
+     "q": "How many stuffed bits does the data 1111111111 (ten 1s) need?",
+     "a": "Two: one after the fifth 1 and one after the tenth."
+    }
+   ],
+   "asked": "Asked: 2014 CS3 Q24",
+   "try": {
+    "id": "gen.net.datalink.001",
+    "label": "Try: flag 01111110 and stuffing rule (L1)"
+   },
+   "scene": "net.datalink.d1.stuff",
+   "example": {
+    "setup": "A link uses the flag 01111110 and bit stuffing. The data bits 0111110111111010 must be sent. Show the bits on the wire between the flags, and how the receiver recovers the data.",
+    "steps": [
+     "A frame is marked by the flag 01111110. The data must never contain a run that the receiver could mistake for a flag, so the data is sent through the stuffing rule: after **five consecutive 1s, insert a 0**.",
+     "Scan the data from the left. The first run of 1s is at positions 1 to 5, and it has exactly five 1s.",
+     "After those five 1s the sender inserts a 0. The wire now carries 01111100 so far. The inserted 0 is not data.",
+     "The next run is 111111 (six 1s). After its first five 1s, insert a 0, and the sixth 1 starts a new count. The wire carries 01111100111110 so far.",
+     "The remaining bits 1010 contain no run of five. The wire carries 011111001111101010: 16 data bits plus 2 stuffed zeros = 18 bits, between the two flags.",
+     "The receiver counts 1s too. After every five 1s it drops the next bit, which must be a stuffed 0. It gets back 0111110111111010, exactly the data."
+    ],
+    "answer": "On the wire: 01111110 011111001111101010 01111110. The receiver removes the 2 stuffed zeros and recovers 0111110111111010."
+   },
+   "what": "The data link layer must show where a frame starts and ends in a stream of bits. A fixed **flag** pattern does this. To stop the flag appearing inside the data, the sender **stuffs** an extra 0 after every five 1s.",
+   "what_full": "The data link layer must show where a frame starts and ends in a stream of bits. A fixed **flag** pattern does this. To stop the flag appearing inside the data, the sender **stuffs** an extra 0 after every five 1s.\n\n**Flag:** 01111110 marks the start and end of a frame (it has six 1s in a row).\n\n**Sender rule:** after five consecutive 1s in the data, insert a 0, whatever the next data bit is.\n\n**Receiver rule:** after five consecutive 1s, the next bit is a stuffed 0. Delete it.\n\nSo the data stream never has six 1s in a row. Six 1s mean a flag.\n\n**Overhead:** the number of stuffed bits is the number of runs of five 1s (the count restarts after each stuffed 0).\n\nOther framing methods exist: character count, and byte stuffing with an escape byte. GATE asks mainly for bit stuffing.\n\n**Worked example.** A link uses the flag 01111110 and bit stuffing. The data bits 0111110111111010 must be sent. Show the bits on the wire between the flags, and how the receiver recovers the data.\n\n1. A frame is marked by the flag 01111110. The data must never contain a run that the receiver could mistake for a flag, so the data is sent through the stuffing rule: after **five consecutive 1s, insert a 0**.\n2. Scan the data from the left. The first run of 1s is at positions 1 to 5, and it has exactly five 1s.\n3. After those five 1s the sender inserts a 0. The wire now carries 01111100 so far. The inserted 0 is not data.\n4. The next run is 111111 (six 1s). After its first five 1s, insert a 0, and the sixth 1 starts a new count. The wire carries 01111100111110 so far.\n5. The remaining bits 1010 contain no run of five. The wire carries 011111001111101010: 16 data bits plus 2 stuffed zeros = 18 bits, between the two flags.\n6. The receiver counts 1s too. After every five 1s it drops the next bit, which must be a stuffed 0. It gets back 0111110111111010, exactly the data.\n\n**Answer:** On the wire: 01111110 011111001111101010 01111110. The receiver removes the 2 stuffed zeros and recovers 0111110111111010.",
+   "why_full": "Framing is the first job of the data link layer and a quick, sure GATE mark. In GATE: unstuff a received bit string, or count how many bits are on the wire after stuffing.\n\nAsked: 2014 CS3 Q24",
+   "trap": "Forgetting to restart the count after the stuffed 0, or stuffing only when the next data bit is 0. The rule applies after five 1s, whatever follows. Also, six 1s in a row in the received stream are never data: they belong to a flag."
+  },
+  {
+   "atom_id": "d2",
+   "title": "Parity and Hamming distance",
+   "simple": "Imagine a teacher who counts how many hands are up and says 'there should always be an even number'. If one student's hand goes up or down by mistake, the count is odd and the teacher knows something is wrong. But if two students make a mistake, the count is even again and the teacher sees nothing. That is a parity bit. Now think of two words as two spellings. The number of letters that differ is their distance. The further apart all the valid words are, the more mistakes you can spot or even fix. In exam words: parity detects any odd number of flips, and a code with minimum Hamming distance d detects d - 1 errors and corrects floor((d - 1)/2).",
+   "idea": "An error-detecting code adds extra bits so that valid words are spread apart. A single **parity bit** makes the number of 1s even, and so catches any odd number of flips. The **Hamming distance** between two words, the number of positions that differ, measures how well a code can detect and correct errors.",
+   "definition": "**Even parity:** add one bit so that the total number of 1s is even. The receiver counts 1s. An odd count means an error. It detects every odd number of flips and misses every even number.\n\n**Hamming distance** $d(x, y)$ = number of positions where x and y differ.\n\n**Minimum distance** $d_{min}$ of a code = the smallest distance between two different codewords.\n\nA code with minimum distance d:\n\n**detects** up to d - 1 errors, and **corrects** up to $\\lfloor (d-1)/2 \\rfloor$ errors.\n\nTo correct t errors and detect s >= t errors together: $d \\geq t + s + 1$.",
+   "intuition_full": "Picture every codeword as a point, and a bit flip as a one-step move to a neighbouring word. If two codewords are d steps apart, you need d flips to turn one into the other. So any damage of fewer than d flips lands on a word that is not a codeword, and you notice. That gives d - 1 detected errors. For correction, put a ball of radius t around each codeword. If the balls do not touch, a received word in a ball is closest to one codeword, and you decode to that centre. Balls of radius t stay apart when d >= 2t + 1, which gives t = floor((d - 1)/2). A single parity bit makes all codewords differ in at least two positions, so d = 2: one error detected, none corrected. Parity has no way to tell which bit flipped, so it cannot correct.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The 7 data bits 1011001 are sent with one even-parity bit. Show what the receiver sees when one bit flips, and when two bits flip. What does this say about the code's Hamming distance?",
+     "steps": [
+      "Data 1011001 has four 1s. For **even parity** the whole word must have an even number of 1s, so the parity bit is 0. The codeword is 10110010.",
+      "One bit flips in transit (the 3rd bit changes from 1 to 0): the receiver gets 10010010. It has 3 ones, an odd count, so the receiver **detects** the error.",
+      "Two bits flip (the 3rd and 6th bits): the receiver gets 10010110. It has 4 ones, an even count, so the receiver sees nothing wrong. Parity misses an even number of flips.",
+      "The sent word and the damaged word are both valid even-parity words, and they differ in 2 positions. Their **Hamming distance** is 2.",
+      "A parity code has minimum distance d = 2. A code with minimum distance d detects d - 1 = 1 error for sure, and corrects floor((d - 1)/2) = 0 errors."
+     ],
+     "answer": "One flip is detected. Two flips go unnoticed. Minimum distance 2: detects 1 error, corrects 0."
+    },
+    {
+     "level": "gate",
+     "setup": "A code has the four codewords 000000, 000111, 111000 and 111111. Find its minimum distance, and say how many errors it can always detect and how many it can always correct.",
+     "steps": [
+      "List all 6 pairs and count the positions that differ.",
+      "000000-000111: 3. 000000-111000: 3. 000000-111111: 6. 000111-111000: 6. 000111-111111: 3. 111000-111111: 3.",
+      "The smallest value is d = 3.",
+      "Detect up to d - 1 = 2 errors. Correct up to floor((d - 1)/2) = floor(2/2) = 1 error.",
+      "Check by example: the received word 000100 is 1 flip from 000000 and 2 flips from 000111, so the nearest codeword is 000000 and the decoder corrects to 000000."
+     ],
+     "answer": "d = 3. It detects 2 errors and corrects 1."
+    },
+    {
+     "level": "twist",
+     "setup": "The code {00000000, 00001111, 11110000, 11111111} has minimum distance 4. A word 00000001 arrives, and later a word 00000011 arrives. What can the decoder do in each case?",
+     "steps": [
+      "d = 4 allows two different uses: **detect 3 errors** (no correction), or **correct 1 error and detect 2** at the same time. The rule is d >= (errors corrected) + (errors detected) + 1: 4 >= 1 + 2 + 1.",
+      "00000001 is 1 flip from 00000000, and 3 flips from 00001111. The nearest word is unique, so the decoder corrects it to 00000000.",
+      "00000011 is 2 flips from 00000000 and 2 flips from 00001111. It is a tie, so the decoder cannot choose. It reports an uncorrectable error: detection works, correction does not."
+     ],
+     "answer": "00000001 is corrected to 00000000. 00000011 is detected as an error but not corrected, because two codewords are equally close."
+    }
+   ],
+   "why": "Distance is the one idea behind every error-control code. In GATE: compute the minimum distance of a set of codewords and give the detect and correct counts, or reason about what parity can catch.",
+   "how": [
+    "For parity: count the 1s. Even-parity words have an even count.",
+    "For distance: compare all pairs of codewords, count differing positions, and take the minimum.",
+    "Detect d - 1 errors. Correct floor((d - 1)/2) errors.",
+    "For linear codes, the minimum distance equals the smallest number of 1s in a non-zero codeword."
+   ],
+   "mistake": "Saying a code with distance d corrects about d/2 errors, or that it detects d errors. The exact counts are d - 1 and floor((d - 1)/2). With d = 4 you correct 1, not 2. Also, parity does not detect 'two errors', only odd counts.",
+   "edge_cases": [
+    "A tie at the same distance from two codewords cannot be corrected, even if detection is certain.",
+    "Odd parity is the same idea with an odd total count. The distance is still 2.",
+    "Three flips in an even-parity word are detected, because 3 is odd. Only even numbers of flips are missed."
+   ],
+   "connections": [
+    "Hamming code (next card) builds d = 3 using several parity bits.",
+    "CRC (d3) detects bursts with polynomial division instead of a single count.",
+    "Foundations: **Binary** (found.binary) covers XOR and counting 1s in bit strings."
+   ],
+   "check": [
+    {
+     "q": "Even parity on 1101000. What is the parity bit?",
+     "a": "Three 1s, so the parity bit is 1 to make four."
+    },
+    {
+     "q": "A code has minimum distance 5. How many errors does it detect and correct?",
+     "a": "Detects 4, corrects 2."
+    },
+    {
+     "q": "Can a single parity bit detect a 3-bit error?",
+     "a": "Yes. Three flips change the count by an odd number, so parity is wrong."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q34",
+   "try": {
+    "id": "gen.net.datalink.002",
+    "label": "Try: which error parity always detects (L1)"
+   },
+   "scene": "net.datalink.d2.parity",
+   "example": {
+    "setup": "The 7 data bits 1011001 are sent with one even-parity bit. Show what the receiver sees when one bit flips, and when two bits flip. What does this say about the code's Hamming distance?",
+    "steps": [
+     "Data 1011001 has four 1s. For **even parity** the whole word must have an even number of 1s, so the parity bit is 0. The codeword is 10110010.",
+     "One bit flips in transit (the 3rd bit changes from 1 to 0): the receiver gets 10010010. It has 3 ones, an odd count, so the receiver **detects** the error.",
+     "Two bits flip (the 3rd and 6th bits): the receiver gets 10010110. It has 4 ones, an even count, so the receiver sees nothing wrong. Parity misses an even number of flips.",
+     "The sent word and the damaged word are both valid even-parity words, and they differ in 2 positions. Their **Hamming distance** is 2.",
+     "A parity code has minimum distance d = 2. A code with minimum distance d detects d - 1 = 1 error for sure, and corrects floor((d - 1)/2) = 0 errors."
+    ],
+    "answer": "One flip is detected. Two flips go unnoticed. Minimum distance 2: detects 1 error, corrects 0."
+   },
+   "what": "An error-detecting code adds extra bits so that valid words are spread apart. A single **parity bit** makes the number of 1s even, and so catches any odd number of flips. The **Hamming distance** between two words, the number of positions that differ, measures how well a code can detect and correct errors.",
+   "what_full": "An error-detecting code adds extra bits so that valid words are spread apart. A single **parity bit** makes the number of 1s even, and so catches any odd number of flips. The **Hamming distance** between two words, the number of positions that differ, measures how well a code can detect and correct errors.\n\n**Even parity:** add one bit so that the total number of 1s is even. The receiver counts 1s. An odd count means an error. It detects every odd number of flips and misses every even number.\n\n**Hamming distance** $d(x, y)$ = number of positions where x and y differ.\n\n**Minimum distance** $d_{min}$ of a code = the smallest distance between two different codewords.\n\nA code with minimum distance d:\n\n**detects** up to d - 1 errors, and **corrects** up to $\\lfloor (d-1)/2 \\rfloor$ errors.\n\nTo correct t errors and detect s >= t errors together: $d \\geq t + s + 1$.\n\n**Worked example.** The 7 data bits 1011001 are sent with one even-parity bit. Show what the receiver sees when one bit flips, and when two bits flip. What does this say about the code's Hamming distance?\n\n1. Data 1011001 has four 1s. For **even parity** the whole word must have an even number of 1s, so the parity bit is 0. The codeword is 10110010.\n2. One bit flips in transit (the 3rd bit changes from 1 to 0): the receiver gets 10010010. It has 3 ones, an odd count, so the receiver **detects** the error.\n3. Two bits flip (the 3rd and 6th bits): the receiver gets 10010110. It has 4 ones, an even count, so the receiver sees nothing wrong. Parity misses an even number of flips.\n4. The sent word and the damaged word are both valid even-parity words, and they differ in 2 positions. Their **Hamming distance** is 2.\n5. A parity code has minimum distance d = 2. A code with minimum distance d detects d - 1 = 1 error for sure, and corrects floor((d - 1)/2) = 0 errors.\n\n**Answer:** One flip is detected. Two flips go unnoticed. Minimum distance 2: detects 1 error, corrects 0.",
+   "why_full": "Distance is the one idea behind every error-control code. In GATE: compute the minimum distance of a set of codewords and give the detect and correct counts, or reason about what parity can catch.\n\nAsked: 2017 CS2 Q34",
+   "trap": "Saying a code with distance d corrects about d/2 errors, or that it detects d errors. The exact counts are d - 1 and floor((d - 1)/2). With d = 4 you correct 1, not 2. Also, parity does not detect 'two errors', only odd counts."
+  },
+  {
+   "atom_id": "d3",
+   "title": "CRC",
+   "simple": "A CRC is a fancy checksum. The sender and receiver agree on a short secret number, the generator. The sender treats the message as a big binary number, does a long division by the generator (where the sums have no carries, only XOR), and sticks the leftover on the end. The receiver does the same division on the whole thing. If nothing changed, the leftover is zero. If any bit changed, the leftover is almost certainly not zero. In exam words: append r zeros (r = degree of the generator), divide by XOR, append the remainder; the receiver's remainder 0 means accept.",
+   "idea": "A **CRC** (cyclic redundancy check) adds a short remainder to the message so that the whole frame divides evenly by an agreed generator. The division uses XOR instead of subtraction. The receiver divides again, and a non-zero remainder means the frame was damaged.",
+   "definition": "Let the **generator** be a polynomial of degree r (r + 1 bits), for example $x^3 + x + 1$ = 1011.\n\n**Sender:** (1) append r zeros to the message, (2) divide by the generator using XOR, (3) the r-bit remainder is the CRC, (4) send message + CRC.\n\n**Division by XOR:** if the leading bit is 1, XOR the generator under it; if 0, slide on. Never borrow.\n\n**Receiver:** divide the received frame by the generator. Remainder 0 means accepted.\n\nThe remainder is always exactly r bits. Keep leading zeros.\n\n**Detection:** all single-bit errors if the generator has at least two terms; every odd number of errors if $(x + 1)$ divides the generator; every burst of length up to r.",
+   "intuition_full": "Ordinary division gives a remainder. If we append the remainder-complement to the message, the new number divides exactly. In CRC the same trick is done in binary arithmetic with no carries, where addition and subtraction are both XOR. That makes the maths cheap in hardware (shift registers and XOR gates) and also well-behaved: the frame 'message followed by CRC' is a multiple of the generator. A transmission error adds an error pattern E to the frame, by XOR. The receiver's remainder is then E mod G. The error is missed only when E is itself a multiple of G. Since a short generator has few multiples of small weight, the burst errors and odd errors we meet in practice are caught, which is why CRC beats a simple checksum.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Message 110101, generator 1011 ($x^3 + x + 1$). Find the CRC check bits and the transmitted frame.",
+     "steps": [
+      "The generator has degree 3, so there are 3 check bits. Append 3 zeros to the message: 110101000.",
+      "Divide using XOR, left to right. The first bit is 1, so XOR the first 4 bits 1101 with 1011 to get 0110. The working value is 011001000.",
+      "The next bit is 1, so XOR the 4 bits starting there (1100) with 1011 to get 0111. The working value is 001111000.",
+      "The next bit is 1 again: XOR 1111 with 1011 to get 0100. The working value is 000100000.",
+      "The next bit is 1: XOR 1000 with 1011 to get 0011, giving 000001100. The following bit is 0, so no XOR is done for it.",
+      "The next 1 is at position 5: XOR 1100 with 1011 to get 0111. The working value is 000000111. The last 3 bits, 111, are the **remainder**.",
+      "Transmit message + remainder = 110101111. The receiver divides 110101111 by 1011 and gets remainder 000, so it accepts."
+     ],
+     "answer": "CRC bits 111. Frame 110101111."
+    },
+    {
+     "level": "gate",
+     "setup": "Message 100111, generator 1101 ($x^3 + x^2 + 1$). (a) Find the transmitted frame. (b) Bit 5 of the frame flips in transit; does the receiver notice? (c) Which of the generators 1011, 1101, 1001, 1111 detect every odd number of bit errors?",
+     "steps": [
+      "(a) Append 3 zeros: 100111000. XOR-dividing by 1101 leaves the remainder 011. The frame is 100111011.",
+      "(b) The receiver gets 100101011. Dividing it by 1101 leaves 111, which is not 000, so the error is detected.",
+      "(c) A generator detects every odd number of errors if it is divisible by $x + 1$. A polynomial is divisible by $x + 1$ exactly when it has an even number of terms (then it is 0 at x = 1).",
+      "1011 has 3 terms, 1101 has 3 terms, 1001 has 2 terms, 1111 has 4 terms. So 1001 and 1111 detect all odd-numbered errors."
+     ],
+     "answer": "Frame 100111011. The flipped frame leaves remainder 111, so it is detected. Generators 1001 and 1111 catch all odd errors."
+    },
+    {
+     "level": "twist",
+     "setup": "Message 101101, generator 1101. Find the frame. (The remainder starts with a zero.)",
+     "steps": [
+      "Append 3 zeros: 101101000. Dividing by 1101 with XOR leaves the 3-bit remainder 010.",
+      "The remainder has leading zeros. It must be sent as three bits, 010, not as 10, because the receiver expects exactly 3 check bits.",
+      "Frame = 101101 + 010 = 101101010. The receiver divides it by 1101 and gets 000."
+     ],
+     "answer": "Frame 101101010. Keep the leading zero in the remainder."
+    }
+   ],
+   "why": "CRC is the most reliable calculation in this chapter: a fixed procedure, always the same, and a typical 2-mark question. In GATE: compute the CRC or transmitted frame, check a received frame, or say which generator detects which errors.",
+   "how": [
+    "Count the generator bits g. Append g - 1 zeros to the message.",
+    "Do XOR long division: when the leading bit is 1, XOR with the generator; when it is 0, shift.",
+    "The last g - 1 bits are the remainder. Write all of them, including leading zeros.",
+    "Frame = message + remainder. Receiver remainder 0 means no error detected.",
+    "For detection claims, check that $x+1$ divides G (even number of terms) for odd errors."
+   ],
+   "mistake": "Dropping the appended zeros (dividing the bare message), or dropping the leading zeros of the remainder. A second slip is to think a zero remainder at the receiver proves no error. It only means the error pattern, if any, is a multiple of the generator.",
+   "edge_cases": [
+    "If the message is shorter than the generator, the division is just message-with-zeros against the generator, and may need no XOR at all.",
+    "A message of all zeros has remainder 0, so the frame is all zeros.",
+    "An error pattern equal to the generator itself, placed anywhere, is missed."
+   ],
+   "connections": [
+    "Parity (d2) is the simplest CRC: generator x + 1.",
+    "CRC is computed after framing (d1) and checked at each hop, unlike TCP's end-to-end checksum.",
+    "Foundations: **Binary** (found.binary) covers binary XOR, which is the subtraction used in the division."
+   ],
+   "check": [
+    {
+     "q": "A generator has 5 bits. How many check bits does the CRC add?",
+     "a": "4. The CRC length equals the degree, one less than the bit count."
+    },
+    {
+     "q": "Generator 11 ($x + 1$), message 1101. What is the CRC?",
+     "a": "Append one 0 (11010) and divide by 11 with XOR. The remainder is 1, the even-parity bit. Frame 11011."
+    },
+    {
+     "q": "The receiver's remainder is non-zero. What does it conclude?",
+     "a": "The frame has an error, and it is discarded."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q44, 2026 CS2 Q43, 2017 CS1 Q32, 2007 CS Q68, 2009 CS Q48",
+   "try": {
+    "id": "gen.net.datalink.003",
+    "label": "Try: check bits from a degree 4 generator (L1)"
+   },
+   "scene": "net.datalink.d3.crc",
+   "example": {
+    "setup": "Message 110101, generator 1011 ($x^3 + x + 1$). Find the CRC check bits and the transmitted frame.",
+    "steps": [
+     "The generator has degree 3, so there are 3 check bits. Append 3 zeros to the message: 110101000.",
+     "Divide using XOR, left to right. The first bit is 1, so XOR the first 4 bits 1101 with 1011 to get 0110. The working value is 011001000.",
+     "The next bit is 1, so XOR the 4 bits starting there (1100) with 1011 to get 0111. The working value is 001111000.",
+     "The next bit is 1 again: XOR 1111 with 1011 to get 0100. The working value is 000100000.",
+     "The next bit is 1: XOR 1000 with 1011 to get 0011, giving 000001100. The following bit is 0, so no XOR is done for it.",
+     "The next 1 is at position 5: XOR 1100 with 1011 to get 0111. The working value is 000000111. The last 3 bits, 111, are the **remainder**.",
+     "Transmit message + remainder = 110101111. The receiver divides 110101111 by 1011 and gets remainder 000, so it accepts."
+    ],
+    "answer": "CRC bits 111. Frame 110101111."
+   },
+   "what": "A **CRC** (cyclic redundancy check) adds a short remainder to the message so that the whole frame divides evenly by an agreed generator. The division uses XOR instead of subtraction. The receiver divides again, and a non-zero remainder means the frame was damaged.",
+   "what_full": "A **CRC** (cyclic redundancy check) adds a short remainder to the message so that the whole frame divides evenly by an agreed generator. The division uses XOR instead of subtraction. The receiver divides again, and a non-zero remainder means the frame was damaged.\n\nLet the **generator** be a polynomial of degree r (r + 1 bits), for example $x^3 + x + 1$ = 1011.\n\n**Sender:** (1) append r zeros to the message, (2) divide by the generator using XOR, (3) the r-bit remainder is the CRC, (4) send message + CRC.\n\n**Division by XOR:** if the leading bit is 1, XOR the generator under it; if 0, slide on. Never borrow.\n\n**Receiver:** divide the received frame by the generator. Remainder 0 means accepted.\n\nThe remainder is always exactly r bits. Keep leading zeros.\n\n**Detection:** all single-bit errors if the generator has at least two terms; every odd number of errors if $(x + 1)$ divides the generator; every burst of length up to r.\n\n**Worked example.** Message 110101, generator 1011 ($x^3 + x + 1$). Find the CRC check bits and the transmitted frame.\n\n1. The generator has degree 3, so there are 3 check bits. Append 3 zeros to the message: 110101000.\n2. Divide using XOR, left to right. The first bit is 1, so XOR the first 4 bits 1101 with 1011 to get 0110. The working value is 011001000.\n3. The next bit is 1, so XOR the 4 bits starting there (1100) with 1011 to get 0111. The working value is 001111000.\n4. The next bit is 1 again: XOR 1111 with 1011 to get 0100. The working value is 000100000.\n5. The next bit is 1: XOR 1000 with 1011 to get 0011, giving 000001100. The following bit is 0, so no XOR is done for it.\n6. The next 1 is at position 5: XOR 1100 with 1011 to get 0111. The working value is 000000111. The last 3 bits, 111, are the **remainder**.\n7. Transmit message + remainder = 110101111. The receiver divides 110101111 by 1011 and gets remainder 000, so it accepts.\n\n**Answer:** CRC bits 111. Frame 110101111.",
+   "why_full": "CRC is the most reliable calculation in this chapter: a fixed procedure, always the same, and a typical 2-mark question. In GATE: compute the CRC or transmitted frame, check a received frame, or say which generator detects which errors.\n\nAsked: 2021 CS2 Q44, 2026 CS2 Q43, 2017 CS1 Q32, 2007 CS Q68, 2009 CS Q48",
+   "trap": "Dropping the appended zeros (dividing the bare message), or dropping the leading zeros of the remainder. A second slip is to think a zero remainder at the receiver proves no error. It only means the error pattern, if any, is a multiple of the generator."
+  },
+  {
+   "atom_id": "d4",
+   "title": "Hamming single-error-correcting code",
+   "simple": "Play a guessing game where someone hides a number between 1 and 7 and you may ask three yes/no questions. If you ask smart questions (is it in this group of positions?), the three answers spell out the number in binary. Hamming code does exactly that with the bits of a message. Each extra check bit answers one question about a group of positions. When something is wrong, the three answers read together give the position of the broken bit, and you flip it back. In exam words: check bits at positions 1, 2, 4, 8, each covering the positions that have that bit set; the syndrome is the position of the error.",
+   "idea": "A **Hamming code** adds several parity bits, each checking a different group of positions. When one bit flips, exactly the groups that contain it fail, and the failing groups, read as a binary number, give the **position** of the flipped bit.",
+   "definition": "Number the positions 1, 2, 3, ... from the left. Positions that are **powers of 2** (1, 2, 4, 8, ...) are check bits. The others are data bits.\n\n**Coverage:** check bit at position $2^k$ covers every position whose binary form has bit k set. p1 covers 1, 3, 5, 7, 9, 11, ... p2 covers 2, 3, 6, 7, 10, 11, ... p4 covers 4, 5, 6, 7, 12, ... With even parity, each group has an even number of 1s.\n\n**Number of check bits:** for m data bits, the smallest r with $2^r \\geq m + r + 1$.\n\n**Syndrome:** recompute the groups. Write the failing groups as bits (p8 p4 p2 p1). The number is the position of the error. Syndrome 0 means no error found.\n\nMinimum distance is 3: it corrects 1 error.",
+   "intuition_full": "There are m + r + 1 things that can be true: no error, or an error in any one of the m + r positions. With r check bits the syndrome has $2^r$ values, so $2^r \\geq m + r + 1$ is exactly the condition that each possible situation gets its own syndrome. The clever part is the layout. By putting the check bits at powers of 2, position number 6 = binary 110 belongs to exactly the groups p4 and p2. If bit 6 flips, p4 and p2 fail and p1 passes, so the failing pattern 110 equals the position. Equivalently the syndrome is the XOR of the positions of all the 1s in the word, because XOR cancels the groups that pass. One flip changes the syndrome by that position. Two flips change it by the XOR of two positions, which points at some third position, so the decoder is fooled.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Encode the 4 data bits 1011 with a single-error-correcting Hamming code (even parity). Then show how the receiver finds an error in position 6.",
+     "steps": [
+      "A code word has 7 positions. The check bits go at positions 1, 2 and 4 (powers of 2). The data bits 1, 0, 1, 1 go into positions 3, 5, 6, 7 in order.",
+      "p1 covers positions whose binary number has bit 1 set: 1, 3, 5, 7. The data there (positions 3, 5, 7) is 1, 0, 1, which has two 1s. For even parity, **p1 = 0**.",
+      "p2 covers positions 2, 3, 6, 7. The data there (3, 6, 7) is 1, 1, 1, which has three 1s. So **p2 = 1**.",
+      "p4 covers positions 4, 5, 6, 7. The data there (5, 6, 7) is 0, 1, 1, which has two 1s. So **p4 = 0**.",
+      "The code word, positions 1 to 7, is 0 1 1 0 0 1 1.",
+      "In transit position 6 flips from 1 to 0. The receiver gets 0110001.",
+      "The receiver recomputes each group. The p1 group (1, 3, 5, 7) has two 1s, so even, check 0. The p2 group (2, 3, 6, 7) has three 1s, odd, check 1. The p4 group (4, 5, 6, 7) has one 1, odd, check 1. The **syndrome** s4 s2 s1 = 110 in binary = 6. Flip position 6."
+     ],
+     "answer": "Code word 0110011. The syndrome 110 = 6 points to position 6, the flipped bit."
+    },
+    {
+     "level": "gate",
+     "setup": "(a) How many check bits does a single-error-correcting Hamming code need for 26 data bits? (b) A 12-bit even-parity Hamming word 001101001110 arrives (positions numbered from the left, starting at 1) with exactly one bit wrong. Which position is wrong and what are the 8 data bits?",
+     "steps": [
+      "(a) Need $2^r \\geq m + r + 1$. For m = 26: r = 4 gives 16 >= 31, false. r = 5 gives 32 >= 32, true. So **5 check bits**.",
+      "(b) Compute the syndrome by XOR-ing the positions of all the 1s. The 1s of 001101001110 are at positions 3, 4, 6, 9, 10, 11, and their XOR is 9.",
+      "The syndrome is 9, so position 9 is wrong. Flip it: the corrected word is 001101000110.",
+      "Data bits are at positions 3, 5, 6, 7, 9, 10, 11, 12 (non-powers of 2): 10100110."
+     ],
+     "answer": "(a) 5 check bits. (b) position 9 is wrong; the data bits are 10100110."
+    },
+    {
+     "level": "twist",
+     "setup": "In the code word 0110011 two bits flip: positions 3 and 5. What does the receiver do?",
+     "steps": [
+      "The received word is 0100111 (position 3 changed 1 to 0, position 5 changed 0 to 1).",
+      "Syndrome = XOR of the positions of the 1s: 2, 5, 6, 7 gives 6. The syndrome is non-zero, so the receiver believes one bit is wrong.",
+      "Syndrome 6 points to position 6. The receiver flips position 6 and gets 0100101, which is a wrong code word at distance 3 from the right one.",
+      "A single-error-correcting Hamming code (d = 3) corrects 1 error but cannot detect 2 together with correcting. It silently miscorrects. Adding an overall parity bit (d = 4) lets it detect two errors."
+     ],
+     "answer": "The receiver 'corrects' position 6 and delivers wrong data. Two errors fool a plain Hamming code."
+    }
+   ],
+   "why": "Hamming codes appear in GATE as two question types: how many check bits, and which bit is wrong. They are also the standard example of an error-correcting code.",
+   "how": [
+    "Find r: the smallest value with $2^r \\geq m + r + 1$.",
+    "Mark positions 1, 2, 4, 8 as check bits. Data fills the rest in order.",
+    "For each check bit, count the 1s in its group (all positions with that bit set). Choose it so the group is even.",
+    "To decode: XOR the positions of all the 1s. The result is the error position (0 means none).",
+    "Flip that position, then read the data bits at the non-power-of-2 positions."
+   ],
+   "mistake": "Counting a check bit as covering itself only, or numbering positions from 0. Positions start at 1. Also, a Hamming code corrects one error; with two errors it gives a wrong correction, not a warning.",
+   "edge_cases": [
+    "The syndrome can point to a check-bit position (1, 2, 4, ...): then the data was fine and only the check bit flipped.",
+    "If the syndrome is larger than the word length, more than one error occurred.",
+    "Odd-parity versions use the same groups but the groups must have an odd number of 1s."
+   ],
+   "connections": [
+    "Distance 3 comes from d2: the Hamming code is the standard d = 3 example.",
+    "Memory ECC and RAID use the same parity-group idea.",
+    "Foundations: **Binary** (found.binary) explains why a position number is the XOR of its bits."
+   ],
+   "check": [
+    {
+     "q": "How many check bits for 11 data bits?",
+     "a": "4, because 16 >= 11 + 4 + 1 = 16."
+    },
+    {
+     "q": "Which positions does p2 cover in a 7-bit word?",
+     "a": "2, 3, 6 and 7, the positions with bit 1 set in their binary form."
+    },
+    {
+     "q": "The syndrome is 0101. What do you do?",
+     "a": "Position 5 is wrong. Flip bit 5."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q39",
+   "try": {
+    "id": "gen.net.datalink.010",
+    "label": "Try: check bits for a single-error-correcting code (L2)"
+   },
+   "scene": "net.datalink.d4.hamming",
+   "example": {
+    "setup": "Encode the 4 data bits 1011 with a single-error-correcting Hamming code (even parity). Then show how the receiver finds an error in position 6.",
+    "steps": [
+     "A code word has 7 positions. The check bits go at positions 1, 2 and 4 (powers of 2). The data bits 1, 0, 1, 1 go into positions 3, 5, 6, 7 in order.",
+     "p1 covers positions whose binary number has bit 1 set: 1, 3, 5, 7. The data there (positions 3, 5, 7) is 1, 0, 1, which has two 1s. For even parity, **p1 = 0**.",
+     "p2 covers positions 2, 3, 6, 7. The data there (3, 6, 7) is 1, 1, 1, which has three 1s. So **p2 = 1**.",
+     "p4 covers positions 4, 5, 6, 7. The data there (5, 6, 7) is 0, 1, 1, which has two 1s. So **p4 = 0**.",
+     "The code word, positions 1 to 7, is 0 1 1 0 0 1 1.",
+     "In transit position 6 flips from 1 to 0. The receiver gets 0110001.",
+     "The receiver recomputes each group. The p1 group (1, 3, 5, 7) has two 1s, so even, check 0. The p2 group (2, 3, 6, 7) has three 1s, odd, check 1. The p4 group (4, 5, 6, 7) has one 1, odd, check 1. The **syndrome** s4 s2 s1 = 110 in binary = 6. Flip position 6."
+    ],
+    "answer": "Code word 0110011. The syndrome 110 = 6 points to position 6, the flipped bit."
+   },
+   "what": "A **Hamming code** adds several parity bits, each checking a different group of positions. When one bit flips, exactly the groups that contain it fail, and the failing groups, read as a binary number, give the **position** of the flipped bit.",
+   "what_full": "A **Hamming code** adds several parity bits, each checking a different group of positions. When one bit flips, exactly the groups that contain it fail, and the failing groups, read as a binary number, give the **position** of the flipped bit.\n\nNumber the positions 1, 2, 3, ... from the left. Positions that are **powers of 2** (1, 2, 4, 8, ...) are check bits. The others are data bits.\n\n**Coverage:** check bit at position $2^k$ covers every position whose binary form has bit k set. p1 covers 1, 3, 5, 7, 9, 11, ... p2 covers 2, 3, 6, 7, 10, 11, ... p4 covers 4, 5, 6, 7, 12, ... With even parity, each group has an even number of 1s.\n\n**Number of check bits:** for m data bits, the smallest r with $2^r \\geq m + r + 1$.\n\n**Syndrome:** recompute the groups. Write the failing groups as bits (p8 p4 p2 p1). The number is the position of the error. Syndrome 0 means no error found.\n\nMinimum distance is 3: it corrects 1 error.\n\n**Worked example.** Encode the 4 data bits 1011 with a single-error-correcting Hamming code (even parity). Then show how the receiver finds an error in position 6.\n\n1. A code word has 7 positions. The check bits go at positions 1, 2 and 4 (powers of 2). The data bits 1, 0, 1, 1 go into positions 3, 5, 6, 7 in order.\n2. p1 covers positions whose binary number has bit 1 set: 1, 3, 5, 7. The data there (positions 3, 5, 7) is 1, 0, 1, which has two 1s. For even parity, **p1 = 0**.\n3. p2 covers positions 2, 3, 6, 7. The data there (3, 6, 7) is 1, 1, 1, which has three 1s. So **p2 = 1**.\n4. p4 covers positions 4, 5, 6, 7. The data there (5, 6, 7) is 0, 1, 1, which has two 1s. So **p4 = 0**.\n5. The code word, positions 1 to 7, is 0 1 1 0 0 1 1.\n6. In transit position 6 flips from 1 to 0. The receiver gets 0110001.\n7. The receiver recomputes each group. The p1 group (1, 3, 5, 7) has two 1s, so even, check 0. The p2 group (2, 3, 6, 7) has three 1s, odd, check 1. The p4 group (4, 5, 6, 7) has one 1, odd, check 1. The **syndrome** s4 s2 s1 = 110 in binary = 6. Flip position 6.\n\n**Answer:** Code word 0110011. The syndrome 110 = 6 points to position 6, the flipped bit.",
+   "why_full": "Hamming codes appear in GATE as two question types: how many check bits, and which bit is wrong. They are also the standard example of an error-correcting code.\n\nAsked: 2021 CS1 Q39",
+   "trap": "Counting a check bit as covering itself only, or numbering positions from 0. Positions start at 1. Also, a Hamming code corrects one error; with two errors it gives a wrong correction, not a warning."
+  },
+  {
+   "atom_id": "d5",
+   "title": "Stop-and-wait",
+   "simple": "Imagine you shout a sentence across a huge field and then wait for your friend to shout 'got it' before you say the next one. If the field is wide, you spend most of your time just waiting for the echo. The sentence took a second to say, but the wait for the reply took ten. That wasted waiting is what stop-and-wait suffers from on a long, fast link. The fraction of time you are actually talking is the utilisation. In exam words: U = $T_t / (T_t + 2T_p)$, with extra terms if the ack or processing takes time.",
+   "idea": "In **stop-and-wait**, the sender sends one frame and waits for its acknowledgement before sending the next. While waiting, the link carries nothing. On a long link the wait is much longer than the sending time, so the link is mostly idle.",
+   "definition": "With frame time $T_t$ and one-way propagation delay $T_p$:\n\n**Cycle time** = $T_t + 2T_p$ (frame out, ack back; ack time and processing are negligible).\n\n**Utilisation** $U = T_t / (T_t + 2T_p) = 1/(1 + 2a)$ where $a = T_p/T_t$.\n\n**Throughput** = bits per frame / cycle time = $U \\times$ link rate.\n\nIf the ack takes $T_{ack}$ and the receiver takes $T_{proc}$: cycle = $T_t + T_p + T_{proc} + T_{ack} + T_p$.\n\n**Efficiency** counts only useful (data, not header) bits: useful bits / link rate, divided by the cycle.\n\nWith loss probability p per frame (acks safe), U is multiplied by $(1 - p)$.",
+   "intuition_full": "Put the sender and the receiver on a time diagram. The sender transmits for $T_t$, then nothing happens until the ack comes back, which takes the signal there and back, $2T_p$. The link is useful for $T_t$ out of every cycle, hence the formula. The ratio $a = T_p / T_t$ tells you the damage. If a is small (short link, slow rate), the wait is negligible and U is near 1. If a is large (satellite, or a fast link where $T_t$ is tiny), U collapses. This is why raising the bandwidth makes things worse, not better, for stop-and-wait: $T_t$ shrinks while $T_p$ stays. The sliding window protocol (next card) fixes this by sending several frames before waiting. Remember to count only one-way $T_p$ once in each direction, giving $2T_p$.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A sender uses stop-and-wait. Each frame is 8000 bits, the link is 10 Mbps, and the one-way propagation delay is 4 ms. The ack is tiny and takes no time. Find the link utilisation and the throughput.",
+     "steps": [
+      "Transmission time $T_t = 8000 / (10 \\times 10^6) = 0.8$ ms. The sender is busy for this long, then must stop.",
+      "The first bit reaches the receiver 4 ms after it leaves, and the last bit at 0.8 + 4 = 4.8 ms.",
+      "The receiver sends the ack at once. It needs another 4 ms to come back, so it reaches the sender at 4.8 + 4 = 8.8 ms.",
+      "Only now may the sender send the next frame. One cycle is $T_t + 2T_p$ = 0.8 + 8 = 8.8 ms, and the sender used only 0.8 ms of it for sending.",
+      "Utilisation $U = T_t / (T_t + 2T_p) = 0.8 / 8.8 = 9.09\\%$. Throughput = 8000 bits / 8.8 ms = 909 kbps, about 9% of 10 Mbps."
+     ],
+     "answer": "U = 9.09% and throughput about 909 kbps."
+    },
+    {
+     "level": "gate",
+     "setup": "Stop-and-wait on a 5 Mbps link in both directions. Each data frame is 1200 bytes, of which 50 bytes are header. The ack is 50 bytes. One-way propagation delay is 3 ms, and the receiver needs 0.4 ms to process each data frame. Find the efficiency (useful data time over cycle time) and the useful data throughput.",
+     "steps": [
+      "Data frame: 1200 x 8 = 9600 bits, so $T_t$ = 9600 / (5 x 10^6) = 1.92 ms. Ack: 50 x 8 = 400 bits, so $T_{ack}$ = 0.08 ms.",
+      "Cycle = send the frame (1.92) + propagate (3) + process (0.4) + send the ack (0.08) + propagate back (3) = 8.4 ms.",
+      "Useful data = 1200 - 50 = 1150 bytes = 9200 bits, which takes 9200 / (5 x 10^6) = 1.84 ms to send.",
+      "Efficiency = 1.84 / 8.4 = 21.9%.",
+      "Useful throughput = 9200 bits / 8.4 ms = 1.095 Mbps."
+     ],
+     "answer": "Efficiency 21.9%, useful throughput about 1.095 Mbps."
+    },
+    {
+     "level": "twist",
+     "setup": "Same link as the basic example (cycle 8.8 ms, $T_t$ = 0.8 ms). Each frame is lost with probability 0.2, acks never are, and the timeout equals one cycle. What is the utilisation now?",
+     "steps": [
+      "A frame needs on average 1 / (1 - 0.2) = 1.25 transmissions before it gets through (geometric: each try succeeds with probability 0.8).",
+      "Every try, successful or not, costs one cycle of 8.8 ms because the sender waits a full timeout before resending, and a good try waits for the ack.",
+      "Time per delivered frame = 1.25 x 8.8 = 11 ms. Useful sending time is still 0.8 ms.",
+      "U = 0.8 / 11 = 7.27%, which is 0.8 times the loss-free 9.09%."
+     ],
+     "answer": "U = 7.27%. Errors multiply the stop-and-wait utilisation by (1 - p)."
+    }
+   ],
+   "why": "Stop-and-wait utilisation is the most repeated calculation in the data link chapter. In GATE: find U or the throughput from rate, frame size and distance; or run it backwards (find the frame size or delay for a given U).",
+   "how": [
+    "Convert to bits, bit/s and seconds. Compute $T_t$ and $T_p$.",
+    "Cycle = $T_t + 2T_p$, plus ack time and processing if given.",
+    "U = $T_t$ / cycle (use useful data time in the numerator if headers are mentioned).",
+    "Throughput = frame bits / cycle, or U times link rate.",
+    "Backwards: for U = 1/2, $T_t = 2T_p$. For U = 1/4, $T_t = 2T_p / 3$."
+   ],
+   "mistake": "Using the one-way $T_p$ instead of the round trip $2T_p$. The ack has to come back. A second slip is to ignore ack and processing times that the question gives, or to use data rate for an ack sent at a different rate.",
+   "edge_cases": [
+    "If $T_t \\gg T_p$ (short link), U is almost 1.",
+    "The ack is often taken as 0 length. If the problem gives its size, add its transmission time at the ack's rate.",
+    "Header bytes lower the efficiency, but the cycle time still uses the full frame."
+   ],
+   "connections": [
+    "Sliding window (d6) is the cure: send W frames per cycle.",
+    "The delay terms $T_t$ and $T_p$ come from net.layering l4.",
+    "TCP throughput limit is window / RTT (net.transport), the same cycle idea."
+   ],
+   "check": [
+    {
+     "q": "$T_t$ = 2 ms, $T_p$ = 18 ms, ack negligible. U?",
+     "a": "2 / (2 + 36) = 5.26%."
+    },
+    {
+     "q": "For what $T_t$ is U = 50% when $T_p$ = 5 ms?",
+     "a": "$T_t = 2T_p$ = 10 ms."
+    },
+    {
+     "q": "Does a faster link raise stop-and-wait utilisation?",
+     "a": "No. It shrinks $T_t$ and keeps $T_p$, so U falls."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q36, 2023 CS Q17, 2017 CS1 Q45, 2015 CS1 Q53, 2015 CS2 Q8, 2016 CS1 Q55",
+   "try": {
+    "id": "gen.net.datalink.006",
+    "label": "Try: stop-and-wait utilisation for 2000-bit frames (L2)"
+   },
+   "scene": "net.datalink.d5.sw",
+   "example": {
+    "setup": "A sender uses stop-and-wait. Each frame is 8000 bits, the link is 10 Mbps, and the one-way propagation delay is 4 ms. The ack is tiny and takes no time. Find the link utilisation and the throughput.",
+    "steps": [
+     "Transmission time $T_t = 8000 / (10 \\times 10^6) = 0.8$ ms. The sender is busy for this long, then must stop.",
+     "The first bit reaches the receiver 4 ms after it leaves, and the last bit at 0.8 + 4 = 4.8 ms.",
+     "The receiver sends the ack at once. It needs another 4 ms to come back, so it reaches the sender at 4.8 + 4 = 8.8 ms.",
+     "Only now may the sender send the next frame. One cycle is $T_t + 2T_p$ = 0.8 + 8 = 8.8 ms, and the sender used only 0.8 ms of it for sending.",
+     "Utilisation $U = T_t / (T_t + 2T_p) = 0.8 / 8.8 = 9.09\\%$. Throughput = 8000 bits / 8.8 ms = 909 kbps, about 9% of 10 Mbps."
+    ],
+    "answer": "U = 9.09% and throughput about 909 kbps."
+   },
+   "what": "In **stop-and-wait**, the sender sends one frame and waits for its acknowledgement before sending the next. While waiting, the link carries nothing. On a long link the wait is much longer than the sending time, so the link is mostly idle.",
+   "what_full": "In **stop-and-wait**, the sender sends one frame and waits for its acknowledgement before sending the next. While waiting, the link carries nothing. On a long link the wait is much longer than the sending time, so the link is mostly idle.\n\nWith frame time $T_t$ and one-way propagation delay $T_p$:\n\n**Cycle time** = $T_t + 2T_p$ (frame out, ack back; ack time and processing are negligible).\n\n**Utilisation** $U = T_t / (T_t + 2T_p) = 1/(1 + 2a)$ where $a = T_p/T_t$.\n\n**Throughput** = bits per frame / cycle time = $U \\times$ link rate.\n\nIf the ack takes $T_{ack}$ and the receiver takes $T_{proc}$: cycle = $T_t + T_p + T_{proc} + T_{ack} + T_p$.\n\n**Efficiency** counts only useful (data, not header) bits: useful bits / link rate, divided by the cycle.\n\nWith loss probability p per frame (acks safe), U is multiplied by $(1 - p)$.\n\n**Worked example.** A sender uses stop-and-wait. Each frame is 8000 bits, the link is 10 Mbps, and the one-way propagation delay is 4 ms. The ack is tiny and takes no time. Find the link utilisation and the throughput.\n\n1. Transmission time $T_t = 8000 / (10 \\times 10^6) = 0.8$ ms. The sender is busy for this long, then must stop.\n2. The first bit reaches the receiver 4 ms after it leaves, and the last bit at 0.8 + 4 = 4.8 ms.\n3. The receiver sends the ack at once. It needs another 4 ms to come back, so it reaches the sender at 4.8 + 4 = 8.8 ms.\n4. Only now may the sender send the next frame. One cycle is $T_t + 2T_p$ = 0.8 + 8 = 8.8 ms, and the sender used only 0.8 ms of it for sending.\n5. Utilisation $U = T_t / (T_t + 2T_p) = 0.8 / 8.8 = 9.09\\%$. Throughput = 8000 bits / 8.8 ms = 909 kbps, about 9% of 10 Mbps.\n\n**Answer:** U = 9.09% and throughput about 909 kbps.",
+   "why_full": "Stop-and-wait utilisation is the most repeated calculation in the data link chapter. In GATE: find U or the throughput from rate, frame size and distance; or run it backwards (find the frame size or delay for a given U).\n\nAsked: 2025 CS2 Q36, 2023 CS Q17, 2017 CS1 Q45, 2015 CS1 Q53, 2015 CS2 Q8, 2016 CS1 Q55",
+   "trap": "Using the one-way $T_p$ instead of the round trip $2T_p$. The ack has to come back. A second slip is to ignore ack and processing times that the question gives, or to use data rate for an ack sent at a different rate."
+  },
+  {
+   "atom_id": "d6",
+   "title": "Sliding window efficiency",
+   "simple": "Go back to shouting across the field. This time you do not wait after every sentence. You keep shouting up to eight sentences in a row, and your friend shouts back 'got it' for each one as it arrives. If you keep talking until the first 'got it' comes back, you never sit idle. The number of sentences you are allowed to have 'in the air' is the window. The bigger the window, the busier you are, until you are always busy. In exam words: U = min(1, W $T_t$ / ($T_t + 2T_p$)), and 100% needs W = 1 + 2$T_p$/$T_t$.",
+   "idea": "A **sliding window** lets the sender send up to W frames before waiting for an ack. The frames fill the pipe, so the link is busy while the first ack travels back. A big enough window gives full utilisation.",
+   "definition": "With window W frames, frame time $T_t$, one-way delay $T_p$:\n\n$U = \\min\\left(1, \\dfrac{W \\cdot T_t}{T_t + 2T_p}\\right)$ (ack negligible).\n\n**Window for 100%:** $W = 1 + 2T_p / T_t$, rounded up to a whole frame.\n\nWith ack time $T_{ack}$: cycle = $T_t + T_{ack} + 2T_p$.\n\n**Throughput** = W frames per cycle, up to the link rate.\n\n$W = 1$ is stop-and-wait.",
+   "intuition_full": "The cycle (time from starting frame 1 to receiving its ack) is $T_t + 2T_p$. In that time a stop-and-wait sender sends one frame, using only $T_t$. A sender with window W can send W frames in the cycle if the cycle allows it, using $W T_t$ of it. When $W T_t$ reaches the cycle length, the link never idles and U hits 1. Solving $W T_t = T_t + 2T_p$ gives $W = 1 + 2T_p / T_t$. Note how it equals the bandwidth-delay product of the round trip, expressed in frames, plus one. The '1 +' counts the frame being sent right now. Any window above that is wasted. The window is also bounded by the sequence-number space, which is the next card.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A sliding window protocol runs on a link with $T_t$ = 2 ms and one-way $T_p$ = 15 ms. The ack is negligible. The window is W = 8 frames. Find the utilisation, and the window needed for 100%.",
+     "steps": [
+      "$T_t$ = 2 ms, one-way $T_p$ = 15 ms, W = 8. Time starts when frame 1 starts to go out.",
+      "The sender sends W = 8 frames back to back. This takes 8 x 2 = 16 ms of sending.",
+      "Frame 1 is acknowledged only at $T_t + 2T_p$ = 2 + 30 = 32 ms. Until then the window is full, so the sender idles for 32 - 16 = 16 ms.",
+      "In one 32 ms cycle the sender was busy for 16 ms: $U = W T_t / (T_t + 2T_p)$ = 16 / 32 = 50%.",
+      "For 100% the sender must still be sending when the first ack arrives: $W T_t \\geq T_t + 2T_p$, so $W = 1 + 2T_p / T_t$ = 1 + 30 / 2 = 16 frames."
+     ],
+     "answer": "U = 50% for W = 8. A window of 16 frames gives 100%."
+    },
+    {
+     "level": "gate",
+     "setup": "A sliding window protocol uses 1000-byte frames on a 4 Mbps link. Each ack is 200 bits and is sent at 4 Mbps. One-way propagation delay is 20 ms. What is the smallest window size for at least 60% utilisation?",
+     "steps": [
+      "Frame: 1000 x 8 = 8000 bits, so $T_t$ = 8000 / (4 x 10^6) = 2 ms. Ack: 200 / (4 x 10^6) = 0.05 ms.",
+      "Cycle = $T_t + T_{ack} + 2T_p$ = 2 + 0.05 + 40 = 42.05 ms.",
+      "Need $W T_t / \\text{cycle} \\geq 0.6$, so $W \\geq 0.6 \\times 42.05 / 2$ = 12.615.",
+      "W must be a whole number of frames, so round **up** to 13. Check: W = 12 gives 24 / 42.05 = 57.1% (too low); W = 13 gives 26 / 42.05 = 61.8%."
+     ],
+     "answer": "W = 13 frames."
+    },
+    {
+     "level": "twist",
+     "setup": "$T_t$ = 3 ms and $T_p$ = 10 ms, ack negligible. Find the smallest window for 100% utilisation, and the utilisation for W = 7 and W = 10.",
+     "steps": [
+      "W for 100%: $1 + 2T_p / T_t$ = 1 + 20 / 3 = 7.67. This is not a whole number, so round up: W = 8.",
+      "For W = 7: $U = 7 \\times 3 / (3 + 20)$ = 21 / 23 = 91.3%. One frame short of the pipe.",
+      "For W = 10: $U = 10 \\times 3 / 23$ = 30 / 23 = 1.30, which is more than 1. Utilisation cannot exceed 100%, so $U = \\min(1, \\cdot)$ = 100%.",
+      "A bigger window than needed does not help; the extra frames just wait in the sender's buffer."
+     ],
+     "answer": "W = 8. U(7) = 91.3%, U(10) = 100%."
+    }
+   ],
+   "why": "This is the other half of the utilisation question. In GATE: find the window needed for a utilisation (often 100%), or the utilisation for a given window, sometimes with ack time in the cycle.",
+   "how": [
+    "Compute $T_t$ and $T_p$. Add the ack time and processing to the cycle if given.",
+    "For a given W: $U = \\min(1, W T_t / \\text{cycle})$.",
+    "For a given U: $W \\geq U \\times \\text{cycle} / T_t$, then round up to a whole frame.",
+    "For 100%: $W = \\text{cycle} / T_t$ (this is $1 + 2T_p / T_t$ with a negligible ack)."
+   ],
+   "mistake": "Rounding down or to the nearest integer. A window of 12.6 frames is 13: with 12 you fall short of the target. A second slip is forgetting to cap U at 1 when W exceeds the pipe.",
+   "edge_cases": [
+    "W = 1 reduces to stop-and-wait.",
+    "If $T_p = 0$, W = 1 already gives 100%.",
+    "A window larger than the sequence-number space allows is not possible (d7)."
+   ],
+   "connections": [
+    "Stop-and-wait (d5) is the W = 1 case.",
+    "Bandwidth-delay product (net.layering l6) is the same quantity measured in bits.",
+    "TCP's window and its throughput limit window / RTT (net.transport)."
+   ],
+   "check": [
+    {
+     "q": "$T_t$ = 1 ms, $T_p$ = 9 ms. Window for 100%?",
+     "a": "1 + 18 / 1 = 19 frames."
+    },
+    {
+     "q": "$T_t$ = 5 ms, $T_p$ = 20 ms, W = 4. U?",
+     "a": "20 / (5 + 40) = 44.4%."
+    },
+    {
+     "q": "Why cap U at 1?",
+     "a": "A link cannot send more than its rate. Frames beyond the pipe only wait in the buffer."
+    }
+   ],
+   "asked": "Asked: 2026 CS1 Q45, 2021 CS1 Q59, 2003 CS Q84, 2006 CS Q44, 2009 CS Q58",
+   "try": {
+    "id": "gen.net.datalink.007",
+    "label": "Try: window needed to fill the link (L2)"
+   },
+   "scene": "net.datalink.d6.window",
+   "example": {
+    "setup": "A sliding window protocol runs on a link with $T_t$ = 2 ms and one-way $T_p$ = 15 ms. The ack is negligible. The window is W = 8 frames. Find the utilisation, and the window needed for 100%.",
+    "steps": [
+     "$T_t$ = 2 ms, one-way $T_p$ = 15 ms, W = 8. Time starts when frame 1 starts to go out.",
+     "The sender sends W = 8 frames back to back. This takes 8 x 2 = 16 ms of sending.",
+     "Frame 1 is acknowledged only at $T_t + 2T_p$ = 2 + 30 = 32 ms. Until then the window is full, so the sender idles for 32 - 16 = 16 ms.",
+     "In one 32 ms cycle the sender was busy for 16 ms: $U = W T_t / (T_t + 2T_p)$ = 16 / 32 = 50%.",
+     "For 100% the sender must still be sending when the first ack arrives: $W T_t \\geq T_t + 2T_p$, so $W = 1 + 2T_p / T_t$ = 1 + 30 / 2 = 16 frames."
+    ],
+    "answer": "U = 50% for W = 8. A window of 16 frames gives 100%."
+   },
+   "what": "A **sliding window** lets the sender send up to W frames before waiting for an ack. The frames fill the pipe, so the link is busy while the first ack travels back. A big enough window gives full utilisation.",
+   "what_full": "A **sliding window** lets the sender send up to W frames before waiting for an ack. The frames fill the pipe, so the link is busy while the first ack travels back. A big enough window gives full utilisation.\n\nWith window W frames, frame time $T_t$, one-way delay $T_p$:\n\n$U = \\min\\left(1, \\dfrac{W \\cdot T_t}{T_t + 2T_p}\\right)$ (ack negligible).\n\n**Window for 100%:** $W = 1 + 2T_p / T_t$, rounded up to a whole frame.\n\nWith ack time $T_{ack}$: cycle = $T_t + T_{ack} + 2T_p$.\n\n**Throughput** = W frames per cycle, up to the link rate.\n\n$W = 1$ is stop-and-wait.\n\n**Worked example.** A sliding window protocol runs on a link with $T_t$ = 2 ms and one-way $T_p$ = 15 ms. The ack is negligible. The window is W = 8 frames. Find the utilisation, and the window needed for 100%.\n\n1. $T_t$ = 2 ms, one-way $T_p$ = 15 ms, W = 8. Time starts when frame 1 starts to go out.\n2. The sender sends W = 8 frames back to back. This takes 8 x 2 = 16 ms of sending.\n3. Frame 1 is acknowledged only at $T_t + 2T_p$ = 2 + 30 = 32 ms. Until then the window is full, so the sender idles for 32 - 16 = 16 ms.\n4. In one 32 ms cycle the sender was busy for 16 ms: $U = W T_t / (T_t + 2T_p)$ = 16 / 32 = 50%.\n5. For 100% the sender must still be sending when the first ack arrives: $W T_t \\geq T_t + 2T_p$, so $W = 1 + 2T_p / T_t$ = 1 + 30 / 2 = 16 frames.\n\n**Answer:** U = 50% for W = 8. A window of 16 frames gives 100%.",
+   "why_full": "This is the other half of the utilisation question. In GATE: find the window needed for a utilisation (often 100%), or the utilisation for a given window, sometimes with ack time in the cycle.\n\nAsked: 2026 CS1 Q45, 2021 CS1 Q59, 2003 CS Q84, 2006 CS Q44, 2009 CS Q58",
+   "trap": "Rounding down or to the nearest integer. A window of 12.6 frames is 13: with 12 you fall short of the target. A second slip is forgetting to cap U at 1 when W exceeds the pipe."
+  },
+  {
+   "atom_id": "d7",
+   "title": "Sequence number bits",
+   "simple": "Frames carry a number so the receiver can tell them apart, but the number field has only so many bits, so the numbers must start again from 0 after a while. Imagine a coat check with only 16 tickets. If you hand out 16 coats and the last customer's ticket gets confused with the first customer's, a coat goes to the wrong person. So you must never have too many coats waiting at once. For Go-Back-N the limit is 'one less than the number of tickets'. For Selective Repeat it is 'half the tickets'. In exam words: Go-Back-N needs W + 1 sequence numbers, Selective Repeat needs 2W.",
+   "idea": "Sequence numbers are reused, so the window must be small enough that an old frame can never be mistaken for a new one. Go-Back-N needs **W + 1** numbers. Selective Repeat needs **2W**. With n bits that is $W \\leq 2^n - 1$ and $W \\leq 2^{n-1}$.",
+   "definition": "With **n** bits there are $2^n$ sequence numbers.\n\n**Go-Back-N:** receiver window is 1. Sender window $W \\leq 2^n - 1$. Bits needed: $\\lceil \\log_2 (W + 1) \\rceil$.\n\n**Selective Repeat:** sender and receiver windows are both W. Need $W \\leq 2^{n-1}$, so numbers $\\geq 2W$. Bits needed: $\\lceil \\log_2 (2W) \\rceil$.\n\n**Window for utilisation U:** $W = \\lceil U (T_t + 2T_p) / T_t \\rceil$ (d6).\n\n**Byte numbering (TCP style):** also the numbers must not wrap within the packet lifetime: $2^n >$ rate (bytes/s) x lifetime. Take the larger requirement.",
+   "intuition_full": "The receiver decides whether an arriving frame is new or a repeat from its number alone. In Go-Back-N the receiver only ever expects one number and accepts that or rejects everything else. If the sender has up to W outstanding frames and the numbers repeat after $2^n$, the receiver mistakes an old frame for the expected one only when W reaches $2^n$ (the whole space in flight). Hence W up to $2^n - 1$. In Selective Repeat the receiver accepts any number inside its window. After accepting a full window of W frames it slides to the next W numbers. If some acks were lost, the sender may resend frames from the previous window. For the receiver to be able to tell them from fresh frames, the old window and new window must not overlap: $W + W \\leq 2^n$. That gives $W \\leq 2^{n-1}$.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "With 4-bit sequence numbers, find the largest sender window for Selective Repeat and for Go-Back-N, and show why a larger window breaks Selective Repeat.",
+     "steps": [
+      "4 bits give $2^4$ = 16 sequence numbers: 0 to 15, reused cyclically.",
+      "Selective Repeat with W = 8: the sender sends frames numbered 0 to 7.",
+      "The receiver accepts all 8, so its window moves forward to 8 to 15. Suppose every ack is lost.",
+      "The sender times out and resends 0 to 7. These numbers are outside the receiver's window (8 to 15), so the receiver correctly recognises them as old duplicates and re-acks them.",
+      "Now try W = 9. The sender sends 0 to 8. The receiver accepts all 9, and its window becomes 9 to 15, 0, 1. The numbers 0 and 1 are now inside the receiver's window.",
+      "If the acks are lost, the resent frame 0 looks like a new frame 0 to the receiver, which accepts it as new data. Wrong. So Selective Repeat needs $W \\leq 2^{n-1}$ = 8.",
+      "Go-Back-N has a receiver window of 1, so only the sender's window matters. It needs $W \\leq 2^n - 1$ = 15: with 16 frames in flight, frame 0 and the next frame 0 could not be told apart."
+     ],
+     "answer": "Selective Repeat: W = 8 at most. Go-Back-N: W = 15 at most."
+    },
+    {
+     "level": "gate",
+     "setup": "A link is 8 Mbps, frames are 1000 bytes, one-way propagation delay is 12 ms, and acks are negligible. Find the minimum number of sequence-number bits for 75% utilisation with (a) Selective Repeat and (b) Go-Back-N.",
+     "steps": [
+      "$T_t$ = 8000 / (8 x 10^6) = 1 ms. Cycle = $T_t + 2T_p$ = 1 + 24 = 25 ms.",
+      "For 75%: $W \\geq 0.75 \\times 25 / 1$ = 18.75, so W = 19 frames.",
+      "(a) Selective Repeat needs $2W$ = 38 sequence numbers. $2^5$ = 32 < 38 <= $2^6$ = 64, so **6 bits**.",
+      "(b) Go-Back-N needs $W + 1$ = 20 numbers. $2^4$ = 16 < 20 <= $2^5$ = 32, so **5 bits**."
+     ],
+     "answer": "(a) 6 bits for Selective Repeat. (b) 5 bits for Go-Back-N."
+    },
+    {
+     "level": "twist",
+     "setup": "Every byte gets its own sequence number (as in TCP). The link is 8 Mbps, the round trip time is 100 ms, and a segment may live in the network for 64 s. Find the minimum number of bits so that (i) numbers do not wrap within the lifetime, and (ii) a Go-Back-N window covers the round trip. Give the larger.",
+     "steps": [
+      "Bytes per second = 8,000,000 / 8 = 1,000,000.",
+      "(i) In 64 s the sender uses 64 x 1,000,000 = 64,000,000 numbers. $2^{25}$ = 33,554,432 is too small, $2^{26}$ = 67,108,864 is enough. So 26 bits.",
+      "(ii) The window must hold one round trip of bytes: 1,000,000 x 0.1 = 100,000. Go-Back-N needs W + 1 = 100,001 numbers. $2^{16}$ = 65,536 is too small, $2^{17}$ = 131,072 is enough. So 17 bits.",
+      "Both conditions must hold, so take the larger: 26 bits. The wrap-around constraint dominates."
+     ],
+     "answer": "26 bits."
+    }
+   ],
+   "why": "Sequence-number bits are asked in many forms (8 questions in the blueprint): bits for a given window, window for a given number of bits, or bits for a given utilisation.",
+   "how": [
+    "Find the window W from the utilisation (d6) or from the question.",
+    "Go-Back-N: numbers = W + 1. Selective Repeat: numbers = 2W.",
+    "Bits = ceiling of log base 2 of the number of sequence numbers.",
+    "For byte numbering, also compute rate x lifetime and take the larger bit count.",
+    "Read which protocol the question uses. If it says only 'sliding window', GATE sometimes takes bits = log2 W."
+   ],
+   "mistake": "Using the same rule for both protocols, or using W instead of W + 1 or 2W. A second slip is giving log2 of the window and forgetting to round up: 19 frames need 5 bits for the window itself, but 6 for Selective Repeat.",
+   "edge_cases": [
+    "W = 1 (stop-and-wait) needs 2 numbers (1 bit) with the alternating-bit protocol.",
+    "If a question says only 'sequence number bits for the window', it may intend simply $\\lceil \\log_2 W \\rceil$. Check the answer options.",
+    "With byte numbering the window is in bytes, not frames."
+   ],
+   "connections": [
+    "Window size from utilisation comes from d6.",
+    "Go-Back-N versus Selective Repeat behaviour is the next card (d8).",
+    "TCP's 32-bit byte sequence numbers and the wrap-around problem (net.transport, sequence space card)."
+   ],
+   "check": [
+    {
+     "q": "3-bit numbers. Largest window for Go-Back-N and Selective Repeat?",
+     "a": "Go-Back-N 7, Selective Repeat 4."
+    },
+    {
+     "q": "Selective Repeat with W = 20. How many bits?",
+     "a": "2W = 40 numbers, so 6 bits."
+    },
+    {
+     "q": "Go-Back-N with W = 31. How many bits?",
+     "a": "W + 1 = 32 numbers, so 5 bits."
+    }
+   ],
+   "asked": "Asked: 2026 CS2 Q65, 2014 CS1 Q28, 2015 CS3 Q28, 2016 CS2 Q55, 2007 CS Q69, 2009 CS Q57, 2005 CS Q25",
+   "try": {
+    "id": "gen.net.datalink.008",
+    "label": "Try: largest windows with 3-bit numbers (L2)"
+   },
+   "scene": "net.datalink.d7.seq",
+   "example": {
+    "setup": "With 4-bit sequence numbers, find the largest sender window for Selective Repeat and for Go-Back-N, and show why a larger window breaks Selective Repeat.",
+    "steps": [
+     "4 bits give $2^4$ = 16 sequence numbers: 0 to 15, reused cyclically.",
+     "Selective Repeat with W = 8: the sender sends frames numbered 0 to 7.",
+     "The receiver accepts all 8, so its window moves forward to 8 to 15. Suppose every ack is lost.",
+     "The sender times out and resends 0 to 7. These numbers are outside the receiver's window (8 to 15), so the receiver correctly recognises them as old duplicates and re-acks them.",
+     "Now try W = 9. The sender sends 0 to 8. The receiver accepts all 9, and its window becomes 9 to 15, 0, 1. The numbers 0 and 1 are now inside the receiver's window.",
+     "If the acks are lost, the resent frame 0 looks like a new frame 0 to the receiver, which accepts it as new data. Wrong. So Selective Repeat needs $W \\leq 2^{n-1}$ = 8.",
+     "Go-Back-N has a receiver window of 1, so only the sender's window matters. It needs $W \\leq 2^n - 1$ = 15: with 16 frames in flight, frame 0 and the next frame 0 could not be told apart."
+    ],
+    "answer": "Selective Repeat: W = 8 at most. Go-Back-N: W = 15 at most."
+   },
+   "what": "Sequence numbers are reused, so the window must be small enough that an old frame can never be mistaken for a new one. Go-Back-N needs **W + 1** numbers. Selective Repeat needs **2W**. With n bits that is $W \\leq 2^n - 1$ and $W \\leq 2^{n-1}$.",
+   "what_full": "Sequence numbers are reused, so the window must be small enough that an old frame can never be mistaken for a new one. Go-Back-N needs **W + 1** numbers. Selective Repeat needs **2W**. With n bits that is $W \\leq 2^n - 1$ and $W \\leq 2^{n-1}$.\n\nWith **n** bits there are $2^n$ sequence numbers.\n\n**Go-Back-N:** receiver window is 1. Sender window $W \\leq 2^n - 1$. Bits needed: $\\lceil \\log_2 (W + 1) \\rceil$.\n\n**Selective Repeat:** sender and receiver windows are both W. Need $W \\leq 2^{n-1}$, so numbers $\\geq 2W$. Bits needed: $\\lceil \\log_2 (2W) \\rceil$.\n\n**Window for utilisation U:** $W = \\lceil U (T_t + 2T_p) / T_t \\rceil$ (d6).\n\n**Byte numbering (TCP style):** also the numbers must not wrap within the packet lifetime: $2^n >$ rate (bytes/s) x lifetime. Take the larger requirement.\n\n**Worked example.** With 4-bit sequence numbers, find the largest sender window for Selective Repeat and for Go-Back-N, and show why a larger window breaks Selective Repeat.\n\n1. 4 bits give $2^4$ = 16 sequence numbers: 0 to 15, reused cyclically.\n2. Selective Repeat with W = 8: the sender sends frames numbered 0 to 7.\n3. The receiver accepts all 8, so its window moves forward to 8 to 15. Suppose every ack is lost.\n4. The sender times out and resends 0 to 7. These numbers are outside the receiver's window (8 to 15), so the receiver correctly recognises them as old duplicates and re-acks them.\n5. Now try W = 9. The sender sends 0 to 8. The receiver accepts all 9, and its window becomes 9 to 15, 0, 1. The numbers 0 and 1 are now inside the receiver's window.\n6. If the acks are lost, the resent frame 0 looks like a new frame 0 to the receiver, which accepts it as new data. Wrong. So Selective Repeat needs $W \\leq 2^{n-1}$ = 8.\n7. Go-Back-N has a receiver window of 1, so only the sender's window matters. It needs $W \\leq 2^n - 1$ = 15: with 16 frames in flight, frame 0 and the next frame 0 could not be told apart.\n\n**Answer:** Selective Repeat: W = 8 at most. Go-Back-N: W = 15 at most.",
+   "why_full": "Sequence-number bits are asked in many forms (8 questions in the blueprint): bits for a given window, window for a given number of bits, or bits for a given utilisation.\n\nAsked: 2026 CS2 Q65, 2014 CS1 Q28, 2015 CS3 Q28, 2016 CS2 Q55, 2007 CS Q69, 2009 CS Q57, 2005 CS Q25",
+   "trap": "Using the same rule for both protocols, or using W instead of W + 1 or 2W. A second slip is giving log2 of the window and forgetting to round up: 19 frames need 5 bits for the window itself, but 6 for Selective Repeat."
+  },
+  {
+   "atom_id": "d8",
+   "title": "Go-Back-N versus selective repeat behaviour",
+   "simple": "Imagine copying out a long list of numbers while a friend checks them. In one style, as soon as the friend finds a mistake, you throw away everything after it and write it all again from the mistake onward. That is Go-Back-N: simple, but wasteful. In the other style, the friend just points at the one wrong line and you rewrite only that line, while the friend keeps the good lines after it in a pile. That is Selective Repeat: it saves work, but the friend needs a big enough table for the pile. In exam words: Go-Back-N resends the lost frame and all later ones; Selective Repeat resends only the lost one.",
+   "idea": "Both protocols keep several frames in flight. When a frame is lost, **Go-Back-N** discards every later frame and resends from the lost one onward. **Selective Repeat** buffers the later frames and resends only the lost one.",
+   "definition": "**Go-Back-N:** receiver window 1. It accepts only the next expected frame and discards the rest. Acks are **cumulative** (ack n means 'all up to n received'). On timeout the sender resends the lost frame and everything after it.\n\n**Selective Repeat:** receiver window W. It buffers out-of-order frames and acks each one. On timeout only the lost frame is resent.\n\n**Transmission counting (exam model):** the sender sends every frame the window allows. When the window cannot advance because of a lost frame, the sender times out and goes back to that frame.\n\nCost: GBN wastes bandwidth on resends, SR wastes receiver buffer and needs more sequence numbers.",
+   "intuition_full": "The difference comes from what the receiver is willing to keep. A Go-Back-N receiver has room for one frame, the one it expects next. A frame arriving early has nowhere to go, so it is thrown away and the sender will need to send it again anyway. A Selective Repeat receiver has a buffer for a whole window, so it keeps what arrives and asks only for the gap. In counting problems, remember that the window keeps sliding as acks arrive for the frames before the lost one. So by the time the timer expires, the sender has already sent extra frames up to (lost frame + W - 1). Those extras are what a Go-Back-N sender resends. Count one pass at a time: send, timeout, resend.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Go-Back-N with window 5 sends frames 1 to 10. The first transmission of frame 4 is lost and nothing else is lost. The sender keeps sending while the window allows and times out when the window cannot move. Count the transmissions for Go-Back-N and for Selective Repeat.",
+     "steps": [
+      "Window 5, frames 1 to 10. The sender sends frames 1 to 5. Frame 4 is lost.",
+      "The receiver acks 1, 2 and 3. It discards frame 5 because it is out of order (it wants 4). The acks slide the window, so the sender sends 6, 7 and 8, all of which are discarded too. That is 8 transmissions so far.",
+      "Frame 4's timer expires. Go-Back-N goes back: it resends 4, 5, 6, 7, 8. That is 5 more transmissions.",
+      "The acks arrive, the window moves on, and 9 and 10 are sent. Total = 8 + 5 + 2 = 15.",
+      "Selective Repeat sends the same first 8 frames, but the receiver buffers frames 5 to 8 and acks them one by one. After the timeout only frame 4 is resent.",
+      "Then 9 and 10 go out. Selective Repeat total = 10 + 1 = 11. Go-Back-N wasted 4 transmissions (frames 5 to 8)."
+     ],
+     "answer": "Go-Back-N: 15 transmissions. Selective Repeat: 11."
+    },
+    {
+     "level": "gate",
+     "setup": "Go-Back-N, window 3, frames 1 to 8. Every 5th transmission (the 5th, 10th, 15th, ...) is lost, counting retransmissions. Acks are never lost. The sender sends every frame the window allows before a timeout. How many transmissions in total?",
+     "steps": [
+      "Transmissions 1 to 7 are frames 1, 2, 3, 4, 5, 6, 7. The 5th transmission (frame 5) is lost. The window now covers 5 to 7, so frames 6 and 7 are sent and discarded. Timeout. (7 transmissions)",
+      "Go back to frame 5: transmissions 8 to 11 are frames 5, 6, 7, 8. The 10th transmission (frame 7) is lost, so frame 8 (sent as the 11th) is discarded. Timeout. (4 more, 11 so far)",
+      "Go back to frame 7: transmissions 12 and 13 are frames 7 and 8. Neither is the 15th, 20th, ...; both succeed.",
+      "Total = 7 + 4 + 2 = 13."
+     ],
+     "answer": "13 transmissions."
+    },
+    {
+     "level": "twist",
+     "setup": "Go-Back-N with window 4 sends frames 1 to 6. No data frame is lost, but the ack for frame 2 is lost; the acks for 1, 3 and 4 arrive. How many transmissions are there? What would Selective Repeat do?",
+     "steps": [
+      "Go-Back-N uses **cumulative** acks. An ack for frame 3 means 'everything up to 3 is received', so it also covers frame 2.",
+      "The ack for 3 arrives before the timer of frame 2 expires, so there is no timeout and no resend.",
+      "Go-Back-N sends each frame once: 6 transmissions.",
+      "Selective Repeat acks every frame individually. The ack for frame 2 is lost and nothing else tells the sender it arrived, so after its timer expires frame 2 is resent: 7 transmissions."
+     ],
+     "answer": "Go-Back-N: 6 transmissions. Selective Repeat: 7."
+    }
+   ],
+   "why": "GBN counting is a one-mark simulation that is easy to get wrong without a method. In GATE: count the total transmissions with a given loss pattern, or judge statements about the two protocols.",
+   "how": [
+    "Write the frames in a row and mark the lost transmission.",
+    "Pass 1: send until the window is stuck behind the lost frame (up to lost + W - 1, but not past the last frame).",
+    "Timeout: for GBN, resend from the lost frame up to the same limit. For SR, resend only the lost frame.",
+    "Check whether the resent frames themselves are lost, using the transmission counter if the loss rule counts retransmissions.",
+    "Add the transmissions of every pass."
+   ],
+   "mistake": "Counting only the retransmitted lost frame in Go-Back-N and missing the frames sent while waiting for the timeout. These later frames are sent once, discarded, and sent again. A second slip is to assume a lost ack always forces a resend: in Go-Back-N a later cumulative ack covers it.",
+   "edge_cases": [
+    "If the last frame is the lost one, the window has no later frames to waste.",
+    "A lost ack in Selective Repeat forces a resend of that frame; a lost ack in Go-Back-N is usually covered by the next.",
+    "If the window is 1, both protocols behave like stop-and-wait."
+   ],
+   "connections": [
+    "Sequence-number bits (d7) differ because the receiver windows differ.",
+    "TCP behaves like Go-Back-N with cumulative acks, plus buffering at the receiver (net.transport).",
+    "The window fills the pipe as in d6."
+   ],
+   "check": [
+    {
+     "q": "GBN, window 4, frames 1 to 6, first transmission of frame 2 lost. Transmissions?",
+     "a": "1 to 5 sent (5), timeout, resend 2, 3, 4, 5 (4), then 6 (1): 10 in total. SR would use 7."
+    },
+    {
+     "q": "Which protocol needs a receive buffer larger than one frame?",
+     "a": "Selective Repeat."
+    },
+    {
+     "q": "What does a cumulative ack of 5 mean?",
+     "a": "Frames up to and including 5 were received."
+    }
+   ],
+   "asked": "Asked: 2006 CS Q46",
+   "try": {
+    "id": "gen.net.datalink.011",
+    "label": "Try: count Go-Back-N transmissions with a loss (L2)"
+   },
+   "scene": "net.datalink.d8.gbnsr",
+   "example": {
+    "setup": "Go-Back-N with window 5 sends frames 1 to 10. The first transmission of frame 4 is lost and nothing else is lost. The sender keeps sending while the window allows and times out when the window cannot move. Count the transmissions for Go-Back-N and for Selective Repeat.",
+    "steps": [
+     "Window 5, frames 1 to 10. The sender sends frames 1 to 5. Frame 4 is lost.",
+     "The receiver acks 1, 2 and 3. It discards frame 5 because it is out of order (it wants 4). The acks slide the window, so the sender sends 6, 7 and 8, all of which are discarded too. That is 8 transmissions so far.",
+     "Frame 4's timer expires. Go-Back-N goes back: it resends 4, 5, 6, 7, 8. That is 5 more transmissions.",
+     "The acks arrive, the window moves on, and 9 and 10 are sent. Total = 8 + 5 + 2 = 15.",
+     "Selective Repeat sends the same first 8 frames, but the receiver buffers frames 5 to 8 and acks them one by one. After the timeout only frame 4 is resent.",
+     "Then 9 and 10 go out. Selective Repeat total = 10 + 1 = 11. Go-Back-N wasted 4 transmissions (frames 5 to 8)."
+    ],
+    "answer": "Go-Back-N: 15 transmissions. Selective Repeat: 11."
+   },
+   "what": "Both protocols keep several frames in flight. When a frame is lost, **Go-Back-N** discards every later frame and resends from the lost one onward. **Selective Repeat** buffers the later frames and resends only the lost one.",
+   "what_full": "Both protocols keep several frames in flight. When a frame is lost, **Go-Back-N** discards every later frame and resends from the lost one onward. **Selective Repeat** buffers the later frames and resends only the lost one.\n\n**Go-Back-N:** receiver window 1. It accepts only the next expected frame and discards the rest. Acks are **cumulative** (ack n means 'all up to n received'). On timeout the sender resends the lost frame and everything after it.\n\n**Selective Repeat:** receiver window W. It buffers out-of-order frames and acks each one. On timeout only the lost frame is resent.\n\n**Transmission counting (exam model):** the sender sends every frame the window allows. When the window cannot advance because of a lost frame, the sender times out and goes back to that frame.\n\nCost: GBN wastes bandwidth on resends, SR wastes receiver buffer and needs more sequence numbers.\n\n**Worked example.** Go-Back-N with window 5 sends frames 1 to 10. The first transmission of frame 4 is lost and nothing else is lost. The sender keeps sending while the window allows and times out when the window cannot move. Count the transmissions for Go-Back-N and for Selective Repeat.\n\n1. Window 5, frames 1 to 10. The sender sends frames 1 to 5. Frame 4 is lost.\n2. The receiver acks 1, 2 and 3. It discards frame 5 because it is out of order (it wants 4). The acks slide the window, so the sender sends 6, 7 and 8, all of which are discarded too. That is 8 transmissions so far.\n3. Frame 4's timer expires. Go-Back-N goes back: it resends 4, 5, 6, 7, 8. That is 5 more transmissions.\n4. The acks arrive, the window moves on, and 9 and 10 are sent. Total = 8 + 5 + 2 = 15.\n5. Selective Repeat sends the same first 8 frames, but the receiver buffers frames 5 to 8 and acks them one by one. After the timeout only frame 4 is resent.\n6. Then 9 and 10 go out. Selective Repeat total = 10 + 1 = 11. Go-Back-N wasted 4 transmissions (frames 5 to 8).\n\n**Answer:** Go-Back-N: 15 transmissions. Selective Repeat: 11.",
+   "why_full": "GBN counting is a one-mark simulation that is easy to get wrong without a method. In GATE: count the total transmissions with a given loss pattern, or judge statements about the two protocols.\n\nAsked: 2006 CS Q46",
+   "trap": "Counting only the retransmitted lost frame in Go-Back-N and missing the frames sent while waiting for the timeout. These later frames are sent once, discarded, and sent again. A second slip is to assume a lost ack always forces a resend: in Go-Back-N a later cumulative ack covers it."
+  },
+  {
+   "atom_id": "d9",
+   "title": "CSMA/CD and minimum frame size",
+   "simple": "Two people stand at opposite ends of a long corridor, and each starts talking if the corridor sounds quiet. If both start at nearly the same moment, the voices clash, but each speaker only finds out when the other voice arrives, and that takes a while. If you finish your short sentence before the other voice reaches you, you think everything went fine, even though the listener heard a mess. So every sentence must be long enough that you are still talking when a clash could reach you. After a clash both wait a random time, and wait longer if it keeps happening. In exam words: the minimum frame time is at least $2T_p$, so $L_{min} = 2T_p \\times R$, and the backoff doubles the range after each collision.",
+   "idea": "On shared Ethernet a station listens before sending (**carrier sense**) and keeps listening while sending (**collision detection**). A collision can only be detected if the frame is still being sent when the collision signal returns. That sets a **minimum frame size**.",
+   "definition": "**CSMA/CD:** (1) sense the medium, (2) if idle, send and keep listening, (3) if a collision is heard, stop, send a short jam signal, (4) wait a random time and retry.\n\n**Minimum frame size:** frame time $\\geq 2T_p$, so $L_{min} = 2 T_p \\times R$ bits. Solved either way round: max cable length $d \\leq L\\,s/(2R)$; max rate $R \\leq L/(2T_p)$.\n\n**Binary exponential backoff:** after the n-th collision pick a slot at random from $\\{0, 1, \\dots, 2^n - 1\\}$ and wait that many slot times (slot = 512 bit times in Ethernet).\n\nClassic Ethernet at 10 Mbps: 512 bits = 64 bytes minimum frame, slot time 51.2 us.",
+   "intuition_full": "The key is the worst case. Two stations at opposite ends of the cable collide when one starts just before the other's signal arrives. The first station then needs another full trip time to hear the evidence. The total from the start of its own frame is the round trip $2T_p$. During that time it must still be transmitting, otherwise it will believe the frame was fine (no one can retransmit a frame the sender has already forgotten). A short frame on a long or fast network breaks this. That is why the Ethernet rules tie minimum frame size, cable length and speed together: faster Ethernet needs shorter cables or longer minimum frames. Backoff gives colliding stations a chance to separate: the range doubles after every collision, so with two stations the chance of colliding again drops from 1/2 to 1/4 to 1/8.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A CSMA/CD LAN has a cable of 1.2 km, signal speed 2 x 10^8 m/s, and a rate of 20 Mbps. Find the minimum frame size so that a sender always detects a collision.",
+     "steps": [
+      "Propagation delay along the cable: $T_p = 1200 / (2 \\times 10^8) = 6\\ \\mu s$. The rate is 20 Mbps = 20 bits per microsecond.",
+      "Worst case: A starts at t = 0. Its signal needs 6 us to reach B at the far end.",
+      "Just before t = 6 us, B still hears nothing and starts too. The two frames collide next to B.",
+      "The collision signal needs another 6 us to travel back to A, so A learns of it at t = 6 + 6 = 12 us = $2T_p$.",
+      "A can only know that its own frame collided if it is **still sending** at t = 12 us. So the frame must last at least $2T_p$ = 12 us.",
+      "Minimum frame = $2T_p \\times R$ = 12 us x 20 Mbps = 240 bits = 30 bytes."
+     ],
+     "answer": "240 bits = 30 bytes."
+    },
+    {
+     "level": "gate",
+     "setup": "A CSMA/CD network has a cable 800 m long and a signal speed of 2 x 10^8 m/s. The minimum frame size is 640 bits. What is the highest data rate for which collisions are always detected?",
+     "steps": [
+      "$T_p = 800 / (2 \\times 10^8) = 4\\ \\mu s$, so $2T_p = 8\\ \\mu s$.",
+      "Condition: the frame time must be at least $2T_p$, so $L / R \\geq 2T_p$, which gives $R \\leq L / (2T_p)$.",
+      "$R \\leq 640 / (8 \\times 10^{-6}) = 80 \\times 10^6$ bit/s.",
+      "The highest rate is 80 Mbps. A faster rate makes the 640-bit frame shorter than the round trip, so collisions could go unnoticed."
+     ],
+     "answer": "80 Mbps."
+    },
+    {
+     "level": "twist",
+     "setup": "Two stations A and B collide on their first attempt. They use binary exponential backoff: after the n-th collision each picks a slot at random from 0 to $2^n - 1$. What is the probability that the first successful transmission happens on the 4th attempt?",
+     "steps": [
+      "After collision 1 each picks from {0, 1}. They pick the same slot with probability 1/2, so they collide again (attempt 2 is a collision).",
+      "After collision 2 each picks from {0, 1, 2, 3}. The same slot has probability 1/4 (attempt 3 is a collision).",
+      "After collision 3 each picks from {0, ..., 7}. They pick different slots with probability 1 - 1/8 = 7/8, and the earlier one transmits successfully on attempt 4.",
+      "P = 1/2 x 1/4 x 7/8 = 7/64 = 0.109."
+     ],
+     "answer": "7/64 = 0.109."
+    }
+   ],
+   "why": "This is a high-yield question type: 8 questions in the blueprint. In GATE: find the minimum frame size, the maximum cable length or the maximum rate, or compute a backoff probability.",
+   "how": [
+    "Compute $T_p$ = length / speed. Use the round trip $2T_p$.",
+    "Minimum frame bits = $2T_p \\times R$. Divide by 8 for bytes if asked.",
+    "For the maximum length or rate, rearrange the same inequality $L/R \\geq 2T_p$.",
+    "If the question adds a jam signal or repeater delay, add them to the slot time before multiplying by R.",
+    "For backoff: the probability of a repeat collision after n collisions is $1/2^n$ for two stations."
+   ],
+   "mistake": "Using the one-way $T_p$ instead of the round trip $2T_p$, which halves the answer. A second slip is answering in bits when bytes are asked, or the reverse.",
+   "edge_cases": [
+    "With a jam signal of J bits, the slot is $2T_p + J/R$ in some versions (2005 CS Q74).",
+    "Switched Ethernet has no collisions, so the minimum-frame rule matters only for shared media.",
+    "Plain CSMA without collision detection: a station can only sense signals that have already reached it, so the risky window is the propagation delay $T_p$ (2018 CS Q65)."
+   ],
+   "connections": [
+    "Propagation delay comes from net.layering l4; the pipe idea is the same as the window in d6.",
+    "ALOHA (d10) is the earlier, simpler contention scheme without carrier sensing.",
+    "Foundations: **Binary** (found.binary) covers powers of two, as in the backoff range 0 to 2^n - 1."
+   ],
+   "check": [
+    {
+     "q": "Cable 500 m, speed 2 x 10^8 m/s, rate 10 Mbps. Minimum frame in bits?",
+     "a": "$T_p$ = 2.5 us, so 2$T_p$ = 5 us. 5 us x 10 Mbps = 50 bits."
+    },
+    {
+     "q": "Two stations collide. What is the chance of colliding again after the first collision?",
+     "a": "1/2. Each picks 0 or 1 at random."
+    },
+    {
+     "q": "Why is a minimum frame size needed for CSMA/CD?",
+     "a": "A sender must still be transmitting when the collision signal returns, which takes up to the round-trip time."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q55, 2005 CS Q74, 2013 CS Q36, 2015 CS3 Q6, 2016 CS2 Q53, 2003 CS Q83, 2004 CS Q54, 2016 CS2 Q24",
+   "try": {
+    "id": "gen.net.datalink.004",
+    "label": "Try: why Ethernet needs a minimum frame (L1)"
+   },
+   "scene": "net.datalink.d9.csmacd",
+   "example": {
+    "setup": "A CSMA/CD LAN has a cable of 1.2 km, signal speed 2 x 10^8 m/s, and a rate of 20 Mbps. Find the minimum frame size so that a sender always detects a collision.",
+    "steps": [
+     "Propagation delay along the cable: $T_p = 1200 / (2 \\times 10^8) = 6\\ \\mu s$. The rate is 20 Mbps = 20 bits per microsecond.",
+     "Worst case: A starts at t = 0. Its signal needs 6 us to reach B at the far end.",
+     "Just before t = 6 us, B still hears nothing and starts too. The two frames collide next to B.",
+     "The collision signal needs another 6 us to travel back to A, so A learns of it at t = 6 + 6 = 12 us = $2T_p$.",
+     "A can only know that its own frame collided if it is **still sending** at t = 12 us. So the frame must last at least $2T_p$ = 12 us.",
+     "Minimum frame = $2T_p \\times R$ = 12 us x 20 Mbps = 240 bits = 30 bytes."
+    ],
+    "answer": "240 bits = 30 bytes."
+   },
+   "what": "On shared Ethernet a station listens before sending (**carrier sense**) and keeps listening while sending (**collision detection**). A collision can only be detected if the frame is still being sent when the collision signal returns. That sets a **minimum frame size**.",
+   "what_full": "On shared Ethernet a station listens before sending (**carrier sense**) and keeps listening while sending (**collision detection**). A collision can only be detected if the frame is still being sent when the collision signal returns. That sets a **minimum frame size**.\n\n**CSMA/CD:** (1) sense the medium, (2) if idle, send and keep listening, (3) if a collision is heard, stop, send a short jam signal, (4) wait a random time and retry.\n\n**Minimum frame size:** frame time $\\geq 2T_p$, so $L_{min} = 2 T_p \\times R$ bits. Solved either way round: max cable length $d \\leq L\\,s/(2R)$; max rate $R \\leq L/(2T_p)$.\n\n**Binary exponential backoff:** after the n-th collision pick a slot at random from $\\{0, 1, \\dots, 2^n - 1\\}$ and wait that many slot times (slot = 512 bit times in Ethernet).\n\nClassic Ethernet at 10 Mbps: 512 bits = 64 bytes minimum frame, slot time 51.2 us.\n\n**Worked example.** A CSMA/CD LAN has a cable of 1.2 km, signal speed 2 x 10^8 m/s, and a rate of 20 Mbps. Find the minimum frame size so that a sender always detects a collision.\n\n1. Propagation delay along the cable: $T_p = 1200 / (2 \\times 10^8) = 6\\ \\mu s$. The rate is 20 Mbps = 20 bits per microsecond.\n2. Worst case: A starts at t = 0. Its signal needs 6 us to reach B at the far end.\n3. Just before t = 6 us, B still hears nothing and starts too. The two frames collide next to B.\n4. The collision signal needs another 6 us to travel back to A, so A learns of it at t = 6 + 6 = 12 us = $2T_p$.\n5. A can only know that its own frame collided if it is **still sending** at t = 12 us. So the frame must last at least $2T_p$ = 12 us.\n6. Minimum frame = $2T_p \\times R$ = 12 us x 20 Mbps = 240 bits = 30 bytes.\n\n**Answer:** 240 bits = 30 bytes.",
+   "why_full": "This is a high-yield question type: 8 questions in the blueprint. In GATE: find the minimum frame size, the maximum cable length or the maximum rate, or compute a backoff probability.\n\nAsked: 2024 CS2 Q55, 2005 CS Q74, 2013 CS Q36, 2015 CS3 Q6, 2016 CS2 Q53, 2003 CS Q83, 2004 CS Q54, 2016 CS2 Q24",
+   "trap": "Using the one-way $T_p$ instead of the round trip $2T_p$, which halves the answer. A second slip is answering in bits when bytes are asked, or the reverse."
+  },
+  {
+   "atom_id": "d10",
+   "title": "ALOHA and slotted contention",
+   "simple": "Picture a room where everyone speaks whenever they feel like it. If two people talk at the same time, both are garbled and have to repeat. That is ALOHA. Even a small overlap at the start or end of a sentence ruins it, so you are at risk from anyone who starts talking in the sentence-length before you or the sentence-length after you. Slotted ALOHA is like a metronome: everybody may only start at a tick, so overlaps are complete or absent, and the risk window is cut in half. In exam words: pure ALOHA S = G $e^{-2G}$ (max 0.184), slotted ALOHA S = G $e^{-G}$ (max 0.368).",
+   "idea": "In **ALOHA**, stations send whenever they have a frame and re-send after a collision. It is simple but wasteful. **Slotted ALOHA** forces frames to start at slot boundaries, which halves the chance of collision.",
+   "definition": "Let **G** be the average number of frame attempts per frame time (new plus repeated), Poisson distributed.\n\n**Pure ALOHA:** vulnerable period $2T$. Success probability $e^{-2G}$. Throughput $S = G e^{-2G}$, maximum $1/(2e) = 0.184$ at $G = 0.5$.\n\n**Slotted ALOHA:** vulnerable period $T$. $S = G e^{-G}$, maximum $1/e = 0.368$ at $G = 1$.\n\nFrames per second that succeed = (attempts per second) x (success probability).\n\n**Exactly one of n stations sends** (each with probability p): $n p (1-p)^{n-1}$. Maximum at $p = 1/n$.",
+   "intuition_full": "A frame in pure ALOHA collides if any other frame starts during its own duration T (an overlap at the tail of mine) or in the T before it started (an overlap at my head). So the danger zone is 2T. If attempts arrive at rate G per T, the number of attempts in 2T is Poisson with mean 2G, and none arrive with probability $e^{-2G}$. Multiply by the load G to get the useful throughput. In the slotted version, nobody can start in the middle of my slot, so the danger zone is only the same slot, length T, and the chance of an empty zone is $e^{-G}$. The curves peak because more load means more collisions: throughput rises, peaks, and then falls as the channel is flooded with repeats. For a finite set of n stations each sending with probability p, the success probability is the probability that exactly one of them sends.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "In pure ALOHA the frame time is 2 ms and the offered load (new plus repeated frames) is 300 frames per second, Poisson distributed. Find G, the throughput S, and the frames that get through per second.",
+     "steps": [
+      "Frame time T = 2 ms. The load per frame time is $G = 300 \\times 0.002 = 0.6$.",
+      "In pure ALOHA my frame is destroyed if another frame starts within T before it or T after it. This vulnerable window lasts 2T.",
+      "The number of other frames starting in 2T is Poisson with mean 2G = 1.2. P(none) = $e^{-1.2}$ = 0.301.",
+      "Throughput per frame time: $S = G e^{-2G}$ = 0.6 x 0.301 = 0.181.",
+      "In frames per second: 300 x 0.301 = 90.4, so about 90 frames succeed and the rest must be sent again."
+     ],
+     "answer": "G = 0.6, S = 0.181 per frame time, about 90 frames per second."
+    },
+    {
+     "level": "gate",
+     "setup": "Slotted ALOHA with n = 6 stations. In each slot every station independently transmits with probability p = 0.2. (a) Find the probability that a slot is successful. (b) Which p maximises it, and what is the maximum?",
+     "steps": [
+      "A slot succeeds when **exactly one** station transmits. Choose which station (6 ways), it transmits (0.2), the other 5 stay quiet (0.8 each).",
+      "(a) $P = 6 \\times 0.2 \\times 0.8^5$ = 6 x 0.2 x 0.32768 = 0.3932.",
+      "(b) General $P(p) = n p (1 - p)^{n-1}$. Its maximum is at $p = 1/n$ = 1/6.",
+      "At $p = 1/6$: $P = 6 \\times (1/6) \\times (5/6)^5$ = $(5/6)^5$ = 0.4019. For large n this tends to $1/e$ = 0.368."
+     ],
+     "answer": "(a) 0.393. (b) p = 1/6, maximum 0.402."
+    },
+    {
+     "level": "twist",
+     "setup": "The frame time is 0.8 ms and the offered load is 625 frames per second. Compare the successful frames per second in pure and in slotted ALOHA.",
+     "steps": [
+      "$G = 625 \\times 0.0008 = 0.5$ for both protocols.",
+      "Pure ALOHA: vulnerable window 2T. Successful rate = $625 \\times e^{-2G} = 625 \\times e^{-1}$ = 229.9 frames per second.",
+      "Slotted ALOHA: stations start only at slot boundaries, so the vulnerable window is T. Successful rate = $625 \\times e^{-G} = 625 \\times e^{-0.5}$ = 379.1 frames per second.",
+      "Slotting raises the maximum throughput from 0.184 (pure, at G = 0.5) to 0.368 (slotted, at G = 1), but needs synchronised clocks."
+     ],
+     "answer": "Pure: 229.9 frames per second. Slotted: 379.1 frames per second."
+    }
+   ],
+   "why": "ALOHA questions are formula-and-substitute, plus the 'exactly one sender' probability. In GATE: compute throughput in frames per second, or the probability that exactly one station transmits.",
+   "how": [
+    "Find G = (attempts per second) x (frame time in seconds).",
+    "Pure: success = $e^{-2G}$; slotted: success = $e^{-G}$.",
+    "Frames per second = attempts per second x success probability.",
+    "For finite stations: success = sum over stations of $p_i \\prod_{j \\neq i}(1 - p_j)$.",
+    "Do not confuse the maxima: 0.184 pure, 0.368 slotted."
+   ],
+   "mistake": "Using the slotted formula for pure ALOHA, or the reverse. The factor 2 in the exponent belongs to pure ALOHA. Another slip is using the frame time in ms with a per-second load without converting to G.",
+   "edge_cases": [
+    "G includes retransmissions, not just new frames.",
+    "At the peak load, 63% of attempts in slotted ALOHA (at G = 1) still fail.",
+    "If stations have different probabilities, add the exactly-one terms station by station (2015 CS1 Q29)."
+   ],
+   "connections": [
+    "CSMA/CD (d9) improves on ALOHA by listening first.",
+    "Poisson arrivals and independent events are covered in prob.discrete."
+   ],
+   "check": [
+    {
+     "q": "Pure ALOHA with G = 1. Throughput?",
+     "a": "$S = e^{-2} = 0.135$."
+    },
+    {
+     "q": "Slotted ALOHA at G = 0.5. Throughput?",
+     "a": "$0.5 \\times e^{-0.5}$ = 0.303."
+    },
+    {
+     "q": "Why is slotted ALOHA twice as good at its peak?",
+     "a": "Its vulnerable period is one frame time instead of two."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q65, 2021 CS2 Q64, 2007 CS Q65, 2015 CS1 Q29",
+   "try": {
+    "id": "gen.net.datalink.012",
+    "label": "Try: pure ALOHA throughput at a given load (L2)"
+   },
+   "scene": "net.datalink.d10.aloha",
+   "example": {
+    "setup": "In pure ALOHA the frame time is 2 ms and the offered load (new plus repeated frames) is 300 frames per second, Poisson distributed. Find G, the throughput S, and the frames that get through per second.",
+    "steps": [
+     "Frame time T = 2 ms. The load per frame time is $G = 300 \\times 0.002 = 0.6$.",
+     "In pure ALOHA my frame is destroyed if another frame starts within T before it or T after it. This vulnerable window lasts 2T.",
+     "The number of other frames starting in 2T is Poisson with mean 2G = 1.2. P(none) = $e^{-1.2}$ = 0.301.",
+     "Throughput per frame time: $S = G e^{-2G}$ = 0.6 x 0.301 = 0.181.",
+     "In frames per second: 300 x 0.301 = 90.4, so about 90 frames succeed and the rest must be sent again."
+    ],
+    "answer": "G = 0.6, S = 0.181 per frame time, about 90 frames per second."
+   },
+   "what": "In **ALOHA**, stations send whenever they have a frame and re-send after a collision. It is simple but wasteful. **Slotted ALOHA** forces frames to start at slot boundaries, which halves the chance of collision.",
+   "what_full": "In **ALOHA**, stations send whenever they have a frame and re-send after a collision. It is simple but wasteful. **Slotted ALOHA** forces frames to start at slot boundaries, which halves the chance of collision.\n\nLet **G** be the average number of frame attempts per frame time (new plus repeated), Poisson distributed.\n\n**Pure ALOHA:** vulnerable period $2T$. Success probability $e^{-2G}$. Throughput $S = G e^{-2G}$, maximum $1/(2e) = 0.184$ at $G = 0.5$.\n\n**Slotted ALOHA:** vulnerable period $T$. $S = G e^{-G}$, maximum $1/e = 0.368$ at $G = 1$.\n\nFrames per second that succeed = (attempts per second) x (success probability).\n\n**Exactly one of n stations sends** (each with probability p): $n p (1-p)^{n-1}$. Maximum at $p = 1/n$.\n\n**Worked example.** In pure ALOHA the frame time is 2 ms and the offered load (new plus repeated frames) is 300 frames per second, Poisson distributed. Find G, the throughput S, and the frames that get through per second.\n\n1. Frame time T = 2 ms. The load per frame time is $G = 300 \\times 0.002 = 0.6$.\n2. In pure ALOHA my frame is destroyed if another frame starts within T before it or T after it. This vulnerable window lasts 2T.\n3. The number of other frames starting in 2T is Poisson with mean 2G = 1.2. P(none) = $e^{-1.2}$ = 0.301.\n4. Throughput per frame time: $S = G e^{-2G}$ = 0.6 x 0.301 = 0.181.\n5. In frames per second: 300 x 0.301 = 90.4, so about 90 frames succeed and the rest must be sent again.\n\n**Answer:** G = 0.6, S = 0.181 per frame time, about 90 frames per second.",
+   "why_full": "ALOHA questions are formula-and-substitute, plus the 'exactly one sender' probability. In GATE: compute throughput in frames per second, or the probability that exactly one station transmits.\n\nAsked: 2018 CS Q65, 2021 CS2 Q64, 2007 CS Q65, 2015 CS1 Q29",
+   "trap": "Using the slotted formula for pure ALOHA, or the reverse. The factor 2 in the exponent belongs to pure ALOHA. Another slip is using the frame time in ms with a per-second load without converting to G."
+  },
+  {
+   "atom_id": "d11",
+   "title": "MAC addresses, switches and frame addressing",
+   "simple": "Think of a mailroom clerk who has to learn where everyone sits. Every time a letter comes in through a door, the clerk reads the sender's name and writes down 'this person is behind this door'. Later, a letter for that person goes through that one door only. If the clerk has never seen the name, a copy goes out of every other door. Routers are different. On each stretch of road the courier changes, and the street-level label on the envelope is swapped for the next stretch, but the final city address inside stays the same. In exam words: a switch learns MAC addresses from the source field, and MAC addresses change at each hop while the IP address does not.",
+   "idea": "A **MAC address** names a network card on one link. A **switch** learns which port each MAC address is behind by watching the **source** address of incoming frames, then forwards each frame only to the right port. A **router** rewrites the MAC addresses at every hop, but leaves the IP addresses alone.",
+   "definition": "**MAC address:** 48 bits, burned into the card, valid on one LAN.\n\n**Switch (bridge) forwarding:** (1) learn: record source MAC against the arrival port. (2) look up the destination MAC. If found on a different port, forward there only. If found on the arrival port, drop (filter). If not found, or broadcast, flood all ports except the arrival port.\n\n**Router:** strips the incoming frame, looks up the destination IP, builds a new frame whose source MAC is the router's outgoing interface and whose destination MAC is the next hop's.\n\n**Per-hop rule:** MAC addresses change on every link. IP addresses stay end to end (without NAT).\n\n**Loops:** a bridged network with loops needs a spanning tree so that flooded frames do not circle forever.",
+   "intuition_full": "The switch has no routing protocol. It builds its table by eavesdropping, which is why it works with no configuration. The table maps each MAC address to a port, and old entries expire so that moved stations are found again. A frame to an unknown address is a guess, so the switch floods, and the reply teaches it the answer. A router lives one layer higher and holds IP routes. Each interface has its own MAC address, so when a packet leaves a router, the destination MAC must be that of the next hop on the link, found by an address-resolution step (ARP, which is not named in the 2027 syllabus). This is why 'what are the addresses on the frame between R2 and R3?' always has the same shape of answer: MACs of the two routers on that link, IPs of the original hosts.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A switch has stations A, B, C, D on ports 1, 2, 3, 4. Its table is empty. The frames arrive in this order: A to C, C to A, B to A, D to B. Show how the table fills and how each frame is forwarded.",
+     "steps": [
+      "The table is empty. A (port 1) sends a frame to C. The switch learns from the **source** address: A is reachable through port 1.",
+      "C is not in the table, so the switch **floods**: it sends a copy out of every port except port 1 (ports 2, 3 and 4). C gets it, and B and D ignore it.",
+      "C (port 3) replies to A. The switch learns C is on port 3. A is in the table, so the frame goes out **only** of port 1.",
+      "B (port 2) sends to A. The switch learns B is on port 2, and forwards to port 1 only. C and D do not see this frame.",
+      "D (port 4) sends to B. The switch learns D is on port 4 and forwards to port 2 only. After 4 frames the table has 4 entries, and only the first frame needed flooding."
+     ],
+     "answer": "Table: A-1, C-3, B-2, D-4. Only the first frame was flooded."
+    },
+    {
+     "level": "gate",
+     "setup": "Host P is on LAN 1 and host Q is on LAN 4. Router R1 joins LAN 1 and LAN 2, R2 joins LAN 2 and LAN 3, R3 joins LAN 3 and LAN 4. P sends an IP packet to Q. For the frame R2 sends onto LAN 3, give the source and destination MAC and IP addresses. How many frames does the packet travel in?",
+     "steps": [
+      "MAC addresses are valid on one LAN only. The frame on LAN 3 goes from R2 to R3, the next hop on that LAN.",
+      "Source MAC = R2's interface on LAN 3. Destination MAC = R3's interface on LAN 3. It is not P's, Q's or R1's.",
+      "IP addresses are end to end and stay the same (no NAT): source IP = P, destination IP = Q.",
+      "The packet crosses 4 LANs, so it travels in 4 different frames: P to R1, R1 to R2, R2 to R3 and R3 to Q. Each router builds a new frame."
+     ],
+     "answer": "Source MAC R2 (LAN 3), destination MAC R3 (LAN 3), source IP P, destination IP Q. 4 frames in total."
+    },
+    {
+     "level": "twist",
+     "setup": "C and D are both connected to port 3 through a hub, and the switch already knows C-3 and D-3. C sends a frame to D. Then someone sends a frame to the broadcast address FF:FF:FF:FF:FF:FF. What does the switch do?",
+     "steps": [
+      "The table says D is on port 3, and the frame arrived on port 3. C and D already share the segment, so D has already heard it.",
+      "The switch **filters** the frame: it discards it rather than sending it back out of the port it came in on.",
+      "The broadcast address is never learned as a source. The switch **floods** a frame for it out of every port except the one it arrived on."
+     ],
+     "answer": "The C-to-D frame is filtered (dropped). The broadcast frame is flooded."
+    }
+   ],
+   "why": "Addressing questions test the split of jobs between layers 2 and 3, and switch learning. In GATE: give the addresses in a frame at a given hop, or judge statements about bridges, switches and spanning tree.",
+   "how": [
+    "For a frame at a given hop, take the MACs of the two devices on that link.",
+    "Take the IP source and destination of the original packet (unchanged unless NAT).",
+    "For a switch: learn from the source, forward by the destination, flood if unknown or broadcast.",
+    "Count one frame per link along the path (k links, k frames).",
+    "Never forward a frame back out of the port it came in on."
+   ],
+   "mistake": "Thinking the destination MAC on every hop is the final host's MAC, or that IP addresses change at routers. The MAC is for the next hop, the IP is for the final host. A second slip is to say a switch learns from the destination address; it learns from the source.",
+   "edge_cases": [
+    "A broadcast frame (all ones) is always flooded and never learned.",
+    "Low priority: ARP, which finds a MAC from an IP, and DHCP are not named in the 2027 syllabus. Know only that ARP requests are broadcast and replies are unicast.",
+    "A station that moves is re-learned when it next sends; the table entry for it is overwritten."
+   ],
+   "connections": [
+    "Layer visits (net.layering l2): the data link layer runs once per link end, which is why the MAC changes.",
+    "IP forwarding (net.ipv4) is what a router does with the destination IP before it builds the frame.",
+    "Switch port counting (net.layering l8) deals with how many switches you need."
+   ],
+   "check": [
+    {
+     "q": "A frame arrives at a switch with an unknown destination. What happens?",
+     "a": "The switch floods it out of all ports except the one it came in on."
+    },
+    {
+     "q": "Does a switch learn from the source or the destination MAC?",
+     "a": "The source MAC, together with the arrival port."
+    },
+    {
+     "q": "A packet crosses 3 routers. How many frames carry it?",
+     "a": "4, one per link."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q39, 2021 CS1 Q18, 2024 CS2 Q23, 2004 CS Q16, 2005 CS Q26",
+   "try": {
+    "id": "gen.net.datalink.005",
+    "label": "Try: how a switch learns where a station is (L1)"
+   },
+   "scene": "net.datalink.d11.switch",
+   "example": {
+    "setup": "A switch has stations A, B, C, D on ports 1, 2, 3, 4. Its table is empty. The frames arrive in this order: A to C, C to A, B to A, D to B. Show how the table fills and how each frame is forwarded.",
+    "steps": [
+     "The table is empty. A (port 1) sends a frame to C. The switch learns from the **source** address: A is reachable through port 1.",
+     "C is not in the table, so the switch **floods**: it sends a copy out of every port except port 1 (ports 2, 3 and 4). C gets it, and B and D ignore it.",
+     "C (port 3) replies to A. The switch learns C is on port 3. A is in the table, so the frame goes out **only** of port 1.",
+     "B (port 2) sends to A. The switch learns B is on port 2, and forwards to port 1 only. C and D do not see this frame.",
+     "D (port 4) sends to B. The switch learns D is on port 4 and forwards to port 2 only. After 4 frames the table has 4 entries, and only the first frame needed flooding."
+    ],
+    "answer": "Table: A-1, C-3, B-2, D-4. Only the first frame was flooded."
+   },
+   "what": "A **MAC address** names a network card on one link. A **switch** learns which port each MAC address is behind by watching the **source** address of incoming frames, then forwards each frame only to the right port. A **router** rewrites the MAC addresses at every hop, but leaves the IP addresses alone.",
+   "what_full": "A **MAC address** names a network card on one link. A **switch** learns which port each MAC address is behind by watching the **source** address of incoming frames, then forwards each frame only to the right port. A **router** rewrites the MAC addresses at every hop, but leaves the IP addresses alone.\n\n**MAC address:** 48 bits, burned into the card, valid on one LAN.\n\n**Switch (bridge) forwarding:** (1) learn: record source MAC against the arrival port. (2) look up the destination MAC. If found on a different port, forward there only. If found on the arrival port, drop (filter). If not found, or broadcast, flood all ports except the arrival port.\n\n**Router:** strips the incoming frame, looks up the destination IP, builds a new frame whose source MAC is the router's outgoing interface and whose destination MAC is the next hop's.\n\n**Per-hop rule:** MAC addresses change on every link. IP addresses stay end to end (without NAT).\n\n**Loops:** a bridged network with loops needs a spanning tree so that flooded frames do not circle forever.\n\n**Worked example.** A switch has stations A, B, C, D on ports 1, 2, 3, 4. Its table is empty. The frames arrive in this order: A to C, C to A, B to A, D to B. Show how the table fills and how each frame is forwarded.\n\n1. The table is empty. A (port 1) sends a frame to C. The switch learns from the **source** address: A is reachable through port 1.\n2. C is not in the table, so the switch **floods**: it sends a copy out of every port except port 1 (ports 2, 3 and 4). C gets it, and B and D ignore it.\n3. C (port 3) replies to A. The switch learns C is on port 3. A is in the table, so the frame goes out **only** of port 1.\n4. B (port 2) sends to A. The switch learns B is on port 2, and forwards to port 1 only. C and D do not see this frame.\n5. D (port 4) sends to B. The switch learns D is on port 4 and forwards to port 2 only. After 4 frames the table has 4 entries, and only the first frame needed flooding.\n\n**Answer:** Table: A-1, C-3, B-2, D-4. Only the first frame was flooded.",
+   "why_full": "Addressing questions test the split of jobs between layers 2 and 3, and switch learning. In GATE: give the addresses in a frame at a given hop, or judge statements about bridges, switches and spanning tree.\n\nAsked: 2019 CS Q39, 2021 CS1 Q18, 2024 CS2 Q23, 2004 CS Q16, 2005 CS Q26",
+   "trap": "Thinking the destination MAC on every hop is the final host's MAC, or that IP addresses change at routers. The MAC is for the next hop, the IP is for the final host. A second slip is to say a switch learns from the destination address; it learns from the source."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "net.datalink.d1.stuff",
+   "title": "Stuffing a 0 after five 1s",
+   "viewBox": [
+    0,
+    0,
+    360,
+    214
+   ],
+   "objects": [
+    {
+     "id": "fl",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "flag = 01111110",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 20,
+     "y": 52,
+     "cells": [
+      "0",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "0",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "0",
+      "1",
+      "0"
+     ],
+     "cw": 16,
+     "ch": 26,
+     "indices": false,
+     "slots": 18,
+     "label": "data"
+    },
+    {
+     "id": "b",
+     "kind": "array",
+     "x": 20,
+     "y": 112,
+     "cells": [],
+     "cw": 16,
+     "ch": 26,
+     "indices": false,
+     "slots": 18,
+     "label": "on the wire (stuffed)"
+    },
+    {
+     "id": "c",
+     "kind": "array",
+     "x": 20,
+     "y": 172,
+     "cells": [],
+     "cw": 16,
+     "ch": 26,
+     "indices": false,
+     "slots": 18,
+     "label": "receiver output"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A frame is marked by the flag 01111110. The data must never contain a run that the receiver could mistake for a flag, so the data is sent through the stuffing rule: after **five consecutive 1s, insert a 0**.",
+     "show": [
+      "fl"
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Scan the data from the left. The first run of 1s is at positions 1 to 5, and it has exactly five 1s.",
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "mid",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "After those five 1s the sender inserts a 0. The wire now carries 01111100 so far. The inserted 0 is not data.",
+     "set": [
+      {
+       "id": "b",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "0",
+        "0"
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "good",
+       "cells": [
+        6
+       ]
+      },
+      {
+       "id": "a",
+       "tone": "mid",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The next run is 111111 (six 1s). After its first five 1s, insert a 0, and the sixth 1 starts a new count. The wire carries 01111100111110 so far.",
+     "set": [
+      {
+       "id": "b",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "0"
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "good",
+       "cells": [
+        13
+       ]
+      },
+      {
+       "id": "a",
+       "tone": "mid",
+       "cells": [
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The remaining bits 1010 contain no run of five. The wire carries 011111001111101010: 16 data bits plus 2 stuffed zeros = 18 bits, between the two flags.",
+     "set": [
+      {
+       "id": "b",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "0",
+        "1",
+        "0",
+        "1",
+        "0"
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The receiver counts 1s too. After every five 1s it drops the next bit, which must be a stuffed 0. It gets back 0111110111111010, exactly the data.",
+     "set": [
+      {
+       "id": "c",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "0",
+        "1",
+        "0"
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "c",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d2.parity",
+   "title": "Parity catches one flip but not two",
+   "viewBox": [
+    0,
+    0,
+    360,
+    206
+   ],
+   "objects": [
+    {
+     "id": "w0",
+     "kind": "array",
+     "x": 44,
+     "y": 60,
+     "cells": [
+      "1",
+      "0",
+      "1",
+      "1",
+      "0",
+      "0",
+      "1",
+      "0"
+     ],
+     "cw": 34,
+     "ch": 30,
+     "indices": false,
+     "label": "sent"
+    },
+    {
+     "id": "w",
+     "kind": "array",
+     "x": 44,
+     "y": 128,
+     "cells": [
+      "1",
+      "0",
+      "1",
+      "1",
+      "0",
+      "0",
+      "1",
+      "0"
+     ],
+     "cw": 34,
+     "ch": 30,
+     "indices": false,
+     "label": "received"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 190,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Data 1011001 has four 1s. For **even parity** the whole word must have an even number of 1s, so the parity bit is 0. The codeword is 10110010.",
+     "show": [
+      "w0"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "ones = 4 (even), parity bit 0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "w0",
+       "tone": "good",
+       "cells": [
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "One bit flips in transit (the 3rd bit changes from 1 to 0): the receiver gets 10010010. It has 3 ones, an odd count, so the receiver **detects** the error.",
+     "show": [
+      "w"
+     ],
+     "set": [
+      {
+       "id": "w",
+       "cells": [
+        "1",
+        "0",
+        "0",
+        "1",
+        "0",
+        "0",
+        "1",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "ones = 3 (odd): error detected",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "w",
+       "tone": "bad",
+       "cells": [
+        2
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Two bits flip (the 3rd and 6th bits): the receiver gets 10010110. It has 4 ones, an even count, so the receiver sees nothing wrong. Parity misses an even number of flips.",
+     "set": [
+      {
+       "id": "w",
+       "cells": [
+        "1",
+        "0",
+        "0",
+        "1",
+        "0",
+        "1",
+        "1",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "ones = 4 (even): not noticed",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "w",
+       "tone": "bad",
+       "cells": [
+        2,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The sent word and the damaged word are both valid even-parity words, and they differ in 2 positions. Their **Hamming distance** is 2.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "distance(sent, received) = 2",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "w0",
+       "tone": "mid",
+       "cells": [
+        2,
+        5
+       ]
+      },
+      {
+       "id": "w",
+       "tone": "mid",
+       "cells": [
+        2,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "A parity code has minimum distance d = 2. A code with minimum distance d detects d - 1 = 1 error for sure, and corrects floor((d - 1)/2) = 0 errors.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "d = 2: detects 1, corrects 0",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d3.crc",
+   "title": "CRC by XOR long division",
+   "viewBox": [
+    0,
+    0,
+    360,
+    222
+   ],
+   "objects": [
+    {
+     "id": "dv",
+     "kind": "array",
+     "x": 45,
+     "y": 86,
+     "cells": [
+      "1",
+      "1",
+      "0",
+      "1",
+      "0",
+      "1",
+      "0",
+      "0",
+      "0"
+     ],
+     "cw": 30,
+     "ch": 30,
+     "indices": false,
+     "label": "working value"
+    },
+    {
+     "id": "gn",
+     "kind": "array",
+     "x": 45,
+     "y": 148,
+     "cells": [
+      "1",
+      "0",
+      "1",
+      "1"
+     ],
+     "cw": 30,
+     "ch": 30,
+     "indices": false,
+     "label": "generator 1011",
+     "tone": "accent"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "message 110101, generator 1011",
+     "size": 13,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The generator has degree 3, so there are 3 check bits. Append 3 zeros to the message: 110101000.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "append 3 zeros: 110101000"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dv",
+       "tone": "mid",
+       "cells": [
+        6,
+        7,
+        8
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Divide using XOR, left to right. The first bit is 1, so XOR the first 4 bits 1101 with 1011 to get 0110. The working value is 011001000.",
+     "set": [
+      {
+       "id": "dv",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "0",
+        "0",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "1101 xor 1011 = 0110"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dv",
+       "tone": "accent",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The next bit is 1, so XOR the 4 bits starting there (1100) with 1011 to get 0111. The working value is 001111000.",
+     "move": [
+      {
+       "id": "gn",
+       "x": 75
+      }
+     ],
+     "set": [
+      {
+       "id": "dv",
+       "cells": [
+        "0",
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "0",
+        "0",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "1100 xor 1011 = 0111"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dv",
+       "tone": "accent",
+       "cells": [
+        1,
+        2,
+        3,
+        4
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The next bit is 1 again: XOR 1111 with 1011 to get 0100. The working value is 000100000.",
+     "move": [
+      {
+       "id": "gn",
+       "x": 105
+      }
+     ],
+     "set": [
+      {
+       "id": "dv",
+       "cells": [
+        "0",
+        "0",
+        "0",
+        "1",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "1111 xor 1011 = 0100"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dv",
+       "tone": "accent",
+       "cells": [
+        2,
+        3,
+        4,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The next bit is 1: XOR 1000 with 1011 to get 0011, giving 000001100. The following bit is 0, so no XOR is done for it.",
+     "move": [
+      {
+       "id": "gn",
+       "x": 135
+      }
+     ],
+     "set": [
+      {
+       "id": "dv",
+       "cells": [
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "1",
+        "0",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "1000 xor 1011 = 0011"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dv",
+       "tone": "accent",
+       "cells": [
+        3,
+        4,
+        5,
+        6
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The next 1 is at position 5: XOR 1100 with 1011 to get 0111. The working value is 000000111. The last 3 bits, 111, are the **remainder**.",
+     "move": [
+      {
+       "id": "gn",
+       "x": 195
+      }
+     ],
+     "set": [
+      {
+       "id": "dv",
+       "cells": [
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "1",
+        "1"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "1100 xor 1011 = 0111; remainder 111"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dv",
+       "tone": "good",
+       "cells": [
+        6,
+        7,
+        8
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Transmit message + remainder = 110101111. The receiver divides 110101111 by 1011 and gets remainder 000, so it accepts.",
+     "move": [
+      {
+       "id": "gn",
+       "x": 45
+      }
+     ],
+     "set": [
+      {
+       "id": "dv",
+       "cells": [
+        "1",
+        "1",
+        "0",
+        "1",
+        "0",
+        "1",
+        "1",
+        "1",
+        "1"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "frame 110101111 mod 1011 = 000"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dv",
+       "tone": "good",
+       "cells": [
+        6,
+        7,
+        8
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d4.hamming",
+   "title": "Building and decoding a Hamming code",
+   "viewBox": [
+    0,
+    0,
+    360,
+    222
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 66,
+     "y": 48,
+     "rows": 4,
+     "cols": 7,
+     "cells": [
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 38,
+     "ch": 30,
+     "rowLabels": [
+      "word",
+      "p1",
+      "p2",
+      "p4"
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+     ]
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A code word has 7 positions. The check bits go at positions 1, 2 and 4 (powers of 2). The data bits 1, 0, 1, 1 go into positions 3, 5, 6, 7 in order.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "",
+         "",
+         "1",
+         "",
+         "0",
+         "1",
+         "1"
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "check bits at 1, 2, 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "mid",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "p1 covers positions whose binary number has bit 1 set: 1, 3, 5, 7. The data there (positions 3, 5, 7) is 1, 0, 1, which has two 1s. For even parity, **p1 = 0**.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "0",
+         "",
+         "1",
+         "",
+         "0",
+         "1",
+         "1"
+        ],
+        [
+         "0",
+         "",
+         "1",
+         "",
+         "0",
+         "",
+         "1"
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "p1: bits 1,0,1 -> two 1s -> p1 = 0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         1,
+         6
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "p2 covers positions 2, 3, 6, 7. The data there (3, 6, 7) is 1, 1, 1, which has three 1s. So **p2 = 1**.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "0",
+         "1",
+         "1",
+         "",
+         "0",
+         "1",
+         "1"
+        ],
+        [
+         "0",
+         "",
+         "1",
+         "",
+         "0",
+         "",
+         "1"
+        ],
+        [
+         "",
+         "1",
+         "1",
+         "",
+         "",
+         "1",
+         "1"
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "p2: bits 1,1,1 -> three 1s -> p2 = 1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         5
+        ],
+        [
+         2,
+         6
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "p4 covers positions 4, 5, 6, 7. The data there (5, 6, 7) is 0, 1, 1, which has two 1s. So **p4 = 0**.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "0",
+         "1",
+         "1",
+         "0",
+         "0",
+         "1",
+         "1"
+        ],
+        [
+         "0",
+         "",
+         "1",
+         "",
+         "0",
+         "",
+         "1"
+        ],
+        [
+         "",
+         "1",
+         "1",
+         "",
+         "",
+         "1",
+         "1"
+        ],
+        [
+         "",
+         "",
+         "",
+         "0",
+         "0",
+         "1",
+         "1"
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "p4: bits 0,1,1 -> two 1s -> p4 = 0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         3,
+         3
+        ],
+        [
+         3,
+         4
+        ],
+        [
+         3,
+         5
+        ],
+        [
+         3,
+         6
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The code word, positions 1 to 7, is 0 1 1 0 0 1 1.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "code word = 0110011"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ],
+        [
+         0,
+         6
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "In transit position 6 flips from 1 to 0. The receiver gets 0110001.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "0",
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "1"
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "received 0110001 (position 6 flipped)",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        [
+         0,
+         5
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The receiver recomputes each group. The p1 group (1, 3, 5, 7) has two 1s, so even, check 0. The p2 group (2, 3, 6, 7) has three 1s, odd, check 1. The p4 group (4, 5, 6, 7) has one 1, odd, check 1. The **syndrome** s4 s2 s1 = 110 in binary = 6. Flip position 6.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "0",
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "1"
+        ],
+        [
+         "0",
+         "",
+         "1",
+         "",
+         "0",
+         "",
+         "1"
+        ],
+        [
+         "",
+         "1",
+         "1",
+         "",
+         "",
+         "0",
+         "1"
+        ],
+        [
+         "",
+         "",
+         "",
+         "0",
+         "0",
+         "0",
+         "1"
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "s4 s2 s1 = 110 = 6: flip position 6",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         5
+        ],
+        [
+         2,
+         6
+        ],
+        [
+         3,
+         3
+        ],
+        [
+         3,
+         4
+        ],
+        [
+         3,
+         5
+        ],
+        [
+         3,
+         6
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d5.sw",
+   "title": "Stop-and-wait cycle on a time diagram",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "sl",
+     "kind": "edge",
+     "x1": 70,
+     "y1": 32,
+     "x2": 70,
+     "y2": 206
+    },
+    {
+     "id": "rl",
+     "kind": "edge",
+     "x1": 290,
+     "y1": 32,
+     "x2": 290,
+     "y2": 206
+    },
+    {
+     "id": "ls",
+     "kind": "text",
+     "x": 70,
+     "y": 18,
+     "text": "Sender",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "lr",
+     "kind": "text",
+     "x": 290,
+     "y": 18,
+     "text": "Receiver",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "tx",
+     "kind": "box",
+     "x": 62,
+     "y": 40,
+     "w": 16,
+     "h": 13.600000000000001,
+     "tone": "accent"
+    },
+    {
+     "id": "fb",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 40,
+     "x2": 290,
+     "y2": 108,
+     "tone": "mid"
+    },
+    {
+     "id": "lb",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 53.6,
+     "x2": 290,
+     "y2": 121.6,
+     "tone": "mid"
+    },
+    {
+     "id": "rx",
+     "kind": "box",
+     "x": 282,
+     "y": 108,
+     "w": 16,
+     "h": 13.599999999999994,
+     "tone": "mid"
+    },
+    {
+     "id": "ack",
+     "kind": "arrow",
+     "x1": 290,
+     "y1": 121.6,
+     "x2": 70,
+     "y2": 189.60000000000002,
+     "tone": "good"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Transmission time $T_t = 8000 / (10 \\times 10^6) = 0.8$ ms. The sender is busy for this long, then must stop.",
+     "show": [
+      "sl",
+      "rl",
+      "ls",
+      "lr",
+      "tx"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "Tt = 8000 / 10^7 = 0.8 ms"
+      }
+     ]
+    },
+    {
+     "caption": "The first bit reaches the receiver 4 ms after it leaves, and the last bit at 0.8 + 4 = 4.8 ms.",
+     "show": [
+      "fb",
+      "lb",
+      "rx"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "last bit arrives at 0.8 + 4 = 4.8 ms"
+      }
+     ]
+    },
+    {
+     "caption": "The receiver sends the ack at once. It needs another 4 ms to come back, so it reaches the sender at 4.8 + 4 = 8.8 ms.",
+     "show": [
+      "ack"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "ack back at 4.8 + 4 = 8.8 ms"
+      }
+     ]
+    },
+    {
+     "caption": "Only now may the sender send the next frame. One cycle is $T_t + 2T_p$ = 0.8 + 8 = 8.8 ms, and the sender used only 0.8 ms of it for sending.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "cycle = Tt + 2Tp = 8.8 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sl",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Utilisation $U = T_t / (T_t + 2T_p) = 0.8 / 8.8 = 9.09\\%$. Throughput = 8000 bits / 8.8 ms = 909 kbps, about 9% of 10 Mbps.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "U = 0.8 / 8.8 = 9.09%"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tx",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d6.window",
+   "title": "Eight frames in flight, then a wait",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "sl",
+     "kind": "edge",
+     "x1": 70,
+     "y1": 30,
+     "x2": 70,
+     "y2": 204
+    },
+    {
+     "id": "rl",
+     "kind": "edge",
+     "x1": 290,
+     "y1": 30,
+     "x2": 290,
+     "y2": 204
+    },
+    {
+     "id": "ls",
+     "kind": "text",
+     "x": 70,
+     "y": 18,
+     "text": "Sender",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "lr",
+     "kind": "text",
+     "x": 290,
+     "y": 18,
+     "text": "Receiver",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "busy",
+     "kind": "box",
+     "x": 62,
+     "y": 36,
+     "w": 16,
+     "h": 80,
+     "tone": "accent"
+    },
+    {
+     "id": "idle",
+     "kind": "box",
+     "x": 62,
+     "y": 116,
+     "w": 16,
+     "h": 80,
+     "tone": "bad",
+     "dash": true
+    },
+    {
+     "id": "idl",
+     "kind": "text",
+     "x": 38,
+     "y": 156,
+     "text": "idle",
+     "size": 12.7,
+     "tone": "bad"
+    },
+    {
+     "id": "ack",
+     "kind": "arrow",
+     "x1": 290,
+     "y1": 121,
+     "x2": 70,
+     "y2": 196,
+     "tone": "good"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 224,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "f0",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 36,
+     "x2": 290,
+     "y2": 121,
+     "tone": "mid"
+    },
+    {
+     "id": "f1",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 46,
+     "x2": 290,
+     "y2": 131,
+     "tone": "mid"
+    },
+    {
+     "id": "f2",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 56,
+     "x2": 290,
+     "y2": 141,
+     "tone": "mid"
+    },
+    {
+     "id": "f3",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 66,
+     "x2": 290,
+     "y2": 151,
+     "tone": "mid"
+    },
+    {
+     "id": "f4",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 76,
+     "x2": 290,
+     "y2": 161,
+     "tone": "mid"
+    },
+    {
+     "id": "f5",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 86,
+     "x2": 290,
+     "y2": 171,
+     "tone": "mid"
+    },
+    {
+     "id": "f6",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 96,
+     "x2": 290,
+     "y2": 181,
+     "tone": "mid"
+    },
+    {
+     "id": "f7",
+     "kind": "arrow",
+     "x1": 70,
+     "y1": 106,
+     "x2": 290,
+     "y2": 191,
+     "tone": "mid"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "$T_t$ = 2 ms, one-way $T_p$ = 15 ms, W = 8. Time starts when frame 1 starts to go out.",
+     "show": [
+      "sl",
+      "rl",
+      "ls",
+      "lr"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "Tt = 2 ms, Tp = 15 ms, W = 8"
+      }
+     ]
+    },
+    {
+     "caption": "The sender sends W = 8 frames back to back. This takes 8 x 2 = 16 ms of sending.",
+     "show": [
+      "busy",
+      "f0",
+      "f1",
+      "f2",
+      "f3",
+      "f4",
+      "f5",
+      "f6",
+      "f7"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "8 frames x 2 ms = 16 ms sending"
+      }
+     ]
+    },
+    {
+     "caption": "Frame 1 is acknowledged only at $T_t + 2T_p$ = 2 + 30 = 32 ms. Until then the window is full, so the sender idles for 32 - 16 = 16 ms.",
+     "show": [
+      "ack",
+      "idle",
+      "idl"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "frame 1 acked at 2 + 30 = 32 ms"
+      }
+     ]
+    },
+    {
+     "caption": "In one 32 ms cycle the sender was busy for 16 ms: $U = W T_t / (T_t + 2T_p)$ = 16 / 32 = 50%.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "U = 16 / 32 = 50%"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "busy",
+       "tone": "good"
+      },
+      {
+       "id": "idle",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "For 100% the sender must still be sending when the first ack arrives: $W T_t \\geq T_t + 2T_p$, so $W = 1 + 2T_p / T_t$ = 1 + 30 / 2 = 16 frames.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "W = 1 + 2Tp/Tt = 16 for 100%",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rd",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d7.seq",
+   "title": "Window size against sequence numbers",
+   "viewBox": [
+    0,
+    0,
+    360,
+    214
+   ],
+   "objects": [
+    {
+     "id": "sw",
+     "kind": "array",
+     "x": 20,
+     "y": 62,
+     "cells": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15"
+     ],
+     "cw": 20,
+     "ch": 26,
+     "indices": false,
+     "label": "sender view of the 16 numbers"
+    },
+    {
+     "id": "rw",
+     "kind": "array",
+     "x": 20,
+     "y": 134,
+     "cells": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15"
+     ],
+     "cw": 20,
+     "ch": 26,
+     "indices": false,
+     "label": "receiver view"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "4 bits give $2^4$ = 16 sequence numbers: 0 to 15, reused cyclically.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "4 bits = 16 numbers"
+      }
+     ]
+    },
+    {
+     "caption": "Selective Repeat with W = 8: the sender sends frames numbered 0 to 7.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "SR, W = 8: frames 0..7 sent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sw",
+       "tone": "accent",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The receiver accepts all 8, so its window moves forward to 8 to 15. Suppose every ack is lost.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "receiver window now 8..15, acks lost"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rw",
+       "tone": "mid",
+       "cells": [
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+       ]
+      },
+      {
+       "id": "sw",
+       "tone": "accent",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The sender times out and resends 0 to 7. These numbers are outside the receiver's window (8 to 15), so the receiver correctly recognises them as old duplicates and re-acks them.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "resent 0..7 are outside 8..15: rejected",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sw",
+       "tone": "good",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ]
+      },
+      {
+       "id": "rw",
+       "tone": "mid",
+       "cells": [
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Now try W = 9. The sender sends 0 to 8. The receiver accepts all 9, and its window becomes 9 to 15, 0, 1. The numbers 0 and 1 are now inside the receiver's window.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "W = 9: receiver window 9..15,0,1",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sw",
+       "tone": "accent",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+       ]
+      },
+      {
+       "id": "rw",
+       "tone": "bad",
+       "cells": [
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        0,
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "If the acks are lost, the resent frame 0 looks like a new frame 0 to the receiver, which accepts it as new data. Wrong. So Selective Repeat needs $W \\leq 2^{n-1}$ = 8.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "old 0 looks new: W <= 2^(n-1) = 8",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sw",
+       "tone": "bad",
+       "cells": [
+        0,
+        1
+       ]
+      },
+      {
+       "id": "rw",
+       "tone": "bad",
+       "cells": [
+        0,
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Go-Back-N has a receiver window of 1, so only the sender's window matters. It needs $W \\leq 2^n - 1$ = 15: with 16 frames in flight, frame 0 and the next frame 0 could not be told apart.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "GBN: W <= 2^n - 1 = 15",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sw",
+       "tone": "good",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+       ]
+      },
+      {
+       "id": "rw",
+       "tone": "mid",
+       "cells": [
+        15
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d8.gbnsr",
+   "title": "Counting transmissions",
+   "viewBox": [
+    0,
+    0,
+    360,
+    214
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "array",
+     "x": 15,
+     "y": 66,
+     "cells": [],
+     "cw": 22,
+     "ch": 26,
+     "indices": false,
+     "slots": 15,
+     "label": "Go-Back-N transmissions"
+    },
+    {
+     "id": "s",
+     "kind": "array",
+     "x": 15,
+     "y": 138,
+     "cells": [],
+     "cw": 22,
+     "ch": 26,
+     "indices": false,
+     "slots": 15,
+     "label": "Selective Repeat transmissions"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 200,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Window 5, frames 1 to 10. The sender sends frames 1 to 5. Frame 4 is lost.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "frame 4 lost"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        3
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The receiver acks 1, 2 and 3. It discards frame 5 because it is out of order (it wants 4). The acks slide the window, so the sender sends 6, 7 and 8, all of which are discarded too. That is 8 transmissions so far.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "frames 5..8 discarded: 8 sent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "mid",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Frame 4's timer expires. Go-Back-N goes back: it resends 4, 5, 6, 7, 8. That is 5 more transmissions.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        4,
+        5,
+        6,
+        7,
+        8
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "timeout: resend 4..8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        8,
+        9,
+        10,
+        11,
+        12
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The acks arrive, the window moves on, and 9 and 10 are sent. Total = 8 + 5 + 2 = 15.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "GBN = 8 + 5 + 2 = 15"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        13,
+        14
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Selective Repeat sends the same first 8 frames, but the receiver buffers frames 5 to 8 and acks them one by one. After the timeout only frame 4 is resent.",
+     "set": [
+      {
+       "id": "s",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        4
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "SR resends only frame 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "s",
+       "tone": "good",
+       "cells": [
+        8
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Then 9 and 10 go out. Selective Repeat total = 10 + 1 = 11. Go-Back-N wasted 4 transmissions (frames 5 to 8).",
+     "set": [
+      {
+       "id": "s",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        4,
+        9,
+        10
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "SR = 10 + 1 = 11"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "s",
+       "tone": "good",
+       "cells": [
+        9,
+        10
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d9.csmacd",
+   "title": "Why the frame must outlast the round trip",
+   "viewBox": [
+    0,
+    0,
+    360,
+    204
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 44,
+     "y": 62,
+     "rows": 3,
+     "cols": 14,
+     "cells": [
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 21,
+     "ch": 28,
+     "rowLabels": [
+      "A",
+      "B",
+      "at A"
+     ],
+     "colLabels": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13"
+     ],
+     "colTitle": "time in microseconds"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 186,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Propagation delay along the cable: $T_p = 1200 / (2 \\times 10^8) = 6\\ \\mu s$. The rate is 20 Mbps = 20 bits per microsecond.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "Tp = 1200 / 2e8 = 6 us"
+      }
+     ]
+    },
+    {
+     "caption": "Worst case: A starts at t = 0. Its signal needs 6 us to reach B at the far end.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "A starts at t = 0; reaches B at 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "mid",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Just before t = 6 us, B still hears nothing and starts too. The two frames collide next to B.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "B",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "B starts at t = 6: collision at B"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        [
+         1,
+         6
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The collision signal needs another 6 us to travel back to A, so A learns of it at t = 6 + 6 = 12 us = $2T_p$.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "A",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "B",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "<",
+         "<",
+         "<",
+         "<",
+         "<",
+         "<",
+         "X",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "collision reaches A at 12 = 2Tp"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        [
+         2,
+         12
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "A can only know that its own frame collided if it is **still sending** at t = 12 us. So the frame must last at least $2T_p$ = 12 us.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "A must still be sending at 12",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ],
+        [
+         0,
+         6
+        ],
+        [
+         0,
+         7
+        ],
+        [
+         0,
+         8
+        ],
+        [
+         0,
+         9
+        ],
+        [
+         0,
+         10
+        ],
+        [
+         0,
+         11
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Minimum frame = $2T_p \\times R$ = 12 us x 20 Mbps = 240 bits = 30 bytes.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "12 us x 20 Mbps = 240 bits = 30 B",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rd",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d10.aloha",
+   "title": "Pure ALOHA vulnerable window",
+   "viewBox": [
+    0,
+    0,
+    360,
+    204
+   ],
+   "objects": [
+    {
+     "id": "tl",
+     "kind": "array",
+     "x": 36,
+     "y": 132,
+     "cells": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+     ],
+     "cw": 48,
+     "ch": 26,
+     "indices": false,
+     "label": "time in frame times (T = 2 ms)"
+    },
+    {
+     "id": "vul",
+     "kind": "box",
+     "x": 84,
+     "y": 40,
+     "w": 144,
+     "h": 72,
+     "tone": "bad",
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "vl",
+     "kind": "text",
+     "x": 156,
+     "y": 28,
+     "text": "vulnerable window = 2T",
+     "size": 12.7,
+     "tone": "bad"
+    },
+    {
+     "id": "oth",
+     "kind": "box",
+     "x": 108,
+     "y": 46,
+     "w": 48,
+     "h": 24,
+     "label": "other",
+     "tone": "bad"
+    },
+    {
+     "id": "me",
+     "kind": "box",
+     "x": 132,
+     "y": 82,
+     "w": 48,
+     "h": 24,
+     "label": "mine",
+     "tone": "accent"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 186,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Frame time T = 2 ms. The load per frame time is $G = 300 \\times 0.002 = 0.6$.",
+     "show": [
+      "me"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "G = 300 x 0.002 = 0.6"
+      }
+     ]
+    },
+    {
+     "caption": "In pure ALOHA my frame is destroyed if another frame starts within T before it or T after it. This vulnerable window lasts 2T.",
+     "show": [
+      "vul",
+      "vl",
+      "oth"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "any start in (1, 3) kills my frame"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "oth",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "The number of other frames starting in 2T is Poisson with mean 2G = 1.2. P(none) = $e^{-1.2}$ = 0.301.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "P(none in 2T) = e^-1.2 = 0.301"
+      }
+     ]
+    },
+    {
+     "caption": "Throughput per frame time: $S = G e^{-2G}$ = 0.6 x 0.301 = 0.181.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "S = G e^-2G = 0.181 per T"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "me",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "In frames per second: 300 x 0.301 = 90.4, so about 90 frames succeed and the rest must be sent again.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "300 x 0.301 = 90.4 frames/s",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rd",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.datalink.d11.switch",
+   "title": "A switch learning where stations are",
+   "viewBox": [
+    0,
+    0,
+    360,
+    300
+   ],
+   "objects": [
+    {
+     "id": "sw",
+     "kind": "box",
+     "x": 130,
+     "y": 64,
+     "w": 100,
+     "h": 46,
+     "label": "Switch"
+    },
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 40,
+     "y": 52,
+     "label": "A",
+     "r": 18
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 40,
+     "y": 138,
+     "label": "B",
+     "r": 18
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 320,
+     "y": 52,
+     "label": "C",
+     "r": 18
+    },
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 320,
+     "y": 138,
+     "label": "D",
+     "r": 18
+    },
+    {
+     "id": "e1",
+     "kind": "edge",
+     "from": "nA",
+     "to": "sw",
+     "label": "1"
+    },
+    {
+     "id": "e2",
+     "kind": "edge",
+     "from": "nB",
+     "to": "sw",
+     "label": "2"
+    },
+    {
+     "id": "e3",
+     "kind": "edge",
+     "from": "nC",
+     "to": "sw",
+     "label": "3"
+    },
+    {
+     "id": "e4",
+     "kind": "edge",
+     "from": "nD",
+     "to": "sw",
+     "label": "4"
+    },
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 110,
+     "y": 206,
+     "rows": 4,
+     "cols": 2,
+     "cells": [
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ]
+     ],
+     "cw": 70,
+     "ch": 22,
+     "colLabels": [
+      "MAC",
+      "port"
+     ]
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 172,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The table is empty. A (port 1) sends a frame to C. The switch learns from the **source** address: A is reachable through port 1.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "A",
+         "1"
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "learn A -> port 1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "C is not in the table, so the switch **floods**: it sends a copy out of every port except port 1 (ports 2, 3 and 4). C gets it, and B and D ignore it.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "C unknown: flood to 2, 3, 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e2",
+       "tone": "mid"
+      },
+      {
+       "id": "e3",
+       "tone": "mid"
+      },
+      {
+       "id": "e4",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "C (port 3) replies to A. The switch learns C is on port 3. A is in the table, so the frame goes out **only** of port 1.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "A",
+         "1"
+        ],
+        [
+         "C",
+         "3"
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "learn C -> 3; A known: port 1 only"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e3",
+       "tone": "accent"
+      },
+      {
+       "id": "e1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "B (port 2) sends to A. The switch learns B is on port 2, and forwards to port 1 only. C and D do not see this frame.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "A",
+         "1"
+        ],
+        [
+         "C",
+         "3"
+        ],
+        [
+         "B",
+         "2"
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "learn B -> 2; to A: port 1 only"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e2",
+       "tone": "accent"
+      },
+      {
+       "id": "e1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "D (port 4) sends to B. The switch learns D is on port 4 and forwards to port 2 only. After 4 frames the table has 4 entries, and only the first frame needed flooding.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "A",
+         "1"
+        ],
+        [
+         "C",
+         "3"
+        ],
+        [
+         "B",
+         "2"
+        ],
+        [
+         "D",
+         "4"
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "learn D -> 4; to B: port 2 only",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e4",
+       "tone": "accent"
+      },
+      {
+       "id": "e2",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

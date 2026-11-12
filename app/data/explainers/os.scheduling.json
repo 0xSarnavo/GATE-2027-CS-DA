@@ -1,0 +1,4520 @@
+{
+ "topic_id": "os.scheduling",
+ "title": "CPU and disk scheduling",
+ "chapter_note": {
+  "about": "Scheduling decides which process gets the CPU next, and which disk request the head serves next. This chapter first defines the times you measure: waiting, turnaround and response. Then it goes through the CPU policies in turn: FCFS, SJF and SRTF, round robin and priority, plus the starvation problem they raise. After that come CPU utilisation when processes do I/O, disk scheduling by head movement, and rate-monotonic scheduling for real-time tasks. Almost every question is a simulation: draw the Gantt chart or the head path, then add up the numbers.",
+  "simple": "A computer has one CPU and many programs that want it, so something has to decide who goes next. Different rules give different waiting times: first come first served, shortest job first, taking turns, or the most important first. You judge a rule by drawing a timeline strip and reading off how long each program waited. A disk works the same way, but the thing being scheduled is the moving arm, and you add up how far it travels. Some rules can leave a program waiting forever, and a fix called aging helps. In exam words: FCFS, SJF, SRTF, round robin, priority, disk scheduling and rate monotonic, all judged by Gantt charts and waiting, turnaround and response times.",
+  "concept_map": [
+   {
+    "atom_id": "c1",
+    "title": "Scheduling times and criteria",
+    "one_line": "Turnaround = completion - arrival, waiting = turnaround - burst, response = first CPU - arrival."
+   },
+   {
+    "atom_id": "c2",
+    "title": "FCFS and Gantt charts",
+    "one_line": "Run in arrival order; a long early job delays everyone (convoy effect)."
+   },
+   {
+    "atom_id": "c3",
+    "title": "SJF and SRTF",
+    "one_line": "Shortest burst or shortest remaining time first; smallest average wait, but long jobs can starve."
+   },
+   {
+    "atom_id": "c4",
+    "title": "Round robin",
+    "one_line": "A FIFO queue with a quantum; a preempted process goes behind new arrivals."
+   },
+   {
+    "atom_id": "c5",
+    "title": "Priority scheduling",
+    "one_line": "Highest priority runs; preemptive or not; read which direction counts as high."
+   },
+   {
+    "atom_id": "c6",
+    "title": "Starvation and fairness",
+    "one_line": "SJF, SRTF and priority can starve; FCFS and round robin cannot; aging fixes it."
+   },
+   {
+    "atom_id": "c7",
+    "title": "CPU utilisation with I/O",
+    "one_line": "n overlapped processes give min(1, n c / (c + i))."
+   },
+   {
+    "atom_id": "c8",
+    "title": "Disk scheduling",
+    "one_line": "FCFS, SSTF, SCAN and LOOK differ in head movement; add the distances between stops."
+   },
+   {
+    "atom_id": "c9",
+    "title": "Real-time: rate monotonic",
+    "one_line": "Shorter period, higher priority; trace releases to find completion times."
+   }
+  ],
+  "gate_patterns": [
+   "SRTF or SJF waiting or turnaround time: draw the Gantt chart and compare remaining times at every arrival (2017 CS1 Q24, 2019 CS Q51, 2021 CS1 Q35, 2024 CS2 Q37, 2025 CS2 Q26; 13 questions in all).",
+   "Disk scheduling: list the service order for FCFS, SSTF, SCAN, LOOK or C-LOOK and add the head movement (2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19; 7 questions). Round robin and FCFS timing add 6 more, and priority scheduling 4.",
+   "Concepts: preemption, starvation and the three times (2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23; 7 questions). Weightage: about 1.6 marks per CS paper; 15 questions in 10 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "c1",
+   "title": "Scheduling times and criteria",
+   "simple": "Think of queuing for a ride at a fair. The clock starts when you join the queue, not when the park opens. The time until you first sit on the ride is your response time. The time you spend standing in the queue, including any time you were bumped back, is your waiting time. The whole time from joining to getting off is your turnaround time. If you were on the ride for 5 minutes and stood in line for 6, your turnaround is 11. In exam words: turnaround = completion - arrival, waiting = turnaround - burst, response = first CPU time - arrival.",
+   "idea": "Every scheduling question measures three times for each process. **Turnaround** is the whole stay, from arrival to completion. **Waiting** is the part of that stay spent in the ready queue. **Response** is the delay until the process first gets the CPU.",
+   "definition": "For one process:\n\n**Arrival time (AT):** when it enters the ready queue.\n\n**Burst time (BT):** total CPU time it needs.\n\n**Completion time (CT):** when it finishes.\n\n**Turnaround time = CT - AT.**\n\n**Waiting time = Turnaround - BT.**\n\n**Response time = (first time on the CPU) - AT.**\n\nThese assume no I/O. A **preemptive** scheduler can take the CPU away from a running process. A non-preemptive one waits for the process to finish or block.",
+   "intuition_full": "All three times live on the same timeline, starting at the arrival. Turnaround is the length of the whole stay. Inside that stay the process is either running (burst) or waiting in the ready queue. So waiting = turnaround - burst, with no other cases. Response only looks at the first part of the stay: how soon is the first run. For a non-preemptive scheduler, a process runs once without interruption, so response time equals waiting time. For a preemptive one, a process may be interrupted, so waiting adds up every gap, but response counts only the first gap. Criteria such as CPU utilisation (how busy the CPU is) and throughput (jobs finished per unit time) describe the system. Waiting, turnaround and response describe individual processes, and the exam averages them over all processes.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A scheduler produces this timeline. Process Q uses the CPU from 0 to 6, P from 6 to 8, R from 8 to 10, and P again from 10 to 13. P arrived at time 2 and needs 5 ms of CPU in total. Find P's response time, turnaround time and waiting time.",
+     "steps": [
+      "P arrives at t = 2. Q is already running until 6, so P waits in the ready queue.",
+      "P first gets the CPU at t = 6. Response time = first CPU time - arrival time = 6 - 2 = 4.",
+      "P runs from 6 to 8, then R takes the CPU from 8 to 10. P is preempted and waits again.",
+      "P runs from 10 to 13 and finishes. Completion time = 13.",
+      "Turnaround time = completion - arrival = 13 - 2 = 11.",
+      "Waiting time = turnaround - burst = 11 - 5 = 6. Check by counting: P sat in the queue from 2 to 6 (4 ms) and from 8 to 10 (2 ms), which is 6."
+     ],
+     "answer": "Response time 4, turnaround time 11, waiting time 6."
+    },
+    {
+     "level": "gate",
+     "setup": "Three processes under FCFS: P1 arrives at 0 with burst 6, P2 at 2 with burst 3, P3 at 4 with burst 2. Find the average waiting, turnaround and response times.",
+     "steps": [
+      "FCFS runs them in arrival order: P1 from 0 to 6, P2 from 6 to 9, P3 from 9 to 11. Completion times are 6, 9, 11.",
+      "Turnaround = completion - arrival: 6 - 0 = 6, 9 - 2 = 7, 11 - 4 = 7. Average = 20 / 3 = 6.67.",
+      "Waiting = turnaround - burst: 6 - 6 = 0, 7 - 3 = 4, 7 - 2 = 5. Average = 9 / 3 = 3.",
+      "Response = first CPU time - arrival: 0 - 0 = 0, 6 - 2 = 4, 9 - 4 = 5. Average = 3. It equals waiting here because FCFS never interrupts a process."
+     ],
+     "answer": "Average turnaround 6.67 ms, average waiting 3 ms, average response 3 ms."
+    },
+    {
+     "level": "twist",
+     "setup": "The system is idle. A single process arrives at t = 5 with burst 3 and runs straight away. What are its turnaround and waiting times?",
+     "steps": [
+      "The CPU idles from 0 to 5. Nobody is waiting during that time, because nobody has arrived.",
+      "The process runs from 5 to 8. Turnaround = 8 - 5 = 3.",
+      "Waiting = 3 - 3 = 0. A common slip is to measure from time 0 and get 8 - 3 = 5, but waiting time starts at arrival, not at time 0."
+     ],
+     "answer": "Turnaround 3, waiting 0. Idle time before the first arrival never counts."
+    }
+   ],
+   "why": "These three formulas appear in every scheduling question, so a slip here costs the whole mark. In GATE: read a Gantt chart or table and report an average waiting, turnaround or response time, or judge statements about preemption and criteria (2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23).",
+   "how": [
+    "Draw the Gantt chart from the schedule, with time marks.",
+    "For each process read off arrival, first start and completion.",
+    "Compute turnaround = CT - AT, then waiting = turnaround - BT, and response = first start - AT.",
+    "Average over processes if asked. Keep idle gaps out of waiting."
+   ],
+   "mistake": "Mixing up turnaround and waiting. Turnaround includes the burst, so it is always at least the burst, while waiting is what is left after removing the burst. A second slip is to start the clock at time 0 instead of at the arrival, which adds idle time to waiting.",
+   "edge_cases": [
+    "A process that gets the CPU the moment it arrives has response time 0.",
+    "With no preemption and no I/O, response time equals waiting time.",
+    "Waiting time can never be negative: it is 0 when the process runs from arrival to completion without a gap."
+   ],
+   "connections": [
+    "Every scheduler card that follows (FCFS, SJF, round robin, priority) is judged with these three numbers.",
+    "With I/O, the burst is split into several CPU bursts, but the same formulas hold for the time spent in the ready queue.",
+    "Response time matters for interactive systems; turnaround matters for batch jobs."
+   ],
+   "check": [
+    {
+     "q": "A process arrives at 3, has burst 4, and completes at 12. Turnaround and waiting?",
+     "a": "Turnaround 12 - 3 = 9. Waiting 9 - 4 = 5."
+    },
+    {
+     "q": "Can waiting time exceed turnaround time?",
+     "a": "No. Waiting = turnaround - burst, and the burst is positive."
+    },
+    {
+     "q": "Under FCFS with no I/O, how do response and waiting compare for a process?",
+     "a": "They are equal, since the process runs once and without interruption."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23, 2002 CS Q1.22, 2007 CS Q16, 2015 CS3 Q1, 2016 CS1 Q20",
+   "try": {
+    "id": "gen.scheduling.001",
+    "label": "Try: which formula gives waiting time (L1)"
+   },
+   "scene": "os.scheduling.times",
+   "example": {
+    "setup": "A scheduler produces this timeline. Process Q uses the CPU from 0 to 6, P from 6 to 8, R from 8 to 10, and P again from 10 to 13. P arrived at time 2 and needs 5 ms of CPU in total. Find P's response time, turnaround time and waiting time.",
+    "steps": [
+     "P arrives at t = 2. Q is already running until 6, so P waits in the ready queue.",
+     "P first gets the CPU at t = 6. Response time = first CPU time - arrival time = 6 - 2 = 4.",
+     "P runs from 6 to 8, then R takes the CPU from 8 to 10. P is preempted and waits again.",
+     "P runs from 10 to 13 and finishes. Completion time = 13.",
+     "Turnaround time = completion - arrival = 13 - 2 = 11.",
+     "Waiting time = turnaround - burst = 11 - 5 = 6. Check by counting: P sat in the queue from 2 to 6 (4 ms) and from 8 to 10 (2 ms), which is 6."
+    ],
+    "answer": "Response time 4, turnaround time 11, waiting time 6."
+   },
+   "what": "Every scheduling question measures three times for each process. **Turnaround** is the whole stay, from arrival to completion. **Waiting** is the part of that stay spent in the ready queue. **Response** is the delay until the process first gets the CPU.",
+   "what_full": "Every scheduling question measures three times for each process. **Turnaround** is the whole stay, from arrival to completion. **Waiting** is the part of that stay spent in the ready queue. **Response** is the delay until the process first gets the CPU.\n\nFor one process:\n\n**Arrival time (AT):** when it enters the ready queue.\n\n**Burst time (BT):** total CPU time it needs.\n\n**Completion time (CT):** when it finishes.\n\n**Turnaround time = CT - AT.**\n\n**Waiting time = Turnaround - BT.**\n\n**Response time = (first time on the CPU) - AT.**\n\nThese assume no I/O. A **preemptive** scheduler can take the CPU away from a running process. A non-preemptive one waits for the process to finish or block.\n\n**Worked example.** A scheduler produces this timeline. Process Q uses the CPU from 0 to 6, P from 6 to 8, R from 8 to 10, and P again from 10 to 13. P arrived at time 2 and needs 5 ms of CPU in total. Find P's response time, turnaround time and waiting time.\n\n1. P arrives at t = 2. Q is already running until 6, so P waits in the ready queue.\n2. P first gets the CPU at t = 6. Response time = first CPU time - arrival time = 6 - 2 = 4.\n3. P runs from 6 to 8, then R takes the CPU from 8 to 10. P is preempted and waits again.\n4. P runs from 10 to 13 and finishes. Completion time = 13.\n5. Turnaround time = completion - arrival = 13 - 2 = 11.\n6. Waiting time = turnaround - burst = 11 - 5 = 6. Check by counting: P sat in the queue from 2 to 6 (4 ms) and from 8 to 10 (2 ms), which is 6.\n\n**Answer:** Response time 4, turnaround time 11, waiting time 6.",
+   "why_full": "These three formulas appear in every scheduling question, so a slip here costs the whole mark. In GATE: read a Gantt chart or table and report an average waiting, turnaround or response time, or judge statements about preemption and criteria (2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23).\n\nAsked: 2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23, 2002 CS Q1.22, 2007 CS Q16, 2015 CS3 Q1, 2016 CS1 Q20",
+   "trap": "Mixing up turnaround and waiting. Turnaround includes the burst, so it is always at least the burst, while waiting is what is left after removing the burst. A second slip is to start the clock at time 0 instead of at the arrival, which adds idle time to waiting."
+  },
+  {
+   "atom_id": "c2",
+   "title": "FCFS and Gantt charts",
+   "simple": "A queue at a ticket counter works first come, first served: whoever got in line first is served first, and nobody can cut in. That sounds fair. But if the first person has a huge problem to sort out, everybody behind them with a quick question stands there for ages, just like cars stuck behind one slow lorry. Drawing a Gantt chart means drawing a timeline strip showing who is at the counter during each minute. In exam words: FCFS runs in order of arrival, is non-preemptive, and a long job early makes all the others wait (the convoy effect).",
+   "idea": "**First Come First Served** (FCFS) runs processes in the order they arrive and never interrupts one. You draw the **Gantt chart**, a timeline of who holds the CPU, and read the times off it. One long job at the front delays everyone behind it.",
+   "definition": "FCFS keeps a FIFO ready queue. When the CPU is free, it takes the process at the front and runs it to completion.\n\nFor each process: start = max(arrival, previous finish). Completion = start + burst.\n\nWaiting = start - arrival. Turnaround = completion - arrival.\n\nIf the CPU becomes free before the next arrival, it sits idle until that arrival.\n\nFCFS cannot be preemptive. It cannot starve a process, because every process eventually reaches the front.",
+   "intuition_full": "FCFS is the simplest policy, and its weakness is that the average waiting time depends on the order of arrival. If short jobs come first, the average is small. If a long job comes first, every job behind it pays for the long job's whole burst. That pile-up is the convoy effect: many short processes queue behind a single long one, and short I/O-bound jobs leave the devices idle while they wait. In the chart you can see it directly: the first block is wide, and every later block starts late. The formula start = max(arrival, previous finish) handles both cases at once. If a process arrives after the CPU went idle, its start equals its own arrival and its waiting time is 0.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Four processes arrive in the order shown: P1 (arrival 0, burst 8), P2 (1, 2), P3 (2, 1), P4 (3, 3). Draw the FCFS Gantt chart and find the waiting and turnaround times.",
+     "steps": [
+      "FCFS serves the queue in order of arrival and never preempts. The table lists arrival (AT) and burst (BT).",
+      "P1 arrives first and runs from 0 to 8. Waiting 0 - 0 = 0. Turnaround 8 - 0 = 8.",
+      "P2 runs from 8 to 10. It arrived at 1, so waiting = 8 - 1 = 7. Turnaround = 10 - 1 = 9.",
+      "P3 runs from 10 to 11. Waiting = 10 - 2 = 8. Turnaround = 11 - 2 = 9.",
+      "P4 runs from 11 to 14. Waiting = 11 - 3 = 8. Turnaround = 14 - 3 = 11.",
+      "Average waiting = (0 + 7 + 8 + 8) / 4 = 23 / 4 = 5.75. Average turnaround = (8 + 9 + 9 + 11) / 4 = 9.25.",
+      "Three short jobs of 1 to 3 ms each waited 7 to 8 ms behind the one long job. This is the convoy effect."
+     ],
+     "answer": "Waiting times 0, 7, 8, 8 (average 5.75). Turnaround times 8, 9, 9, 11 (average 9.25)."
+    },
+    {
+     "level": "gate",
+     "setup": "The processes are listed as P1 (arrival 4, burst 3), P2 (0, 5), P3 (2, 2), P4 (10, 1). Find the average waiting time under FCFS.",
+     "steps": [
+      "The list order is not the arrival order. Sort by arrival: P2 (0), P3 (2), P1 (4), P4 (10).",
+      "P2 runs 0 to 5, P3 runs 5 to 7, P1 runs 7 to 10, P4 runs 10 to 11. P4 arrives at 10 exactly when P1 finishes, so there is no idle gap.",
+      "Waiting = start - arrival: P2 0 - 0 = 0, P3 5 - 2 = 3, P1 7 - 4 = 3, P4 10 - 10 = 0.",
+      "Average = (0 + 3 + 3 + 0) / 4 = 1.5."
+     ],
+     "answer": "1.5 ms. The trap is serving P1 first because it is listed first."
+    },
+    {
+     "level": "twist",
+     "setup": "All three jobs arrive at time 0: one of 12 ms and two of 2 ms. Compare the average waiting time of FCFS when the long job is first and when it is last.",
+     "steps": [
+      "Long job first: it runs 0 to 12, then the short jobs run 12 to 14 and 14 to 16. Waiting is 0, 12 and 14.",
+      "Average = (0 + 12 + 14) / 3 = 8.67 ms.",
+      "Long job last: the short jobs run 0 to 2 and 2 to 4, then the long job runs 4 to 16. Waiting is 0, 2 and 4.",
+      "Average = (0 + 2 + 4) / 3 = 2 ms. The same jobs, but the order alone changes the average from 8.67 to 2."
+     ],
+     "answer": "8.67 ms with the long job first, 2 ms with it last. FCFS performance depends on arrival order."
+    }
+   ],
+   "why": "FCFS is the base case: every other policy is compared with it. In GATE: build the Gantt chart and report an average waiting or turnaround time, or mix FCFS into questions about other policies (2020 CS Q60, 2022 CS Q42, 2026 CS1 Q64).",
+   "how": [
+    "Sort the processes by arrival time (ties by the order given).",
+    "For each process: start = max(arrival, finish of the previous one). Completion = start + burst.",
+    "Waiting = start - arrival. Turnaround = completion - arrival.",
+    "Average the column asked for, and watch for an idle gap when the next arrival is late."
+   ],
+   "mistake": "Taking the processes in list order instead of arrival order. If the table lists P1 first but P2 arrives earlier, P2 runs first. The second slip is forgetting that the CPU can idle when nothing has arrived yet.",
+   "edge_cases": [
+    "If every process arrives at 0, the order is the list order, and a long job first is the worst case.",
+    "An idle gap appears when the next arrival is later than the previous finish.",
+    "Two processes arriving at the same time are served in the order given."
+   ],
+   "connections": [
+    "SJF fixes the convoy effect by running the shortest job first (see SJF and SRTF).",
+    "Round robin gives every process a turn so that no one waits behind a long job (see Round robin).",
+    "FCFS is also the baseline for disk scheduling, where requests are served in arrival order."
+   ],
+   "check": [
+    {
+     "q": "P1 (0, 5), P2 (1, 3) under FCFS. Average waiting time?",
+     "a": "P1 waits 0. P2 starts at 5, waits 5 - 1 = 4. Average 2."
+    },
+    {
+     "q": "Can FCFS be preemptive?",
+     "a": "No. FCFS lets each process run until it finishes or blocks."
+    },
+    {
+     "q": "What is the convoy effect?",
+     "a": "Many short processes wait behind one long process, which raises the average waiting time."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q60, 2022 CS Q42, 2026 CS1 Q64, 2012 CS Q31, 2014 CS2 Q32, 2003 CS Q77",
+   "try": {
+    "id": "gen.scheduling.004",
+    "label": "Try: what the convoy effect is (L1)"
+   },
+   "scene": "os.scheduling.fcfs",
+   "example": {
+    "setup": "Four processes arrive in the order shown: P1 (arrival 0, burst 8), P2 (1, 2), P3 (2, 1), P4 (3, 3). Draw the FCFS Gantt chart and find the waiting and turnaround times.",
+    "steps": [
+     "FCFS serves the queue in order of arrival and never preempts. The table lists arrival (AT) and burst (BT).",
+     "P1 arrives first and runs from 0 to 8. Waiting 0 - 0 = 0. Turnaround 8 - 0 = 8.",
+     "P2 runs from 8 to 10. It arrived at 1, so waiting = 8 - 1 = 7. Turnaround = 10 - 1 = 9.",
+     "P3 runs from 10 to 11. Waiting = 10 - 2 = 8. Turnaround = 11 - 2 = 9.",
+     "P4 runs from 11 to 14. Waiting = 11 - 3 = 8. Turnaround = 14 - 3 = 11.",
+     "Average waiting = (0 + 7 + 8 + 8) / 4 = 23 / 4 = 5.75. Average turnaround = (8 + 9 + 9 + 11) / 4 = 9.25.",
+     "Three short jobs of 1 to 3 ms each waited 7 to 8 ms behind the one long job. This is the convoy effect."
+    ],
+    "answer": "Waiting times 0, 7, 8, 8 (average 5.75). Turnaround times 8, 9, 9, 11 (average 9.25)."
+   },
+   "what": "**First Come First Served** (FCFS) runs processes in the order they arrive and never interrupts one. You draw the **Gantt chart**, a timeline of who holds the CPU, and read the times off it. One long job at the front delays everyone behind it.",
+   "what_full": "**First Come First Served** (FCFS) runs processes in the order they arrive and never interrupts one. You draw the **Gantt chart**, a timeline of who holds the CPU, and read the times off it. One long job at the front delays everyone behind it.\n\nFCFS keeps a FIFO ready queue. When the CPU is free, it takes the process at the front and runs it to completion.\n\nFor each process: start = max(arrival, previous finish). Completion = start + burst.\n\nWaiting = start - arrival. Turnaround = completion - arrival.\n\nIf the CPU becomes free before the next arrival, it sits idle until that arrival.\n\nFCFS cannot be preemptive. It cannot starve a process, because every process eventually reaches the front.\n\n**Worked example.** Four processes arrive in the order shown: P1 (arrival 0, burst 8), P2 (1, 2), P3 (2, 1), P4 (3, 3). Draw the FCFS Gantt chart and find the waiting and turnaround times.\n\n1. FCFS serves the queue in order of arrival and never preempts. The table lists arrival (AT) and burst (BT).\n2. P1 arrives first and runs from 0 to 8. Waiting 0 - 0 = 0. Turnaround 8 - 0 = 8.\n3. P2 runs from 8 to 10. It arrived at 1, so waiting = 8 - 1 = 7. Turnaround = 10 - 1 = 9.\n4. P3 runs from 10 to 11. Waiting = 10 - 2 = 8. Turnaround = 11 - 2 = 9.\n5. P4 runs from 11 to 14. Waiting = 11 - 3 = 8. Turnaround = 14 - 3 = 11.\n6. Average waiting = (0 + 7 + 8 + 8) / 4 = 23 / 4 = 5.75. Average turnaround = (8 + 9 + 9 + 11) / 4 = 9.25.\n7. Three short jobs of 1 to 3 ms each waited 7 to 8 ms behind the one long job. This is the convoy effect.\n\n**Answer:** Waiting times 0, 7, 8, 8 (average 5.75). Turnaround times 8, 9, 9, 11 (average 9.25).",
+   "why_full": "FCFS is the base case: every other policy is compared with it. In GATE: build the Gantt chart and report an average waiting or turnaround time, or mix FCFS into questions about other policies (2020 CS Q60, 2022 CS Q42, 2026 CS1 Q64).\n\nAsked: 2020 CS Q60, 2022 CS Q42, 2026 CS1 Q64, 2012 CS Q31, 2014 CS2 Q32, 2003 CS Q77",
+   "trap": "Taking the processes in list order instead of arrival order. If the table lists P1 first but P2 arrives earlier, P2 runs first. The second slip is forgetting that the CPU can idle when nothing has arrived yet."
+  },
+  {
+   "atom_id": "c3",
+   "title": "SJF and SRTF",
+   "simple": "Imagine a photocopier shared by a queue of people. If you always let the person with the smallest job go first, the queue clears faster overall, because the quick jobs are out of the way and nobody waits behind a huge job. That is shortest job first. A more eager version, shortest remaining time first, lets a new person with a tiny job interrupt the person currently copying if that tiny job is shorter than what is left of theirs. The price is that someone with a very long job can be pushed back again and again. In exam words: SJF picks the shortest burst, SRTF is its preemptive form, both minimise average waiting time and can starve long jobs.",
+   "idea": "**Shortest Job First** (SJF) runs the waiting process with the smallest burst when the CPU is free. **Shortest Remaining Time First** (SRTF) is the preemptive version: at every arrival it compares the new burst with what the running job has left. Both give the smallest average waiting time, and both can starve long jobs.",
+   "definition": "**SJF (non-preemptive):** whenever the CPU becomes free, pick the arrived, unfinished process with the smallest burst. It then runs to completion.\n\n**SRTF (preemptive SJF):** at every moment, run the arrived process with the smallest remaining time. A new arrival preempts the running job if the newcomer's burst is smaller than the running job's remaining time.\n\nTies: use arrival order, and state the rule you used.\n\nFor a set of processes that all arrive at time 0, SJF gives the minimum possible average waiting time.",
+   "intuition_full": "Why does shortest-first minimise the average wait? Every job that runs makes all the jobs behind it wait for its burst. Putting the shortest jobs first means the smallest bursts are paid by the largest number of waiting jobs. The long job's cost falls on only the few jobs behind it. A swap argument shows it: if a longer job sits before a shorter one, swapping them cuts the total waiting. SRTF applies the same idea at every arrival, so it also reconsiders when new work shows up. The cost is that the long job keeps being overtaken, so it can starve if short jobs keep arriving. Another practical catch is that the OS does not know burst times in advance. Real systems predict them from past bursts (an exponential average). In exam questions the bursts are simply given.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Shortest remaining time first (SRTF) with P1 (arrival 0, burst 7), P2 (2, 4), P3 (4, 1), P4 (5, 4). At every arrival, compare the remaining times and run the shortest. Find the Gantt chart and the waiting times.",
+     "steps": [
+      "At t = 0 only P1 is here, so it runs. At t = 2 it has 7 - 2 = 5 left.",
+      "P2 arrives at 2 with burst 4, which is less than P1's 5 left. P1 is preempted and P2 runs from 2 to 4 (2 left).",
+      "P3 arrives at 4 with burst 1, less than P2's 2 left. P3 runs from 4 to 5 and finishes.",
+      "At t = 5, P4 has arrived (4). Remaining: P1 has 5, P2 has 2, P4 has 4. The shortest is P2, which runs from 5 to 7 and finishes.",
+      "At t = 7 the choice is P4 (4) or P1 (5). P4 is shorter and runs from 7 to 11.",
+      "Only P1 is left. It runs from 11 to 16.",
+      "Waiting = completion - arrival - burst: P1 16 - 0 - 7 = 9, P2 7 - 2 - 4 = 1, P3 5 - 4 - 1 = 0, P4 11 - 5 - 4 = 2. Average = 12 / 4 = 3."
+     ],
+     "answer": "Waiting times 9, 1, 0, 2 with an average of 3 ms. The long job P1 waited the most."
+    },
+    {
+     "level": "gate",
+     "setup": "P1 (arrival 0, burst 7), P2 (1, 4), P3 (2, 1), P4 (5, 2). Compare the average waiting time under non-preemptive SJF and under SRTF.",
+     "steps": [
+      "SJF (non-preemptive): P1 is the only job at t = 0 and runs to completion at 7. Then the waiting jobs are P2 (4), P3 (1), P4 (2): the order is P3, P4, P2.",
+      "Gantt: P1 0-7, P3 7-8, P4 8-10, P2 10-14. Waiting: P1 0, P2 10 - 1 = 9, P3 7 - 2 = 5, P4 8 - 5 = 3. Average = 17 / 4 = 4.25.",
+      "SRTF: P1 runs 0-1. P2 arrives with 4 < 6, so P2 runs 1-2. P3 arrives with 1 < 3, so P3 runs 2-3. Then P2 runs 3-6 (P4 arriving at 5 has 2, but P2 has 1 left). Then P4 6-8, P1 8-14.",
+      "Waiting under SRTF: P1 14 - 0 - 7 = 7, P2 6 - 1 - 4 = 1, P3 3 - 2 - 1 = 0, P4 8 - 5 - 2 = 1. Average = 9 / 4 = 2.25."
+     ],
+     "answer": "SJF 4.25 ms, SRTF 2.25 ms. Preemption lets short newcomers jump ahead."
+    },
+    {
+     "level": "twist",
+     "setup": "P1 (burst 6), P2 (2), P3 (4), P4 (1) all arrive at time 0. Compare SJF and SRTF.",
+     "steps": [
+      "At t = 0 everyone is present. The shortest job is P4 (1), then P2 (2), P3 (4), P1 (6).",
+      "Nobody arrives later, so no newcomer can ever be shorter than the job on the CPU. SRTF never preempts and behaves exactly like SJF.",
+      "Gantt: P4 0-1, P2 1-3, P3 3-7, P1 7-13. Waiting times 0, 1, 3, 7 (for P4, P2, P3, P1). Average = 11 / 4 = 2.75."
+     ],
+     "answer": "Both give 2.75 ms. SRTF differs from SJF only when jobs arrive at different times."
+    }
+   ],
+   "why": "SJF and SRTF are the most common scheduling questions in GATE, usually asking for an average waiting or turnaround time. In GATE: draw the chart with the remaining-time comparison at every arrival (2017 CS1 Q24, 2019 CS Q51, 2021 CS1 Q35, 2024 CS2 Q37, 2025 CS2 Q26).",
+   "how": [
+    "List the processes with arrival and burst. For SRTF, keep a column of remaining time.",
+    "At t = 0 and at every arrival or completion, find the arrived process with the smallest remaining time (SJF: smallest burst, only when the CPU is free).",
+    "Run it until the next event (arrival or completion), update remaining times, and draw the block.",
+    "Read completion times, then waiting = completion - arrival - burst. Average."
+   ],
+   "mistake": "Forgetting to re-check at every arrival in SRTF. A newcomer with a shorter burst than the running job's remaining time preempts at once. The second slip is comparing the newcomer's burst with the running job's original burst instead of its remaining time.",
+   "edge_cases": [
+    "If all processes arrive at time 0, SJF and SRTF give the same schedule.",
+    "If the newcomer's burst equals the running job's remaining time, it is a tie: keep the running job (state the rule).",
+    "The CPU may idle if no process has arrived."
+   ],
+   "connections": [
+    "Starvation and aging (see Starvation and fairness) explain why long jobs suffer under SJF and SRTF.",
+    "Priority scheduling with priority = burst length is SJF.",
+    "Disk scheduling SSTF applies the same shortest-first idea to head movement."
+   ],
+   "check": [
+    {
+     "q": "All at time 0 with bursts 3, 1, 2. SJF average waiting time?",
+     "a": "Order 1, 2, 3 gives waits 0, 1, 3. Average 4 / 3 = 1.33."
+    },
+    {
+     "q": "P1 (0, 8) is running at t = 2 when P2 (2, 3) arrives. Does SRTF preempt?",
+     "a": "Yes. P1 has 6 left and P2's burst is 3, which is shorter."
+    },
+    {
+     "q": "Which long-job problem do SJF and SRTF share?",
+     "a": "Starvation: a long job can wait forever if shorter jobs keep arriving."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q24, 2019 CS Q51, 2021 CS1 Q35, 2024 CS2 Q37, 2025 CS2 Q26, 2004 CS Q46, 2007 CS Q55, 2011 CS Q35, 2014 CS1 Q32, 2014 CS3 Q32, 2015 CS3 Q34, 2016 CS2 Q47, 2006 CS Q6",
+   "try": {
+    "id": "gen.scheduling.003",
+    "label": "Try: which policy gives the smallest average waiting time (L1)"
+   },
+   "scene": "os.scheduling.srtf",
+   "example": {
+    "setup": "Shortest remaining time first (SRTF) with P1 (arrival 0, burst 7), P2 (2, 4), P3 (4, 1), P4 (5, 4). At every arrival, compare the remaining times and run the shortest. Find the Gantt chart and the waiting times.",
+    "steps": [
+     "At t = 0 only P1 is here, so it runs. At t = 2 it has 7 - 2 = 5 left.",
+     "P2 arrives at 2 with burst 4, which is less than P1's 5 left. P1 is preempted and P2 runs from 2 to 4 (2 left).",
+     "P3 arrives at 4 with burst 1, less than P2's 2 left. P3 runs from 4 to 5 and finishes.",
+     "At t = 5, P4 has arrived (4). Remaining: P1 has 5, P2 has 2, P4 has 4. The shortest is P2, which runs from 5 to 7 and finishes.",
+     "At t = 7 the choice is P4 (4) or P1 (5). P4 is shorter and runs from 7 to 11.",
+     "Only P1 is left. It runs from 11 to 16.",
+     "Waiting = completion - arrival - burst: P1 16 - 0 - 7 = 9, P2 7 - 2 - 4 = 1, P3 5 - 4 - 1 = 0, P4 11 - 5 - 4 = 2. Average = 12 / 4 = 3."
+    ],
+    "answer": "Waiting times 9, 1, 0, 2 with an average of 3 ms. The long job P1 waited the most."
+   },
+   "what": "**Shortest Job First** (SJF) runs the waiting process with the smallest burst when the CPU is free. **Shortest Remaining Time First** (SRTF) is the preemptive version: at every arrival it compares the new burst with what the running job has left. Both give the smallest average waiting time, and both can starve long jobs.",
+   "what_full": "**Shortest Job First** (SJF) runs the waiting process with the smallest burst when the CPU is free. **Shortest Remaining Time First** (SRTF) is the preemptive version: at every arrival it compares the new burst with what the running job has left. Both give the smallest average waiting time, and both can starve long jobs.\n\n**SJF (non-preemptive):** whenever the CPU becomes free, pick the arrived, unfinished process with the smallest burst. It then runs to completion.\n\n**SRTF (preemptive SJF):** at every moment, run the arrived process with the smallest remaining time. A new arrival preempts the running job if the newcomer's burst is smaller than the running job's remaining time.\n\nTies: use arrival order, and state the rule you used.\n\nFor a set of processes that all arrive at time 0, SJF gives the minimum possible average waiting time.\n\n**Worked example.** Shortest remaining time first (SRTF) with P1 (arrival 0, burst 7), P2 (2, 4), P3 (4, 1), P4 (5, 4). At every arrival, compare the remaining times and run the shortest. Find the Gantt chart and the waiting times.\n\n1. At t = 0 only P1 is here, so it runs. At t = 2 it has 7 - 2 = 5 left.\n2. P2 arrives at 2 with burst 4, which is less than P1's 5 left. P1 is preempted and P2 runs from 2 to 4 (2 left).\n3. P3 arrives at 4 with burst 1, less than P2's 2 left. P3 runs from 4 to 5 and finishes.\n4. At t = 5, P4 has arrived (4). Remaining: P1 has 5, P2 has 2, P4 has 4. The shortest is P2, which runs from 5 to 7 and finishes.\n5. At t = 7 the choice is P4 (4) or P1 (5). P4 is shorter and runs from 7 to 11.\n6. Only P1 is left. It runs from 11 to 16.\n7. Waiting = completion - arrival - burst: P1 16 - 0 - 7 = 9, P2 7 - 2 - 4 = 1, P3 5 - 4 - 1 = 0, P4 11 - 5 - 4 = 2. Average = 12 / 4 = 3.\n\n**Answer:** Waiting times 9, 1, 0, 2 with an average of 3 ms. The long job P1 waited the most.",
+   "why_full": "SJF and SRTF are the most common scheduling questions in GATE, usually asking for an average waiting or turnaround time. In GATE: draw the chart with the remaining-time comparison at every arrival (2017 CS1 Q24, 2019 CS Q51, 2021 CS1 Q35, 2024 CS2 Q37, 2025 CS2 Q26).\n\nAsked: 2017 CS1 Q24, 2019 CS Q51, 2021 CS1 Q35, 2024 CS2 Q37, 2025 CS2 Q26, 2004 CS Q46, 2007 CS Q55, 2011 CS Q35, 2014 CS1 Q32, 2014 CS3 Q32, 2015 CS3 Q34, 2016 CS2 Q47, 2006 CS Q6",
+   "trap": "Forgetting to re-check at every arrival in SRTF. A newcomer with a shorter burst than the running job's remaining time preempts at once. The second slip is comparing the newcomer's burst with the running job's original burst instead of its remaining time."
+  },
+  {
+   "atom_id": "c4",
+   "title": "Round robin",
+   "simple": "Round robin is like friends taking turns on one game console, each allowed a fixed number of minutes, called the quantum. When your time is up, you hand over the controller and go to the back of the line, even if you are mid-game. Everyone gets a turn soon, so nobody waits forever and nobody is stuck behind a long game for hours. The downside is a lot of passing the controller around. If the turn is longer than any game, it behaves just like first come first served. In exam words: round robin is FIFO with a time quantum; a preempted process goes to the back of the queue; there is no starvation, but more context switches.",
+   "idea": "**Round robin** (RR) gives each process the CPU for at most one **quantum**, then moves it to the back of the ready queue. Short jobs finish quickly, and no job can starve. The cost is extra context switches and a longer finish for long jobs.",
+   "definition": "Ready queue: FIFO. Quantum: q ms.\n\nTake the process at the front. Run it for min(q, remaining burst).\n\nIf it finishes, it leaves. If not, it goes to the back of the queue.\n\n**Ordering rule:** processes that arrive during the quantum are already in the queue when the preempted process is added, so they sit ahead of it. If an arrival and a preemption happen at the same instant, the usual convention puts the arrival first, but the question should say.\n\nIf q is larger than every burst, RR equals FCFS. As q shrinks towards 0, the CPU is shared equally but context-switch cost grows.",
+   "intuition_full": "The queue is the heart of the method. Keep it written out as a list, and update it at every event. At a quantum end, first add the processes that have arrived meanwhile, then add the preempted process. That is why an arrival during the quantum sits ahead of the preempted one. Round robin trades average waiting time for fairness and quick response: every process gets its first turn within (n - 1) quanta, so response time is bounded. The choice of quantum matters. Too large, and the system degrades into FCFS with a long convoy. Too small, and most of the time goes to context switches. A rule of thumb is that most bursts should be shorter than the quantum so processes finish without being preempted.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Round robin with quantum 4 ms. P1 arrives at 0 with burst 7, P2 at 1 with burst 3, P3 at 2 with burst 5. A preempted process joins the queue after any process that arrived meanwhile. Find the Gantt chart and the waiting times.",
+     "steps": [
+      "At t = 0, P1 is the only process, so it runs for one quantum, 0 to 4. P2 (arrived at 1) and P3 (arrived at 2) join the ready queue while it runs.",
+      "At t = 4 P1 has 3 left. It goes to the back of the queue, behind P2 and P3. The queue is P2, P3, P1.",
+      "P2 runs from 4 to 7. Its burst is 3, shorter than the quantum, so it finishes at 7.",
+      "P3 runs from 7 to 11, a full quantum. It has 1 left and goes to the back. The queue is P1, P3.",
+      "P1 runs from 11 to 14 and finishes, since it needed only 3 more. The queue is P3.",
+      "P3 runs from 14 to 15 and finishes. The queue is empty.",
+      "Completion: P1 14, P2 7, P3 15. Waiting = completion - arrival - burst: P1 14 - 0 - 7 = 7, P2 7 - 1 - 3 = 3, P3 15 - 2 - 5 = 8. Average = 18 / 3 = 6."
+     ],
+     "answer": "Waiting times 7, 3, 8 with an average of 6 ms."
+    },
+    {
+     "level": "gate",
+     "setup": "Round robin, quantum 3 ms. P1 arrives at 0 with burst 5, P2 at 3 with burst 3, P3 at 4 with burst 2. P2 arrives at exactly t = 3, when P1's first quantum ends. A process arriving at the moment a quantum ends joins the queue before the preempted process. Find the average turnaround time.",
+     "steps": [
+      "P1 runs 0 to 3 and has 2 left. At t = 3 P2 arrives. By the rule, P2 enters the queue first, then P1. The queue is P2, P1.",
+      "P2 runs 3 to 6 and finishes (burst 3). P3 arrived at 4, so the queue is now P1, P3.",
+      "P1 runs 6 to 8 and finishes. Then P3 runs 8 to 10 and finishes.",
+      "Completion: P1 8, P2 6, P3 10. Turnaround = completion - arrival: 8 - 0 = 8, 6 - 3 = 3, 10 - 4 = 6.",
+      "Average turnaround = (8 + 3 + 6) / 3 = 17 / 3 = 5.67. With the opposite rule (the preempted process first) the order is P1, P2, P3 and the average turnaround becomes (5 + 5 + 6) / 3 = 5.33, so the question must state the rule."
+     ],
+     "answer": "5.67 ms. The tie rule at a quantum boundary decides the order."
+    },
+    {
+     "level": "twist",
+     "setup": "Round robin with quantum 10 ms. P1 (burst 4), P2 (burst 3) and P3 (burst 5) all arrive at time 0 in that order. What does the schedule look like?",
+     "steps": [
+      "Every burst is smaller than the quantum, so no process uses a full quantum before finishing.",
+      "P1 runs 0 to 4 and finishes by itself. P2 runs 4 to 7. P3 runs 7 to 12. Nobody is ever preempted.",
+      "The schedule is the same as FCFS. Waiting times: 0, 4, 7, average 11 / 3 = 3.67.",
+      "With a very large quantum, round robin turns into FCFS. With a very small quantum, it shares the CPU finely but spends more time on context switches."
+     ],
+     "answer": "Same as FCFS: waiting times 0, 4, 7 and average 3.67 ms."
+    }
+   ],
+   "why": "Round robin questions test careful queue bookkeeping more than any formula. In GATE: draw the chart with the queue order right, then report a finish time, average waiting time, or number of context switches (2020 CS Q60, 2022 CS Q42, 2026 CS1 Q64).",
+   "how": [
+    "Write the ready queue as a list next to the chart and update it at every event.",
+    "Run the front process for min(q, remaining). Advance the clock.",
+    "Add the processes that arrived up to now to the back, then the preempted process.",
+    "A finished process leaves. Repeat until the queue is empty.",
+    "Completion times give turnaround (CT - AT) and waiting (turnaround - burst)."
+   ],
+   "mistake": "Putting the preempted process back ahead of processes that arrived during its quantum. They were in the queue first. The other common slip is forgetting that a process with less than a full quantum left finishes early and the next one starts at once.",
+   "edge_cases": [
+    "A quantum larger than all bursts makes RR identical to FCFS.",
+    "If the queue is empty when a quantum ends, the same process simply runs again.",
+    "Context switches are counted between different processes. State whether the first start and the last finish are counted."
+   ],
+   "connections": [
+    "RR is FCFS plus a timer (see FCFS and Gantt charts).",
+    "Unlike SJF and priority scheduling, RR cannot starve a process (see Starvation and fairness).",
+    "Multilevel feedback queues use RR with different quanta for different priority levels."
+   ],
+   "check": [
+    {
+     "q": "Quantum 2. P1 (0, 3), P2 (0, 2). When does each finish?",
+     "a": "P1 0-2, P2 2-4 (done at 4), P1 4-5 (done at 5)."
+    },
+    {
+     "q": "What happens to a process whose burst is shorter than the quantum?",
+     "a": "It runs to completion in less than a full quantum and leaves; the next process starts immediately."
+    },
+    {
+     "q": "What does RR become when the quantum is huge?",
+     "a": "FCFS."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q60, 2022 CS Q42, 2026 CS1 Q64, 2012 CS Q31, 2014 CS2 Q32, 2003 CS Q77",
+   "try": {
+    "id": "gen.scheduling.005",
+    "label": "Try: how round robin behaves with a very large quantum (L1)"
+   },
+   "scene": "os.scheduling.rr",
+   "example": {
+    "setup": "Round robin with quantum 4 ms. P1 arrives at 0 with burst 7, P2 at 1 with burst 3, P3 at 2 with burst 5. A preempted process joins the queue after any process that arrived meanwhile. Find the Gantt chart and the waiting times.",
+    "steps": [
+     "At t = 0, P1 is the only process, so it runs for one quantum, 0 to 4. P2 (arrived at 1) and P3 (arrived at 2) join the ready queue while it runs.",
+     "At t = 4 P1 has 3 left. It goes to the back of the queue, behind P2 and P3. The queue is P2, P3, P1.",
+     "P2 runs from 4 to 7. Its burst is 3, shorter than the quantum, so it finishes at 7.",
+     "P3 runs from 7 to 11, a full quantum. It has 1 left and goes to the back. The queue is P1, P3.",
+     "P1 runs from 11 to 14 and finishes, since it needed only 3 more. The queue is P3.",
+     "P3 runs from 14 to 15 and finishes. The queue is empty.",
+     "Completion: P1 14, P2 7, P3 15. Waiting = completion - arrival - burst: P1 14 - 0 - 7 = 7, P2 7 - 1 - 3 = 3, P3 15 - 2 - 5 = 8. Average = 18 / 3 = 6."
+    ],
+    "answer": "Waiting times 7, 3, 8 with an average of 6 ms."
+   },
+   "what": "**Round robin** (RR) gives each process the CPU for at most one **quantum**, then moves it to the back of the ready queue. Short jobs finish quickly, and no job can starve. The cost is extra context switches and a longer finish for long jobs.",
+   "what_full": "**Round robin** (RR) gives each process the CPU for at most one **quantum**, then moves it to the back of the ready queue. Short jobs finish quickly, and no job can starve. The cost is extra context switches and a longer finish for long jobs.\n\nReady queue: FIFO. Quantum: q ms.\n\nTake the process at the front. Run it for min(q, remaining burst).\n\nIf it finishes, it leaves. If not, it goes to the back of the queue.\n\n**Ordering rule:** processes that arrive during the quantum are already in the queue when the preempted process is added, so they sit ahead of it. If an arrival and a preemption happen at the same instant, the usual convention puts the arrival first, but the question should say.\n\nIf q is larger than every burst, RR equals FCFS. As q shrinks towards 0, the CPU is shared equally but context-switch cost grows.\n\n**Worked example.** Round robin with quantum 4 ms. P1 arrives at 0 with burst 7, P2 at 1 with burst 3, P3 at 2 with burst 5. A preempted process joins the queue after any process that arrived meanwhile. Find the Gantt chart and the waiting times.\n\n1. At t = 0, P1 is the only process, so it runs for one quantum, 0 to 4. P2 (arrived at 1) and P3 (arrived at 2) join the ready queue while it runs.\n2. At t = 4 P1 has 3 left. It goes to the back of the queue, behind P2 and P3. The queue is P2, P3, P1.\n3. P2 runs from 4 to 7. Its burst is 3, shorter than the quantum, so it finishes at 7.\n4. P3 runs from 7 to 11, a full quantum. It has 1 left and goes to the back. The queue is P1, P3.\n5. P1 runs from 11 to 14 and finishes, since it needed only 3 more. The queue is P3.\n6. P3 runs from 14 to 15 and finishes. The queue is empty.\n7. Completion: P1 14, P2 7, P3 15. Waiting = completion - arrival - burst: P1 14 - 0 - 7 = 7, P2 7 - 1 - 3 = 3, P3 15 - 2 - 5 = 8. Average = 18 / 3 = 6.\n\n**Answer:** Waiting times 7, 3, 8 with an average of 6 ms.",
+   "why_full": "Round robin questions test careful queue bookkeeping more than any formula. In GATE: draw the chart with the queue order right, then report a finish time, average waiting time, or number of context switches (2020 CS Q60, 2022 CS Q42, 2026 CS1 Q64).\n\nAsked: 2020 CS Q60, 2022 CS Q42, 2026 CS1 Q64, 2012 CS Q31, 2014 CS2 Q32, 2003 CS Q77",
+   "trap": "Putting the preempted process back ahead of processes that arrived during its quantum. They were in the queue first. The other common slip is forgetting that a process with less than a full quantum left finishes early and the next one starts at once."
+  },
+  {
+   "atom_id": "c5",
+   "title": "Priority scheduling",
+   "simple": "At a hospital emergency room, the sickest patient is seen first, no matter who arrived earlier. If someone sicker comes in while a doctor is treating a milder case, the doctor may stop and switch (that is the preemptive version), or finish first (the non-preemptive version). Each process gets a priority number, and the scheduler always runs the most important one that is waiting. The risk is that a mild case can wait for hours if serious cases keep arriving. In exam words: priority scheduling runs the highest-priority ready process; it can be preemptive or non-preemptive; a lower number usually means a higher priority.",
+   "idea": "**Priority scheduling** gives every process a priority number and always runs the highest-priority ready process. In the **preemptive** version a newcomer with better priority takes the CPU at once. In the non-preemptive version it waits until the running process finishes.",
+   "definition": "Each process has a priority number. Convention: **a lower number means a higher priority** unless the question says otherwise.\n\nAt every decision point, run the ready process with the best priority. Ties go to the earlier arrival (FCFS).\n\n**Non-preemptive:** decide only when the CPU becomes free.\n\n**Preemptive:** decide again at every arrival. If the newcomer's priority is better than the running process's, preempt.\n\nWaiting = completion - arrival - burst.\n\nLow-priority processes can starve; aging fixes that by raising a process's priority while it waits.",
+   "intuition_full": "Priority scheduling is SJF with a different ranking. SJF ranks by burst length, and priority scheduling ranks by an importance number that comes from outside: user class, deadline or system role. The procedure is the same as for SJF and SRTF. The only change is the key you compare. For the preemptive version, you must re-check at every arrival. For the non-preemptive version, you check only when the CPU frees up. The trade-off is fairness. A stream of important work can keep a low-priority process off the CPU indefinitely, which is called starvation. One famous failure came from priority inversion, where a low-priority process holding a lock blocks a high-priority one. That belongs to the synchronisation chapter, but it shows that priorities interact with resources.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Preemptive priority scheduling, where a lower number means a higher priority. P1 (arrival 0, burst 5, priority 4), P2 (2, 1, 2), P3 (2, 5, 5), P4 (5, 3, 1). Draw the Gantt chart and find the waiting times.",
+     "steps": [
+      "At t = 0 only P1 is present, so it runs from 0 to 2.",
+      "At t = 2, P2 (priority 2) and P3 (priority 5) arrive. P2 has a better priority than P1 (4), so P1 is preempted. P2 runs from 2 to 3 and finishes.",
+      "At t = 3 the ready jobs are P1 (3 left, priority 4) and P3 (priority 5). P1 has the better priority and runs from 3 to 5.",
+      "At t = 5, P4 arrives with priority 1, the best of all. It preempts P1 (1 left) and runs from 5 to 8.",
+      "At t = 8, P1 (priority 4) beats P3 (priority 5). P1 runs from 8 to 9 and finishes.",
+      "Only P3 is left. It runs from 9 to 14.",
+      "Waiting = completion - arrival - burst: P1 9 - 0 - 5 = 4, P2 3 - 2 - 1 = 0, P3 14 - 2 - 5 = 7, P4 8 - 5 - 3 = 0. Average = 11 / 4 = 2.75. The lowest-priority process, P3, waited the longest."
+     ],
+     "answer": "Waiting times 4, 0, 7, 0 with an average of 2.75 ms."
+    },
+    {
+     "level": "gate",
+     "setup": "P1 (arrival 0, burst 4, priority 3), P2 (1, 3, 1), P3 (2, 2, 2), P4 (3, 1, 4). A lower number means a higher priority. Find the average waiting time under non-preemptive and under preemptive priority scheduling.",
+     "steps": [
+      "Non-preemptive: P1 starts at 0 and cannot be interrupted. It runs 0 to 4.",
+      "At t = 4 the waiting jobs are P2 (1), P3 (2), P4 (4). Order by priority: P2 runs 4-7, P3 runs 7-9, P4 runs 9-10.",
+      "Waiting = start - arrival: P1 0, P2 4 - 1 = 3, P3 7 - 2 = 5, P4 9 - 3 = 6. Average = 14 / 4 = 3.5.",
+      "Preemptive: P1 runs 0-1. P2 (priority 1) arrives at 1 and preempts it, running 1-4. P3 arrives at 2 but P2 has the better priority.",
+      "At t = 4 the ready jobs are P1 (3 left, priority 3), P3 (2), P4 (4). P3 runs 4-6, P1 runs 6-9, P4 runs 9-10.",
+      "Waiting = completion - arrival - burst: P1 9 - 0 - 4 = 5, P2 0, P3 6 - 2 - 2 = 2, P4 10 - 3 - 1 = 6. Average = 13 / 4 = 3.25."
+     ],
+     "answer": "Non-preemptive 3.5 ms, preemptive 3.25 ms."
+    },
+    {
+     "level": "twist",
+     "setup": "Same four processes as the previous example (non-preemptive), but now the question says that a higher number means a higher priority. What is the average waiting time?",
+     "steps": [
+      "Read the convention first. Now priority 4 is the best and priority 1 the worst.",
+      "P1 runs 0-4 as before. At t = 4 the waiting jobs are P2 (1), P3 (2), P4 (4). The highest number goes first: P4 runs 4-5, P3 runs 5-7, P2 runs 7-10.",
+      "Waiting: P1 0, P4 4 - 3 = 1, P3 5 - 2 = 3, P2 7 - 1 = 6. Average = 10 / 4 = 2.5."
+     ],
+     "answer": "2.5 ms, against 3.5 ms with the usual convention. Always check which direction counts as high priority."
+    }
+   ],
+   "why": "Priority questions are SRTF questions with one extra column. In GATE: simulate with priorities, preemptive or not, and report an average waiting time or the time a given process first gets the CPU (2017 CS2 Q51, 2025 CS1 Q38, 2006 CS Q64, 2013 CS Q10).",
+   "how": [
+    "Read the convention: does a lower number or a higher number mean higher priority?",
+    "Read whether the policy is preemptive. If it is, re-check at every arrival.",
+    "At each decision point, pick the ready process with the best priority (ties by arrival).",
+    "Draw the chart with completion times, then compute waiting = completion - arrival - burst."
+   ],
+   "mistake": "Using the wrong direction for priority, or ignoring preemption. The first slip reverses the entire schedule. The second turns a preemptive question into a non-preemptive one and changes every number after the first arrival.",
+   "edge_cases": [
+    "Equal priorities are broken by arrival order, as in FCFS.",
+    "In the non-preemptive version, a high-priority arrival must wait for the running job to finish.",
+    "With a single process at a time and one running job, there is nothing to preempt."
+   ],
+   "connections": [
+    "SJF and SRTF are priority scheduling with priority = burst or remaining time.",
+    "Starvation and aging (next card) are the main weakness and its fix.",
+    "Multilevel queue schedulers combine priorities with round robin inside each level."
+   ],
+   "check": [
+    {
+     "q": "Priorities: A = 2, B = 5, C = 3 (lower number is higher). Which runs first if all are ready?",
+     "a": "A, the lowest number."
+    },
+    {
+     "q": "P1 (priority 4) is running. P2 (priority 1) arrives. Preemptive vs non-preemptive?",
+     "a": "Preemptive: P2 takes the CPU now. Non-preemptive: P2 waits until P1 finishes."
+    },
+    {
+     "q": "What decides between two ready processes with equal priority?",
+     "a": "Arrival order (FCFS)."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q51, 2025 CS1 Q38, 2006 CS Q64, 2013 CS Q10",
+   "try": {
+    "id": "gen.scheduling.016",
+    "label": "Try: average waiting time under non-preemptive priority (L3)"
+   },
+   "scene": "os.scheduling.priority",
+   "example": {
+    "setup": "Preemptive priority scheduling, where a lower number means a higher priority. P1 (arrival 0, burst 5, priority 4), P2 (2, 1, 2), P3 (2, 5, 5), P4 (5, 3, 1). Draw the Gantt chart and find the waiting times.",
+    "steps": [
+     "At t = 0 only P1 is present, so it runs from 0 to 2.",
+     "At t = 2, P2 (priority 2) and P3 (priority 5) arrive. P2 has a better priority than P1 (4), so P1 is preempted. P2 runs from 2 to 3 and finishes.",
+     "At t = 3 the ready jobs are P1 (3 left, priority 4) and P3 (priority 5). P1 has the better priority and runs from 3 to 5.",
+     "At t = 5, P4 arrives with priority 1, the best of all. It preempts P1 (1 left) and runs from 5 to 8.",
+     "At t = 8, P1 (priority 4) beats P3 (priority 5). P1 runs from 8 to 9 and finishes.",
+     "Only P3 is left. It runs from 9 to 14.",
+     "Waiting = completion - arrival - burst: P1 9 - 0 - 5 = 4, P2 3 - 2 - 1 = 0, P3 14 - 2 - 5 = 7, P4 8 - 5 - 3 = 0. Average = 11 / 4 = 2.75. The lowest-priority process, P3, waited the longest."
+    ],
+    "answer": "Waiting times 4, 0, 7, 0 with an average of 2.75 ms."
+   },
+   "what": "**Priority scheduling** gives every process a priority number and always runs the highest-priority ready process. In the **preemptive** version a newcomer with better priority takes the CPU at once. In the non-preemptive version it waits until the running process finishes.",
+   "what_full": "**Priority scheduling** gives every process a priority number and always runs the highest-priority ready process. In the **preemptive** version a newcomer with better priority takes the CPU at once. In the non-preemptive version it waits until the running process finishes.\n\nEach process has a priority number. Convention: **a lower number means a higher priority** unless the question says otherwise.\n\nAt every decision point, run the ready process with the best priority. Ties go to the earlier arrival (FCFS).\n\n**Non-preemptive:** decide only when the CPU becomes free.\n\n**Preemptive:** decide again at every arrival. If the newcomer's priority is better than the running process's, preempt.\n\nWaiting = completion - arrival - burst.\n\nLow-priority processes can starve; aging fixes that by raising a process's priority while it waits.\n\n**Worked example.** Preemptive priority scheduling, where a lower number means a higher priority. P1 (arrival 0, burst 5, priority 4), P2 (2, 1, 2), P3 (2, 5, 5), P4 (5, 3, 1). Draw the Gantt chart and find the waiting times.\n\n1. At t = 0 only P1 is present, so it runs from 0 to 2.\n2. At t = 2, P2 (priority 2) and P3 (priority 5) arrive. P2 has a better priority than P1 (4), so P1 is preempted. P2 runs from 2 to 3 and finishes.\n3. At t = 3 the ready jobs are P1 (3 left, priority 4) and P3 (priority 5). P1 has the better priority and runs from 3 to 5.\n4. At t = 5, P4 arrives with priority 1, the best of all. It preempts P1 (1 left) and runs from 5 to 8.\n5. At t = 8, P1 (priority 4) beats P3 (priority 5). P1 runs from 8 to 9 and finishes.\n6. Only P3 is left. It runs from 9 to 14.\n7. Waiting = completion - arrival - burst: P1 9 - 0 - 5 = 4, P2 3 - 2 - 1 = 0, P3 14 - 2 - 5 = 7, P4 8 - 5 - 3 = 0. Average = 11 / 4 = 2.75. The lowest-priority process, P3, waited the longest.\n\n**Answer:** Waiting times 4, 0, 7, 0 with an average of 2.75 ms.",
+   "why_full": "Priority questions are SRTF questions with one extra column. In GATE: simulate with priorities, preemptive or not, and report an average waiting time or the time a given process first gets the CPU (2017 CS2 Q51, 2025 CS1 Q38, 2006 CS Q64, 2013 CS Q10).\n\nAsked: 2017 CS2 Q51, 2025 CS1 Q38, 2006 CS Q64, 2013 CS Q10",
+   "trap": "Using the wrong direction for priority, or ignoring preemption. The first slip reverses the entire schedule. The second turns a preemptive question into a non-preemptive one and changes every number after the first arrival."
+  },
+  {
+   "atom_id": "c6",
+   "title": "Starvation and fairness",
+   "simple": "Picture a queue at a bakery where staff always serve customers buying one bread before anyone buying a big order. If one-bread customers keep walking in, the person with the big order might stand there all day. That is starvation. The fix is simple: the longer someone has waited, the more their turn counts, until they get served. That is called aging. Policies that serve people in turn, such as first come first served or taking turns with a timer, can never leave someone waiting forever. In exam words: SJF, SRTF and priority scheduling can starve; FCFS and round robin cannot; aging raises the priority of waiting processes.",
+   "idea": "**Starvation** is when a ready process waits without bound because the scheduler keeps choosing others. Policies that rank processes (SJF, SRTF, priority) can do it. Policies that serve in order or in turn (FCFS, round robin) cannot. **Aging** fixes it by raising a process's priority as it waits.",
+   "definition": "A process starves if it is ready but never gets the CPU. This needs an unbounded supply of competitors that the scheduler prefers.\n\n**Can starve:** SJF, SRTF (long jobs), priority scheduling (low priority).\n\n**Cannot starve:** FCFS (the queue only moves forward), round robin (a turn within n - 1 quanta).\n\n**Aging:** every fixed time a process waits, improve its priority by one step. After enough waiting it beats any newcomer, so its wait is bounded.\n\n**Fairness** means every process gets a reasonable share of the CPU.",
+   "intuition_full": "Starvation is a property of the choice rule, not of the machine being busy. A rule that always prefers some class of jobs lets the unfavoured class wait for as long as favoured jobs keep coming. A rule that gives everyone a guaranteed place in line cannot. The same holds in disk scheduling: SSTF can leave a far-away request waiting while closer requests keep arriving, while SCAN's sweep guarantees every request is reached. Aging combines both ideas: it keeps the priority rule but lets waiting time slowly change the ranking, so even the lowest priority eventually becomes the highest. Starvation needs an endless stream of preferred jobs. If the supply of better jobs is finite, the process is only delayed, not starved.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Non-preemptive priority scheduling (lower number is higher priority). Process L (burst 3, priority 5) and S1 (burst 2, priority 1) arrive at 0. A new short job (burst 2, priority 1) arrives every 2 ms: S2 at 2, S3 at 4, S4 at 6. Compare no aging with aging, where L's priority number drops by 1 for every ms it waits.",
+     "steps": [
+      "L is a long, low-priority job. Short jobs of priority 1 keep arriving: S1 at 0, S2 at 2, S3 at 4, S4 at 6.",
+      "Without aging, every pick goes to a priority-1 job, because 1 beats 5. S1 runs 0-2, S2 runs 2-4, S3 runs 4-6, S4 runs 6-8.",
+      "L finally runs from 8 to 11. It waited 8 ms while four later jobs overtook it. If shorts kept coming, L would never run.",
+      "With aging, L's number falls: 5 at t = 0, 3 at t = 2. Priority 3 still loses to priority 1, so S1 (0-2) and S2 (2-4) run first.",
+      "At t = 4, L's priority has fallen to 1, equal to S3's. The tie goes to the earlier arrival, L, so L runs 4 to 7.",
+      "S3 then runs 7-9 and S4 runs 9-11. L waited 4 ms instead of 8. The waiting is now bounded, so L cannot starve."
+     ],
+     "answer": "Without aging L waits 8 ms and can wait forever. With aging L waits 4 ms."
+    },
+    {
+     "level": "gate",
+     "setup": "Which of FCFS, round robin, SJF, SRTF and preemptive priority scheduling can starve a process? Give the reason for each.",
+     "steps": [
+      "FCFS: every process reaches the front of the queue after the ones ahead of it finish. No starvation.",
+      "Round robin: each process gets a turn within (n - 1) quanta. No starvation.",
+      "SJF and SRTF: if shorter jobs keep arriving, a long job is always passed over. They can starve it.",
+      "Preemptive priority: if higher-priority jobs keep arriving, a low-priority job never runs. It can starve.",
+      "The standard fix is aging: raise the priority of a process the longer it waits."
+     ],
+     "answer": "SJF, SRTF and priority scheduling can starve. FCFS and round robin cannot."
+    },
+    {
+     "level": "twist",
+     "setup": "A low-priority job L (burst 4, priority 9) is ready at time 0. Only three high-priority jobs ever arrive: H1, H2, H3, each of burst 2 and priority 1, all at time 0. Does L starve?",
+     "steps": [
+      "The scheduler runs the three priority-1 jobs first: 0-2, 2-4, 4-6.",
+      "Then no better job is left, so L runs from 6 to 10. It waited 6 ms.",
+      "Starvation needs an endless stream of better jobs. With a finite stream, L is only delayed."
+     ],
+     "answer": "No. L waits 6 ms and then runs. Starvation means waiting without bound."
+    }
+   ],
+   "why": "Starvation is a favourite true-or-false topic, since the answer depends only on whether the policy ranks jobs. In GATE: decide which policies can starve, or what aging does (2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23).",
+   "how": [
+    "Ask: does the policy prefer some jobs over others by a fixed rule (shortest, highest priority)? If yes, it can starve.",
+    "Ask: does every process get a guaranteed turn (FIFO queue, round robin)? If yes, it cannot starve.",
+    "Remember that starvation needs an unbounded supply of better jobs.",
+    "The remedy is aging: priority improves with waiting time."
+   ],
+   "mistake": "Saying that FCFS or round robin starve processes. Both give a bound on waiting. Another slip is calling a long wait 'starvation' when only a finite number of better jobs exist; the process will run eventually.",
+   "edge_cases": [
+    "A preemptive scheduler can starve even a job that is nearly finished if better jobs keep preempting it.",
+    "Round robin does not starve but a very small quantum wastes time on context switches.",
+    "Aging needs a rule for ties between an aged process and a newcomer; the earlier arrival usually wins."
+   ],
+   "connections": [
+    "Priority scheduling and SJF/SRTF are the policies that can starve (see the cards before this one).",
+    "Disk scheduling has the same issue: SSTF can starve far requests, while SCAN cannot.",
+    "Semaphore implementations that wake waiting processes in FIFO order avoid starvation in synchronisation."
+   ],
+   "check": [
+    {
+     "q": "Can round robin starve a process?",
+     "a": "No. Every process gets a turn within (n - 1) quanta."
+    },
+    {
+     "q": "What does aging do?",
+     "a": "It gradually raises the priority of a process the longer it waits, so its wait stays bounded."
+    },
+    {
+     "q": "Which common cause makes SRTF starve a job?",
+     "a": "A steady stream of shorter jobs that always preempt or outrank the long one."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23, 2002 CS Q1.22, 2007 CS Q16, 2015 CS3 Q1, 2016 CS1 Q20",
+   "try": {
+    "id": "gen.scheduling.006",
+    "label": "Try: which technique stops low-priority starvation (L1)"
+   },
+   "scene": "os.scheduling.starvation",
+   "example": {
+    "setup": "Non-preemptive priority scheduling (lower number is higher priority). Process L (burst 3, priority 5) and S1 (burst 2, priority 1) arrive at 0. A new short job (burst 2, priority 1) arrives every 2 ms: S2 at 2, S3 at 4, S4 at 6. Compare no aging with aging, where L's priority number drops by 1 for every ms it waits.",
+    "steps": [
+     "L is a long, low-priority job. Short jobs of priority 1 keep arriving: S1 at 0, S2 at 2, S3 at 4, S4 at 6.",
+     "Without aging, every pick goes to a priority-1 job, because 1 beats 5. S1 runs 0-2, S2 runs 2-4, S3 runs 4-6, S4 runs 6-8.",
+     "L finally runs from 8 to 11. It waited 8 ms while four later jobs overtook it. If shorts kept coming, L would never run.",
+     "With aging, L's number falls: 5 at t = 0, 3 at t = 2. Priority 3 still loses to priority 1, so S1 (0-2) and S2 (2-4) run first.",
+     "At t = 4, L's priority has fallen to 1, equal to S3's. The tie goes to the earlier arrival, L, so L runs 4 to 7.",
+     "S3 then runs 7-9 and S4 runs 9-11. L waited 4 ms instead of 8. The waiting is now bounded, so L cannot starve."
+    ],
+    "answer": "Without aging L waits 8 ms and can wait forever. With aging L waits 4 ms."
+   },
+   "what": "**Starvation** is when a ready process waits without bound because the scheduler keeps choosing others. Policies that rank processes (SJF, SRTF, priority) can do it. Policies that serve in order or in turn (FCFS, round robin) cannot. **Aging** fixes it by raising a process's priority as it waits.",
+   "what_full": "**Starvation** is when a ready process waits without bound because the scheduler keeps choosing others. Policies that rank processes (SJF, SRTF, priority) can do it. Policies that serve in order or in turn (FCFS, round robin) cannot. **Aging** fixes it by raising a process's priority as it waits.\n\nA process starves if it is ready but never gets the CPU. This needs an unbounded supply of competitors that the scheduler prefers.\n\n**Can starve:** SJF, SRTF (long jobs), priority scheduling (low priority).\n\n**Cannot starve:** FCFS (the queue only moves forward), round robin (a turn within n - 1 quanta).\n\n**Aging:** every fixed time a process waits, improve its priority by one step. After enough waiting it beats any newcomer, so its wait is bounded.\n\n**Fairness** means every process gets a reasonable share of the CPU.\n\n**Worked example.** Non-preemptive priority scheduling (lower number is higher priority). Process L (burst 3, priority 5) and S1 (burst 2, priority 1) arrive at 0. A new short job (burst 2, priority 1) arrives every 2 ms: S2 at 2, S3 at 4, S4 at 6. Compare no aging with aging, where L's priority number drops by 1 for every ms it waits.\n\n1. L is a long, low-priority job. Short jobs of priority 1 keep arriving: S1 at 0, S2 at 2, S3 at 4, S4 at 6.\n2. Without aging, every pick goes to a priority-1 job, because 1 beats 5. S1 runs 0-2, S2 runs 2-4, S3 runs 4-6, S4 runs 6-8.\n3. L finally runs from 8 to 11. It waited 8 ms while four later jobs overtook it. If shorts kept coming, L would never run.\n4. With aging, L's number falls: 5 at t = 0, 3 at t = 2. Priority 3 still loses to priority 1, so S1 (0-2) and S2 (2-4) run first.\n5. At t = 4, L's priority has fallen to 1, equal to S3's. The tie goes to the earlier arrival, L, so L runs 4 to 7.\n6. S3 then runs 7-9 and S4 runs 9-11. L waited 4 ms instead of 8. The waiting is now bounded, so L cannot starve.\n\n**Answer:** Without aging L waits 8 ms and can wait forever. With aging L waits 4 ms.",
+   "why_full": "Starvation is a favourite true-or-false topic, since the answer depends only on whether the policy ranks jobs. In GATE: decide which policies can starve, or what aging does (2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23).\n\nAsked: 2021 CS2 Q24, 2023 CS Q27, 2026 CS2 Q23, 2002 CS Q1.22, 2007 CS Q16, 2015 CS3 Q1, 2016 CS1 Q20",
+   "trap": "Saying that FCFS or round robin starve processes. Both give a bound on waiting. Another slip is calling a long wait 'starvation' when only a finite number of better jobs exist; the process will run eventually."
+  },
+  {
+   "atom_id": "c7",
+   "title": "CPU utilisation with I/O",
+   "simple": "Think of a cook who spends 2 minutes chopping and then has to wait 8 minutes for a pot to boil. If that cook works alone, the knife is idle most of the time. But if five cooks share one chopping board, each can chop while the others wait for their pots, and the board is busy all the time. That is the idea of overlapping CPU work with waiting for I/O. The more processes, the busier the CPU, up to full. In exam words: with CPU time c and I/O time i per cycle, n overlapped processes give utilisation min(1, n × c / (c + i)).",
+   "idea": "A process alternates between using the CPU and waiting for I/O. While it waits, the CPU can run another process. With **n** processes, the CPU busy share is **n × c / (c + i)**, capped at 100%.",
+   "definition": "Each process repeats: a CPU burst of c, then I/O of i.\n\nAlone, a process keeps the CPU busy c / (c + i) of the time.\n\nWith n processes and perfectly overlapped I/O, utilisation = min(1, n × c / (c + i)).\n\nThe CPU is first fully busy when n ≥ (c + i) / c.\n\nIf every switch costs s, useful work per burst is c out of (c + s), so the useful share of a saturated CPU is c / (c + s).\n\nAssumptions: I/O devices work in parallel, and scheduling takes no time unless stated.",
+   "intuition_full": "Draw one process's cycle as a bar: c ms of CPU followed by i ms of I/O. The idle part of the cycle is i ms. Another process can use exactly those i ms, as long as its own CPU bursts fit in the gap. Each extra process fills c more ms of the cycle. After (c + i) / c processes, the cycle is full and extra processes only wait. So the picture is stacking c-sized blocks into a (c + i)-sized box. That is the same as the formula. The cap at 100% matters: a sixth process in the first example does nothing for utilisation. With switch overhead, the CPU can be fully busy but not fully useful. GATE variants add a second kind of I/O (a disk with a limit on parallel requests) or ask for the elapsed time of several jobs, but the idea is the same.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Each process alternates 2 ms of CPU with 8 ms of I/O, repeatedly. The I/O of different processes can overlap fully. What CPU utilisation do you get with 1, 2, 3, 4, 5 and 6 processes?",
+     "steps": [
+      "One process: it uses the CPU for 2 ms in every 2 + 8 = 10 ms cycle. Utilisation = 2 / 10 = 20%.",
+      "A second process can use the CPU while the first is doing I/O. Two processes use 2 + 2 = 4 ms of every 10. Utilisation = 40%.",
+      "A third process fills the next 2 ms. Utilisation = 6 / 10 = 60%.",
+      "A fourth process: 8 / 10 = 80%.",
+      "A fifth process: 10 / 10 = 100%. The first process's I/O ends exactly when the fifth finishes its CPU burst, so the CPU never idles.",
+      "A sixth process adds nothing: the CPU is already full. Utilisation = min(1, n × 2 / 10) = min(1, 1.2) = 100%."
+     ],
+     "answer": "20%, 40%, 60%, 80%, 100%, 100%. The formula is min(1, n × c / (c + i))."
+    },
+    {
+     "level": "gate",
+     "setup": "Each process uses the CPU for 3 ms and then does I/O for 9 ms, repeatedly. Context-switch cost is zero and the I/O devices work in parallel. What is the CPU utilisation with 3 processes, and how many processes are needed to keep the CPU 100% busy?",
+     "steps": [
+      "One cycle is 3 + 9 = 12 ms. One process uses c / (c + i) = 3 / 12 = 25% of the CPU.",
+      "With 3 processes, the demand is 3 × 25% = 75%. That is below 100%, so the CPU idles 25% of the time.",
+      "For 100% we need n × 3 / 12 ≥ 1, so n ≥ 4.",
+      "Check n = 4: the four bursts take 12 ms in total, exactly the cycle length. The CPU is busy all the time."
+     ],
+     "answer": "75% with 3 processes. 4 processes give 100%."
+    },
+    {
+     "level": "twist",
+     "setup": "Same processes (3 ms CPU, 9 ms I/O), 4 of them, but each switch to a process costs 1 ms of CPU time during which no useful work is done. How much of the CPU time is useful?",
+     "steps": [
+      "Each burst now costs 1 + 3 = 4 ms of CPU time: 1 ms to switch and 3 ms of real work.",
+      "Four processes need 4 × 4 = 16 ms of CPU per 12 ms cycle. The CPU is saturated: it is never idle.",
+      "Useful fraction = useful time / total busy time = 3 / (3 + 1) = 75%.",
+      "The CPU is 100% busy, but only 75% of that is useful work. Utilisation can include overhead."
+     ],
+     "answer": "The CPU is busy all the time, but only 75% of the time is useful. Adding more processes cannot beat the switching overhead."
+    }
+   ],
+   "why": "Multiprogramming exists to keep the CPU busy during I/O, and this formula quantifies it. In GATE: find the utilisation or the number of processes for full utilisation, sometimes with several I/O waits or a context-switch cost (2006 CS Q65, 2014 CS2 Q32, 2015 CS1 Q46).",
+   "how": [
+    "Find c (CPU time per cycle) and i (I/O time per cycle).",
+    "One process alone: c / (c + i).",
+    "With n overlapped processes: min(1, n × c / (c + i)).",
+    "For full utilisation: n ≥ (c + i) / c, rounded up.",
+    "If switches cost s, the useful share of a saturated CPU is c / (c + s)."
+   ],
+   "mistake": "Not capping at 100%, or using i / (c + i) by mistake. The cap matters when n is large. The second error gives the idle share instead of the busy share.",
+   "edge_cases": [
+    "If I/O cannot overlap (one shared disk, one request at a time), the I/O itself limits throughput.",
+    "If c is greater than i, one process already uses more than half the CPU, and two processes saturate it.",
+    "A burst arriving while the CPU is busy has to wait; the formula is the long-run average."
+   ],
+   "connections": [
+    "Multiprogramming and the degree of multiprogramming appear in the process-management chapter.",
+    "Thrashing in virtual memory is the opposite effect: too many processes drive CPU utilisation down.",
+    "Round robin and priority scheduling decide who uses the CPU in each gap."
+   ],
+   "check": [
+    {
+     "q": "c = 1 ms, i = 4 ms. Utilisation of one process?",
+     "a": "1 / 5 = 20%."
+    },
+    {
+     "q": "With c = 1 and i = 4, how many processes give 100%?",
+     "a": "(1 + 4) / 1 = 5."
+    },
+    {
+     "q": "c = 4, i = 6, three overlapped processes. Utilisation?",
+     "a": "min(1, 3 × 4 / 10) = min(1, 1.2) = 100%."
+    }
+   ],
+   "asked": "Asked: 2006 CS Q65, 2014 CS2 Q32, 2015 CS1 Q46, 2003 CS Q77",
+   "try": {
+    "id": "gen.scheduling.013",
+    "label": "Try: CPU busy share of a single CPU and I/O process (L2)"
+   },
+   "scene": "os.scheduling.util",
+   "example": {
+    "setup": "Each process alternates 2 ms of CPU with 8 ms of I/O, repeatedly. The I/O of different processes can overlap fully. What CPU utilisation do you get with 1, 2, 3, 4, 5 and 6 processes?",
+    "steps": [
+     "One process: it uses the CPU for 2 ms in every 2 + 8 = 10 ms cycle. Utilisation = 2 / 10 = 20%.",
+     "A second process can use the CPU while the first is doing I/O. Two processes use 2 + 2 = 4 ms of every 10. Utilisation = 40%.",
+     "A third process fills the next 2 ms. Utilisation = 6 / 10 = 60%.",
+     "A fourth process: 8 / 10 = 80%.",
+     "A fifth process: 10 / 10 = 100%. The first process's I/O ends exactly when the fifth finishes its CPU burst, so the CPU never idles.",
+     "A sixth process adds nothing: the CPU is already full. Utilisation = min(1, n × 2 / 10) = min(1, 1.2) = 100%."
+    ],
+    "answer": "20%, 40%, 60%, 80%, 100%, 100%. The formula is min(1, n × c / (c + i))."
+   },
+   "what": "A process alternates between using the CPU and waiting for I/O. While it waits, the CPU can run another process. With **n** processes, the CPU busy share is **n × c / (c + i)**, capped at 100%.",
+   "what_full": "A process alternates between using the CPU and waiting for I/O. While it waits, the CPU can run another process. With **n** processes, the CPU busy share is **n × c / (c + i)**, capped at 100%.\n\nEach process repeats: a CPU burst of c, then I/O of i.\n\nAlone, a process keeps the CPU busy c / (c + i) of the time.\n\nWith n processes and perfectly overlapped I/O, utilisation = min(1, n × c / (c + i)).\n\nThe CPU is first fully busy when n ≥ (c + i) / c.\n\nIf every switch costs s, useful work per burst is c out of (c + s), so the useful share of a saturated CPU is c / (c + s).\n\nAssumptions: I/O devices work in parallel, and scheduling takes no time unless stated.\n\n**Worked example.** Each process alternates 2 ms of CPU with 8 ms of I/O, repeatedly. The I/O of different processes can overlap fully. What CPU utilisation do you get with 1, 2, 3, 4, 5 and 6 processes?\n\n1. One process: it uses the CPU for 2 ms in every 2 + 8 = 10 ms cycle. Utilisation = 2 / 10 = 20%.\n2. A second process can use the CPU while the first is doing I/O. Two processes use 2 + 2 = 4 ms of every 10. Utilisation = 40%.\n3. A third process fills the next 2 ms. Utilisation = 6 / 10 = 60%.\n4. A fourth process: 8 / 10 = 80%.\n5. A fifth process: 10 / 10 = 100%. The first process's I/O ends exactly when the fifth finishes its CPU burst, so the CPU never idles.\n6. A sixth process adds nothing: the CPU is already full. Utilisation = min(1, n × 2 / 10) = min(1, 1.2) = 100%.\n\n**Answer:** 20%, 40%, 60%, 80%, 100%, 100%. The formula is min(1, n × c / (c + i)).",
+   "why_full": "Multiprogramming exists to keep the CPU busy during I/O, and this formula quantifies it. In GATE: find the utilisation or the number of processes for full utilisation, sometimes with several I/O waits or a context-switch cost (2006 CS Q65, 2014 CS2 Q32, 2015 CS1 Q46).\n\nAsked: 2006 CS Q65, 2014 CS2 Q32, 2015 CS1 Q46, 2003 CS Q77",
+   "trap": "Not capping at 100%, or using i / (c + i) by mistake. The cap matters when n is large. The second error gives the idle share instead of the busy share."
+  },
+  {
+   "atom_id": "c8",
+   "title": "Disk scheduling",
+   "simple": "Imagine a lift that has to visit floors for lots of people who pressed buttons at different times. If it visits floors in the order the buttons were pressed, it rushes up and down the building for nothing. If it always goes to the closest pressed floor, it is quick but may ignore the top floor for a long time. If it sweeps up the building and then back down, stopping wherever people are waiting, it covers everyone with little travel. A disk arm is that lift, and the floors are the cylinders. In exam words: FCFS, SSTF, SCAN, LOOK and C-LOOK differ in head movement; add up the distances between consecutive stops.",
+   "idea": "The disk head moves between **cylinders** to reach pending requests, and moving costs time. A disk scheduler orders the requests to reduce the total **head movement**. FCFS goes in arrival order, SSTF picks the nearest, and SCAN or LOOK sweep one way and back.",
+   "definition": "Head movement = sum of |next stop - current stop| over the service order.\n\n**FCFS:** arrival order. Fair, but the head may zigzag.\n\n**SSTF:** from the current position, pick the nearest pending request. Short moves, but far requests can starve.\n\n**SCAN (elevator):** move in one direction to the end of the disk, serving requests on the way, then reverse.\n\n**LOOK:** like SCAN, but reverse at the last request in that direction instead of going to the end.\n\n**C-SCAN / C-LOOK:** sweep one way only; after the last request, jump back to the other end (or the first request) and sweep again.",
+   "intuition_full": "Seek time dominates disk access, so the aim is fewer cylinders crossed. FCFS ignores positions, so it can cross the same area many times. SSTF is greedy: each step is as short as possible, but greedy is not optimal overall, and a steady stream of requests near the head can leave a far request waiting. The sweep policies fix both problems by committing to a direction. Every request will be reached within two sweeps, so none starves. SCAN pays for going all the way to the disk end even when no request is there, and LOOK saves that trip. In the example, the 140-to-199 leg is wasted movement of 59 each way. The exam lesson: always write the order of stops first, then add the gaps, and read the direction and the policy carefully.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A disk has cylinders 0 to 199. The head is at 70 and moves toward higher numbers. The pending requests, in arrival order, are 140, 5, 85, 120, 15, 60. Find the total head movement under FCFS, SSTF, SCAN and LOOK.",
+     "steps": [
+      "Head movement is the sum of the distances between consecutive stops. The head starts at 70. Each row below is one stop.",
+      "FCFS follows arrival order: 70 → 140 → 5 → 85 → 120 → 15 → 60. Distances 70 + 135 + 80 + 35 + 105 + 45 = 470.",
+      "SSTF always goes to the nearest pending request: 70 → 60 → 85 → 120 → 140 → 15 → 5. Distances 10 + 25 + 35 + 20 + 125 + 10 = 225.",
+      "SCAN goes up to the end of the disk, then back down: 70 → 85 → 120 → 140 → 199 → 60 → 15 → 5. Distances 15 + 35 + 20 + 59 + 139 + 45 + 10 = 323.",
+      "LOOK sweeps up only as far as the last request (140), then reverses: 70 → 85 → 120 → 140 → 60 → 15 → 5. Distances 15 + 35 + 20 + 80 + 45 + 10 = 205.",
+      "Totals: FCFS 470, SSTF 225, SCAN 323, LOOK 205. LOOK saved the trip to cylinder 199, and here it even beats SSTF."
+     ],
+     "answer": "FCFS 470, SSTF 225, SCAN 323, LOOK 205 cylinders."
+    },
+    {
+     "level": "gate",
+     "setup": "The head is at 80 and moving toward cylinder 0 on a disk with cylinders 0 to 199. The requests are 120, 30, 160, 50, 15, 95. Compare the head movement of SCAN and LOOK.",
+     "steps": [
+      "Sort the requests: below the head 50, 30, 15 and above it 95, 120, 160.",
+      "SCAN moves down first, all the way to cylinder 0: 80 → 50 → 30 → 15 → 0. That is 30 + 20 + 15 + 15 = 80.",
+      "Then it reverses and sweeps up: 0 → 95 → 120 → 160. That is 95 + 25 + 40 = 160. Total SCAN = 80 + 160 = 240.",
+      "LOOK stops at the last request, 15: 80 → 50 → 30 → 15 is 65. Then up: 15 → 95 → 120 → 160 is 80 + 25 + 40 = 145. Total LOOK = 65 + 145 = 210."
+     ],
+     "answer": "SCAN 240, LOOK 210. The difference is twice the 15 cylinders to the disk end."
+    },
+    {
+     "level": "twist",
+     "setup": "The head is at 50 and the requests are 40, 60, 15. Under SSTF, 40 and 60 are both 10 cylinders away. How much does the tie-break change the total movement?",
+     "steps": [
+      "If SSTF takes 40 first: 50 → 40 costs 10. From 40, the nearest is 60 (distance 20) against 15 (distance 25), so 40 → 60 costs 20. Then 60 → 15 costs 45. Total 75.",
+      "If SSTF takes 60 first: 50 → 60 costs 10. From 60, the nearest is 40 (20), then 40 → 15 costs 25. Total 10 + 20 + 25 = 55.",
+      "The tie changes the total from 55 to 75. A question must state the rule (for example, take the lower cylinder first)."
+     ],
+     "answer": "55 or 75 depending on the tie-break. Read the tie rule before you start."
+    }
+   ],
+   "why": "Disk scheduling is a steady GATE topic, and it is pure arithmetic once you list the stops. In GATE: total head movement for a queue under FCFS, SSTF, SCAN, LOOK or C-LOOK, sometimes with a direction change penalty (2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30).",
+   "how": [
+    "Write the head position, the direction, and the disk range.",
+    "Write the service order for the policy: arrival order (FCFS), nearest next (SSTF), or sorted sweeps (SCAN, LOOK).",
+    "Add the distance between each pair of consecutive stops, including the trip to the disk end for SCAN.",
+    "Check the total by splitting it: distance of the first sweep plus distance of the return."
+   ],
+   "mistake": "Treating SCAN as LOOK. SCAN goes to the end of the disk even when the last request is earlier, and LOOK stops at the last request. A second slip is sorting the queue for SSTF; SSTF picks the nearest from the current position at each step, not from a sorted list.",
+   "edge_cases": [
+    "A request at the cylinder where the head already is costs 0.",
+    "SSTF ties between two equidistant requests need a stated rule.",
+    "If the head is moving toward 0 and the question says SCAN, the end it goes to is 0."
+   ],
+   "connections": [
+    "The disk cards in the file-systems chapter go deeper into SSTF starvation and C-LOOK (see FCFS and SSTF scheduling, SCAN, LOOK and C-LOOK).",
+    "SSTF is SJF for the disk, with the same starvation risk.",
+    "Seek time is one of the three parts of disk access time (see Disk access time)."
+   ],
+   "check": [
+    {
+     "q": "Head at 50, requests 30 and 90 in that order. FCFS head movement?",
+     "a": "50 → 30 is 20, 30 → 90 is 60. Total 80."
+    },
+    {
+     "q": "Head at 100 moving up, disk 0 to 199, requests 120 and 60. SCAN movement?",
+     "a": "100 → 199 is 99, then 199 → 60 is 139. Total 238."
+    },
+    {
+     "q": "What does LOOK change compared with SCAN?",
+     "a": "It reverses at the last request instead of travelling to the disk end."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q63, 2020 CS Q45, 2004 CS Q12, 2009 CS Q31, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48",
+   "try": {
+    "id": "gen.scheduling.012",
+    "label": "Try: total head movement under FCFS (L2)"
+   },
+   "scene": "os.scheduling.disk",
+   "example": {
+    "setup": "A disk has cylinders 0 to 199. The head is at 70 and moves toward higher numbers. The pending requests, in arrival order, are 140, 5, 85, 120, 15, 60. Find the total head movement under FCFS, SSTF, SCAN and LOOK.",
+    "steps": [
+     "Head movement is the sum of the distances between consecutive stops. The head starts at 70. Each row below is one stop.",
+     "FCFS follows arrival order: 70 → 140 → 5 → 85 → 120 → 15 → 60. Distances 70 + 135 + 80 + 35 + 105 + 45 = 470.",
+     "SSTF always goes to the nearest pending request: 70 → 60 → 85 → 120 → 140 → 15 → 5. Distances 10 + 25 + 35 + 20 + 125 + 10 = 225.",
+     "SCAN goes up to the end of the disk, then back down: 70 → 85 → 120 → 140 → 199 → 60 → 15 → 5. Distances 15 + 35 + 20 + 59 + 139 + 45 + 10 = 323.",
+     "LOOK sweeps up only as far as the last request (140), then reverses: 70 → 85 → 120 → 140 → 60 → 15 → 5. Distances 15 + 35 + 20 + 80 + 45 + 10 = 205.",
+     "Totals: FCFS 470, SSTF 225, SCAN 323, LOOK 205. LOOK saved the trip to cylinder 199, and here it even beats SSTF."
+    ],
+    "answer": "FCFS 470, SSTF 225, SCAN 323, LOOK 205 cylinders."
+   },
+   "what": "The disk head moves between **cylinders** to reach pending requests, and moving costs time. A disk scheduler orders the requests to reduce the total **head movement**. FCFS goes in arrival order, SSTF picks the nearest, and SCAN or LOOK sweep one way and back.",
+   "what_full": "The disk head moves between **cylinders** to reach pending requests, and moving costs time. A disk scheduler orders the requests to reduce the total **head movement**. FCFS goes in arrival order, SSTF picks the nearest, and SCAN or LOOK sweep one way and back.\n\nHead movement = sum of |next stop - current stop| over the service order.\n\n**FCFS:** arrival order. Fair, but the head may zigzag.\n\n**SSTF:** from the current position, pick the nearest pending request. Short moves, but far requests can starve.\n\n**SCAN (elevator):** move in one direction to the end of the disk, serving requests on the way, then reverse.\n\n**LOOK:** like SCAN, but reverse at the last request in that direction instead of going to the end.\n\n**C-SCAN / C-LOOK:** sweep one way only; after the last request, jump back to the other end (or the first request) and sweep again.\n\n**Worked example.** A disk has cylinders 0 to 199. The head is at 70 and moves toward higher numbers. The pending requests, in arrival order, are 140, 5, 85, 120, 15, 60. Find the total head movement under FCFS, SSTF, SCAN and LOOK.\n\n1. Head movement is the sum of the distances between consecutive stops. The head starts at 70. Each row below is one stop.\n2. FCFS follows arrival order: 70 → 140 → 5 → 85 → 120 → 15 → 60. Distances 70 + 135 + 80 + 35 + 105 + 45 = 470.\n3. SSTF always goes to the nearest pending request: 70 → 60 → 85 → 120 → 140 → 15 → 5. Distances 10 + 25 + 35 + 20 + 125 + 10 = 225.\n4. SCAN goes up to the end of the disk, then back down: 70 → 85 → 120 → 140 → 199 → 60 → 15 → 5. Distances 15 + 35 + 20 + 59 + 139 + 45 + 10 = 323.\n5. LOOK sweeps up only as far as the last request (140), then reverses: 70 → 85 → 120 → 140 → 60 → 15 → 5. Distances 15 + 35 + 20 + 80 + 45 + 10 = 205.\n6. Totals: FCFS 470, SSTF 225, SCAN 323, LOOK 205. LOOK saved the trip to cylinder 199, and here it even beats SSTF.\n\n**Answer:** FCFS 470, SSTF 225, SCAN 323, LOOK 205 cylinders.",
+   "why_full": "Disk scheduling is a steady GATE topic, and it is pure arithmetic once you list the stops. In GATE: total head movement for a queue under FCFS, SSTF, SCAN, LOOK or C-LOOK, sometimes with a direction change penalty (2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30).\n\nAsked: 2018 CS Q63, 2020 CS Q45, 2004 CS Q12, 2009 CS Q31, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48",
+   "trap": "Treating SCAN as LOOK. SCAN goes to the end of the disk even when the last request is earlier, and LOOK stops at the last request. A second slip is sorting the queue for SSTF; SSTF picks the nearest from the current position at each step, not from a sorted list."
+  },
+  {
+   "atom_id": "c9",
+   "title": "Real-time: rate monotonic",
+   "simple": "Think of three chores: brushing your teeth twice a day, doing homework every day, and cleaning your room once a week. The one you must do most often gets done first when two chores clash, because missing it hurts the most. Rate-monotonic scheduling works like that for computer tasks that repeat on a timer: the task that repeats most often (the shortest period) has the top priority. A new round of a frequent task can interrupt a rarer one in the middle. You then draw the timeline to see when each one finishes. In exam words: RM is fixed-priority preemptive scheduling with priority by shorter period, and you trace releases to find completion times.",
+   "idea": "A **real-time** task repeats at a fixed **period** and must finish its work before the next period begins. **Rate-monotonic** (RM) scheduling gives the shortest period the highest priority and preempts. To find a finish time, trace every release on a timeline.",
+   "definition": "Each periodic task has a period p (time between releases) and an execution time e. The deadline is usually the end of the period.\n\n**RM priority:** shorter period means higher priority, fixed for all time.\n\nAt each instant, run the highest-priority task that has been released and is not finished. A new release of a higher-priority task preempts.\n\n**CPU utilisation** U = sum of e/p.\n\n**Schedulability test (sufficient):** if U ≤ n(2^(1/n) - 1), RM meets all deadlines. For n = 2 the bound is 0.828, for n = 3 it is 0.780, and it tends to 0.693.\n\nPassing the test is enough but failing it is not proof of failure: simulate to decide.",
+   "intuition_full": "RM is priority scheduling where the priority comes from the period. A short period means deadlines come round fast, so that task must be served fast. Because priorities never change, the schedule can be traced with one rule: at every time unit, run the highest-priority task with unfinished work. Preemption happens exactly at the release instants of higher-priority tasks. This is why the timeline has a repeating pattern of high-priority blocks with low-priority pieces filling the gaps. The utilisation bound exists because the worst case is hard to see by hand: as long as U is below the bound, no phasing of releases can break RM. It is also the reason RM is popular: it is simple and predictable. The exam version is almost always a trace.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Three periodic tasks are released together at t = 0 and repeat: A has period 5 and execution time 1, B has period 8 and execution time 2, C has period 20 and execution time 5. Under rate-monotonic scheduling with preemption, when does the first instance of C finish?",
+     "steps": [
+      "Rate monotonic gives the highest priority to the shortest period: A (5) first, then B (8), then C (20). All three are released at t = 0.",
+      "A has the highest priority, so it runs first, from 0 to 1.",
+      "B runs next, from 1 to 3.",
+      "C runs from 3 to 5 (2 of its 5 units done). At t = 5, A is released again and has higher priority, so it preempts C.",
+      "A runs from 5 to 6. Then C resumes from 6 to 8 (4 of 5 done).",
+      "At t = 8, B is released again and preempts C. B runs from 8 to 10.",
+      "At t = 10, A is released and runs from 10 to 11. Then C runs its last unit from 11 to 12 and finishes."
+     ],
+     "answer": "C finishes at t = 12, well before its deadline of 20 (the end of its period)."
+    },
+    {
+     "level": "gate",
+     "setup": "Tasks X (period 6, execution 2), Y (period 9, execution 2), Z (period 18, execution 4), released together at 0. Deadlines equal periods. Does the utilisation test guarantee that rate-monotonic scheduling meets all deadlines? When does Z first finish?",
+     "steps": [
+      "Utilisation U = 2/6 + 2/9 + 4/18 = 0.333 + 0.222 + 0.222 = 0.778.",
+      "The Liu and Layland bound for n tasks is n(2^(1/n) - 1). For n = 3 it is 0.780.",
+      "0.778 ≤ 0.780, so the test guarantees that all deadlines are met.",
+      "Priorities by period: X, then Y, then Z. X runs 0-2, Y runs 2-4, Z runs 4-6 (2 of 4 done).",
+      "X is released at 6 and runs 6-8. Z runs 8-9 (3 of 4 done). At t = 9, Y is released again and preempts: Y runs 9-11.",
+      "Z runs its last unit from 11 to 12. It finishes at t = 12, before its deadline of 18."
+     ],
+     "answer": "Yes, U = 0.778 is under the bound 0.780. Z first finishes at t = 12."
+    },
+    {
+     "level": "twist",
+     "setup": "Two tasks: A (period 4, execution 2) and B (period 8, execution 4), released together. The utilisation is 2/4 + 4/8 = 1.0, which is above the two-task bound of 0.828. Can rate-monotonic scheduling still meet every deadline?",
+     "steps": [
+      "The bound is only a sufficient test. Failing it does not prove that deadlines are missed.",
+      "A has priority (period 4). A runs 0-2, then B runs 2-4.",
+      "At t = 4 A is released again and preempts. A runs 4-6, and B finishes its last 2 units from 6 to 8.",
+      "B finishes exactly at 8, which is its deadline. All deadlines are met, because the periods are harmonic (8 is a multiple of 4)."
+     ],
+     "answer": "Yes. Even at U = 1.0, harmonic periods let RM meet every deadline. Always simulate when the bound fails."
+    }
+   ],
+   "why": "Real-time scheduling is a small but recurring GATE topic. In GATE: assign RM priorities, trace the timeline to find when a task finishes, or apply the utilisation bound (2006 CS Q65, 2014 CS2 Q32, 2015 CS1 Q46, 2003 CS Q77).",
+   "how": [
+    "Sort the tasks by period: shortest period is highest priority.",
+    "List the release times of each task within the horizon you need.",
+    "At each time unit, run the highest-priority task that has been released and has work left. A new higher-priority release preempts.",
+    "Mark each task's completion. Compare with the deadline (end of the period).",
+    "Use U ≤ n(2^(1/n) - 1) as a quick check, but trace when it fails."
+   ],
+   "mistake": "Giving priority to the longer execution time or the later deadline instead of the shorter period. Another slip is missing a preemption: a higher-priority task released while a lower one runs takes the CPU at once.",
+   "edge_cases": [
+    "Tasks released at the same time are ordered by priority: the shortest period runs first.",
+    "A task with a long period can finish after several preemptions, but its deadline is the end of its own period.",
+    "With harmonic periods (each a multiple of the previous), RM can reach U = 1."
+   ],
+   "connections": [
+    "RM is preemptive priority scheduling with a fixed rule for priority (see Priority scheduling).",
+    "Earliest deadline first is the dynamic-priority alternative and can reach U = 1 for any periods.",
+    "Utilisation here is the same sum of fractions as in CPU utilisation with I/O."
+   ],
+   "check": [
+    {
+     "q": "Tasks with periods 4, 10 and 25 ms. Which has the lowest RM priority?",
+     "a": "The 25 ms task, since it has the longest period."
+    },
+    {
+     "q": "Two tasks: (period 4, exec 1) and (period 6, exec 2). Utilisation?",
+     "a": "1/4 + 2/6 = 0.25 + 0.333 = 0.583."
+    },
+    {
+     "q": "Does U above the Liu-Layland bound prove a missed deadline?",
+     "a": "No. The bound is sufficient, not necessary; simulate."
+    }
+   ],
+   "asked": "Asked: 2006 CS Q65, 2014 CS2 Q32, 2015 CS1 Q46, 2003 CS Q77",
+   "try": {
+    "id": "gen.scheduling.011",
+    "label": "Try: which task has the highest rate-monotonic priority (L2)"
+   },
+   "scene": "os.scheduling.rm",
+   "example": {
+    "setup": "Three periodic tasks are released together at t = 0 and repeat: A has period 5 and execution time 1, B has period 8 and execution time 2, C has period 20 and execution time 5. Under rate-monotonic scheduling with preemption, when does the first instance of C finish?",
+    "steps": [
+     "Rate monotonic gives the highest priority to the shortest period: A (5) first, then B (8), then C (20). All three are released at t = 0.",
+     "A has the highest priority, so it runs first, from 0 to 1.",
+     "B runs next, from 1 to 3.",
+     "C runs from 3 to 5 (2 of its 5 units done). At t = 5, A is released again and has higher priority, so it preempts C.",
+     "A runs from 5 to 6. Then C resumes from 6 to 8 (4 of 5 done).",
+     "At t = 8, B is released again and preempts C. B runs from 8 to 10.",
+     "At t = 10, A is released and runs from 10 to 11. Then C runs its last unit from 11 to 12 and finishes."
+    ],
+    "answer": "C finishes at t = 12, well before its deadline of 20 (the end of its period)."
+   },
+   "what": "A **real-time** task repeats at a fixed **period** and must finish its work before the next period begins. **Rate-monotonic** (RM) scheduling gives the shortest period the highest priority and preempts. To find a finish time, trace every release on a timeline.",
+   "what_full": "A **real-time** task repeats at a fixed **period** and must finish its work before the next period begins. **Rate-monotonic** (RM) scheduling gives the shortest period the highest priority and preempts. To find a finish time, trace every release on a timeline.\n\nEach periodic task has a period p (time between releases) and an execution time e. The deadline is usually the end of the period.\n\n**RM priority:** shorter period means higher priority, fixed for all time.\n\nAt each instant, run the highest-priority task that has been released and is not finished. A new release of a higher-priority task preempts.\n\n**CPU utilisation** U = sum of e/p.\n\n**Schedulability test (sufficient):** if U ≤ n(2^(1/n) - 1), RM meets all deadlines. For n = 2 the bound is 0.828, for n = 3 it is 0.780, and it tends to 0.693.\n\nPassing the test is enough but failing it is not proof of failure: simulate to decide.\n\n**Worked example.** Three periodic tasks are released together at t = 0 and repeat: A has period 5 and execution time 1, B has period 8 and execution time 2, C has period 20 and execution time 5. Under rate-monotonic scheduling with preemption, when does the first instance of C finish?\n\n1. Rate monotonic gives the highest priority to the shortest period: A (5) first, then B (8), then C (20). All three are released at t = 0.\n2. A has the highest priority, so it runs first, from 0 to 1.\n3. B runs next, from 1 to 3.\n4. C runs from 3 to 5 (2 of its 5 units done). At t = 5, A is released again and has higher priority, so it preempts C.\n5. A runs from 5 to 6. Then C resumes from 6 to 8 (4 of 5 done).\n6. At t = 8, B is released again and preempts C. B runs from 8 to 10.\n7. At t = 10, A is released and runs from 10 to 11. Then C runs its last unit from 11 to 12 and finishes.\n\n**Answer:** C finishes at t = 12, well before its deadline of 20 (the end of its period).",
+   "why_full": "Real-time scheduling is a small but recurring GATE topic. In GATE: assign RM priorities, trace the timeline to find when a task finishes, or apply the utilisation bound (2006 CS Q65, 2014 CS2 Q32, 2015 CS1 Q46, 2003 CS Q77).\n\nAsked: 2006 CS Q65, 2014 CS2 Q32, 2015 CS1 Q46, 2003 CS Q77",
+   "trap": "Giving priority to the longer execution time or the later deadline instead of the shorter period. Another slip is missing a preemption: a higher-priority task released while a lower one runs takes the CPU at once."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "os.scheduling.times",
+   "title": "Response, turnaround and waiting from a timeline",
+   "viewBox": [
+    0,
+    0,
+    360,
+    230
+   ],
+   "objects": [
+    {
+     "id": "tt",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "P: arrives at 2, burst 5",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "array",
+     "x": 24,
+     "y": 78,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 24,
+     "ch": 30,
+     "indices": true
+    },
+    {
+     "id": "pa",
+     "kind": "pointer",
+     "array": "g",
+     "index": 2,
+     "label": "P arrives",
+     "side": "above"
+    },
+    {
+     "id": "pf",
+     "kind": "pointer",
+     "array": "g",
+     "index": 6,
+     "label": "first CPU 6",
+     "side": "below"
+    },
+    {
+     "id": "pd",
+     "kind": "pointer",
+     "array": "g",
+     "index": 12,
+     "label": "done 13",
+     "side": "below"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "P arrives at t = 2. Q is already running until 6, so P waits in the ready queue.",
+     "show": [
+      "pa"
+     ],
+     "hide": [
+      "pf",
+      "pd"
+     ],
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "arrival = 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "P first gets the CPU at t = 6. Response time = first CPU time - arrival time = 6 - 2 = 4.",
+     "show": [
+      "pf"
+     ],
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "P",
+        "P",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "response = 6 - 2 = 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        6,
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P runs from 6 to 8, then R takes the CPU from 8 to 10. P is preempted and waits again.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "P",
+        "P",
+        "R",
+        "R",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        8,
+        9
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "P runs from 10 to 13 and finishes. Completion time = 13.",
+     "show": [
+      "pd"
+     ],
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "Q",
+        "P",
+        "P",
+        "R",
+        "R",
+        "P",
+        "P",
+        "P"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "completion = 13"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        10,
+        11,
+        12
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Turnaround time = completion - arrival = 13 - 2 = 11.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "turnaround = 13 - 2 = 11"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Waiting time = turnaround - burst = 11 - 5 = 6. Check by counting: P sat in the queue from 2 to 6 (4 ms) and from 8 to 10 (2 ms), which is 6.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "waiting = 11 - 5 = 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2,
+        3,
+        4,
+        5,
+        8,
+        9
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.scheduling.fcfs",
+   "title": "FCFS Gantt chart and the convoy effect",
+   "viewBox": [
+    0,
+    0,
+    360,
+    254
+   ],
+   "objects": [
+    {
+     "id": "tbl",
+     "kind": "grid",
+     "x": 112,
+     "y": 34,
+     "rows": 4,
+     "cols": 4,
+     "cw": 46,
+     "ch": 24,
+     "cells": [
+      [
+       0,
+       8,
+       "",
+       ""
+      ],
+      [
+       1,
+       2,
+       "",
+       ""
+      ],
+      [
+       2,
+       1,
+       "",
+       ""
+      ],
+      [
+       3,
+       3,
+       "",
+       ""
+      ]
+     ],
+     "colLabels": [
+      "AT",
+      "BT",
+      "WT",
+      "TAT"
+     ],
+     "rowLabels": [
+      "P1",
+      "P2",
+      "P3",
+      "P4"
+     ]
+    },
+    {
+     "id": "g",
+     "kind": "array",
+     "x": 12,
+     "y": 168,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 24,
+     "ch": 28,
+     "indices": true
+    },
+    {
+     "id": "avg",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "FCFS serves the queue in order of arrival and never preempts. The table lists arrival (AT) and burst (BT).",
+     "set": [
+      {
+       "id": "avg",
+       "text": "FCFS: arrival order"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "P1 arrives first and runs from 0 to 8. Waiting 0 - 0 = 0. Turnaround 8 - 0 = 8.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         8,
+         0,
+         8
+        ],
+        [
+         1,
+         2,
+         "",
+         ""
+        ],
+        [
+         2,
+         1,
+         "",
+         ""
+        ],
+        [
+         3,
+         3,
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "avg",
+       "text": "P1: WT 0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P2 runs from 8 to 10. It arrived at 1, so waiting = 8 - 1 = 7. Turnaround = 10 - 1 = 9.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         8,
+         0,
+         8
+        ],
+        [
+         1,
+         2,
+         7,
+         9
+        ],
+        [
+         2,
+         1,
+         "",
+         ""
+        ],
+        [
+         3,
+         3,
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "avg",
+       "text": "P2: WT 8 - 1 = 7"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        8,
+        9
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P3 runs from 10 to 11. Waiting = 10 - 2 = 8. Turnaround = 11 - 2 = 9.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         8,
+         0,
+         8
+        ],
+        [
+         1,
+         2,
+         7,
+         9
+        ],
+        [
+         2,
+         1,
+         8,
+         9
+        ],
+        [
+         3,
+         3,
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "avg",
+       "text": "P3: WT 10 - 2 = 8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        10
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P4 runs from 11 to 14. Waiting = 11 - 3 = 8. Turnaround = 14 - 3 = 11.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "P4",
+        "P4",
+        "P4"
+       ]
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         8,
+         0,
+         8
+        ],
+        [
+         1,
+         2,
+         7,
+         9
+        ],
+        [
+         2,
+         1,
+         8,
+         9
+        ],
+        [
+         3,
+         3,
+         8,
+         11
+        ]
+       ]
+      },
+      {
+       "id": "avg",
+       "text": "P4: WT 11 - 3 = 8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        11,
+        12,
+        13
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         3,
+         2
+        ],
+        [
+         3,
+         3
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Average waiting = (0 + 7 + 8 + 8) / 4 = 23 / 4 = 5.75. Average turnaround = (8 + 9 + 9 + 11) / 4 = 9.25.",
+     "set": [
+      {
+       "id": "avg",
+       "text": "avg WT 23/4 = 5.75   avg TAT 9.25"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         2
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Three short jobs of 1 to 3 ms each waited 7 to 8 ms behind the one long job. This is the convoy effect.",
+     "set": [
+      {
+       "id": "avg",
+       "text": "convoy: short jobs wait 7-8 ms",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         2
+        ]
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.scheduling.srtf",
+   "title": "SRTF: preempting for a shorter remaining time",
+   "viewBox": [
+    0,
+    0,
+    360,
+    254
+   ],
+   "objects": [
+    {
+     "id": "tbl",
+     "kind": "grid",
+     "x": 130,
+     "y": 34,
+     "rows": 4,
+     "cols": 3,
+     "cw": 46,
+     "ch": 24,
+     "cells": [
+      [
+       0,
+       7,
+       ""
+      ],
+      [
+       2,
+       4,
+       ""
+      ],
+      [
+       4,
+       1,
+       ""
+      ],
+      [
+       5,
+       4,
+       ""
+      ]
+     ],
+     "colLabels": [
+      "AT",
+      "BT",
+      "WT"
+     ],
+     "rowLabels": [
+      "P1",
+      "P2",
+      "P3",
+      "P4"
+     ]
+    },
+    {
+     "id": "g",
+     "kind": "array",
+     "x": 12,
+     "y": 168,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 21,
+     "ch": 28,
+     "indices": true
+    },
+    {
+     "id": "rem",
+     "kind": "text",
+     "x": 180,
+     "y": 234,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "At t = 0 only P1 is here, so it runs. At t = 2 it has 7 - 2 = 5 left.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rem",
+       "text": "t=2: P1 has 5 left"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P2 arrives at 2 with burst 4, which is less than P1's 5 left. P1 is preempted and P2 runs from 2 to 4 (2 left).",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rem",
+       "text": "P2 (4) < 5: preempt. P2 has 2 left"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2,
+        3
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "P3 arrives at 4 with burst 1, less than P2's 2 left. P3 runs from 4 to 5 and finishes.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rem",
+       "text": "P3 (1) < 2: preempt. P3 done at 5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        4
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 5, P4 has arrived (4). Remaining: P1 has 5, P2 has 2, P4 has 4. The shortest is P2, which runs from 5 to 7 and finishes.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "P2",
+        "P2",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rem",
+       "text": "left: P1 5, P2 2, P4 4: run P2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        5,
+        6
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 7 the choice is P4 (4) or P1 (5). P4 is shorter and runs from 7 to 11.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "P2",
+        "P2",
+        "P4",
+        "P4",
+        "P4",
+        "P4",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rem",
+       "text": "P4 (4) < P1 (5): run P4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        7,
+        8,
+        9,
+        10
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Only P1 is left. It runs from 11 to 16.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "P2",
+        "P2",
+        "P4",
+        "P4",
+        "P4",
+        "P4",
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P1"
+       ]
+      },
+      {
+       "id": "rem",
+       "text": "P1 finishes at 16"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        11,
+        12,
+        13,
+        14,
+        15
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Waiting = completion - arrival - burst: P1 16 - 0 - 7 = 9, P2 7 - 2 - 4 = 1, P3 5 - 4 - 1 = 0, P4 11 - 5 - 4 = 2. Average = 12 / 4 = 3.",
+     "set": [
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         7,
+         9
+        ],
+        [
+         2,
+         4,
+         1
+        ],
+        [
+         4,
+         1,
+         0
+        ],
+        [
+         5,
+         4,
+         2
+        ]
+       ]
+      },
+      {
+       "id": "rem",
+       "text": "avg WT = 12/4 = 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         2
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.scheduling.rr",
+   "title": "Round robin with quantum 4",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "info",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "quantum = 4   P1 (0,7)  P2 (1,3)  P3 (2,5)",
+     "size": 12,
+     "mono": true,
+     "tone": "muted"
+    },
+    {
+     "id": "q",
+     "kind": "array",
+     "x": 96,
+     "y": 62,
+     "cells": [],
+     "cw": 56,
+     "ch": 34,
+     "slots": 3,
+     "label": "ready queue (front on the left)"
+    },
+    {
+     "id": "g",
+     "kind": "array",
+     "x": 15,
+     "y": 140,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 22,
+     "ch": 28,
+     "indices": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 222,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "At t = 0, P1 is the only process, so it runs for one quantum, 0 to 4. P2 (arrived at 1) and P3 (arrived at 2) join the ready queue while it runs.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "res",
+       "text": "P1 runs 0-4, 3 left"
+      }
+     ],
+     "push": [
+      {
+       "id": "q",
+       "value": "P2"
+      },
+      {
+       "id": "q",
+       "value": "P3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 4 P1 has 3 left. It goes to the back of the queue, behind P2 and P3. The queue is P2, P3, P1.",
+     "push": [
+      {
+       "id": "q",
+       "value": "P1"
+      }
+     ],
+     "set": [
+      {
+       "id": "res",
+       "text": "P1 goes behind P2, P3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "q",
+       "cells": [
+        2
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "P2 runs from 4 to 7. Its burst is 3, shorter than the quantum, so it finishes at 7.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P2",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "res",
+       "text": "P2 runs 4-7, done"
+      }
+     ],
+     "pop": [
+      {
+       "id": "q",
+       "end": "front"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        4,
+        5,
+        6
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P3 runs from 7 to 11, a full quantum. It has 1 left and goes to the back. The queue is P1, P3.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P2",
+        "P3",
+        "P3",
+        "P3",
+        "P3",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "res",
+       "text": "P3 runs 7-11, 1 left"
+      }
+     ],
+     "pop": [
+      {
+       "id": "q",
+       "end": "front"
+      }
+     ],
+     "push": [
+      {
+       "id": "q",
+       "value": "P3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        7,
+        8,
+        9,
+        10
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P1 runs from 11 to 14 and finishes, since it needed only 3 more. The queue is P3.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P2",
+        "P3",
+        "P3",
+        "P3",
+        "P3",
+        "P1",
+        "P1",
+        "P1",
+        ""
+       ]
+      },
+      {
+       "id": "res",
+       "text": "P1 runs 11-14, done"
+      }
+     ],
+     "pop": [
+      {
+       "id": "q",
+       "end": "front"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        11,
+        12,
+        13
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P3 runs from 14 to 15 and finishes. The queue is empty.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P2",
+        "P3",
+        "P3",
+        "P3",
+        "P3",
+        "P1",
+        "P1",
+        "P1",
+        "P3"
+       ]
+      },
+      {
+       "id": "res",
+       "text": "P3 runs 14-15, done"
+      }
+     ],
+     "pop": [
+      {
+       "id": "q",
+       "end": "front"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        14
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Completion: P1 14, P2 7, P3 15. Waiting = completion - arrival - burst: P1 14 - 0 - 7 = 7, P2 7 - 1 - 3 = 3, P3 15 - 2 - 5 = 8. Average = 18 / 3 = 6.",
+     "set": [
+      {
+       "id": "res",
+       "text": "WT: P1 7, P2 3, P3 8   avg 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.scheduling.priority",
+   "title": "Preemptive priority scheduling",
+   "viewBox": [
+    0,
+    0,
+    360,
+    254
+   ],
+   "objects": [
+    {
+     "id": "tbl",
+     "kind": "grid",
+     "x": 112,
+     "y": 34,
+     "rows": 4,
+     "cols": 4,
+     "cw": 46,
+     "ch": 24,
+     "cells": [
+      [
+       0,
+       5,
+       4,
+       ""
+      ],
+      [
+       2,
+       1,
+       2,
+       ""
+      ],
+      [
+       2,
+       5,
+       5,
+       ""
+      ],
+      [
+       5,
+       3,
+       1,
+       ""
+      ]
+     ],
+     "colLabels": [
+      "AT",
+      "BT",
+      "PR",
+      "WT"
+     ],
+     "rowLabels": [
+      "P1",
+      "P2",
+      "P3",
+      "P4"
+     ]
+    },
+    {
+     "id": "g",
+     "kind": "array",
+     "x": 12,
+     "y": 168,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 24,
+     "ch": 28,
+     "indices": true
+    },
+    {
+     "id": "msg",
+     "kind": "text",
+     "x": 180,
+     "y": 236,
+     "text": "lower number = higher priority",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "At t = 0 only P1 is present, so it runs from 0 to 2.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "t=0: only P1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 2, P2 (priority 2) and P3 (priority 5) arrive. P2 has a better priority than P1 (4), so P1 is preempted. P2 runs from 2 to 3 and finishes.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "t=2: P2 (pr 2) beats P1 (pr 4)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         1,
+         2
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 3 the ready jobs are P1 (3 left, priority 4) and P3 (priority 5). P1 has the better priority and runs from 3 to 5.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P1",
+        "P1",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "t=3: P1 (4) beats P3 (5)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        3,
+        4
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 5, P4 arrives with priority 1, the best of all. It preempts P1 (1 left) and runs from 5 to 8.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P1",
+        "P1",
+        "P4",
+        "P4",
+        "P4",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "t=5: P4 (pr 1) preempts P1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        5,
+        6,
+        7
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         3,
+         2
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 8, P1 (priority 4) beats P3 (priority 5). P1 runs from 8 to 9 and finishes.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P1",
+        "P1",
+        "P4",
+        "P4",
+        "P4",
+        "P1",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "t=8: P1 finishes at 9"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        8
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Only P3 is left. It runs from 9 to 14.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P1",
+        "P1",
+        "P4",
+        "P4",
+        "P4",
+        "P1",
+        "P3",
+        "P3",
+        "P3",
+        "P3",
+        "P3"
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "t=9: only P3 left"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        9,
+        10,
+        11,
+        12,
+        13
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Waiting = completion - arrival - burst: P1 9 - 0 - 5 = 4, P2 3 - 2 - 1 = 0, P3 14 - 2 - 5 = 7, P4 8 - 5 - 3 = 0. Average = 11 / 4 = 2.75. The lowest-priority process, P3, waited the longest.",
+     "set": [
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         5,
+         4,
+         4
+        ],
+        [
+         2,
+         1,
+         2,
+         0
+        ],
+        [
+         2,
+         5,
+         5,
+         7
+        ],
+        [
+         5,
+         3,
+         1,
+         0
+        ]
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "avg WT = 11/4 = 2.75"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tbl",
+       "cells": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         3
+        ],
+        [
+         3,
+         3
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.scheduling.starvation",
+   "title": "Starvation without aging, and aging",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "arr",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "S1@0  S2@2  S3@4  S4@6  (burst 2, pr 1)",
+     "size": 12,
+     "mono": true,
+     "tone": "muted"
+    },
+    {
+     "id": "g1",
+     "kind": "array",
+     "x": 26,
+     "y": 64,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 28,
+     "ch": 28,
+     "indices": true,
+     "label": "no aging"
+    },
+    {
+     "id": "g2",
+     "kind": "array",
+     "x": 26,
+     "y": 142,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 28,
+     "ch": 28,
+     "indices": true,
+     "label": "aging: L priority 5 - ms waited"
+    },
+    {
+     "id": "pr",
+     "kind": "text",
+     "x": 180,
+     "y": 228,
+     "text": "L: burst 3, priority 5",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "L is a long, low-priority job. Short jobs of priority 1 keep arriving: S1 at 0, S2 at 2, S3 at 4, S4 at 6.",
+     "set": [
+      {
+       "id": "pr",
+       "text": "L: burst 3, priority 5"
+      }
+     ]
+    },
+    {
+     "caption": "Without aging, every pick goes to a priority-1 job, because 1 beats 5. S1 runs 0-2, S2 runs 2-4, S3 runs 4-6, S4 runs 6-8.",
+     "set": [
+      {
+       "id": "g1",
+       "cells": [
+        "S1",
+        "S1",
+        "S2",
+        "S2",
+        "S3",
+        "S3",
+        "S4",
+        "S4",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "pr",
+       "text": "priority 1 beats 5 every time"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g1",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "L finally runs from 8 to 11. It waited 8 ms while four later jobs overtook it. If shorts kept coming, L would never run.",
+     "set": [
+      {
+       "id": "g1",
+       "cells": [
+        "S1",
+        "S1",
+        "S2",
+        "S2",
+        "S3",
+        "S3",
+        "S4",
+        "S4",
+        "L",
+        "L",
+        "L"
+       ]
+      },
+      {
+       "id": "pr",
+       "text": "no aging: L waits 8 ms",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g1",
+       "cells": [
+        8,
+        9,
+        10
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "With aging, L's number falls: 5 at t = 0, 3 at t = 2. Priority 3 still loses to priority 1, so S1 (0-2) and S2 (2-4) run first.",
+     "set": [
+      {
+       "id": "g2",
+       "cells": [
+        "S1",
+        "S1",
+        "S2",
+        "S2",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "pr",
+       "text": "aging: L is 3 at t=2, still loses"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g2",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 4, L's priority has fallen to 1, equal to S3's. The tie goes to the earlier arrival, L, so L runs 4 to 7.",
+     "set": [
+      {
+       "id": "g2",
+       "cells": [
+        "S1",
+        "S1",
+        "S2",
+        "S2",
+        "L",
+        "L",
+        "L",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "pr",
+       "text": "t=4: L is 1, ties S3, earlier arrival wins",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g2",
+       "cells": [
+        4,
+        5,
+        6
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "S3 then runs 7-9 and S4 runs 9-11. L waited 4 ms instead of 8. The waiting is now bounded, so L cannot starve.",
+     "set": [
+      {
+       "id": "g2",
+       "cells": [
+        "S1",
+        "S1",
+        "S2",
+        "S2",
+        "L",
+        "L",
+        "L",
+        "S3",
+        "S3",
+        "S4",
+        "S4"
+       ]
+      },
+      {
+       "id": "pr",
+       "text": "aging: L waits 4 ms",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g2",
+       "cells": [
+        7,
+        8,
+        9,
+        10
+       ],
+       "tone": "mid"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.scheduling.util",
+   "title": "Overlapping I/O raises CPU utilisation",
+   "viewBox": [
+    0,
+    0,
+    360,
+    246
+   ],
+   "objects": [
+    {
+     "id": "ttl",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "each process: 2 ms CPU, 8 ms I/O",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "array",
+     "x": 30,
+     "y": 62,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 30,
+     "ch": 30,
+     "indices": true,
+     "label": "CPU busy in a 10 ms cycle"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 140,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "ut",
+     "kind": "bar",
+     "x": 140,
+     "y": 180,
+     "values": [
+      20
+     ],
+     "labels": [
+      "CPU %"
+     ],
+     "w": 80,
+     "h": 40,
+     "max": 100
+    }
+   ],
+   "steps": [
+    {
+     "caption": "One process: it uses the CPU for 2 ms in every 2 + 8 = 10 ms cycle. Utilisation = 2 / 10 = 20%.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "1 x 2/10 = 20%"
+      },
+      {
+       "id": "ut",
+       "values": [
+        20
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A second process can use the CPU while the first is doing I/O. Two processes use 2 + 2 = 4 ms of every 10. Utilisation = 40%.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "2 x 2/10 = 40%"
+      },
+      {
+       "id": "ut",
+       "values": [
+        40
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2,
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A third process fills the next 2 ms. Utilisation = 6 / 10 = 60%.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "P3",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "3 x 2/10 = 60%"
+      },
+      {
+       "id": "ut",
+       "values": [
+        60
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        4,
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A fourth process: 8 / 10 = 80%.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "P3",
+        "P4",
+        "P4",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "4 x 2/10 = 80%"
+      },
+      {
+       "id": "ut",
+       "values": [
+        80
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        6,
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A fifth process: 10 / 10 = 100%. The first process's I/O ends exactly when the fifth finishes its CPU burst, so the CPU never idles.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "P1",
+        "P1",
+        "P2",
+        "P2",
+        "P3",
+        "P3",
+        "P4",
+        "P4",
+        "P5",
+        "P5"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "5 x 2/10 = 100%"
+      },
+      {
+       "id": "ut",
+       "values": [
+        100
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        8,
+        9
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A sixth process adds nothing: the CPU is already full. Utilisation = min(1, n × 2 / 10) = min(1, 1.2) = 100%.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "6 x 2/10 > 1, so 100%"
+      },
+      {
+       "id": "ut",
+       "values": [
+        100
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.scheduling.disk",
+   "title": "Head movement under four disk policies",
+   "viewBox": [
+    0,
+    0,
+    360,
+    282
+   ],
+   "objects": [
+    {
+     "id": "z0",
+     "kind": "text",
+     "x": 24,
+     "y": 16,
+     "text": "0",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "z1",
+     "kind": "text",
+     "x": 336,
+     "y": 16,
+     "text": "199",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "zt",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "cylinder",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 268,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "fn0",
+     "kind": "node",
+     "x": 133.7,
+     "y": 46,
+     "label": "70",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "fn1",
+     "kind": "node",
+     "x": 243.5,
+     "y": 73,
+     "label": "140",
+     "r": 13
+    },
+    {
+     "id": "fa1",
+     "kind": "arrow",
+     "from": "fn0",
+     "to": "fn1"
+    },
+    {
+     "id": "fn2",
+     "kind": "node",
+     "x": 31.8,
+     "y": 100,
+     "label": "5",
+     "r": 13
+    },
+    {
+     "id": "fa2",
+     "kind": "arrow",
+     "from": "fn1",
+     "to": "fn2"
+    },
+    {
+     "id": "fn3",
+     "kind": "node",
+     "x": 157.3,
+     "y": 127,
+     "label": "85",
+     "r": 13
+    },
+    {
+     "id": "fa3",
+     "kind": "arrow",
+     "from": "fn2",
+     "to": "fn3"
+    },
+    {
+     "id": "fn4",
+     "kind": "node",
+     "x": 212.1,
+     "y": 154,
+     "label": "120",
+     "r": 13
+    },
+    {
+     "id": "fa4",
+     "kind": "arrow",
+     "from": "fn3",
+     "to": "fn4"
+    },
+    {
+     "id": "fn5",
+     "kind": "node",
+     "x": 47.5,
+     "y": 181,
+     "label": "15",
+     "r": 13
+    },
+    {
+     "id": "fa5",
+     "kind": "arrow",
+     "from": "fn4",
+     "to": "fn5"
+    },
+    {
+     "id": "fn6",
+     "kind": "node",
+     "x": 118.1,
+     "y": 208,
+     "label": "60",
+     "r": 13
+    },
+    {
+     "id": "fa6",
+     "kind": "arrow",
+     "from": "fn5",
+     "to": "fn6"
+    },
+    {
+     "id": "sn0",
+     "kind": "node",
+     "x": 133.7,
+     "y": 46,
+     "label": "70",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "sn1",
+     "kind": "node",
+     "x": 118.1,
+     "y": 73,
+     "label": "60",
+     "r": 13
+    },
+    {
+     "id": "sa1",
+     "kind": "arrow",
+     "from": "sn0",
+     "to": "sn1"
+    },
+    {
+     "id": "sn2",
+     "kind": "node",
+     "x": 157.3,
+     "y": 100,
+     "label": "85",
+     "r": 13
+    },
+    {
+     "id": "sa2",
+     "kind": "arrow",
+     "from": "sn1",
+     "to": "sn2"
+    },
+    {
+     "id": "sn3",
+     "kind": "node",
+     "x": 212.1,
+     "y": 127,
+     "label": "120",
+     "r": 13
+    },
+    {
+     "id": "sa3",
+     "kind": "arrow",
+     "from": "sn2",
+     "to": "sn3"
+    },
+    {
+     "id": "sn4",
+     "kind": "node",
+     "x": 243.5,
+     "y": 154,
+     "label": "140",
+     "r": 13
+    },
+    {
+     "id": "sa4",
+     "kind": "arrow",
+     "from": "sn3",
+     "to": "sn4"
+    },
+    {
+     "id": "sn5",
+     "kind": "node",
+     "x": 47.5,
+     "y": 181,
+     "label": "15",
+     "r": 13
+    },
+    {
+     "id": "sa5",
+     "kind": "arrow",
+     "from": "sn4",
+     "to": "sn5"
+    },
+    {
+     "id": "sn6",
+     "kind": "node",
+     "x": 31.8,
+     "y": 208,
+     "label": "5",
+     "r": 13
+    },
+    {
+     "id": "sa6",
+     "kind": "arrow",
+     "from": "sn5",
+     "to": "sn6"
+    },
+    {
+     "id": "cn0",
+     "kind": "node",
+     "x": 133.7,
+     "y": 46,
+     "label": "70",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "cn1",
+     "kind": "node",
+     "x": 157.3,
+     "y": 73,
+     "label": "85",
+     "r": 13
+    },
+    {
+     "id": "ca1",
+     "kind": "arrow",
+     "from": "cn0",
+     "to": "cn1"
+    },
+    {
+     "id": "cn2",
+     "kind": "node",
+     "x": 212.1,
+     "y": 100,
+     "label": "120",
+     "r": 13
+    },
+    {
+     "id": "ca2",
+     "kind": "arrow",
+     "from": "cn1",
+     "to": "cn2"
+    },
+    {
+     "id": "cn3",
+     "kind": "node",
+     "x": 243.5,
+     "y": 127,
+     "label": "140",
+     "r": 13
+    },
+    {
+     "id": "ca3",
+     "kind": "arrow",
+     "from": "cn2",
+     "to": "cn3"
+    },
+    {
+     "id": "cn4",
+     "kind": "node",
+     "x": 336.0,
+     "y": 154,
+     "label": "199",
+     "r": 13,
+     "tone": "muted"
+    },
+    {
+     "id": "ca4",
+     "kind": "arrow",
+     "from": "cn3",
+     "to": "cn4"
+    },
+    {
+     "id": "cn5",
+     "kind": "node",
+     "x": 118.1,
+     "y": 181,
+     "label": "60",
+     "r": 13
+    },
+    {
+     "id": "ca5",
+     "kind": "arrow",
+     "from": "cn4",
+     "to": "cn5"
+    },
+    {
+     "id": "cn6",
+     "kind": "node",
+     "x": 47.5,
+     "y": 208,
+     "label": "15",
+     "r": 13
+    },
+    {
+     "id": "ca6",
+     "kind": "arrow",
+     "from": "cn5",
+     "to": "cn6"
+    },
+    {
+     "id": "cn7",
+     "kind": "node",
+     "x": 31.8,
+     "y": 235,
+     "label": "5",
+     "r": 13
+    },
+    {
+     "id": "ca7",
+     "kind": "arrow",
+     "from": "cn6",
+     "to": "cn7"
+    },
+    {
+     "id": "ln0",
+     "kind": "node",
+     "x": 133.7,
+     "y": 46,
+     "label": "70",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "ln1",
+     "kind": "node",
+     "x": 157.3,
+     "y": 73,
+     "label": "85",
+     "r": 13
+    },
+    {
+     "id": "la1",
+     "kind": "arrow",
+     "from": "ln0",
+     "to": "ln1"
+    },
+    {
+     "id": "ln2",
+     "kind": "node",
+     "x": 212.1,
+     "y": 100,
+     "label": "120",
+     "r": 13
+    },
+    {
+     "id": "la2",
+     "kind": "arrow",
+     "from": "ln1",
+     "to": "ln2"
+    },
+    {
+     "id": "ln3",
+     "kind": "node",
+     "x": 243.5,
+     "y": 127,
+     "label": "140",
+     "r": 13
+    },
+    {
+     "id": "la3",
+     "kind": "arrow",
+     "from": "ln2",
+     "to": "ln3"
+    },
+    {
+     "id": "ln4",
+     "kind": "node",
+     "x": 118.1,
+     "y": 154,
+     "label": "60",
+     "r": 13
+    },
+    {
+     "id": "la4",
+     "kind": "arrow",
+     "from": "ln3",
+     "to": "ln4"
+    },
+    {
+     "id": "ln5",
+     "kind": "node",
+     "x": 47.5,
+     "y": 181,
+     "label": "15",
+     "r": 13
+    },
+    {
+     "id": "la5",
+     "kind": "arrow",
+     "from": "ln4",
+     "to": "ln5"
+    },
+    {
+     "id": "ln6",
+     "kind": "node",
+     "x": 31.8,
+     "y": 208,
+     "label": "5",
+     "r": 13
+    },
+    {
+     "id": "la6",
+     "kind": "arrow",
+     "from": "ln5",
+     "to": "ln6"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Head movement is the sum of the distances between consecutive stops. The head starts at 70. Each row below is one stop.",
+     "show": [
+      "z0",
+      "z1",
+      "zt",
+      "fn0"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "queue: 140 5 85 120 15 60"
+      }
+     ],
+     "highlight": [
+      "fn0"
+     ]
+    },
+    {
+     "caption": "FCFS follows arrival order: 70 → 140 → 5 → 85 → 120 → 15 → 60. Distances 70 + 135 + 80 + 35 + 105 + 45 = 470.",
+     "show": [
+      "fn1",
+      "fn2",
+      "fn3",
+      "fn4",
+      "fn5",
+      "fn6"
+     ],
+     "draw": [
+      "fa1",
+      "fa2",
+      "fa3",
+      "fa4",
+      "fa5",
+      "fa6"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "FCFS: 470"
+      }
+     ]
+    },
+    {
+     "caption": "SSTF always goes to the nearest pending request: 70 → 60 → 85 → 120 → 140 → 15 → 5. Distances 10 + 25 + 35 + 20 + 125 + 10 = 225.",
+     "hide": [
+      "fn0",
+      "fn1",
+      "fn2",
+      "fn3",
+      "fn4",
+      "fn5",
+      "fn6",
+      "fa1",
+      "fa2",
+      "fa3",
+      "fa4",
+      "fa5",
+      "fa6"
+     ],
+     "show": [
+      "sn0",
+      "sn1",
+      "sn2",
+      "sn3",
+      "sn4",
+      "sn5",
+      "sn6"
+     ],
+     "draw": [
+      "sa1",
+      "sa2",
+      "sa3",
+      "sa4",
+      "sa5",
+      "sa6"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "SSTF: 225"
+      }
+     ]
+    },
+    {
+     "caption": "SCAN goes up to the end of the disk, then back down: 70 → 85 → 120 → 140 → 199 → 60 → 15 → 5. Distances 15 + 35 + 20 + 59 + 139 + 45 + 10 = 323.",
+     "hide": [
+      "sn0",
+      "sn1",
+      "sn2",
+      "sn3",
+      "sn4",
+      "sn5",
+      "sn6",
+      "sa1",
+      "sa2",
+      "sa3",
+      "sa4",
+      "sa5",
+      "sa6"
+     ],
+     "show": [
+      "cn0",
+      "cn1",
+      "cn2",
+      "cn3",
+      "cn4",
+      "cn5",
+      "cn6",
+      "cn7"
+     ],
+     "draw": [
+      "ca1",
+      "ca2",
+      "ca3",
+      "ca4",
+      "ca5",
+      "ca6",
+      "ca7"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "SCAN: 323 (goes to 199)"
+      }
+     ]
+    },
+    {
+     "caption": "LOOK sweeps up only as far as the last request (140), then reverses: 70 → 85 → 120 → 140 → 60 → 15 → 5. Distances 15 + 35 + 20 + 80 + 45 + 10 = 205.",
+     "hide": [
+      "cn0",
+      "cn1",
+      "cn2",
+      "cn3",
+      "cn4",
+      "cn5",
+      "cn6",
+      "cn7",
+      "ca1",
+      "ca2",
+      "ca3",
+      "ca4",
+      "ca5",
+      "ca6",
+      "ca7"
+     ],
+     "show": [
+      "ln0",
+      "ln1",
+      "ln2",
+      "ln3",
+      "ln4",
+      "ln5",
+      "ln6"
+     ],
+     "draw": [
+      "la1",
+      "la2",
+      "la3",
+      "la4",
+      "la5",
+      "la6"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "LOOK: 205 (turns at 140)"
+      }
+     ]
+    },
+    {
+     "caption": "Totals: FCFS 470, SSTF 225, SCAN 323, LOOK 205. LOOK saved the trip to cylinder 199, and here it even beats SSTF.",
+     "set": [
+      {
+       "id": "tot",
+       "text": "FCFS 470  SSTF 225  SCAN 323  LOOK 205",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "ln0"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.scheduling.rm",
+   "title": "Rate-monotonic schedule with preemption",
+   "viewBox": [
+    0,
+    0,
+    360,
+    230
+   ],
+   "objects": [
+    {
+     "id": "tk",
+     "kind": "text",
+     "x": 180,
+     "y": 34,
+     "text": "A: period 5, exec 1\nB: period 8, exec 2\nC: period 20, exec 5",
+     "size": 12,
+     "mono": true,
+     "tone": "muted"
+    },
+    {
+     "id": "g",
+     "kind": "array",
+     "x": 24,
+     "y": 112,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 26,
+     "ch": 30,
+     "indices": true
+    },
+    {
+     "id": "rA1",
+     "kind": "pointer",
+     "array": "g",
+     "index": 5,
+     "label": "A again",
+     "side": "above"
+    },
+    {
+     "id": "rB1",
+     "kind": "pointer",
+     "array": "g",
+     "index": 8,
+     "label": "B again",
+     "side": "above"
+    },
+    {
+     "id": "rA2",
+     "kind": "pointer",
+     "array": "g",
+     "index": 10,
+     "label": "A",
+     "side": "below"
+    },
+    {
+     "id": "msg",
+     "kind": "text",
+     "x": 180,
+     "y": 204,
+     "text": "priority: A > B > C",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Rate monotonic gives the highest priority to the shortest period: A (5) first, then B (8), then C (20). All three are released at t = 0.",
+     "hide": [
+      "rA1",
+      "rB1",
+      "rA2"
+     ],
+     "set": [
+      {
+       "id": "msg",
+       "text": "shorter period = higher priority"
+      }
+     ]
+    },
+    {
+     "caption": "A has the highest priority, so it runs first, from 0 to 1.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "A",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "t=0: A runs"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "B runs next, from 1 to 3.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "A",
+        "B",
+        "B",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "B runs 1-3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        1,
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "C runs from 3 to 5 (2 of its 5 units done). At t = 5, A is released again and has higher priority, so it preempts C.",
+     "show": [
+      "rA1"
+     ],
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "A",
+        "B",
+        "B",
+        "C",
+        "C",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "C runs 3-5, A released at 5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        3,
+        4
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A runs from 5 to 6. Then C resumes from 6 to 8 (4 of 5 done).",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "A",
+        "B",
+        "B",
+        "C",
+        "C",
+        "A",
+        "C",
+        "C",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "A 5-6, C resumes 6-8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        5,
+        6,
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 8, B is released again and preempts C. B runs from 8 to 10.",
+     "show": [
+      "rB1"
+     ],
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "A",
+        "B",
+        "B",
+        "C",
+        "C",
+        "A",
+        "C",
+        "C",
+        "B",
+        "B",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "B released at 8 preempts C"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        8,
+        9
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "At t = 10, A is released and runs from 10 to 11. Then C runs its last unit from 11 to 12 and finishes.",
+     "show": [
+      "rA2"
+     ],
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "A",
+        "B",
+        "B",
+        "C",
+        "C",
+        "A",
+        "C",
+        "C",
+        "B",
+        "B",
+        "A",
+        "C"
+       ]
+      },
+      {
+       "id": "msg",
+       "text": "C finishes at t = 12",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        10,
+        11
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

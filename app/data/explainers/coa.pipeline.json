@@ -1,0 +1,3677 @@
+{
+ "topic_id": "coa.pipeline",
+ "title": "Pipelining",
+ "chapter_note": {
+  "about": "Pipeline questions ask how many cycles a program takes and how much faster it runs than a machine with no overlap. The chapter starts with the basic formula for n instructions in k stages and the effect of stage delays on the clock. Then it adds the things that cause stalls: CPI with hazard fractions, data dependences, forwarding, branches and shared hardware. It ends with the timing diagram, the tool that lets you count cycles exactly for any mix of these.",
+  "simple": "A pipeline is an assembly line for instructions. While one instruction is being carried out, the next is being decoded and another is being fetched, so many instructions are in progress at once. A line moves only as fast as its slowest step. Sometimes an instruction needs a result the one ahead has not made yet, or a branch changes which instruction should come next, and then the line has to wait. This chapter teaches you to count how long a program takes, how much those waits cost, and how tricks like forwarding the result directly reduce them. In exam words: k + n − 1 cycles, CPI with stalls, RAW, forwarding, branch penalty, structural hazard, timing diagram.",
+  "concept_map": [
+   {
+    "atom_id": "p1",
+    "title": "Pipeline timing basics",
+    "one_line": "n instructions in k stages take k + n - 1 cycles; ideal speedup tends to k."
+   },
+   {
+    "atom_id": "p2",
+    "title": "Cycle time and stage balance",
+    "one_line": "Cycle = slowest stage + register delay; splitting helps until another stage limits."
+   },
+   {
+    "atom_id": "p3",
+    "title": "CPI with stalls and speedup",
+    "one_line": "CPI = 1 + sum of fraction x stall; speedup compares time per instruction."
+   },
+   {
+    "atom_id": "p4",
+    "title": "Data dependences",
+    "one_line": "RAW is true; WAR and WAW are name dependences; link a read to the latest writer."
+   },
+   {
+    "atom_id": "p5",
+    "title": "Forwarding",
+    "one_line": "Results pass from a pipeline register to a later stage; load-use still stalls one cycle."
+   },
+   {
+    "atom_id": "p6",
+    "title": "Control hazards",
+    "one_line": "Branch penalty = resolve stage minus 1; prediction and delay slots reduce it."
+   },
+   {
+    "atom_id": "p7",
+    "title": "Structural hazards",
+    "one_line": "Shared ports and multi-cycle EX stall followers by ceiling of time minus 1."
+   },
+   {
+    "atom_id": "p8",
+    "title": "Pipeline timing diagrams",
+    "one_line": "Start a stage after your previous stage and the previous instruction have finished it."
+   }
+  ],
+  "gate_patterns": [
+   "Time and clock: n instructions through k stages, cycle time from stage delays and register delay, and speedup over a non-pipelined machine (2021 CS1 Q63, 2023 CS Q33, 2017 CS1 Q50, 2020 CS Q53, 2024 CS2 Q58).",
+   "Hazards: classify dependences, judge statements about forwarding, compute the branch penalty and count structural stalls (2024 CS2 Q31, 2024 CS1 Q30, 2006 CS Q42, 2013 CS Q45, 2026 CS1 Q60).",
+   "Cycle counting: draw the timing table for multi-cycle stages with or without forwarding (2018 CS Q60, 2021 CS2 Q63, 2007 CS Q37, 2010 CS Q33). Weightage: about 1.9 marks per CS paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "p1",
+   "title": "Pipeline timing basics",
+   "simple": "Picture a car wash with four steps: rinse, soap, scrub, dry. If each car must finish all four steps before the next car starts, six cars take 24 steps. Now let the next car move in as soon as the one ahead leaves a step. The first car still needs 4 steps. After that a clean car rolls out every step. Six cars take 4 + 5 = 9 steps. One car is not washed faster, but cars come out faster. In exam words: a pipeline with k stages needs k + n − 1 cycles for n instructions, and the ideal speedup is k.",
+   "idea": "A **pipeline** overlaps instructions: while one executes, the next is decoded and another fetched. The first instruction needs $k$ cycles to get through $k$ stages. After that, one instruction finishes every cycle. So $n$ instructions take $k+n-1$ cycles. One instruction is not faster, but **throughput** is.",
+   "definition": "$T_{pipe}=(k+n-1)\\,t_{cycle}$ and $T_{non}=n\\,k\\,t_{cycle}$ when each non-pipelined instruction takes $k$ equal cycles.\n\nSpeedup $=\\dfrac{nk}{k+n-1}$, which tends to $k$ as $n$ grows. Here $k$ is the number of stages, $n$ the number of instructions and $t_{cycle}$ the clock period. This assumes no stalls.",
+   "intuition_full": "In a non-pipelined machine, most of the hardware sits idle: while the ALU works, the fetch unit does nothing. A pipeline keeps every stage busy by starting a new instruction every cycle. Think of an assembly line. The first product takes the full length of the line to come out, which is the fill time of $k-1$ extra cycles. After that, products come out at the rate of one per cycle. For $n$ items the finish time is the fill plus $n$ cycles: $(k-1)+n$. The formula also shows why speedup is below $k$. The fill cost is fixed, so for a short program it is a large share of the time. As $n$ grows, $\\frac{nk}{k+n-1}\\to k$. Pipelining does nothing for the latency of one instruction. It raises the number of instructions finished per second.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 4-stage pipeline (IF, ID, EX, WB) runs 6 instructions with no hazards, one stage per cycle. How many cycles does it take, and what is the speedup over running the instructions one at a time (4 cycles each)?",
+     "steps": [
+      "I1 goes through the 4 stages in cycles 1 to 4. A pipeline must first fill: the first result needs $k=4$ cycles.",
+      "I2 enters IF in cycle 2, just as I1 moves to ID. Two stages are busy now.",
+      "I3 enters IF in cycle 3. Now three instructions overlap.",
+      "I4 starts in cycle 4. All four stages are busy at once, so the pipeline is full.",
+      "I5 and I6 follow one cycle apart, in cycles 5 and 6. From now on one instruction finishes per cycle.",
+      "The last instruction I6 finishes in cycle $4+6-1=9$, that is $k+n-1$ cycles.",
+      "Without pipelining each instruction takes 4 cycles in turn: $6\\times4=24$ cycles. Speedup $=24/9=2.67$, below the ideal $k=4$ because of fill and drain."
+     ],
+     "answer": "9 cycles with the pipeline, 24 without, a speedup of 2.67."
+    },
+    {
+     "level": "gate",
+     "setup": "A 5-stage pipeline has stage delays 12, 18, 14, 10 and 16 ns. Each pipeline register adds 2 ns. A non-pipelined version takes the sum of the stage delays per instruction. Find the speedup for 500 instructions.",
+     "steps": [
+      "Clock cycle $=\\max(\\text{stage})+\\text{register}=18+2=20$ ns.",
+      "Pipelined time $=(5+500-1)\\times20=504\\times20=10\\,080$ ns.",
+      "Non-pipelined time $=500\\times(12+18+14+10+16)=500\\times70=35\\,000$ ns.",
+      "Speedup $=35\\,000/10\\,080=3.47$."
+     ],
+     "answer": "3.47, short of 5 because the stages are unbalanced and the registers add 2 ns."
+    },
+    {
+     "level": "twist",
+     "setup": "For the same pipeline, compare the time to execute just one instruction.",
+     "steps": [
+      "Pipelined: $k=5$ cycles of 20 ns, so $5\\times20=100$ ns.",
+      "Non-pipelined: $12+18+14+10+16=70$ ns.",
+      "The single instruction is slower in the pipeline: the clock is set by the slowest stage plus register overhead."
+     ],
+     "answer": "100 ns against 70 ns. Pipelining raises throughput, not the latency of one instruction."
+    }
+   ],
+   "why": "This is the base formula for every pipeline question. In GATE: total time for $n$ instructions through a pipeline given stage delays, and the speedup over a non-pipelined machine.",
+   "how": [
+    "Find the cycle time: slowest stage plus register delay.",
+    "Pipelined time $=(k+n-1)\\times t_{cycle}$.",
+    "Non-pipelined time $=n\\times$ (sum of stage delays), unless the stem says otherwise.",
+    "Speedup $=T_{non}/T_{pipe}$, and check it is below $k$."
+   ],
+   "mistake": "Using $n\\times k$ cycles for the pipelined run, or summing all stage delays for the cycle time. The pipelined run needs $k+n-1$ cycles, and the clock is set by the slowest stage plus the register delay.",
+   "edge_cases": [
+    "$n=1$: pipelined time is $k$ cycles, no overlap at all.",
+    "Very large $n$: speedup approaches $k$ only when stages are balanced and there are no stalls.",
+    "Stall cycles simply add to the cycle count."
+   ],
+   "connections": [
+    "Next card (p2) shows how stage delays set the cycle time.",
+    "Hazard cards (p4 to p7) add stall cycles to this base count."
+   ],
+   "check": [
+    {
+     "q": "A 5-stage pipeline runs 20 instructions with no stalls. How many cycles?",
+     "a": "$5+20-1=24$."
+    },
+    {
+     "q": "Ideal speedup of a 6-stage pipeline for a very long program?",
+     "a": "6."
+    },
+    {
+     "q": "Pipelined run of 100 instructions through 5 stages at 2 ns per cycle. Time?",
+     "a": "$(5+100-1)\\times2=208$ ns."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q63, 2023 CS Q33, 2017 CS1 Q50, 2004 CS Q69, 2014 CS3 Q9, 2016 CS1 Q32, 2016 CS2 Q33",
+   "try": {
+    "id": "gen.coa.pipeline.001",
+    "label": "Try: the pipelined versus non-pipelined timing question (L1)"
+   },
+   "scene": "coa.pipeline.p1",
+   "example": {
+    "setup": "A 4-stage pipeline (IF, ID, EX, WB) runs 6 instructions with no hazards, one stage per cycle. How many cycles does it take, and what is the speedup over running the instructions one at a time (4 cycles each)?",
+    "steps": [
+     "I1 goes through the 4 stages in cycles 1 to 4. A pipeline must first fill: the first result needs $k=4$ cycles.",
+     "I2 enters IF in cycle 2, just as I1 moves to ID. Two stages are busy now.",
+     "I3 enters IF in cycle 3. Now three instructions overlap.",
+     "I4 starts in cycle 4. All four stages are busy at once, so the pipeline is full.",
+     "I5 and I6 follow one cycle apart, in cycles 5 and 6. From now on one instruction finishes per cycle.",
+     "The last instruction I6 finishes in cycle $4+6-1=9$, that is $k+n-1$ cycles.",
+     "Without pipelining each instruction takes 4 cycles in turn: $6\\times4=24$ cycles. Speedup $=24/9=2.67$, below the ideal $k=4$ because of fill and drain."
+    ],
+    "answer": "9 cycles with the pipeline, 24 without, a speedup of 2.67."
+   },
+   "what": "A **pipeline** overlaps instructions: while one executes, the next is decoded and another fetched. The first instruction needs $k$ cycles to get through $k$ stages. After that, one instruction finishes every cycle. So $n$ instructions take $k+n-1$ cycles. One instruction is not faster, but **throughput** is.",
+   "what_full": "A **pipeline** overlaps instructions: while one executes, the next is decoded and another fetched. The first instruction needs $k$ cycles to get through $k$ stages. After that, one instruction finishes every cycle. So $n$ instructions take $k+n-1$ cycles. One instruction is not faster, but **throughput** is.\n\n$T_{pipe}=(k+n-1)\\,t_{cycle}$ and $T_{non}=n\\,k\\,t_{cycle}$ when each non-pipelined instruction takes $k$ equal cycles.\n\nSpeedup $=\\dfrac{nk}{k+n-1}$, which tends to $k$ as $n$ grows. Here $k$ is the number of stages, $n$ the number of instructions and $t_{cycle}$ the clock period. This assumes no stalls.\n\n**Worked example.** A 4-stage pipeline (IF, ID, EX, WB) runs 6 instructions with no hazards, one stage per cycle. How many cycles does it take, and what is the speedup over running the instructions one at a time (4 cycles each)?\n\n1. I1 goes through the 4 stages in cycles 1 to 4. A pipeline must first fill: the first result needs $k=4$ cycles.\n2. I2 enters IF in cycle 2, just as I1 moves to ID. Two stages are busy now.\n3. I3 enters IF in cycle 3. Now three instructions overlap.\n4. I4 starts in cycle 4. All four stages are busy at once, so the pipeline is full.\n5. I5 and I6 follow one cycle apart, in cycles 5 and 6. From now on one instruction finishes per cycle.\n6. The last instruction I6 finishes in cycle $4+6-1=9$, that is $k+n-1$ cycles.\n7. Without pipelining each instruction takes 4 cycles in turn: $6\\times4=24$ cycles. Speedup $=24/9=2.67$, below the ideal $k=4$ because of fill and drain.\n\n**Answer:** 9 cycles with the pipeline, 24 without, a speedup of 2.67.",
+   "why_full": "This is the base formula for every pipeline question. In GATE: total time for $n$ instructions through a pipeline given stage delays, and the speedup over a non-pipelined machine.\n\nAsked: 2021 CS1 Q63, 2023 CS Q33, 2017 CS1 Q50, 2004 CS Q69, 2014 CS3 Q9, 2016 CS1 Q32, 2016 CS2 Q33",
+   "trap": "Using $n\\times k$ cycles for the pipelined run, or summing all stage delays for the cycle time. The pipelined run needs $k+n-1$ cycles, and the clock is set by the slowest stage plus the register delay."
+  },
+  {
+   "atom_id": "p2",
+   "title": "Cycle time and stage balance",
+   "simple": "Imagine four friends washing dishes in a line, but one is much slower than the rest. The whole line can only move as fast as the slow friend, because everyone has to pass the plate at the same moment. The fastest way to speed up is to give the slow friend's job to two people. But then the next-slowest friend becomes the limit, so you will not get double the speed. In exam words: the clock cycle equals the slowest stage delay plus the pipeline register delay. Splitting the slowest stage helps only until another stage becomes the slowest.",
+   "idea": "Every stage gets the same clock cycle, so the cycle time is set by the **slowest stage** plus the delay of the **pipeline register** between stages. Splitting the slowest stage into two shorter ones lowers the cycle time, but only until another stage becomes the slowest.",
+   "definition": "$t_{cycle}=\\max_i(d_i)+d_{reg}$, where $d_i$ is the delay of stage $i$ and $d_{reg}$ is the register (latch) delay added to every stage.\n\nThroughput $=1/t_{cycle}$. Throughput gain from a change $=t_{old}/t_{new}$.",
+   "intuition_full": "All stages work in lock step, one step per clock tick, and a tick must be long enough for the slowest stage to finish. A stage that takes less just waits. So extra speed in a fast stage is wasted. The pipeline registers sit between stages and each adds a small delay, which is why you cannot make stages arbitrarily short. Balancing the stages, so that all delays are close, uses the hardware best. When you split the slowest stage, the new cycle time is the larger of the two halves and the old second-slowest stage. That is why a split can give far less than the speedup you first expect. Splitting a stage that is not the slowest changes nothing for the clock, but it adds one more stage, which lengthens the fill time.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A pipeline has four stages of 14, 22, 18 and 9 ns. Each pipeline register adds 3 ns. Find the cycle time, then the cycle time after splitting the slowest stage into two stages of 11 ns, and the gain in throughput.",
+     "steps": [
+      "The four stages take 14, 22, 18 and 9 ns. Each pipeline register adds 3 ns.",
+      "All stages share one clock, so the clock must fit the slowest stage: 22 ns.",
+      "Add the register delay: cycle time $=22+3=25$ ns.",
+      "Split the slowest stage into two stages of 11 ns each. Now there are five stages: 14, 11, 11, 18 and 9.",
+      "The slowest is now the 18 ns stage. Cycle time $=18+3=21$ ns.",
+      "Throughput rises by $25/21=1.190$, about 19.0%. The gain is limited because the next stage now sets the clock."
+     ],
+     "answer": "Cycle time 25 ns before and 21 ns after. Throughput rises by about 19.0%."
+    },
+    {
+     "level": "gate",
+     "setup": "A 4-stage pipeline has stage delays 600, 450, 700 and 300 ps and a 50 ps register delay per stage. The slowest stage is replaced by two stages of 350 ps each. By what percentage does the throughput increase?",
+     "steps": [
+      "Before: $t=700+50=750$ ps.",
+      "After: stages 600, 450, 350, 350, 300. The slowest is 600, so $t=600+50=650$ ps.",
+      "Throughput gain $=750/650=1.1538$, that is 15.4%."
+     ],
+     "answer": "About 15.4%. The 600 ps stage is the new limit, so the 350 ps halves are not fully used."
+    },
+    {
+     "level": "twist",
+     "setup": "Same four stages and 50 ps registers. Instead, the 450 ps stage is split into two stages of 225 ps. What is the throughput gain?",
+     "steps": [
+      "The slowest stage is still 700 ps, so $t=700+50=750$ ps both before and after.",
+      "The extra stage adds one cycle to the fill time but does not shorten the clock."
+     ],
+     "answer": "0% gain. Splitting a stage that is not the slowest does not shorten the clock."
+    }
+   ],
+   "why": "The clock rate decides how fast the pipeline runs. In GATE: find the cycle time from stage delays and register delay, or find the effect of splitting or merging stages.",
+   "how": [
+    "Add the register delay to every stage delay.",
+    "Cycle time is the largest of these values.",
+    "After a change, find the new largest value. Do not assume the split stage is still the slowest.",
+    "Throughput gain $=t_{old}/t_{new}$."
+   ],
+   "mistake": "Summing all the stage delays to get the cycle time, or assuming the split stage is still the slowest after the split. The clock follows the single slowest stage plus the register delay.",
+   "edge_cases": [
+    "Register delay is applied to every stage, including the longest one.",
+    "Equal stage delays give the best balance.",
+    "Merging two short stages can leave the clock unchanged and removes a stage."
+   ],
+   "connections": [
+    "Feeds the timing formula in card p1.",
+    "Faster clocks make stalls cost relatively more cycles (card p3)."
+   ],
+   "check": [
+    {
+     "q": "Stage delays 10, 20, 30, 25 ns, register 2 ns. Cycle time?",
+     "a": "$30+2=32$ ns."
+    },
+    {
+     "q": "The 30 ns stage is split into 15 + 15. New cycle time with a 2 ns register?",
+     "a": "Slowest is now 25, so $25+2=27$ ns."
+    },
+    {
+     "q": "Does the register delay make the cycle time shorter or longer?",
+     "a": "Longer. It is added to every stage."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q63, 2023 CS Q33, 2017 CS1 Q50, 2004 CS Q69, 2014 CS3 Q9, 2016 CS1 Q32, 2016 CS2 Q33",
+   "try": {
+    "id": "gen.coa.pipeline.006",
+    "label": "Try: the stage delay and register clock cycle question (L2)"
+   },
+   "scene": "coa.pipeline.p2",
+   "example": {
+    "setup": "A pipeline has four stages of 14, 22, 18 and 9 ns. Each pipeline register adds 3 ns. Find the cycle time, then the cycle time after splitting the slowest stage into two stages of 11 ns, and the gain in throughput.",
+    "steps": [
+     "The four stages take 14, 22, 18 and 9 ns. Each pipeline register adds 3 ns.",
+     "All stages share one clock, so the clock must fit the slowest stage: 22 ns.",
+     "Add the register delay: cycle time $=22+3=25$ ns.",
+     "Split the slowest stage into two stages of 11 ns each. Now there are five stages: 14, 11, 11, 18 and 9.",
+     "The slowest is now the 18 ns stage. Cycle time $=18+3=21$ ns.",
+     "Throughput rises by $25/21=1.190$, about 19.0%. The gain is limited because the next stage now sets the clock."
+    ],
+    "answer": "Cycle time 25 ns before and 21 ns after. Throughput rises by about 19.0%."
+   },
+   "what": "Every stage gets the same clock cycle, so the cycle time is set by the **slowest stage** plus the delay of the **pipeline register** between stages. Splitting the slowest stage into two shorter ones lowers the cycle time, but only until another stage becomes the slowest.",
+   "what_full": "Every stage gets the same clock cycle, so the cycle time is set by the **slowest stage** plus the delay of the **pipeline register** between stages. Splitting the slowest stage into two shorter ones lowers the cycle time, but only until another stage becomes the slowest.\n\n$t_{cycle}=\\max_i(d_i)+d_{reg}$, where $d_i$ is the delay of stage $i$ and $d_{reg}$ is the register (latch) delay added to every stage.\n\nThroughput $=1/t_{cycle}$. Throughput gain from a change $=t_{old}/t_{new}$.\n\n**Worked example.** A pipeline has four stages of 14, 22, 18 and 9 ns. Each pipeline register adds 3 ns. Find the cycle time, then the cycle time after splitting the slowest stage into two stages of 11 ns, and the gain in throughput.\n\n1. The four stages take 14, 22, 18 and 9 ns. Each pipeline register adds 3 ns.\n2. All stages share one clock, so the clock must fit the slowest stage: 22 ns.\n3. Add the register delay: cycle time $=22+3=25$ ns.\n4. Split the slowest stage into two stages of 11 ns each. Now there are five stages: 14, 11, 11, 18 and 9.\n5. The slowest is now the 18 ns stage. Cycle time $=18+3=21$ ns.\n6. Throughput rises by $25/21=1.190$, about 19.0%. The gain is limited because the next stage now sets the clock.\n\n**Answer:** Cycle time 25 ns before and 21 ns after. Throughput rises by about 19.0%.",
+   "why_full": "The clock rate decides how fast the pipeline runs. In GATE: find the cycle time from stage delays and register delay, or find the effect of splitting or merging stages.\n\nAsked: 2021 CS1 Q63, 2023 CS Q33, 2017 CS1 Q50, 2004 CS Q69, 2014 CS3 Q9, 2016 CS1 Q32, 2016 CS2 Q33",
+   "trap": "Summing all the stage delays to get the cycle time, or assuming the split stage is still the slowest after the split. The clock follows the single slowest stage plus the register delay."
+  },
+  {
+   "atom_id": "p3",
+   "title": "CPI with stalls and speedup",
+   "simple": "A bus is supposed to take 1 minute between stops. But 18 out of every 100 stops, there is a traffic light that costs 2 extra minutes, and at a few other stops it waits for passengers for 1 minute. To find the average time per stop, add the delays weighted by how often they happen. That average is the CPI. To compare two machines, multiply the CPI by the length of one clock tick, because a machine with fewer cycles per instruction but a slower clock may not win. In exam words: effective CPI = 1 + sum of (fraction of instructions × stall cycles). Speedup = ratio of time per instruction.",
+   "idea": "An ideal pipeline has a **CPI** of 1. Every hazard adds stall cycles to a fraction of the instructions. So the effective CPI is 1 plus the sum of (fraction × stall cycles) for each hazard. To compare machines, multiply CPI by the **clock period**: speedup is the ratio of time per instruction.",
+   "definition": "$\\text{CPI}=1+\\sum_j f_j\\,s_j$, where $f_j$ is the fraction of instructions that suffer hazard $j$ and $s_j$ is its stall cycles.\n\nTime per instruction $=\\text{CPI}\\times t_{cycle}=\\text{CPI}/f_{clk}$. $\\text{Speedup}=\\dfrac{\\text{CPI}_{old}\\,t_{old}}{\\text{CPI}_{new}\\,t_{new}}$.",
+   "intuition_full": "A stall is a cycle in which no instruction completes. If a fraction $f$ of instructions causes $s$ lost cycles each, then over many instructions the average loss per instruction is $f\\times s$. Different hazards add up, since their lost cycles are separate. If a hazard hits only some of the loads, you multiply the fraction of loads by the fraction of those that stall. CPI says how many cycles per instruction, but cycles are not all the same length. A pipelined machine often has a slower clock because of register overhead and the slowest stage. So the fair comparison is time per instruction, which uses both CPI and clock. A machine with CPI 1.45 can still be only 2.3 times faster than a machine with CPI 4, because the clocks differ.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "22% of instructions are loads and 40% of loads are followed by a dependent instruction (1 stall cycle). 18% of instructions are branches costing 2 cycles each. The pipelined clock is 6 ns. A non-pipelined machine has a 5 ns clock and CPI 4. Find the CPI and the speedup.",
+     "steps": [
+      "An ideal pipeline finishes one instruction per cycle, so the base CPI is 1.",
+      "Load-use stalls: 22% of instructions are loads, 40% of those are followed by a dependent instruction, and each costs 1 stall cycle. Stalls per instruction $=0.22\\times0.4\\times1=0.088$.",
+      "Branch stalls: 18% of instructions are branches and each costs 2 cycles. Stalls per instruction $=0.18\\times2=0.36$.",
+      "Effective CPI $=1+0.088+0.36=1.448$.",
+      "Time per instruction. The pipelined clock is 6 ns, so $1.448\\times6=8.688$ ns. The non-pipelined machine has a 5 ns clock and CPI 4, so $4\\times5=20$ ns.",
+      "Speedup $=20/8.688=2.30$. Comparing CPI alone (4 against 1.448) would ignore the slower pipelined clock."
+     ],
+     "answer": "CPI $=1.448$ and speedup $=2.30$."
+    },
+    {
+     "level": "gate",
+     "setup": "A non-pipelined processor runs at 2.5 GHz with CPI 4.5. A pipelined version runs at 2 GHz. In the program, 30% are loads and 25% of those cause a 2-cycle stall. 15% are branches, 60% of those are taken, and a taken branch costs 3 cycles. Find the speedup.",
+     "steps": [
+      "Load stalls $=0.30\\times0.25\\times2=0.15$. Branch stalls $=0.15\\times0.6\\times3=0.27$.",
+      "Pipelined CPI $=1+0.15+0.27=1.42$.",
+      "Time per instruction: pipelined $=1.42/2\\text{ GHz}=0.71$ ns. Non-pipelined $=4.5/2.5\\text{ GHz}=1.8$ ns.",
+      "Speedup $=1.8/0.71=2.54$."
+     ],
+     "answer": "About 2.54. Using the CPI ratio $4.5/1.42=3.17$ would be wrong because the clocks differ."
+    },
+    {
+     "level": "twist",
+     "setup": "Same program, but now the fractions are given of all instructions: 6% suffer a 5-cycle cache-miss stall and 10% suffer a 2-cycle hazard. Which are added and which multiplied?",
+     "steps": [
+      "These figures are already fractions of all instructions, so each contributes $f\\times s$ directly.",
+      "Stalls $=0.06\\times5+0.10\\times2=0.30+0.20=0.50$.",
+      "$\\text{CPI}=1+0.5=1.5$. No further fraction-of-a-fraction multiplication is needed."
+     ],
+     "answer": "CPI $=1.5$. Multiply only when the stem gives a fraction of a fraction, such as 40% of the loads."
+    }
+   ],
+   "why": "Stalls are where a real pipeline loses to the ideal. In GATE: combine hazard fractions into an effective CPI, then compare two designs by time per instruction.",
+   "how": [
+    "List each hazard with its fraction of all instructions and its stall cycles.",
+    "CPI $=1+\\sum f\\,s$. Multiply fractions only when one is a share of another.",
+    "Time per instruction $=\\text{CPI}\\times t_{cycle}$.",
+    "Speedup $=$ old time per instruction $\\div$ new time per instruction."
+   ],
+   "mistake": "Applying a branch or load stall to every instruction instead of its fraction, or comparing CPI alone while the clocks differ. Speedup needs time per instruction.",
+   "edge_cases": [
+    "Ideal CPI may not be 1 for multi-issue machines. Use the value in the stem.",
+    "Stall cycles from different hazards may overlap in practice; GATE assumes they add.",
+    "A faster clock with more stalls can lose to a slower clock with fewer."
+   ],
+   "connections": [
+    "Control hazards (p6) and structural hazards (p7) supply the stall terms.",
+    "Same product $\\text{fraction}\\times\\text{penalty}$ appears in cache CPI (COA memory, card m7)."
+   ],
+   "check": [
+    {
+     "q": "20% of instructions stall 3 cycles. CPI?",
+     "a": "$1+0.2\\times3=1.6$."
+    },
+    {
+     "q": "CPI 1.25 at 1 GHz versus CPI 5 at 2 GHz. Which is faster?",
+     "a": "First: 1.25 ns against 2.5 ns per instruction, so it is 2 times faster."
+    },
+    {
+     "q": "10% of loads stall 4 cycles and 30% of instructions are loads. Stalls per instruction?",
+     "a": "$0.3\\times0.1\\times4=0.12$."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q53, 2024 CS2 Q58, 2026 CS2 Q57, 2022 CS Q61, 2014 CS1 Q43, 2015 CS1 Q38, 2014 CS1 Q55, 2025 CS2 Q61",
+   "try": {
+    "id": "gen.coa.pipeline.008",
+    "label": "Try: the balanced 5-stage pipeline speedup question (L2)"
+   },
+   "scene": "coa.pipeline.p3",
+   "example": {
+    "setup": "22% of instructions are loads and 40% of loads are followed by a dependent instruction (1 stall cycle). 18% of instructions are branches costing 2 cycles each. The pipelined clock is 6 ns. A non-pipelined machine has a 5 ns clock and CPI 4. Find the CPI and the speedup.",
+    "steps": [
+     "An ideal pipeline finishes one instruction per cycle, so the base CPI is 1.",
+     "Load-use stalls: 22% of instructions are loads, 40% of those are followed by a dependent instruction, and each costs 1 stall cycle. Stalls per instruction $=0.22\\times0.4\\times1=0.088$.",
+     "Branch stalls: 18% of instructions are branches and each costs 2 cycles. Stalls per instruction $=0.18\\times2=0.36$.",
+     "Effective CPI $=1+0.088+0.36=1.448$.",
+     "Time per instruction. The pipelined clock is 6 ns, so $1.448\\times6=8.688$ ns. The non-pipelined machine has a 5 ns clock and CPI 4, so $4\\times5=20$ ns.",
+     "Speedup $=20/8.688=2.30$. Comparing CPI alone (4 against 1.448) would ignore the slower pipelined clock."
+    ],
+    "answer": "CPI $=1.448$ and speedup $=2.30$."
+   },
+   "what": "An ideal pipeline has a **CPI** of 1. Every hazard adds stall cycles to a fraction of the instructions. So the effective CPI is 1 plus the sum of (fraction × stall cycles) for each hazard. To compare machines, multiply CPI by the **clock period**: speedup is the ratio of time per instruction.",
+   "what_full": "An ideal pipeline has a **CPI** of 1. Every hazard adds stall cycles to a fraction of the instructions. So the effective CPI is 1 plus the sum of (fraction × stall cycles) for each hazard. To compare machines, multiply CPI by the **clock period**: speedup is the ratio of time per instruction.\n\n$\\text{CPI}=1+\\sum_j f_j\\,s_j$, where $f_j$ is the fraction of instructions that suffer hazard $j$ and $s_j$ is its stall cycles.\n\nTime per instruction $=\\text{CPI}\\times t_{cycle}=\\text{CPI}/f_{clk}$. $\\text{Speedup}=\\dfrac{\\text{CPI}_{old}\\,t_{old}}{\\text{CPI}_{new}\\,t_{new}}$.\n\n**Worked example.** 22% of instructions are loads and 40% of loads are followed by a dependent instruction (1 stall cycle). 18% of instructions are branches costing 2 cycles each. The pipelined clock is 6 ns. A non-pipelined machine has a 5 ns clock and CPI 4. Find the CPI and the speedup.\n\n1. An ideal pipeline finishes one instruction per cycle, so the base CPI is 1.\n2. Load-use stalls: 22% of instructions are loads, 40% of those are followed by a dependent instruction, and each costs 1 stall cycle. Stalls per instruction $=0.22\\times0.4\\times1=0.088$.\n3. Branch stalls: 18% of instructions are branches and each costs 2 cycles. Stalls per instruction $=0.18\\times2=0.36$.\n4. Effective CPI $=1+0.088+0.36=1.448$.\n5. Time per instruction. The pipelined clock is 6 ns, so $1.448\\times6=8.688$ ns. The non-pipelined machine has a 5 ns clock and CPI 4, so $4\\times5=20$ ns.\n6. Speedup $=20/8.688=2.30$. Comparing CPI alone (4 against 1.448) would ignore the slower pipelined clock.\n\n**Answer:** CPI $=1.448$ and speedup $=2.30$.",
+   "why_full": "Stalls are where a real pipeline loses to the ideal. In GATE: combine hazard fractions into an effective CPI, then compare two designs by time per instruction.\n\nAsked: 2020 CS Q53, 2024 CS2 Q58, 2026 CS2 Q57, 2022 CS Q61, 2014 CS1 Q43, 2015 CS1 Q38, 2014 CS1 Q55, 2025 CS2 Q61",
+   "trap": "Applying a branch or load stall to every instruction instead of its fraction, or comparing CPI alone while the clocks differ. Speedup needs time per instruction."
+  },
+  {
+   "atom_id": "p4",
+   "title": "Data dependences",
+   "simple": "Say you and a friend share one notebook. RAW is when you must read what your friend wrote, so you have to wait until they finish writing. That wait is real. WAR is when you want to write on a page that your friend has not read yet; if you write first, they read the wrong thing. WAW is when both of you write on the same line; if the order flips, the wrong text stays. Only the first one forces a wait when instructions go in order. In exam words: RAW is the true dependence; WAR and WAW are name dependences on a register name.",
+   "idea": "Two instructions are **dependent** if they use the same register in a way that fixes their order. **RAW** (read after write): a later instruction reads what an earlier one writes. **WAR** (write after read): a later one writes what an earlier one reads. **WAW** (write after write): both write the same register. Only RAW stalls an in-order pipeline.",
+   "definition": "RAW: $I_j$ reads register $r$ whose latest earlier writer is $I_i$. WAR: $I_j$ writes $r$ and an earlier $I_i$ reads $r$. WAW: $I_i$ and $I_j$ both write $r$.\n\nRAW is a true (flow) dependence. WAR (anti) and WAW (output) are name dependences: they arise only because a register name is reused. In an in-order pipeline that reads early and writes late, only RAW can cause wrong results.",
+   "intuition_full": "RAW carries real data from producer to consumer, so the consumer must wait. WAR and WAW carry no data. They exist only because the register name was reused, so they matter only when instructions can overtake each other, as in out-of-order machines. Renaming the register removes them. To classify a pair, name three things: the writer, the reader and the register. Then check the order. A key rule is to link a reader to the latest earlier writer. An older write to the same register is overwritten and is not what the reader sees. That rule is also why the count of RAW dependences changes when a register is rewritten in between.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Classify the dependences in I1: ADD R3,R1,R2; I2: SUB R4,R3,R5; I3: MUL R3,R6,R7; I4: ADD R8,R3,R4. The first register after the opcode is the destination.",
+     "steps": [
+      "Four instructions. Each reads two source registers and writes one destination. Compare them pair by pair.",
+      "I1 writes R3 and I2 reads R3. The reader needs the writer's value: a RAW (read after write) dependence, the true dependence.",
+      "I2 reads R3 and I3 later writes R3. If I3 wrote early, I2 would read the wrong value: a WAR (write after read) dependence.",
+      "I1 and I3 both write R3. If they finished out of order, R3 would end with the wrong value: a WAW (write after write) dependence.",
+      "I4 reads R3. Link it to the latest earlier writer, I3, not I1: RAW I3 to I4. It also reads R4, written by I2: RAW I2 to I4.",
+      "Total: three RAW, one WAR, one WAW. In an in-order pipeline only RAW can cause a stall. WAR and WAW are name dependences, harmless unless instructions can finish out of order."
+     ],
+     "answer": "RAW: I1 to I2 (R3), I3 to I4 (R3), I2 to I4 (R4). WAR: I2 to I3 (R3). WAW: I1 to I3 (R3)."
+    },
+    {
+     "level": "gate",
+     "setup": "I1: ADD R1,R2,R3; I2: SUB R4,R1,R2; I3: AND R1,R4,R5; I4: OR R6,R1,R4; I5: XOR R4,R6,R1. Link each read to its latest earlier writer. How many RAW dependences are there?",
+     "steps": [
+      "I2 reads R1 (latest writer I1): 1. I2 reads R2: nobody wrote it, none.",
+      "I3 reads R4 (writer I2): 2. I3 reads R5: none.",
+      "I4 reads R1 (writer I3, not I1): 3. I4 reads R4 (writer I2): 4.",
+      "I5 reads R6 (writer I4): 5. I5 reads R1 (writer I3): 6."
+     ],
+     "answer": "6 RAW dependences. Linking I4 to I1 for R1 would add a false one, because I3 rewrote R1."
+    },
+    {
+     "level": "twist",
+     "setup": "I1: ADD R1,R2,R3; I2: ADD R1,R4,R5; I3: SUB R6,R1,R7. Which dependences exist, and does I3 depend on I1?",
+     "steps": [
+      "I3 reads R1. The latest earlier writer is I2, so RAW I2 to I3.",
+      "I1 and I2 both write R1: WAW I1 to I2. I1's value is overwritten before anyone reads it.",
+      "I3 has no dependence on I1: the old value of R1 is dead."
+     ],
+     "answer": "RAW I2 to I3 and WAW I1 to I2. I3 does not depend on I1."
+    }
+   ],
+   "why": "Dependences decide which instructions can overlap and which must wait. In GATE: classify a pair as RAW, WAR or WAW, count the dependences in a code snippet, or judge a statement about which cause stalls.",
+   "how": [
+    "For each pair, name the writer, the reader and the register.",
+    "Link every read to the latest earlier writer of that register.",
+    "Read then write is WAR. Write then write is WAW. Write then read is RAW.",
+    "Only RAW stalls an in-order pipeline."
+   ],
+   "mistake": "Calling WAW an anti-dependence, or linking a read to an old writer instead of the latest one. WAR is the anti-dependence; WAW is the output dependence.",
+   "edge_cases": [
+    "The same register name can appear in several dependences at once.",
+    "Memory dependences (store then load to the same address) work the same way as register ones.",
+    "Register renaming in out-of-order machines removes WAR and WAW."
+   ],
+   "connections": [
+    "Forwarding (card p5) removes most RAW stalls.",
+    "Timing diagrams (card p8) show how a RAW dependence delays the consumer."
+   ],
+   "check": [
+    {
+     "q": "I1: ADD R1,R2,R3 then I2: SUB R4,R1,R5. What kind of dependence?",
+     "a": "RAW on R1."
+    },
+    {
+     "q": "I1: ADD R1,R2,R3 then I2: SUB R2,R4,R5. What kind of dependence on R2?",
+     "a": "WAR."
+    },
+    {
+     "q": "Which dependence types matter in a simple in-order pipeline?",
+     "a": "Only RAW."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q31, 2024 CS1 Q30, 2026 CS1 Q16, 2015 CS3 Q47, 2012 CS Q20",
+   "try": {
+    "id": "gen.coa.pipeline.002",
+    "label": "Try: the ADD R1 then SUB R4,R1 dependence question (L1)"
+   },
+   "scene": "coa.pipeline.p4",
+   "example": {
+    "setup": "Classify the dependences in I1: ADD R3,R1,R2; I2: SUB R4,R3,R5; I3: MUL R3,R6,R7; I4: ADD R8,R3,R4. The first register after the opcode is the destination.",
+    "steps": [
+     "Four instructions. Each reads two source registers and writes one destination. Compare them pair by pair.",
+     "I1 writes R3 and I2 reads R3. The reader needs the writer's value: a RAW (read after write) dependence, the true dependence.",
+     "I2 reads R3 and I3 later writes R3. If I3 wrote early, I2 would read the wrong value: a WAR (write after read) dependence.",
+     "I1 and I3 both write R3. If they finished out of order, R3 would end with the wrong value: a WAW (write after write) dependence.",
+     "I4 reads R3. Link it to the latest earlier writer, I3, not I1: RAW I3 to I4. It also reads R4, written by I2: RAW I2 to I4.",
+     "Total: three RAW, one WAR, one WAW. In an in-order pipeline only RAW can cause a stall. WAR and WAW are name dependences, harmless unless instructions can finish out of order."
+    ],
+    "answer": "RAW: I1 to I2 (R3), I3 to I4 (R3), I2 to I4 (R4). WAR: I2 to I3 (R3). WAW: I1 to I3 (R3)."
+   },
+   "what": "Two instructions are **dependent** if they use the same register in a way that fixes their order. **RAW** (read after write): a later instruction reads what an earlier one writes. **WAR** (write after read): a later one writes what an earlier one reads. **WAW** (write after write): both write the same register. Only RAW stalls an in-order pipeline.",
+   "what_full": "Two instructions are **dependent** if they use the same register in a way that fixes their order. **RAW** (read after write): a later instruction reads what an earlier one writes. **WAR** (write after read): a later one writes what an earlier one reads. **WAW** (write after write): both write the same register. Only RAW stalls an in-order pipeline.\n\nRAW: $I_j$ reads register $r$ whose latest earlier writer is $I_i$. WAR: $I_j$ writes $r$ and an earlier $I_i$ reads $r$. WAW: $I_i$ and $I_j$ both write $r$.\n\nRAW is a true (flow) dependence. WAR (anti) and WAW (output) are name dependences: they arise only because a register name is reused. In an in-order pipeline that reads early and writes late, only RAW can cause wrong results.\n\n**Worked example.** Classify the dependences in I1: ADD R3,R1,R2; I2: SUB R4,R3,R5; I3: MUL R3,R6,R7; I4: ADD R8,R3,R4. The first register after the opcode is the destination.\n\n1. Four instructions. Each reads two source registers and writes one destination. Compare them pair by pair.\n2. I1 writes R3 and I2 reads R3. The reader needs the writer's value: a RAW (read after write) dependence, the true dependence.\n3. I2 reads R3 and I3 later writes R3. If I3 wrote early, I2 would read the wrong value: a WAR (write after read) dependence.\n4. I1 and I3 both write R3. If they finished out of order, R3 would end with the wrong value: a WAW (write after write) dependence.\n5. I4 reads R3. Link it to the latest earlier writer, I3, not I1: RAW I3 to I4. It also reads R4, written by I2: RAW I2 to I4.\n6. Total: three RAW, one WAR, one WAW. In an in-order pipeline only RAW can cause a stall. WAR and WAW are name dependences, harmless unless instructions can finish out of order.\n\n**Answer:** RAW: I1 to I2 (R3), I3 to I4 (R3), I2 to I4 (R4). WAR: I2 to I3 (R3). WAW: I1 to I3 (R3).",
+   "why_full": "Dependences decide which instructions can overlap and which must wait. In GATE: classify a pair as RAW, WAR or WAW, count the dependences in a code snippet, or judge a statement about which cause stalls.\n\nAsked: 2024 CS2 Q31, 2024 CS1 Q30, 2026 CS1 Q16, 2015 CS3 Q47, 2012 CS Q20",
+   "trap": "Calling WAW an anti-dependence, or linking a read to an old writer instead of the latest one. WAR is the anti-dependence; WAW is the output dependence."
+  },
+  {
+   "atom_id": "p5",
+   "title": "Forwarding",
+   "simple": "Say you and a friend pass notes in class. Your friend writes an answer, and you need it. The slow way is: the friend puts the note in the teacher's box, the teacher files it, and only then can you read it. The fast way is: the friend slides the note straight to your desk the moment it is written. That is forwarding. It saves waiting. One case still hurts: if the answer is something your friend must first fetch from a cupboard (a load from memory), even the direct slide cannot start until the cupboard trip is done, so you lose one beat. In exam words: forwarding sends a result from a pipeline register to a later stage's input. A load followed by a dependent instruction still stalls one cycle.",
+   "idea": "**Forwarding** (bypassing) sends a result straight from a pipeline register to the input of a later stage, so the next instruction need not wait for write-back. An ALU result is ready at the end of EX. A loaded value is ready only at the end of MEM, so a dependent instruction right after a load still stalls one cycle in a five-stage pipeline.",
+   "definition": "With forwarding, the consumer's EX can start the cycle after the producer's result is ready: after EX for an ALU result, after MEM for a load. Without forwarding, the consumer must read the register in ID in or after the producer's WB cycle.\n\nStalls for an adjacent RAW pair: no forwarding 2 cycles (with the register file written in the first half-cycle and read in the second), ALU forwarding 0 cycles, load-use 1 cycle.",
+   "intuition_full": "A result physically exists long before it is written into the register file. After EX the ALU output sits in the EX/MEM register. Forwarding adds wires and multiplexers that let the next instruction's ALU read it from there instead of from the register file. That removes the wait for MEM and WB. A load is different because the data does not exist until the memory returns it, at the end of MEM. Even a perfect bypass cannot use data that has not arrived, so the consumer needs one more cycle. A compiler can often hide this by placing an independent instruction between the load and its use. If it does, the stall disappears. Remember that forwarding fixes RAW only; it does nothing for control or structural hazards.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "In a 5-stage pipeline (IF, ID, EX, MEM, WB) with the register file written in the first half and read in the second half of a cycle, I1 is ADD R1,R2,R3 and I2 is SUB R4,R1,R5. Find the cycle in which I2 finishes without forwarding and with forwarding. Then replace I1 by LW R1,0(R2) and ADD for I2.",
+     "steps": [
+      "ADD R1,R2,R3 runs IF, ID, EX, MEM, WB in cycles 1 to 5. SUB R4,R1,R5 follows one cycle behind, and it needs R1.",
+      "Without forwarding, SUB must wait for R1 to be written back. ADD writes in WB (cycle 5), and SUB may read in that same cycle. So SUB sits in ID for cycles 3 to 5: 2 stall cycles, and it finishes in cycle 8.",
+      "With forwarding, the sum leaves EX at the end of cycle 3 and goes straight into SUB's EX in cycle 4. No stall. SUB finishes in cycle 6.",
+      "A load is different. LW R1,0(R2) has its data only at the end of MEM, cycle 4. The dependent ADD can use it in EX at cycle 5, one cycle later than in the ALU case.",
+      "So even with forwarding, a load followed at once by an instruction that uses it stalls 1 cycle. This is the load-use hazard."
+     ],
+     "answer": "SUB finishes in cycle 8 without forwarding and in cycle 6 with forwarding. The LW then ADD pair finishes in cycle 7: one load-use stall remains."
+    },
+    {
+     "level": "gate",
+     "setup": "A 5-stage pipeline has full forwarding. Instructions: I1: LW R1,0(R2); I2: ADD R3,R1,R4; I3: LW R5,4(R2); I4: SUB R6,R5,R3; I5: AND R7,R6,R1. How many cycles does it take to finish all five?",
+     "steps": [
+      "With no hazards, 5 instructions in 5 stages take $5+5-1=9$ cycles.",
+      "I2 uses R1 from the load I1 right after it: 1 load-use stall.",
+      "I4 uses R5 from the load I3 right after it: 1 load-use stall.",
+      "I5 uses R6 from the ALU instruction I4 (forwarded) and R1 from I1 long ago: no stall.",
+      "Total $=9+1+1=11$ cycles."
+     ],
+     "answer": "11 cycles. Only the two adjacent load-use pairs stall; ALU-to-ALU dependences are forwarded."
+    },
+    {
+     "level": "twist",
+     "setup": "Same pipeline with forwarding: I1: LW R1,0(R2); I2: ADD R7,R8,R9 (independent); I3: SUB R4,R1,R5. How many cycles, and why is there no stall?",
+     "steps": [
+      "The load's data is ready at the end of MEM in cycle 4.",
+      "I3 would reach EX in cycle 5 anyway, because I2 sits between I1 and I3.",
+      "So I3 needs no extra wait, and the total is $3+5-1=7$ cycles."
+     ],
+     "answer": "7 cycles, no stall. One independent instruction between a load and its use fills the load-use gap."
+    }
+   ],
+   "why": "Forwarding is why a real pipeline stalls only on loads. In GATE: count cycles of an instruction sequence with and without forwarding, and judge statements such as 'forwarding removes all data hazards' (false).",
+   "how": [
+    "Find each RAW pair and the distance between producer and consumer.",
+    "ALU producer with forwarding: no stall. Load producer: the consumer must wait for the end of MEM.",
+    "Without forwarding: the consumer reads in ID at or after the producer's WB cycle.",
+    "Total cycles $=k+n-1+$ stalls."
+   ],
+   "mistake": "Assuming forwarding removes the load-use stall. A load's data exists only after MEM, so the next instruction still waits one cycle.",
+   "edge_cases": [
+    "A load followed by an independent instruction, then its user: no stall.",
+    "A store that stores a freshly loaded value can often forward at MEM, depending on the design.",
+    "Forwarding needs multiplexers at the ALU inputs and extra control."
+   ],
+   "connections": [
+    "Builds on RAW dependences (card p4).",
+    "The timing diagram card (p8) counts cycles when stages take different times."
+   ],
+   "check": [
+    {
+     "q": "With ALU forwarding, how many stalls for ADD R1,... then SUB R2,R1,...?",
+     "a": "None."
+    },
+    {
+     "q": "Without forwarding and with same-cycle write and read, how many stalls for an adjacent RAW pair?",
+     "a": "2."
+    },
+    {
+     "q": "Which pair still stalls with forwarding: ADD then SUB, or LW then ADD that uses it?",
+     "a": "LW then ADD, by one cycle."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q31, 2024 CS1 Q30, 2026 CS1 Q16, 2015 CS3 Q47, 2012 CS Q20, 2018 CS Q60, 2021 CS2 Q63, 2007 CS Q37",
+   "try": {
+    "id": "gen.coa.pipeline.005",
+    "label": "Try: the operand forwarding statement (L1)"
+   },
+   "scene": "coa.pipeline.p5",
+   "example": {
+    "setup": "In a 5-stage pipeline (IF, ID, EX, MEM, WB) with the register file written in the first half and read in the second half of a cycle, I1 is ADD R1,R2,R3 and I2 is SUB R4,R1,R5. Find the cycle in which I2 finishes without forwarding and with forwarding. Then replace I1 by LW R1,0(R2) and ADD for I2.",
+    "steps": [
+     "ADD R1,R2,R3 runs IF, ID, EX, MEM, WB in cycles 1 to 5. SUB R4,R1,R5 follows one cycle behind, and it needs R1.",
+     "Without forwarding, SUB must wait for R1 to be written back. ADD writes in WB (cycle 5), and SUB may read in that same cycle. So SUB sits in ID for cycles 3 to 5: 2 stall cycles, and it finishes in cycle 8.",
+     "With forwarding, the sum leaves EX at the end of cycle 3 and goes straight into SUB's EX in cycle 4. No stall. SUB finishes in cycle 6.",
+     "A load is different. LW R1,0(R2) has its data only at the end of MEM, cycle 4. The dependent ADD can use it in EX at cycle 5, one cycle later than in the ALU case.",
+     "So even with forwarding, a load followed at once by an instruction that uses it stalls 1 cycle. This is the load-use hazard."
+    ],
+    "answer": "SUB finishes in cycle 8 without forwarding and in cycle 6 with forwarding. The LW then ADD pair finishes in cycle 7: one load-use stall remains."
+   },
+   "what": "**Forwarding** (bypassing) sends a result straight from a pipeline register to the input of a later stage, so the next instruction need not wait for write-back. An ALU result is ready at the end of EX. A loaded value is ready only at the end of MEM, so a dependent instruction right after a load still stalls one cycle in a five-stage pipeline.",
+   "what_full": "**Forwarding** (bypassing) sends a result straight from a pipeline register to the input of a later stage, so the next instruction need not wait for write-back. An ALU result is ready at the end of EX. A loaded value is ready only at the end of MEM, so a dependent instruction right after a load still stalls one cycle in a five-stage pipeline.\n\nWith forwarding, the consumer's EX can start the cycle after the producer's result is ready: after EX for an ALU result, after MEM for a load. Without forwarding, the consumer must read the register in ID in or after the producer's WB cycle.\n\nStalls for an adjacent RAW pair: no forwarding 2 cycles (with the register file written in the first half-cycle and read in the second), ALU forwarding 0 cycles, load-use 1 cycle.\n\n**Worked example.** In a 5-stage pipeline (IF, ID, EX, MEM, WB) with the register file written in the first half and read in the second half of a cycle, I1 is ADD R1,R2,R3 and I2 is SUB R4,R1,R5. Find the cycle in which I2 finishes without forwarding and with forwarding. Then replace I1 by LW R1,0(R2) and ADD for I2.\n\n1. ADD R1,R2,R3 runs IF, ID, EX, MEM, WB in cycles 1 to 5. SUB R4,R1,R5 follows one cycle behind, and it needs R1.\n2. Without forwarding, SUB must wait for R1 to be written back. ADD writes in WB (cycle 5), and SUB may read in that same cycle. So SUB sits in ID for cycles 3 to 5: 2 stall cycles, and it finishes in cycle 8.\n3. With forwarding, the sum leaves EX at the end of cycle 3 and goes straight into SUB's EX in cycle 4. No stall. SUB finishes in cycle 6.\n4. A load is different. LW R1,0(R2) has its data only at the end of MEM, cycle 4. The dependent ADD can use it in EX at cycle 5, one cycle later than in the ALU case.\n5. So even with forwarding, a load followed at once by an instruction that uses it stalls 1 cycle. This is the load-use hazard.\n\n**Answer:** SUB finishes in cycle 8 without forwarding and in cycle 6 with forwarding. The LW then ADD pair finishes in cycle 7: one load-use stall remains.",
+   "why_full": "Forwarding is why a real pipeline stalls only on loads. In GATE: count cycles of an instruction sequence with and without forwarding, and judge statements such as 'forwarding removes all data hazards' (false).\n\nAsked: 2024 CS2 Q31, 2024 CS1 Q30, 2026 CS1 Q16, 2015 CS3 Q47, 2012 CS Q20, 2018 CS Q60, 2021 CS2 Q63, 2007 CS Q37",
+   "trap": "Assuming forwarding removes the load-use stall. A load's data exists only after MEM, so the next instruction still waits one cycle."
+  },
+  {
+   "atom_id": "p6",
+   "title": "Control hazards",
+   "simple": "Imagine you are driving and the sat-nav says 'turn left or go straight, decided at the next junction'. You cannot see the answer yet, so you keep driving straight. If the answer turns out to be 'left', everything you did since is wasted and you must come back. The longer it takes to get the answer, the more distance you waste. In a pipeline, the instructions fetched after a branch are the wasted distance. In exam words: a branch resolved in stage s wastes s − 1 fetched instructions. Prediction removes the waste when the guess is right. A delay slot gives the wasted slot useful work.",
+   "idea": "A **control hazard** appears when a branch changes the next instruction address, but the pipeline has already fetched instructions after the branch. If the branch is resolved in stage $s$, the next $s-1$ fetched instructions may be on the wrong path. This **branch penalty** is the cost of every taken (or mispredicted) branch.",
+   "definition": "Branch penalty $=s-1$ cycles when the branch is resolved in stage $s$ and nothing is predicted.\n\n$\\text{CPI}=1+f_{br}\\times\\text{penalty}$, where $f_{br}$ is the fraction of branches that pay the penalty. With prediction, only mispredicted branches pay. A **delay slot** is an instruction after the branch that always executes, so it can fill the penalty cycle with useful work.",
+   "intuition_full": "The pipeline fetches one instruction per cycle without waiting to see whether the previous one was a branch. Only when the branch reaches its resolve stage does the CPU know the next address. Until then the fetched instructions are guesses. If the guess was wrong, these instructions are turned into bubbles and the right one is fetched late. The penalty is the number of fetches that happened in that time, which is the resolve stage minus one. Resolving earlier, in ID, shrinks the penalty. Predicting the direction (for example 'not taken') lets the pipeline keep going and pay only for wrong guesses. A delay slot is a software answer: the compiler puts a useful instruction after the branch, which runs whatever the branch does. Only instructions that actually execute count in a cycle total, so skipped instructions after a taken branch are not counted.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 5-stage pipeline resolves branches in EX (stage 3) and does no prediction. A branch BEQ is taken. Show which instructions are wasted and find the penalty and the CPI if 18% of instructions are branches.",
+     "steps": [
+      "BEQ is fetched in cycle 1 and decoded in cycle 2. It is resolved in EX, stage 3, in cycle 3.",
+      "The fetch unit does not know the outcome yet, so it keeps fetching the next instructions: X1 in cycle 2 and X2 in cycle 3.",
+      "In cycle 3 the branch is found to be taken. X1 and X2 are on the wrong path, so they are flushed. Their cycles are wasted.",
+      "The target T is fetched in cycle 4 instead of cycle 2. Penalty $=2$ cycles, which is the resolve stage minus 1: $3-1=2$.",
+      "With 18% branches that always pay 2 cycles, $\\text{CPI}=1+0.18\\times2=1.36$. A correct prediction would remove those 2 cycles."
+     ],
+     "answer": "Penalty 2 cycles per taken branch, CPI $=1.36$."
+    },
+    {
+     "level": "gate",
+     "setup": "A 5-stage pipeline resolves branches in EX with no prediction. A program has 10 instructions I1 to I10. I4 is a taken branch to I8, so I5 to I7 are skipped. How many cycles does the program take?",
+     "steps": [
+      "Executed instructions: I1, I2, I3, I4, I8, I9, I10, so $n=7$. Skipped instructions are not counted.",
+      "Without a hazard: $5+7-1=11$ cycles.",
+      "The taken branch costs $3-1=2$ stall cycles.",
+      "Total $=11+2=13$ cycles."
+     ],
+     "answer": "13 cycles. Counting all 10 instructions would give 16, which is wrong."
+    },
+    {
+     "level": "twist",
+     "setup": "Same program, but the branch is resolved in ID (stage 2) and there is one delay slot, I5, which always executes. How many cycles, and how many instructions complete?",
+     "steps": [
+      "Penalty $=2-1=1$ cycle, and the delay slot I5 fills it with useful work.",
+      "Executed: I1, I2, I3, I4, I5, I8, I9, I10, so $n=8$.",
+      "Cycles $=5+8-1=12$ with no extra stall."
+     ],
+     "answer": "12 cycles and 8 instructions complete. Without the slot, 7 instructions would take $11+1=12$ cycles too, so the delay slot adds one useful instruction for free."
+    }
+   ],
+   "why": "Branches are common, so control hazards add a steady CPI cost. In GATE: compute the branch penalty from the resolve stage, count cycles for a program with a taken branch, or compare predicted and unpredicted designs.",
+   "how": [
+    "Find the resolve stage $s$. Penalty $=s-1$.",
+    "List only the instructions that actually execute.",
+    "Cycles $=k+n_{exec}-1+\\text{penalty}$ for one taken branch.",
+    "For CPI: $1+f_{br}\\times\\text{penalty}$ (times the misprediction share if prediction is used)."
+   ],
+   "mistake": "Counting the skipped instructions after a taken branch in the cycle total. Only the executed instructions count, plus the penalty cycles.",
+   "edge_cases": [
+    "Not-taken branches under predict-not-taken pay nothing.",
+    "A branch resolved in ID has a smaller penalty than one resolved in EX.",
+    "A delay slot that holds a NOP wastes its slot."
+   ],
+   "connections": [
+    "Adds the penalty term in the CPI formula (card p3).",
+    "Branch prediction accuracy replaces the 'always pay' assumption."
+   ],
+   "check": [
+    {
+     "q": "A branch is resolved in stage 4. What is the penalty?",
+     "a": "$4-1=3$ cycles."
+    },
+    {
+     "q": "20% of instructions are branches with a 2-cycle penalty. CPI?",
+     "a": "$1+0.2\\times2=1.4$."
+    },
+    {
+     "q": "Do instructions skipped after a taken branch count toward the program's cycle count?",
+     "a": "No."
+    }
+   ],
+   "asked": "Asked: 2006 CS Q42, 2013 CS Q45, 2014 CS3 Q43, 2008 CS Q76, 2008 CS Q77",
+   "try": {
+    "id": "gen.coa.pipeline.003",
+    "label": "Try: the control hazard cause question (L1)"
+   },
+   "scene": "coa.pipeline.p6",
+   "example": {
+    "setup": "A 5-stage pipeline resolves branches in EX (stage 3) and does no prediction. A branch BEQ is taken. Show which instructions are wasted and find the penalty and the CPI if 18% of instructions are branches.",
+    "steps": [
+     "BEQ is fetched in cycle 1 and decoded in cycle 2. It is resolved in EX, stage 3, in cycle 3.",
+     "The fetch unit does not know the outcome yet, so it keeps fetching the next instructions: X1 in cycle 2 and X2 in cycle 3.",
+     "In cycle 3 the branch is found to be taken. X1 and X2 are on the wrong path, so they are flushed. Their cycles are wasted.",
+     "The target T is fetched in cycle 4 instead of cycle 2. Penalty $=2$ cycles, which is the resolve stage minus 1: $3-1=2$.",
+     "With 18% branches that always pay 2 cycles, $\\text{CPI}=1+0.18\\times2=1.36$. A correct prediction would remove those 2 cycles."
+    ],
+    "answer": "Penalty 2 cycles per taken branch, CPI $=1.36$."
+   },
+   "what": "A **control hazard** appears when a branch changes the next instruction address, but the pipeline has already fetched instructions after the branch. If the branch is resolved in stage $s$, the next $s-1$ fetched instructions may be on the wrong path. This **branch penalty** is the cost of every taken (or mispredicted) branch.",
+   "what_full": "A **control hazard** appears when a branch changes the next instruction address, but the pipeline has already fetched instructions after the branch. If the branch is resolved in stage $s$, the next $s-1$ fetched instructions may be on the wrong path. This **branch penalty** is the cost of every taken (or mispredicted) branch.\n\nBranch penalty $=s-1$ cycles when the branch is resolved in stage $s$ and nothing is predicted.\n\n$\\text{CPI}=1+f_{br}\\times\\text{penalty}$, where $f_{br}$ is the fraction of branches that pay the penalty. With prediction, only mispredicted branches pay. A **delay slot** is an instruction after the branch that always executes, so it can fill the penalty cycle with useful work.\n\n**Worked example.** A 5-stage pipeline resolves branches in EX (stage 3) and does no prediction. A branch BEQ is taken. Show which instructions are wasted and find the penalty and the CPI if 18% of instructions are branches.\n\n1. BEQ is fetched in cycle 1 and decoded in cycle 2. It is resolved in EX, stage 3, in cycle 3.\n2. The fetch unit does not know the outcome yet, so it keeps fetching the next instructions: X1 in cycle 2 and X2 in cycle 3.\n3. In cycle 3 the branch is found to be taken. X1 and X2 are on the wrong path, so they are flushed. Their cycles are wasted.\n4. The target T is fetched in cycle 4 instead of cycle 2. Penalty $=2$ cycles, which is the resolve stage minus 1: $3-1=2$.\n5. With 18% branches that always pay 2 cycles, $\\text{CPI}=1+0.18\\times2=1.36$. A correct prediction would remove those 2 cycles.\n\n**Answer:** Penalty 2 cycles per taken branch, CPI $=1.36$.",
+   "why_full": "Branches are common, so control hazards add a steady CPI cost. In GATE: compute the branch penalty from the resolve stage, count cycles for a program with a taken branch, or compare predicted and unpredicted designs.\n\nAsked: 2006 CS Q42, 2013 CS Q45, 2014 CS3 Q43, 2008 CS Q76, 2008 CS Q77",
+   "trap": "Counting the skipped instructions after a taken branch in the cycle total. Only the executed instructions count, plus the penalty cycles."
+  },
+  {
+   "atom_id": "p7",
+   "title": "Structural hazards",
+   "simple": "Picture two people who both need the only photocopier at the exact same moment. One has to wait. In a pipeline, a structural hazard is the same thing: two instructions need the same piece of hardware in the same cycle, for example one memory that is used both to fetch an instruction and to load data. A slow step, like a long division that takes several cycles, also holds up everyone behind it in the queue. In exam words: a structural hazard is a resource conflict. A stage that takes c cycles stalls followers for c − 1 cycles, and a time of t cycles is rounded up to ⌈t⌉.",
+   "idea": "A **structural hazard** occurs when two instructions need the same hardware resource in the same cycle, such as one memory port shared by instruction fetch and data access. The younger instruction waits. A multi-cycle operation in EX also blocks the stage for the instructions behind it.",
+   "definition": "Shared port: each load or store forces the fetch of the instruction that would use the port in the same cycle to wait 1 cycle. So $\\text{CPI}=1+f_{mem}\\times1$.\n\nMulti-cycle EX: an operation needing $t$ cycle-lengths occupies EX for $\\lceil t\\rceil$ cycles and stalls followers for $\\lceil t\\rceil-1$ cycles. Stall cycles $=\\sum \\text{count}\\times(\\lceil t\\rceil-1)$.",
+   "intuition_full": "Hardware is not free, so designers share expensive units. Sharing works until two users arrive at once. A pipeline always lets the older instruction go first, and the younger one waits, which shows as a bubble. A single memory port is a standard example: IF in the early stage and MEM in the late stage collide whenever a load or store is in MEM while a new instruction is being fetched. A multi-cycle EX is a hazard of a different kind. The pipeline is clocked by the shortest common step, so a slow operation holds the EX stage for several cycles and nothing can pass it. If it needs 2.5 cycle-lengths it is rounded up to 3 whole cycles, since the stage can only release at a clock edge. The stall is then 3 minus 1, because one of those cycles is the normal EX cycle.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 5-stage pipeline has one memory used for both instruction fetch (IF) and data access (MEM). LW is followed by I2, I3 and I4, all fetched one cycle apart. Find where the conflict is and how many cycles I4 loses.",
+     "steps": [
+      "LW and the instructions behind it flow one cycle apart. LW is in IF in cycle 1, ID in cycle 2 and EX in cycle 3.",
+      "In cycle 4 LW is in MEM, which reads data memory. In the same cycle I4 wants IF, which reads instruction memory. Both need the one memory port.",
+      "The port can serve only one request per cycle. LW is older, so it wins, and I4's fetch must wait.",
+      "I4 fetches in cycle 5 and finishes in cycle 9 instead of 8. This is one stall cycle from the structural hazard. Anything behind I4 slips by one too."
+     ],
+     "answer": "One stall cycle. I4 finishes in cycle 9 instead of 8."
+    },
+    {
+     "level": "gate",
+     "setup": "The EX stage takes one clock cycle (1 ns) for any operation needing at most 1 ns, and $\\lceil t\\rceil$ cycles for an operation needing $t$ ns. In 100 instructions, 12 are FADD (2.2 ns), 6 are FMUL (3.1 ns), 2 are FDIV (7.5 ns) and 80 are other (0.8 ns). How many cycles is the pipeline stalled because of EX, and what is the CPI?",
+     "steps": [
+      "FADD: $\\lceil2.2\\rceil=3$ cycles, 2 stalls each: $12\\times2=24$.",
+      "FMUL: $\\lceil3.1\\rceil=4$ cycles, 3 stalls each: $6\\times3=18$.",
+      "FDIV: $\\lceil7.5\\rceil=8$ cycles, 7 stalls each: $2\\times7=14$. The others need 1 cycle, no stall.",
+      "Stalls $=24+18+14=56$ cycles, so $\\text{CPI}=1+56/100=1.56$."
+     ],
+     "answer": "56 stall cycles and CPI $1.56$."
+    },
+    {
+     "level": "twist",
+     "setup": "With the same rule, how many stall cycles does an operation of exactly 4.0 ns cause? What about 1.8 ns and 1.0 ns?",
+     "steps": [
+      "4.0 ns: $\\lceil4.0\\rceil=4$ cycles (not 5), so 3 stalls.",
+      "1.8 ns: $\\lceil1.8\\rceil=2$ cycles (not 1), so 1 stall.",
+      "1.0 ns: $\\lceil1.0\\rceil=1$ cycle, so 0 stalls."
+     ],
+     "answer": "3, 1 and 0 stalls. Round up to whole cycles, but an exact whole number needs no extra cycle."
+    }
+   ],
+   "why": "Shared resources and slow units are how real hardware loses cycles even without data dependences. In GATE: count the stalls from a shared memory port or from multi-cycle operations.",
+   "how": [
+    "Find the resource and the stage pair that collide (for example IF and MEM).",
+    "Shared port: stalls per instruction $=f_{mem}\\times1$.",
+    "Multi-cycle stage: cycles $=\\lceil t\\rceil$, stalls $=\\lceil t\\rceil-1$.",
+    "Add stalls to the $k+n-1$ base or to CPI."
+   ],
+   "mistake": "Rounding a 4.0 ns EX time up to 5 cycles, or 1.8 ns down to 1. Round up only when the value is not already a whole number of cycles.",
+   "edge_cases": [
+    "Separate instruction and data memories (Harvard) remove the memory-port hazard.",
+    "A fully pipelined multiplier can accept a new operation every cycle, so it stalls nobody.",
+    "The older instruction always wins the resource."
+   ],
+   "connections": [
+    "Stalls add to CPI as in card p3.",
+    "Card p8 draws the timing diagram for stages of different lengths."
+   ],
+   "check": [
+    {
+     "q": "30% of instructions are loads or stores on a shared-port pipeline. CPI?",
+     "a": "$1+0.3=1.3$."
+    },
+    {
+     "q": "An operation needs 2.5 cycle-lengths in EX. Stall cycles?",
+     "a": "$\\lceil2.5\\rceil-1=2$."
+    },
+    {
+     "q": "Which instruction gets the port when a load and a fetch collide?",
+     "a": "The older one, the load."
+    }
+   ],
+   "asked": "Asked: 2026 CS1 Q60, 2002 CS Q2_6",
+   "try": {
+    "id": "gen.coa.pipeline.004",
+    "label": "Try: the structural hazard definition (L1)"
+   },
+   "scene": "coa.pipeline.p7",
+   "example": {
+    "setup": "A 5-stage pipeline has one memory used for both instruction fetch (IF) and data access (MEM). LW is followed by I2, I3 and I4, all fetched one cycle apart. Find where the conflict is and how many cycles I4 loses.",
+    "steps": [
+     "LW and the instructions behind it flow one cycle apart. LW is in IF in cycle 1, ID in cycle 2 and EX in cycle 3.",
+     "In cycle 4 LW is in MEM, which reads data memory. In the same cycle I4 wants IF, which reads instruction memory. Both need the one memory port.",
+     "The port can serve only one request per cycle. LW is older, so it wins, and I4's fetch must wait.",
+     "I4 fetches in cycle 5 and finishes in cycle 9 instead of 8. This is one stall cycle from the structural hazard. Anything behind I4 slips by one too."
+    ],
+    "answer": "One stall cycle. I4 finishes in cycle 9 instead of 8."
+   },
+   "what": "A **structural hazard** occurs when two instructions need the same hardware resource in the same cycle, such as one memory port shared by instruction fetch and data access. The younger instruction waits. A multi-cycle operation in EX also blocks the stage for the instructions behind it.",
+   "what_full": "A **structural hazard** occurs when two instructions need the same hardware resource in the same cycle, such as one memory port shared by instruction fetch and data access. The younger instruction waits. A multi-cycle operation in EX also blocks the stage for the instructions behind it.\n\nShared port: each load or store forces the fetch of the instruction that would use the port in the same cycle to wait 1 cycle. So $\\text{CPI}=1+f_{mem}\\times1$.\n\nMulti-cycle EX: an operation needing $t$ cycle-lengths occupies EX for $\\lceil t\\rceil$ cycles and stalls followers for $\\lceil t\\rceil-1$ cycles. Stall cycles $=\\sum \\text{count}\\times(\\lceil t\\rceil-1)$.\n\n**Worked example.** A 5-stage pipeline has one memory used for both instruction fetch (IF) and data access (MEM). LW is followed by I2, I3 and I4, all fetched one cycle apart. Find where the conflict is and how many cycles I4 loses.\n\n1. LW and the instructions behind it flow one cycle apart. LW is in IF in cycle 1, ID in cycle 2 and EX in cycle 3.\n2. In cycle 4 LW is in MEM, which reads data memory. In the same cycle I4 wants IF, which reads instruction memory. Both need the one memory port.\n3. The port can serve only one request per cycle. LW is older, so it wins, and I4's fetch must wait.\n4. I4 fetches in cycle 5 and finishes in cycle 9 instead of 8. This is one stall cycle from the structural hazard. Anything behind I4 slips by one too.\n\n**Answer:** One stall cycle. I4 finishes in cycle 9 instead of 8.",
+   "why_full": "Shared resources and slow units are how real hardware loses cycles even without data dependences. In GATE: count the stalls from a shared memory port or from multi-cycle operations.\n\nAsked: 2026 CS1 Q60, 2002 CS Q2_6",
+   "trap": "Rounding a 4.0 ns EX time up to 5 cycles, or 1.8 ns down to 1. Round up only when the value is not already a whole number of cycles."
+  },
+  {
+   "atom_id": "p8",
+   "title": "Pipeline timing diagrams",
+   "simple": "Think of four people in a relay line where each person has a different amount of work, and nobody can start until the one before them has handed over the baton and the one ahead has finished the same job. Draw a table with one row per person and one column per minute. Fill each person's work in the minutes they actually do it. The last cell filled in tells you when the whole job is done. In exam words: a stage starts when the instruction has finished the previous stage and the previous instruction has finished this stage. The finish time of the last instruction in the last stage is the total cycle count.",
+   "idea": "A **timing diagram** has one row per instruction and one column per cycle. An instruction can start a stage only when it has finished the stage before and the **previous instruction has left this stage**. Fill the table row by row, and the last filled cycle is the total time.",
+   "definition": "For instruction $i$ and stage $s$ with duration $d_{i,s}$: $\\text{start}_{i,s}=\\max(\\text{end}_{i,s-1},\\ \\text{end}_{i-1,s})+1$ and $\\text{end}_{i,s}=\\text{start}_{i,s}+d_{i,s}-1$.\n\nTotal cycles $=\\text{end}$ of the last instruction in the last stage. A data dependence adds a further condition: the consumer cannot start its operand-using stage before the producer's result is ready (after EX with forwarding, after WB without).",
+   "intuition_full": "The rule has only two ingredients: the instruction's own order through the stages, and the stages' own order across instructions. A cell is blocked by whichever one is later. Filling the table one row at a time keeps the work small, because each cell depends only on its left neighbour and the cell above. When one stage takes longer, it becomes a bottleneck. Every later instruction queues behind it, so the finish time is roughly the fill time plus the bottleneck time summed over instructions. Data dependences add a third ingredient, which you handle by delaying the consumer's start. A neat check is to confirm that no two instructions occupy the same stage in the same cycle, which must never happen in an in-order pipeline.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 4-stage pipeline has the per-instruction stage times (in cycles) shown in the table: I1 = 1,1,2,1; I2 = 1,2,1,1; I3 = 2,1,1,1; I4 = 1,1,3,1. A stage starts when the instruction has finished the previous stage and the previous instruction has left that stage. How many cycles in all?",
+     "steps": [
+      "I1 has the pipeline to itself: S1 in cycle 1, S2 in cycle 2, S3 in cycles 3 to 4 (it needs 2), S4 in cycle 5.",
+      "I2 starts S1 in cycle 2, once I1 has left S1. Its S2 needs 2 cycles and starts when I1 has left S2: cycles 3 to 4. Then S3 in cycle 5 (I1 left S3 after cycle 4) and S4 in cycle 6.",
+      "I3 needs 2 cycles in S1: cycles 3 to 4. S2 starts in cycle 5, after I2 has left S2. Then S3 in cycle 6 and S4 in cycle 7.",
+      "I4 starts S1 in cycle 5 (I3 left S1 after cycle 4), S2 in cycle 6. S3 takes 3 cycles and starts in cycle 7, after I3 has left S3: cycles 7 to 9. Then S4 in cycle 10.",
+      "I4 finishes S4 in cycle 10, the last event of the run. The pipeline needs 10 cycles in all."
+     ],
+     "answer": "10 cycles."
+    },
+    {
+     "level": "gate",
+     "setup": "A 5-stage pipeline (IF, ID, EX, MEM, WB) has full forwarding. EX takes 1 cycle for ADD and SUB and 4 cycles for MUL; every other stage takes 1 cycle. Instructions: ADD R1,R2,R3; MUL R4,R1,R5; ADD R6,R4,R7; SUB R8,R9,R10. How many cycles?",
+     "steps": [
+      "ADD R1 is in EX in cycle 3. MUL needs R1, which is forwarded, so MUL's EX runs in cycles 4 to 7, then MEM in cycle 8 and WB in cycle 9.",
+      "The next ADD needs R4 from MUL. The MUL result is ready at the end of its EX (cycle 7), so this ADD's EX is in cycle 8, MEM in 9, WB in 10.",
+      "SUB is independent, but the stages are occupied in order. It waits behind the ADD and has EX in cycle 9, MEM in 10, WB in 11."
+     ],
+     "answer": "11 cycles."
+    },
+    {
+     "level": "twist",
+     "setup": "Same code and timings, but now there is no forwarding. The register file is written in the first half and read in the second half of a cycle. How many cycles?",
+     "steps": [
+      "MUL reads R1 in ID after ADD's WB (cycle 5), so MUL's EX runs in cycles 6 to 9, MEM 10, WB 11.",
+      "The second ADD reads R4 in ID after MUL's WB (cycle 11), so its EX is in cycle 12, MEM 13, WB 14.",
+      "SUB queues behind: EX in cycle 13, MEM 14, WB 15."
+     ],
+     "answer": "15 cycles. Forwarding saves 4 cycles here."
+    }
+   ],
+   "why": "Timing diagrams are the most reliable way to count cycles when stages differ or hazards interact. In GATE: total cycles for a short instruction sequence with multi-cycle stages, forwarding or its absence.",
+   "how": [
+    "Make a table with a row per instruction and a column per cycle.",
+    "Fill row by row with the start rule: after the instruction's previous stage and after the previous instruction leaves this stage.",
+    "Delay a consumer's operand stage until its producer's result is ready.",
+    "Read the answer from the last filled cell."
+   ],
+   "mistake": "Treating a blocking pipeline and a buffered one the same. In a blocking pipeline an instruction cannot leave a stage until the next stage is free, which delays the instructions behind it.",
+   "edge_cases": [
+    "Stages of different lengths make the longest stage the bottleneck.",
+    "Without forwarding the consumer waits for the producer's write-back.",
+    "Check that no stage holds two instructions in one cycle."
+   ],
+   "connections": [
+    "Uses forwarding (card p5) and structural stalls (card p7) as delay rules.",
+    "Total cycles feed the speedup and CPI formulas (card p3)."
+   ],
+   "check": [
+    {
+     "q": "A 3-stage pipeline with all stages 1 cycle runs 5 instructions. Cycles?",
+     "a": "$3+5-1=7$."
+    },
+    {
+     "q": "Instruction I2 must wait because I1 is still in the stage. What rule is that?",
+     "a": "The previous instruction must have left that stage."
+    },
+    {
+     "q": "With forwarding, when can a dependent ALU instruction start its EX?",
+     "a": "The cycle after the producer's EX ends."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q60, 2021 CS2 Q63, 2007 CS Q37, 2010 CS Q33, 2015 CS2 Q44, 2009 CS Q28, 2005 CS Q68",
+   "try": {
+    "id": "gen.coa.pipeline.007",
+    "label": "Try: the 4-instruction 5-stage timing question (L2)"
+   },
+   "scene": "coa.pipeline.p8",
+   "example": {
+    "setup": "A 4-stage pipeline has the per-instruction stage times (in cycles) shown in the table: I1 = 1,1,2,1; I2 = 1,2,1,1; I3 = 2,1,1,1; I4 = 1,1,3,1. A stage starts when the instruction has finished the previous stage and the previous instruction has left that stage. How many cycles in all?",
+    "steps": [
+     "I1 has the pipeline to itself: S1 in cycle 1, S2 in cycle 2, S3 in cycles 3 to 4 (it needs 2), S4 in cycle 5.",
+     "I2 starts S1 in cycle 2, once I1 has left S1. Its S2 needs 2 cycles and starts when I1 has left S2: cycles 3 to 4. Then S3 in cycle 5 (I1 left S3 after cycle 4) and S4 in cycle 6.",
+     "I3 needs 2 cycles in S1: cycles 3 to 4. S2 starts in cycle 5, after I2 has left S2. Then S3 in cycle 6 and S4 in cycle 7.",
+     "I4 starts S1 in cycle 5 (I3 left S1 after cycle 4), S2 in cycle 6. S3 takes 3 cycles and starts in cycle 7, after I3 has left S3: cycles 7 to 9. Then S4 in cycle 10.",
+     "I4 finishes S4 in cycle 10, the last event of the run. The pipeline needs 10 cycles in all."
+    ],
+    "answer": "10 cycles."
+   },
+   "what": "A **timing diagram** has one row per instruction and one column per cycle. An instruction can start a stage only when it has finished the stage before and the **previous instruction has left this stage**. Fill the table row by row, and the last filled cycle is the total time.",
+   "what_full": "A **timing diagram** has one row per instruction and one column per cycle. An instruction can start a stage only when it has finished the stage before and the **previous instruction has left this stage**. Fill the table row by row, and the last filled cycle is the total time.\n\nFor instruction $i$ and stage $s$ with duration $d_{i,s}$: $\\text{start}_{i,s}=\\max(\\text{end}_{i,s-1},\\ \\text{end}_{i-1,s})+1$ and $\\text{end}_{i,s}=\\text{start}_{i,s}+d_{i,s}-1$.\n\nTotal cycles $=\\text{end}$ of the last instruction in the last stage. A data dependence adds a further condition: the consumer cannot start its operand-using stage before the producer's result is ready (after EX with forwarding, after WB without).\n\n**Worked example.** A 4-stage pipeline has the per-instruction stage times (in cycles) shown in the table: I1 = 1,1,2,1; I2 = 1,2,1,1; I3 = 2,1,1,1; I4 = 1,1,3,1. A stage starts when the instruction has finished the previous stage and the previous instruction has left that stage. How many cycles in all?\n\n1. I1 has the pipeline to itself: S1 in cycle 1, S2 in cycle 2, S3 in cycles 3 to 4 (it needs 2), S4 in cycle 5.\n2. I2 starts S1 in cycle 2, once I1 has left S1. Its S2 needs 2 cycles and starts when I1 has left S2: cycles 3 to 4. Then S3 in cycle 5 (I1 left S3 after cycle 4) and S4 in cycle 6.\n3. I3 needs 2 cycles in S1: cycles 3 to 4. S2 starts in cycle 5, after I2 has left S2. Then S3 in cycle 6 and S4 in cycle 7.\n4. I4 starts S1 in cycle 5 (I3 left S1 after cycle 4), S2 in cycle 6. S3 takes 3 cycles and starts in cycle 7, after I3 has left S3: cycles 7 to 9. Then S4 in cycle 10.\n5. I4 finishes S4 in cycle 10, the last event of the run. The pipeline needs 10 cycles in all.\n\n**Answer:** 10 cycles.",
+   "why_full": "Timing diagrams are the most reliable way to count cycles when stages differ or hazards interact. In GATE: total cycles for a short instruction sequence with multi-cycle stages, forwarding or its absence.\n\nAsked: 2018 CS Q60, 2021 CS2 Q63, 2007 CS Q37, 2010 CS Q33, 2015 CS2 Q44, 2009 CS Q28, 2005 CS Q68",
+   "trap": "Treating a blocking pipeline and a buffered one the same. In a blocking pipeline an instruction cannot leave a stage until the next stage is free, which delays the instructions behind it."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "coa.pipeline.p1",
+   "title": "Six instructions through a 4-stage pipeline",
+   "viewBox": [
+    0,
+    0,
+    360,
+    256
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "4 stages, 6 instructions, one stage per cycle",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 52,
+     "y": 48,
+     "rows": 6,
+     "cols": 9,
+     "cw": 32,
+     "ch": 24,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+     ],
+     "rowLabels": [
+      "I1",
+      "I2",
+      "I3",
+      "I4",
+      "I5",
+      "I6"
+     ]
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180,
+     "y": 220,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 180,
+     "y": 246,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "I1 goes through the 4 stages in cycles 1 to 4. A pipeline must first fill: the first result needs $k=4$ cycles.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "cycles used: 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "I2 enters IF in cycle 2, just as I1 moves to ID. Two stages are busy now.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "cycles used: 5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        10,
+        11,
+        12,
+        13
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "I3 enters IF in cycle 3. Now three instructions overlap.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "cycles used: 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        20,
+        21,
+        22,
+        23
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "I4 starts in cycle 4. All four stages are busy at once, so the pipeline is full.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "cycles used: 7"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        3,
+        12,
+        21,
+        30
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "I5 and I6 follow one cycle apart, in cycles 5 and 6. From now on one instruction finishes per cycle.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "WB"
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "one instruction finishes per cycle"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        40,
+        41,
+        42,
+        43,
+        44,
+        49,
+        50,
+        51,
+        52,
+        53
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The last instruction I6 finishes in cycle $4+6-1=9$, that is $k+n-1$ cycles.",
+     "set": [
+      {
+       "id": "n1",
+       "text": "I6 finishes in cycle 9"
+      },
+      {
+       "id": "n2",
+       "text": "k + n - 1 = 4 + 6 - 1 = 9 cycles"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        53
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Without pipelining each instruction takes 4 cycles in turn: $6\\times4=24$ cycles. Speedup $=24/9=2.67$, below the ideal $k=4$ because of fill and drain.",
+     "set": [
+      {
+       "id": "n1",
+       "text": "no pipeline: 6 x 4 = 24 cycles"
+      },
+      {
+       "id": "n2",
+       "text": "speedup = 24 / 9 = 2.67"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.pipeline.p2",
+   "title": "Splitting the slowest stage",
+   "viewBox": [
+    0,
+    0,
+    360,
+    232
+   ],
+   "objects": [
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "f2",
+     "kind": "text",
+     "x": 180,
+     "y": 38,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "b1",
+     "kind": "bar",
+     "x": 20,
+     "y": 64,
+     "w": 250,
+     "h": 140,
+     "values": [
+      14,
+      22,
+      18,
+      9
+     ],
+     "labels": [
+      "S1",
+      "S2",
+      "S3",
+      "S4"
+     ],
+     "max": 28.0
+    },
+    {
+     "id": "b2",
+     "kind": "bar",
+     "x": 20,
+     "y": 64,
+     "w": 250,
+     "h": 140,
+     "values": [
+      14,
+      11,
+      11,
+      18,
+      9
+     ],
+     "labels": [
+      "S1",
+      "S2a",
+      "S2b",
+      "S3",
+      "S4"
+     ],
+     "max": 28.0
+    },
+    {
+     "id": "cy1",
+     "kind": "edge",
+     "x1": 20,
+     "y1": 79.0,
+     "x2": 270,
+     "y2": 79.0,
+     "dash": true,
+     "tone": "bad"
+    },
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 276,
+     "y": 79.0,
+     "text": "25 ns",
+     "size": 12,
+     "anchor": "start",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "cy2",
+     "kind": "edge",
+     "x1": 20,
+     "y1": 99.0,
+     "x2": 270,
+     "y2": 99.0,
+     "dash": true,
+     "tone": "good"
+    },
+    {
+     "id": "c2",
+     "kind": "text",
+     "x": 276,
+     "y": 99.0,
+     "text": "21 ns",
+     "size": 12,
+     "anchor": "start",
+     "tone": "good",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The four stages take 14, 22, 18 and 9 ns. Each pipeline register adds 3 ns.",
+     "show": "b1",
+     "set": [
+      {
+       "id": "f1",
+       "text": "stage delays 14, 22, 18, 9 ns"
+      },
+      {
+       "id": "f2",
+       "text": "register delay 3 ns per stage"
+      }
+     ]
+    },
+    {
+     "caption": "All stages share one clock, so the clock must fit the slowest stage: 22 ns.",
+     "highlight": [
+      {
+       "id": "b1",
+       "cells": [
+        1
+       ],
+       "tone": "bad"
+      }
+     ],
+     "set": {
+      "id": "f2",
+      "text": "the slowest stage sets the clock"
+     }
+    },
+    {
+     "caption": "Add the register delay: cycle time $=22+3=25$ ns.",
+     "show": [
+      "cy1",
+      "c1"
+     ],
+     "set": [
+      {
+       "id": "f1",
+       "text": "cycle = 22 + 3 = 25 ns"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b1",
+       "cells": [
+        1
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Split the slowest stage into two stages of 11 ns each. Now there are five stages: 14, 11, 11, 18 and 9.",
+     "hide": "b1",
+     "show": "b2",
+     "set": [
+      {
+       "id": "f1",
+       "text": "split 22 ns into 11 + 11"
+      },
+      {
+       "id": "f2",
+       "text": "five stages now"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b2",
+       "cells": [
+        1,
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The slowest is now the 18 ns stage. Cycle time $=18+3=21$ ns.",
+     "hide": [
+      "cy1",
+      "c1"
+     ],
+     "show": [
+      "cy2",
+      "c2"
+     ],
+     "set": [
+      {
+       "id": "f1",
+       "text": "cycle = 18 + 3 = 21 ns"
+      },
+      {
+       "id": "f2",
+       "text": "S3 (18 ns) is the new bottleneck"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b2",
+       "cells": [
+        3
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Throughput rises by $25/21=1.190$, about 19.0%. The gain is limited because the next stage now sets the clock.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "25 / 21 = 1.190"
+      },
+      {
+       "id": "f2",
+       "text": "throughput +19.0%"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b2",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.pipeline.p3",
+   "title": "From stall fractions to CPI and speedup",
+   "viewBox": [
+    0,
+    0,
+    360,
+    206
+   ],
+   "objects": [
+    {
+     "id": "cpi",
+     "kind": "bar",
+     "x": 30,
+     "y": 72,
+     "w": 300,
+     "h": 100,
+     "values": [
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "ideal",
+      "load-use",
+      "branch",
+      "CPI"
+     ],
+     "max": 1.6,
+     "hideZero": true
+    },
+    {
+     "id": "tpi",
+     "kind": "bar",
+     "x": 60,
+     "y": 72,
+     "w": 240,
+     "h": 100,
+     "values": [
+      20,
+      8.688
+     ],
+     "labels": [
+      "no pipe",
+      "pipelined"
+     ],
+     "max": 20
+    },
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "f2",
+     "kind": "text",
+     "x": 180,
+     "y": 38,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "An ideal pipeline finishes one instruction per cycle, so the base CPI is 1.",
+     "show": "cpi",
+     "set": [
+      {
+       "id": "cpi",
+       "values": [
+        1,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "ideal pipeline: CPI = 1"
+      },
+      {
+       "id": "f2",
+       "text": "one instruction per cycle"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cpi",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Load-use stalls: 22% of instructions are loads, 40% of those are followed by a dependent instruction, and each costs 1 stall cycle. Stalls per instruction $=0.22\\times0.4\\times1=0.088$.",
+     "set": [
+      {
+       "id": "cpi",
+       "values": [
+        1,
+        0.088,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "load-use: 0.22 x 0.4 x 1 = 0.088"
+      },
+      {
+       "id": "f2",
+       "text": "fraction x fraction x stall"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cpi",
+       "cells": [
+        1
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Branch stalls: 18% of instructions are branches and each costs 2 cycles. Stalls per instruction $=0.18\\times2=0.36$.",
+     "set": [
+      {
+       "id": "cpi",
+       "values": [
+        1,
+        0.088,
+        0.36,
+        0
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "branches: 0.18 x 2 = 0.36"
+      },
+      {
+       "id": "f2",
+       "text": "fraction x stall cycles"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cpi",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Effective CPI $=1+0.088+0.36=1.448$.",
+     "set": [
+      {
+       "id": "cpi",
+       "values": [
+        1,
+        0.088,
+        0.36,
+        1.448
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "CPI = 1 + 0.088 + 0.36 = 1.448"
+      },
+      {
+       "id": "f2",
+       "text": "stalls add to the ideal CPI"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cpi",
+       "cells": [
+        3
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Time per instruction. The pipelined clock is 6 ns, so $1.448\\times6=8.688$ ns. The non-pipelined machine has a 5 ns clock and CPI 4, so $4\\times5=20$ ns.",
+     "hide": "cpi",
+     "show": "tpi",
+     "set": [
+      {
+       "id": "f1",
+       "text": "time per instruction (ns)"
+      },
+      {
+       "id": "f2",
+       "text": "1.448 x 6 = 8.688 vs 4 x 5 = 20"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tpi",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Speedup $=20/8.688=2.30$. Comparing CPI alone (4 against 1.448) would ignore the slower pipelined clock.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "speedup = 20 / 8.688 = 2.30"
+      },
+      {
+       "id": "f2",
+       "text": "CPI alone would say 4 / 1.448 = 2.76"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tpi",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.pipeline.p4",
+   "title": "Finding RAW, WAR and WAW dependences",
+   "viewBox": [
+    0,
+    0,
+    360,
+    258
+   ],
+   "objects": [
+    {
+     "id": "i1",
+     "kind": "box",
+     "x": 14,
+     "y": 37,
+     "w": 150,
+     "h": 30,
+     "label": "I1: ADD R3,R1,R2"
+    },
+    {
+     "id": "i2",
+     "kind": "box",
+     "x": 14,
+     "y": 77,
+     "w": 150,
+     "h": 30,
+     "label": "I2: SUB R4,R3,R5"
+    },
+    {
+     "id": "i3",
+     "kind": "box",
+     "x": 14,
+     "y": 117,
+     "w": 150,
+     "h": 30,
+     "label": "I3: MUL R3,R6,R7"
+    },
+    {
+     "id": "i4",
+     "kind": "box",
+     "x": 14,
+     "y": 157,
+     "w": 150,
+     "h": 30,
+     "label": "I4: ADD R8,R3,R4"
+    },
+    {
+     "id": "a1a",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 52,
+     "x2": 178,
+     "y2": 52,
+     "tone": "accent"
+    },
+    {
+     "id": "a1b",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 92,
+     "x2": 178,
+     "y2": 92,
+     "tone": "accent"
+    },
+    {
+     "id": "a1",
+     "kind": "arrow",
+     "x1": 178,
+     "y1": 52,
+     "x2": 178,
+     "y2": 92,
+     "tone": "accent"
+    },
+    {
+     "id": "a2a",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 92,
+     "x2": 206,
+     "y2": 92,
+     "tone": "mid"
+    },
+    {
+     "id": "a2b",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 132,
+     "x2": 206,
+     "y2": 132,
+     "tone": "mid"
+    },
+    {
+     "id": "a2",
+     "kind": "arrow",
+     "x1": 206,
+     "y1": 92,
+     "x2": 206,
+     "y2": 132,
+     "tone": "mid"
+    },
+    {
+     "id": "a3a",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 52,
+     "x2": 234,
+     "y2": 52,
+     "tone": "bad"
+    },
+    {
+     "id": "a3b",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 132,
+     "x2": 234,
+     "y2": 132,
+     "tone": "bad"
+    },
+    {
+     "id": "a3",
+     "kind": "arrow",
+     "x1": 234,
+     "y1": 52,
+     "x2": 234,
+     "y2": 132,
+     "tone": "bad"
+    },
+    {
+     "id": "a4a",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 132,
+     "x2": 262,
+     "y2": 132,
+     "tone": "accent"
+    },
+    {
+     "id": "a4b",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 172,
+     "x2": 262,
+     "y2": 172,
+     "tone": "accent"
+    },
+    {
+     "id": "a4",
+     "kind": "arrow",
+     "x1": 262,
+     "y1": 132,
+     "x2": 262,
+     "y2": 172,
+     "tone": "accent"
+    },
+    {
+     "id": "a5a",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 92,
+     "x2": 290,
+     "y2": 92,
+     "tone": "accent"
+    },
+    {
+     "id": "a5b",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 172,
+     "x2": 290,
+     "y2": 172,
+     "tone": "accent"
+    },
+    {
+     "id": "a5",
+     "kind": "arrow",
+     "x1": 290,
+     "y1": 92,
+     "x2": 290,
+     "y2": 172,
+     "tone": "accent"
+    },
+    {
+     "id": "a1t",
+     "kind": "text",
+     "x": 178,
+     "y": 26,
+     "text": "RAW\nR3",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "accent",
+     "bold": true
+    },
+    {
+     "id": "a2t",
+     "kind": "text",
+     "x": 206,
+     "y": 207,
+     "text": "WAR\nR3",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "mid",
+     "bold": true
+    },
+    {
+     "id": "a3t",
+     "kind": "text",
+     "x": 234,
+     "y": 26,
+     "text": "WAW\nR3",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "a4t",
+     "kind": "text",
+     "x": 262,
+     "y": 207,
+     "text": "RAW\nR3",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "accent",
+     "bold": true
+    },
+    {
+     "id": "a5t",
+     "kind": "text",
+     "x": 290,
+     "y": 26,
+     "text": "RAW\nR4",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "accent",
+     "bold": true
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 246,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Four instructions. Each reads two source registers and writes one destination. Compare them pair by pair.",
+     "highlight": [
+      "i1",
+      "i2",
+      "i3",
+      "i4"
+     ]
+    },
+    {
+     "caption": "I1 writes R3 and I2 reads R3. The reader needs the writer's value: a RAW (read after write) dependence, the true dependence.",
+     "show": [
+      "a1",
+      "a1a",
+      "a1b",
+      "a1t"
+     ],
+     "highlight": [
+      {
+       "id": "i1",
+       "tone": "accent"
+      },
+      {
+       "id": "i2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "I2 reads R3 and I3 later writes R3. If I3 wrote early, I2 would read the wrong value: a WAR (write after read) dependence.",
+     "show": [
+      "a2",
+      "a2a",
+      "a2b",
+      "a2t"
+     ],
+     "highlight": [
+      {
+       "id": "i2",
+       "tone": "mid"
+      },
+      {
+       "id": "i3",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "I1 and I3 both write R3. If they finished out of order, R3 would end with the wrong value: a WAW (write after write) dependence.",
+     "show": [
+      "a3",
+      "a3a",
+      "a3b",
+      "a3t"
+     ],
+     "highlight": [
+      {
+       "id": "i1",
+       "tone": "bad"
+      },
+      {
+       "id": "i3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "I4 reads R3. Link it to the latest earlier writer, I3, not I1: RAW I3 to I4. It also reads R4, written by I2: RAW I2 to I4.",
+     "show": [
+      "a4",
+      "a4a",
+      "a4b",
+      "a4t",
+      "a5",
+      "a5a",
+      "a5b",
+      "a5t"
+     ],
+     "highlight": [
+      {
+       "id": "i3",
+       "tone": "accent"
+      },
+      {
+       "id": "i4",
+       "tone": "accent"
+      },
+      {
+       "id": "i2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Total: three RAW, one WAR, one WAW. In an in-order pipeline only RAW can cause a stall. WAR and WAW are name dependences, harmless unless instructions can finish out of order.",
+     "set": {
+      "id": "nt",
+      "text": "3 RAW (real stalls), 1 WAR, 1 WAW (name only)"
+     }
+    }
+   ]
+  },
+  {
+   "id": "coa.pipeline.p5",
+   "title": "Forwarding removes ALU stalls but not load-use",
+   "viewBox": [
+    0,
+    0,
+    360,
+    204
+   ],
+   "objects": [
+    {
+     "id": "i1",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "I1: ADD R1,R2,R3",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "i2",
+     "kind": "text",
+     "x": 180,
+     "y": 36,
+     "text": "I2: SUB R4,R1,R5",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "md",
+     "kind": "text",
+     "x": 180,
+     "y": 62,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 44,
+     "y": 96,
+     "rows": 2,
+     "cols": 8,
+     "cw": 34,
+     "ch": 30,
+     "cells": [
+      "IF",
+      "ID",
+      "EX",
+      "MEM",
+      "WB",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+     ],
+     "rowLabels": [
+      "I1",
+      "I2"
+     ]
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 184,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "ADD R1,R2,R3 runs IF, ID, EX, MEM, WB in cycles 1 to 5. SUB R4,R1,R5 follows one cycle behind, and it needs R1.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "md",
+       "text": "SUB needs R1 from ADD"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Without forwarding, SUB must wait for R1 to be written back. ADD writes in WB (cycle 5), and SUB may read in that same cycle. So SUB sits in ID for cycles 3 to 5: 2 stall cycles, and it finishes in cycle 8.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "ID",
+        "ID",
+        "EX",
+        "MEM",
+        "WB"
+       ]
+      },
+      {
+       "id": "md",
+       "text": "no forwarding"
+      },
+      {
+       "id": "nt",
+       "text": "2 stall cycles, ends in cycle 8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        10,
+        11
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "With forwarding, the sum leaves EX at the end of cycle 3 and goes straight into SUB's EX in cycle 4. No stall. SUB finishes in cycle 6.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "md",
+       "text": "with forwarding"
+      },
+      {
+       "id": "nt",
+       "text": "0 stall cycles, ends in cycle 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2,
+        11
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A load is different. LW R1,0(R2) has its data only at the end of MEM, cycle 4. The dependent ADD can use it in EX at cycle 5, one cycle later than in the ALU case.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        ""
+       ]
+      },
+      {
+       "id": "i1",
+       "text": "I1: LW R1,0(R2)"
+      },
+      {
+       "id": "i2",
+       "text": "I2: ADD R4,R1,R5"
+      },
+      {
+       "id": "md",
+       "text": "load, then use"
+      },
+      {
+       "id": "nt",
+       "text": "data ready at end of MEM (cycle 4)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        3,
+        12
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "So even with forwarding, a load followed at once by an instruction that uses it stalls 1 cycle. This is the load-use hazard.",
+     "set": {
+      "id": "nt",
+      "text": "1 stall cycle even with forwarding"
+     },
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        11
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.pipeline.p6",
+   "title": "A taken branch flushes two fetched instructions",
+   "viewBox": [
+    0,
+    0,
+    360,
+    232
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "branch resolved in EX; taken here",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 60,
+     "y": 56,
+     "rows": 4,
+     "cols": 8,
+     "cw": 34,
+     "ch": 28,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+     ],
+     "rowLabels": [
+      "BEQ",
+      "X1",
+      "X2",
+      "T"
+     ]
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180,
+     "y": 190,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "BEQ is fetched in cycle 1 and decoded in cycle 2. It is resolved in EX, stage 3, in cycle 3.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "resolved at the end of cycle 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The fetch unit does not know the outcome yet, so it keeps fetching the next instructions: X1 in cycle 2 and X2 in cycle 3.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "X1, X2 fetched from the fall-through path"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        9,
+        10,
+        18
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "In cycle 3 the branch is found to be taken. X1 and X2 are on the wrong path, so they are flushed. Their cycles are wasted.",
+     "set": [
+      {
+       "id": "n1",
+       "text": "branch taken: flush X1 and X2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        9,
+        10,
+        18
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "The target T is fetched in cycle 4 instead of cycle 2. Penalty $=2$ cycles, which is the resolve stage minus 1: $3-1=2$.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB"
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "T starts 2 cycles late"
+      },
+      {
+       "id": "n2",
+       "text": "penalty = 3 - 1 = 2 cycles"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        27,
+        28,
+        29,
+        30,
+        31
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "With 18% branches that always pay 2 cycles, $\\text{CPI}=1+0.18\\times2=1.36$. A correct prediction would remove those 2 cycles.",
+     "set": [
+      {
+       "id": "n1",
+       "text": "CPI = 1 + 0.18 x 2"
+      },
+      {
+       "id": "n2",
+       "text": "= 1.36"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.pipeline.p7",
+   "title": "A shared memory port causes a one-cycle stall",
+   "viewBox": [
+    0,
+    0,
+    360,
+    232
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "one memory port for fetch and data",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 48,
+     "y": 56,
+     "rows": 4,
+     "cols": 9,
+     "cw": 32,
+     "ch": 28,
+     "cells": [
+      "IF",
+      "ID",
+      "EX",
+      "MEM",
+      "WB",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "IF",
+      "ID",
+      "EX",
+      "MEM",
+      "WB",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "IF",
+      "ID",
+      "EX",
+      "MEM",
+      "WB",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+     ],
+     "rowLabels": [
+      "LW",
+      "I2",
+      "I3",
+      "I4"
+     ]
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180,
+     "y": 190,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "LW and the instructions behind it flow one cycle apart. LW is in IF in cycle 1, ID in cycle 2 and EX in cycle 3.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "In cycle 4 LW is in MEM, which reads data memory. In the same cycle I4 wants IF, which reads instruction memory. Both need the one memory port.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "cycle 4: LW in MEM and I4 in IF"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        3,
+        30
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "The port can serve only one request per cycle. LW is older, so it wins, and I4's fetch must wait.",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "LW (older) gets the port, I4 waits"
+     }
+    },
+    {
+     "caption": "I4 fetches in cycle 5 and finishes in cycle 9 instead of 8. This is one stall cycle from the structural hazard. Anything behind I4 slips by one too.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "IF",
+        "ID",
+        "EX",
+        "MEM",
+        "WB"
+       ]
+      },
+      {
+       "id": "n2",
+       "text": "1 stall: I4 ends in cycle 9, not 8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        31,
+        32,
+        33,
+        34,
+        35
+       ],
+       "tone": "mid"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.pipeline.p8",
+   "title": "A timing diagram for stages of different lengths",
+   "viewBox": [
+    0,
+    0,
+    360,
+    312
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 12,
+     "text": "cycles each instruction needs in S1 to S4",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "ch0",
+     "kind": "text",
+     "x": 85,
+     "y": 34,
+     "text": "S1",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "ch1",
+     "kind": "text",
+     "x": 115,
+     "y": 34,
+     "text": "S2",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "ch2",
+     "kind": "text",
+     "x": 145,
+     "y": 34,
+     "text": "S3",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "ch3",
+     "kind": "text",
+     "x": 175,
+     "y": 34,
+     "text": "S4",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "tm",
+     "kind": "matrix",
+     "x": 70,
+     "y": 42,
+     "values": [
+      [
+       1,
+       1,
+       2,
+       1
+      ],
+      [
+       1,
+       2,
+       1,
+       1
+      ],
+      [
+       2,
+       1,
+       1,
+       1
+      ],
+      [
+       1,
+       1,
+       3,
+       1
+      ]
+     ],
+     "cw": 30,
+     "ch": 24
+    },
+    {
+     "id": "tl0",
+     "kind": "text",
+     "x": 46,
+     "y": 54,
+     "text": "I1",
+     "size": 12,
+     "anchor": "end",
+     "tone": "muted"
+    },
+    {
+     "id": "tl1",
+     "kind": "text",
+     "x": 46,
+     "y": 78,
+     "text": "I2",
+     "size": 12,
+     "anchor": "end",
+     "tone": "muted"
+    },
+    {
+     "id": "tl2",
+     "kind": "text",
+     "x": 46,
+     "y": 102,
+     "text": "I3",
+     "size": 12,
+     "anchor": "end",
+     "tone": "muted"
+    },
+    {
+     "id": "tl3",
+     "kind": "text",
+     "x": 46,
+     "y": 126,
+     "text": "I4",
+     "size": 12,
+     "anchor": "end",
+     "tone": "muted"
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 60,
+     "y": 174,
+     "rows": 4,
+     "cols": 10,
+     "cw": 29,
+     "ch": 26,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10"
+     ],
+     "rowLabels": [
+      "I1",
+      "I2",
+      "I3",
+      "I4"
+     ]
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180,
+     "y": 298,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "I1 has the pipeline to itself: S1 in cycle 1, S2 in cycle 2, S3 in cycles 3 to 4 (it needs 2), S4 in cycle 5.",
+     "set": {
+      "id": "g",
+      "cells": [
+       "S1",
+       "S2",
+       "S3",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     },
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tm",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "I2 starts S1 in cycle 2, once I1 has left S1. Its S2 needs 2 cycles and starts when I1 has left S2: cycles 3 to 4. Then S3 in cycle 5 (I1 left S3 after cycle 4) and S4 in cycle 6.",
+     "set": {
+      "id": "g",
+      "cells": [
+       "S1",
+       "S2",
+       "S3",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "S1",
+       "S2",
+       "S2",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     },
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tm",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "I3 needs 2 cycles in S1: cycles 3 to 4. S2 starts in cycle 5, after I2 has left S2. Then S3 in cycle 6 and S4 in cycle 7.",
+     "set": {
+      "id": "g",
+      "cells": [
+       "S1",
+       "S2",
+       "S3",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "S1",
+       "S2",
+       "S2",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "S1",
+       "S1",
+       "S2",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     },
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tm",
+       "cells": [
+        8,
+        9,
+        10,
+        11
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "I4 starts S1 in cycle 5 (I3 left S1 after cycle 4), S2 in cycle 6. S3 takes 3 cycles and starts in cycle 7, after I3 has left S3: cycles 7 to 9. Then S4 in cycle 10.",
+     "set": {
+      "id": "g",
+      "cells": [
+       "S1",
+       "S2",
+       "S3",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "S1",
+       "S2",
+       "S2",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "S1",
+       "S1",
+       "S2",
+       "S3",
+       "S4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "S1",
+       "S2",
+       "S3",
+       "S3",
+       "S3",
+       "S4"
+      ]
+     },
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "tm",
+       "cells": [
+        12,
+        13,
+        14,
+        15
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "I4 finishes S4 in cycle 10, the last event of the run. The pipeline needs 10 cycles in all.",
+     "set": {
+      "id": "n1",
+      "text": "last instruction ends in cycle 10"
+     },
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        39
+       ],
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

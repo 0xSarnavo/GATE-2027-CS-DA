@@ -1,0 +1,3350 @@
+{
+ "topic_id": "os.process",
+ "title": "Processes, threads and fork()",
+ "chapter_note": {
+  "about": "This chapter is about what a process is and how the OS creates, stops and restarts many of them. It starts with the process and its control block, the states a process moves through, and how threads differ. Then it covers what a context switch saves and when the CPU changes between user and kernel mode. The second half is fork(): what it returns, how to count the processes it makes, how processes communicate, and how a parent collects a finished child.",
+  "simple": "A program is a recipe. A process is someone cooking it right now, with their own pot and bookmark. The OS keeps a card for every cook so it can pause one cook, let another cook for a while, and then come back to the first without losing their place. Cooks can have helpers (threads) who share the same kitchen but each keep their own to-do list. A cook can also make a copy of themself with fork(), and then you must count carefully how many cooks there are. In exam words: process, PCB, states, threads, context switch, mode switch, fork(), IPC, wait.",
+  "concept_map": [
+   {
+    "atom_id": "p1",
+    "title": "Process, program and PCB",
+    "one_line": "A process is a program in execution; its PCB holds the state to stop and restart it."
+   },
+   {
+    "atom_id": "p2",
+    "title": "Process states",
+    "one_line": "New, ready, running, waiting, terminated; waiting goes only to ready."
+   },
+   {
+    "atom_id": "p3",
+    "title": "Threads versus processes",
+    "one_line": "Threads share code, globals, heap and files; each has its own stack, registers and PC."
+   },
+   {
+    "atom_id": "p4",
+    "title": "Context switch",
+    "one_line": "Save the old PCB, load the new one; a process switch also changes the address space."
+   },
+   {
+    "atom_id": "p5",
+    "title": "System calls and mode switch",
+    "one_line": "Traps, interrupts and exceptions enter kernel mode; plain calls do not."
+   },
+   {
+    "atom_id": "p6",
+    "title": "fork() semantics",
+    "one_line": "The child is a copy; it gets 0, the parent gets the child pid; variables are private."
+   },
+   {
+    "atom_id": "p7",
+    "title": "Counting fork() processes",
+    "one_line": "n unconditional forks give 2^n processes; with conditions, draw the tree."
+   },
+   {
+    "atom_id": "p8",
+    "title": "Inter-process communication",
+    "one_line": "Pipes and messages use the kernel every time; shared memory only for setup."
+   },
+   {
+    "atom_id": "p9",
+    "title": "wait, exit, zombie and orphan",
+    "one_line": "wait() collects a child; an unwaited child is a zombie; a child of a dead parent is an orphan."
+   }
+  ],
+  "gate_patterns": [
+   "Counting with fork(): processes or printed lines in loops, conditions, && and || (2019 CS Q27, 2024 CS1 Q57, 2026 CS1 Q63, 2008 CS Q66, 2012 CS Q8, 2005 CS Q72).",
+   "Shared and saved state: what threads share, what a context switch saves, and the cost of each (2017 CS1 Q18, 2017 CS2 Q7, 2024 CS1 Q24, 2023 CS Q22, 2024 CS2 Q25).",
+   "States and modes: legal transitions, and which events switch to kernel mode (2020 CS Q22, 2024 CS1 Q25, 2025 CS1 Q29, 2021 CS1 Q24, 2023 CS Q23). Weightage: about 1.0 mark per CS paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "p1",
+   "title": "Process, program and PCB",
+   "simple": "A recipe in a cookbook is just words on paper. It does nothing by itself. When someone actually cooks it, that is a process. Two people can cook the same recipe at the same time, and each has their own pot, their own progress and their own bookmark. The OS keeps a small card for each cook with their progress and bookmark. That card is the PCB. In exam words: a program is a passive file; a process is a program in execution; the PCB stores the process state, program counter, registers, page-table pointer and open files.",
+   "idea": "A **program** is a passive file on disk. A **process** is that program in execution, with its own address space, open files and CPU state. The OS keeps everything it needs to stop and restart a process in a table entry called the **process control block (PCB)**.",
+   "definition": "PCB fields: process id (pid), process state, program counter (PC), saved CPU registers, page-table pointer (or memory limits), open-file table, scheduling data and accounting data.\n\nOne program can have many processes at once. The program file is shared; the PCB, the address space and the execution state belong to one process only.",
+   "intuition_full": "The CPU can run only one process at a time per core, but the OS wants to share it among many. To pause one process and later resume it, the OS needs a place to store its state: where it was in the code, what the registers held, where its memory is and which files it has open. The PCB is that place. When a process is switched out, its CPU state is written to its PCB. When it is switched in, the state is read back. The PCB is also how the OS finds everything about a process: the scheduler queues are lists of PCBs. A program itself carries none of this. It is only the code and static data. That is why two users running the same editor create two processes with two PCBs but share one file on disk, and the read-only code pages can even share physical memory.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Two users, A and B, both start the same editor program. Show what the OS creates and what happens to the PCBs when the OS switches from A to B.",
+     "steps": [
+      "A program is a file on disk. It is passive and has no state of its own. Two users, A and B, are about to run the same editor.",
+      "User A starts it. The OS creates process 101 and a PCB to hold its pid, state, saved PC and page-table pointer.",
+      "User B starts the same program. The OS creates a second process, 102, with its own PCB. One program, two processes.",
+      "Process 101 gets the CPU. Its PCB state becomes running and the PC is 0x4A20.",
+      "A timer interrupt stops 101. The OS saves its PC (0x4A24) into PCB 101, marks it ready, and runs 102 from its own saved PC (0x4A00).",
+      "Each PCB holds its own pid, state, PC and page table. The file is shared; the execution state never is."
+     ],
+     "answer": "One program, two processes, two PCBs. The OS saves and restores PC and registers through the PCBs."
+    },
+    {
+     "level": "gate",
+     "setup": "Classify each item as stored in the PCB (per process) or not: (i) the machine code of the program, (ii) the program counter, (iii) the table of open files, (iv) the saved value of register R3, (v) the pointer to the page table. How many belong to the PCB?",
+     "steps": [
+      "(i) The machine code lives in the executable file and in memory pages. It is the program, not per-process state.",
+      "(ii) The PC says where this process stopped: PCB.",
+      "(iii) Open files belong to the process: PCB (or a table the PCB points to).",
+      "(iv) A saved register value is part of the CPU state of the stopped process: PCB.",
+      "(v) The page-table pointer says where its memory is: PCB."
+     ],
+     "answer": "4 items, (ii) to (v). The code is shared by all processes of the program."
+    },
+    {
+     "level": "twist",
+     "setup": "Three users run the same program at once. How many programs, processes, PCBs and copies of the code in memory are there?",
+     "steps": [
+      "There is one program file.",
+      "Three runs make three processes, so three PCBs.",
+      "The code is read-only, so the OS can keep one physical copy of the code pages and map it into all three address spaces. Data and stacks are separate."
+     ],
+     "answer": "1 program, 3 processes, 3 PCBs, and typically 1 shared copy of the code in memory."
+    }
+   ],
+   "why": "Every other topic in this chapter (states, switching, fork) is about what happens to a PCB. In GATE: statements separating a process from a program, and which items belong to the PCB.",
+   "how": [
+    "Ask: is the item about the program (code, file on disk) or about one run (state, registers, open files)?",
+    "Run-specific items go in the PCB.",
+    "Many processes can share one program; each has its own PCB.",
+    "The PCB is what a context switch saves and loads."
+   ],
+   "mistake": "Saying a program and a process are the same, or that two processes cannot run the same program. They can, and each gets its own PCB, address space and PC.",
+   "edge_cases": [
+    "A program that is never run has no process and no PCB.",
+    "After fork() the child has the same program as the parent but its own PCB and pid.",
+    "Threads of one process share one PCB for resources but each has its own saved registers and PC."
+   ],
+   "connections": [
+    "Process states (next card) are stored in the PCB.",
+    "Context switching (card p4) is saving one PCB and loading another."
+   ],
+   "check": [
+    {
+     "q": "Is a program the same as a process?",
+     "a": "No. A program is a file; a process is a running instance of it."
+    },
+    {
+     "q": "Name three things in a PCB.",
+     "a": "Any of: pid, state, PC, registers, page-table pointer, open files."
+    },
+    {
+     "q": "Two users run the same editor. How many PCBs exist?",
+     "a": "Two."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q22, 2024 CS2 Q25, 2000 CS Q1_20, 2011 CS Q6",
+   "try": {
+    "id": "gen.process.001",
+    "label": "Try: the process, program and PCB question (L1)"
+   },
+   "scene": "os.process.p1",
+   "example": {
+    "setup": "Two users, A and B, both start the same editor program. Show what the OS creates and what happens to the PCBs when the OS switches from A to B.",
+    "steps": [
+     "A program is a file on disk. It is passive and has no state of its own. Two users, A and B, are about to run the same editor.",
+     "User A starts it. The OS creates process 101 and a PCB to hold its pid, state, saved PC and page-table pointer.",
+     "User B starts the same program. The OS creates a second process, 102, with its own PCB. One program, two processes.",
+     "Process 101 gets the CPU. Its PCB state becomes running and the PC is 0x4A20.",
+     "A timer interrupt stops 101. The OS saves its PC (0x4A24) into PCB 101, marks it ready, and runs 102 from its own saved PC (0x4A00).",
+     "Each PCB holds its own pid, state, PC and page table. The file is shared; the execution state never is."
+    ],
+    "answer": "One program, two processes, two PCBs. The OS saves and restores PC and registers through the PCBs."
+   },
+   "what": "A **program** is a passive file on disk. A **process** is that program in execution, with its own address space, open files and CPU state. The OS keeps everything it needs to stop and restart a process in a table entry called the **process control block (PCB)**.",
+   "what_full": "A **program** is a passive file on disk. A **process** is that program in execution, with its own address space, open files and CPU state. The OS keeps everything it needs to stop and restart a process in a table entry called the **process control block (PCB)**.\n\nPCB fields: process id (pid), process state, program counter (PC), saved CPU registers, page-table pointer (or memory limits), open-file table, scheduling data and accounting data.\n\nOne program can have many processes at once. The program file is shared; the PCB, the address space and the execution state belong to one process only.\n\n**Worked example.** Two users, A and B, both start the same editor program. Show what the OS creates and what happens to the PCBs when the OS switches from A to B.\n\n1. A program is a file on disk. It is passive and has no state of its own. Two users, A and B, are about to run the same editor.\n2. User A starts it. The OS creates process 101 and a PCB to hold its pid, state, saved PC and page-table pointer.\n3. User B starts the same program. The OS creates a second process, 102, with its own PCB. One program, two processes.\n4. Process 101 gets the CPU. Its PCB state becomes running and the PC is 0x4A20.\n5. A timer interrupt stops 101. The OS saves its PC (0x4A24) into PCB 101, marks it ready, and runs 102 from its own saved PC (0x4A00).\n6. Each PCB holds its own pid, state, PC and page table. The file is shared; the execution state never is.\n\n**Answer:** One program, two processes, two PCBs. The OS saves and restores PC and registers through the PCBs.",
+   "why_full": "Every other topic in this chapter (states, switching, fork) is about what happens to a PCB. In GATE: statements separating a process from a program, and which items belong to the PCB.\n\nAsked: 2023 CS Q22, 2024 CS2 Q25, 2000 CS Q1_20, 2011 CS Q6",
+   "trap": "Saying a program and a process are the same, or that two processes cannot run the same program. They can, and each gets its own PCB, address space and PC."
+  },
+  {
+   "atom_id": "p2",
+   "title": "Process states",
+   "simple": "Think of people at a bank. Someone enters (new), takes a ticket and sits in the waiting area (ready), goes to the counter when called (running). If the clerk says 'we need a document from the vault', the customer steps aside and waits for the vault (waiting). When the document arrives, the customer does not jump to the counter. They take a seat in the waiting area again and wait their turn. If the clerk says 'your five minutes are up, go back and wait', the customer returns to the waiting area too. In the end the customer leaves (terminated). In exam words: new, ready, running, waiting, terminated; waiting goes only to ready.",
+   "idea": "A process is always in one of five **states**: new, ready (waiting for the CPU), running, waiting (blocked on I/O or an event) and terminated. The OS moves it along fixed arrows. **Waiting never goes straight to running**: it must become ready and be dispatched again.",
+   "definition": "Legal moves: New $\\to$ Ready (admit); Ready $\\to$ Running (dispatch); Running $\\to$ Ready (preemption, time slice over); Running $\\to$ Waiting (blocking call, I/O request); Waiting $\\to$ Ready (event or I/O done); Running $\\to$ Terminated (exit).\n\nThere is no Ready $\\to$ Waiting arrow and no Waiting $\\to$ Running arrow. Only a running process can block, and only the scheduler can start a ready one.",
+   "intuition_full": "The states reflect two different shortages. Ready means the process has everything except the CPU. Waiting means it lacks something else, like data from the disk, so giving it the CPU would be pointless. When that missing thing arrives, the process is no longer blocked, but the CPU may be busy, so it joins the ready queue like anyone else. That is why the arrow from Waiting goes to Ready and not to Running. Preemption also leads to Ready, since the process could run again at once if the CPU were free. A running process can leave in three ways: it finishes (Terminated), it is forced off (Ready) or it asks to wait (Waiting). Counting the times a process enters the ready queue is a common exam task. Each blocking call that completes, and each preemption, gives one entry.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A process is admitted, runs, makes one blocking I/O call, runs again, is preempted once, runs again and exits. Follow it through the states, and count how many times it enters the Ready state after its first admission.",
+     "steps": [
+      "A process is created. It is in the New state and is not yet competing for the CPU.",
+      "Admit: the OS accepts it. New to Ready. The process waits in the ready queue for the CPU.",
+      "Dispatch: the scheduler picks it. Ready to Running.",
+      "The process asks for disk I/O, a blocking call. Running to Waiting.",
+      "The I/O finishes. Waiting to Ready. It cannot go straight to Running: it has to queue again.",
+      "Dispatch again: Ready to Running.",
+      "Its time slice ends, so a timer interrupt preempts it. Running to Ready.",
+      "Dispatch: Ready to Running.",
+      "The process finishes and calls exit. Running to Terminated. Entries into Ready after the first admission: 2."
+     ],
+     "answer": "2 entries into Ready (one after the I/O, one after the preemption)."
+    },
+    {
+     "level": "gate",
+     "setup": "A process alone on the CPU has two CPU bursts of 25 ms and 12 ms, separated by one I/O wait. The scheduler uses round robin with a quantum of 10 ms. Excluding its first admission, how many times does it enter the Ready state?",
+     "steps": [
+      "Burst 1 (25 ms): runs 10 ms, preempted (entry 1). Runs 10 ms, preempted (entry 2). Runs the last 5 ms, then blocks for I/O.",
+      "The I/O completes: Waiting to Ready (entry 3).",
+      "Burst 2 (12 ms): runs 10 ms, preempted (entry 4). Runs 2 ms and exits."
+     ],
+     "answer": "4 entries into Ready."
+    },
+    {
+     "level": "twist",
+     "setup": "Same quantum of 10 ms, but the bursts are 20 ms and 10 ms with one I/O wait between them. How many entries into Ready after the first admission?",
+     "steps": [
+      "Burst 1 (20 ms): the first 10 ms ends the quantum, so it is preempted (entry 1).",
+      "The second 10 ms finishes the burst exactly at the end of the quantum. The process then blocks for I/O. It is not preempted, because it asked to wait.",
+      "I/O done: Waiting to Ready (entry 2). Burst 2 (10 ms) fits in one quantum and the process exits."
+     ],
+     "answer": "2 entries. When a burst is an exact multiple of the quantum, the last slice ends in a block, not a preemption."
+    }
+   ],
+   "why": "The state diagram is the vocabulary of all scheduling and synchronisation questions. In GATE: which transition is impossible, or how many times a process enters a state.",
+   "how": [
+    "Draw the five states and the six legal arrows.",
+    "Trace the process event by event; each event matches one arrow.",
+    "Count the arrows into the state you are asked about.",
+    "Remember: Waiting goes only to Ready."
+   ],
+   "mistake": "Letting Waiting go straight to Running. A process that was blocked becomes ready first. Also, do not count a preemption at the very end of a burst that ends the quantum exactly.",
+   "edge_cases": [
+    "Some systems add suspended states for swapped-out processes; the five-state model is the GATE default.",
+    "A process in Ready is not waiting for I/O; it only waits for the CPU.",
+    "A running process cannot go directly to New."
+   ],
+   "connections": [
+    "Scheduling chapter: round robin and quantum decide Running to Ready moves.",
+    "Synchronisation chapter: blocked on a semaphore means Waiting."
+   ],
+   "check": [
+    {
+     "q": "Which arrow leaves the Waiting state?",
+     "a": "Waiting to Ready, and only that."
+    },
+    {
+     "q": "A timer interrupt fires while P runs. Which transition?",
+     "a": "Running to Ready."
+    },
+    {
+     "q": "Can a Ready process move to Waiting directly?",
+     "a": "No. Only a running process can block."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q22, 2024 CS1 Q25, 2025 CS1 Q29",
+   "try": {
+    "id": "gen.process.003",
+    "label": "Try: the process states question (L1)"
+   },
+   "scene": "os.process.p2",
+   "example": {
+    "setup": "A process is admitted, runs, makes one blocking I/O call, runs again, is preempted once, runs again and exits. Follow it through the states, and count how many times it enters the Ready state after its first admission.",
+    "steps": [
+     "A process is created. It is in the New state and is not yet competing for the CPU.",
+     "Admit: the OS accepts it. New to Ready. The process waits in the ready queue for the CPU.",
+     "Dispatch: the scheduler picks it. Ready to Running.",
+     "The process asks for disk I/O, a blocking call. Running to Waiting.",
+     "The I/O finishes. Waiting to Ready. It cannot go straight to Running: it has to queue again.",
+     "Dispatch again: Ready to Running.",
+     "Its time slice ends, so a timer interrupt preempts it. Running to Ready.",
+     "Dispatch: Ready to Running.",
+     "The process finishes and calls exit. Running to Terminated. Entries into Ready after the first admission: 2."
+    ],
+    "answer": "2 entries into Ready (one after the I/O, one after the preemption)."
+   },
+   "what": "A process is always in one of five **states**: new, ready (waiting for the CPU), running, waiting (blocked on I/O or an event) and terminated. The OS moves it along fixed arrows. **Waiting never goes straight to running**: it must become ready and be dispatched again.",
+   "what_full": "A process is always in one of five **states**: new, ready (waiting for the CPU), running, waiting (blocked on I/O or an event) and terminated. The OS moves it along fixed arrows. **Waiting never goes straight to running**: it must become ready and be dispatched again.\n\nLegal moves: New $\\to$ Ready (admit); Ready $\\to$ Running (dispatch); Running $\\to$ Ready (preemption, time slice over); Running $\\to$ Waiting (blocking call, I/O request); Waiting $\\to$ Ready (event or I/O done); Running $\\to$ Terminated (exit).\n\nThere is no Ready $\\to$ Waiting arrow and no Waiting $\\to$ Running arrow. Only a running process can block, and only the scheduler can start a ready one.\n\n**Worked example.** A process is admitted, runs, makes one blocking I/O call, runs again, is preempted once, runs again and exits. Follow it through the states, and count how many times it enters the Ready state after its first admission.\n\n1. A process is created. It is in the New state and is not yet competing for the CPU.\n2. Admit: the OS accepts it. New to Ready. The process waits in the ready queue for the CPU.\n3. Dispatch: the scheduler picks it. Ready to Running.\n4. The process asks for disk I/O, a blocking call. Running to Waiting.\n5. The I/O finishes. Waiting to Ready. It cannot go straight to Running: it has to queue again.\n6. Dispatch again: Ready to Running.\n7. Its time slice ends, so a timer interrupt preempts it. Running to Ready.\n8. Dispatch: Ready to Running.\n9. The process finishes and calls exit. Running to Terminated. Entries into Ready after the first admission: 2.\n\n**Answer:** 2 entries into Ready (one after the I/O, one after the preemption).",
+   "why_full": "The state diagram is the vocabulary of all scheduling and synchronisation questions. In GATE: which transition is impossible, or how many times a process enters a state.\n\nAsked: 2020 CS Q22, 2024 CS1 Q25, 2025 CS1 Q29",
+   "trap": "Letting Waiting go straight to Running. A process that was blocked becomes ready first. Also, do not count a preemption at the very end of a burst that ends the quantum exactly."
+  },
+  {
+   "atom_id": "p3",
+   "title": "Threads versus processes",
+   "simple": "A process is like a flat shared by three roommates. They share the kitchen, the fridge and the post box (code, global data, heap and open files). But each roommate has their own bedroom and their own to-do list (a stack, registers and a PC). If one roommate puts milk in the fridge, the others see it. If one roommate writes a private note in their own room, the others cannot read it. In exam words: threads of one process share code, globals, heap and open files; each has its own stack, registers and program counter.",
+   "idea": "A **process** owns the address space and the resources. Its **threads** run inside it. All threads share the code, the global data, the heap and the open files. Each thread has its own **stack**, **registers** and **program counter**, so that it can be at a different place in the code.",
+   "definition": "Per process (shared by its threads): code, global and static data, heap, open files, signal handlers, address space.\n\nPer thread (private): stack, register set, program counter, thread id (and thread-local data).\n\nUser-level threads are managed by a library, and the kernel sees one thread, so one blocking system call blocks all of them. Kernel-level threads are scheduled by the OS and can run on several cores.",
+   "intuition_full": "A thread is a unit of execution, not a unit of ownership. Splitting them lets one program do several things at once without paying the price of a new address space. Creating a thread needs only a stack and a register set. Switching between threads of one process is cheap because the address space stays the same, so no page-table change and no TLB flush is needed. The shared memory is the reason threads are efficient and the reason they need synchronisation: two threads can touch the same global variable at once. The private parts are exactly what lets two threads be at different points of the same code: the stack holds each one's local variables and return addresses, and the PC and registers hold where it is. With kernel threads the OS sees each thread separately, so one can block while others run. With user-level threads the kernel sees a single execution stream.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A process has three threads. List what exists once, and what exists three times. If thread 1 sets a global variable g = 7, who sees it?",
+     "steps": [
+      "A process owns one address space and its resources. Threads will run inside it.",
+      "These are shared by all threads: one copy of the code, of the global data, of the heap and of the open files.",
+      "Thread 1 is created. To run by itself it needs its own stack and its own registers and PC.",
+      "Thread 2 is created: another stack, another set of registers and PC.",
+      "Thread 3 is created in the same way. Three threads, three stacks, three PCs.",
+      "Shared: 1 code, 1 globals, 1 heap, 1 file table. Private: 3 stacks, 3 register sets. If thread 1 sets the global g = 7, threads 2 and 3 see 7. Thread 1's local variable lives on its stack and they cannot see it."
+     ],
+     "answer": "Once: code, globals, heap, file table. Three times: stack, registers, PC. All threads see g = 7."
+    },
+    {
+     "level": "gate",
+     "setup": "A process has three threads on one CPU. T1 needs 2 ms of CPU, then a blocking read of 10 ms, then 3 ms more CPU. T2 and T3 each need 5 ms of CPU. How long does the process take to finish all work with user-level threads, and with kernel-level threads? Start with T1.",
+     "steps": [
+      "User-level: the kernel sees one thread. When T1 makes its blocking read at 2 ms, the whole process blocks for 10 ms. No other thread can run.",
+      "Total $=2+10+3+5+5=25$ ms.",
+      "Kernel-level: while T1 waits for the disk, the kernel runs T2 and T3 (10 ms of work) on the CPU.",
+      "T1 is ready again at 12 ms and finishes its last 3 ms: total $=2+10+3=15$ ms."
+     ],
+     "answer": "25 ms with user-level threads and 15 ms with kernel-level threads."
+    },
+    {
+     "level": "twist",
+     "setup": "Two threads of one process each call malloc(100) on the shared heap. Do they get the same block? Can thread 2 use the block that thread 1 allocated?",
+     "steps": [
+      "The heap is shared, but malloc hands out a different free block to each call: the two blocks are different.",
+      "Thread 1's pointer is an address in the shared address space, so thread 2 can use it if it learns the pointer (for example through a global).",
+      "The pointer variable itself, if it is a local, sits on thread 1's private stack."
+     ],
+     "answer": "Different blocks, both visible to both threads. A shared heap means shared address space, not one common block."
+    }
+   ],
+   "why": "Threads are everywhere in modern systems, and 'what is shared' is a favourite GATE statement. In GATE: choose the shared and private items, or compare user-level and kernel-level threads on blocking and parallelism.",
+   "how": [
+    "Shared: code, globals, heap, open files.",
+    "Private: stack, registers, PC.",
+    "User-level threads: kernel sees one thread, so one blocking call blocks all.",
+    "Kernel-level threads: can run in parallel on several cores and block separately."
+   ],
+   "mistake": "Saying each thread has its own heap or its own open-file table. Only the stack, registers and PC are private. The heap, globals and files are shared.",
+   "edge_cases": [
+    "Thread-local storage gives a private copy of a variable, but it is an explicit exception.",
+    "Local variables are private only because they sit on a private stack; their memory is still in the shared address space.",
+    "A user-level thread library cannot use several cores unless the kernel gives it several kernel threads."
+   ],
+   "connections": [
+    "Sharing memory is why threads need the synchronisation tools of the next chapter (os.sync).",
+    "The context switch card (p4) shows why a thread switch is cheaper than a process switch."
+   ],
+   "check": [
+    {
+     "q": "Name three things all threads of a process share.",
+     "a": "Any three of: code, global data, heap, open files."
+    },
+    {
+     "q": "Which part of a thread's state do other threads not see?",
+     "a": "Its stack (local variables), registers and PC."
+    },
+    {
+     "q": "A user-level thread calls a blocking read(). What happens to its sibling threads?",
+     "a": "They all block, because the kernel sees one thread."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q18, 2017 CS2 Q7, 2024 CS1 Q24, 2007 CS Q17, 2011 CS Q16, 2014 CS1 Q20",
+   "try": {
+    "id": "gen.process.002",
+    "label": "Try: the threads versus processes question (L1)"
+   },
+   "scene": "os.process.p3",
+   "example": {
+    "setup": "A process has three threads. List what exists once, and what exists three times. If thread 1 sets a global variable g = 7, who sees it?",
+    "steps": [
+     "A process owns one address space and its resources. Threads will run inside it.",
+     "These are shared by all threads: one copy of the code, of the global data, of the heap and of the open files.",
+     "Thread 1 is created. To run by itself it needs its own stack and its own registers and PC.",
+     "Thread 2 is created: another stack, another set of registers and PC.",
+     "Thread 3 is created in the same way. Three threads, three stacks, three PCs.",
+     "Shared: 1 code, 1 globals, 1 heap, 1 file table. Private: 3 stacks, 3 register sets. If thread 1 sets the global g = 7, threads 2 and 3 see 7. Thread 1's local variable lives on its stack and they cannot see it."
+    ],
+    "answer": "Once: code, globals, heap, file table. Three times: stack, registers, PC. All threads see g = 7."
+   },
+   "what": "A **process** owns the address space and the resources. Its **threads** run inside it. All threads share the code, the global data, the heap and the open files. Each thread has its own **stack**, **registers** and **program counter**, so that it can be at a different place in the code.",
+   "what_full": "A **process** owns the address space and the resources. Its **threads** run inside it. All threads share the code, the global data, the heap and the open files. Each thread has its own **stack**, **registers** and **program counter**, so that it can be at a different place in the code.\n\nPer process (shared by its threads): code, global and static data, heap, open files, signal handlers, address space.\n\nPer thread (private): stack, register set, program counter, thread id (and thread-local data).\n\nUser-level threads are managed by a library, and the kernel sees one thread, so one blocking system call blocks all of them. Kernel-level threads are scheduled by the OS and can run on several cores.\n\n**Worked example.** A process has three threads. List what exists once, and what exists three times. If thread 1 sets a global variable g = 7, who sees it?\n\n1. A process owns one address space and its resources. Threads will run inside it.\n2. These are shared by all threads: one copy of the code, of the global data, of the heap and of the open files.\n3. Thread 1 is created. To run by itself it needs its own stack and its own registers and PC.\n4. Thread 2 is created: another stack, another set of registers and PC.\n5. Thread 3 is created in the same way. Three threads, three stacks, three PCs.\n6. Shared: 1 code, 1 globals, 1 heap, 1 file table. Private: 3 stacks, 3 register sets. If thread 1 sets the global g = 7, threads 2 and 3 see 7. Thread 1's local variable lives on its stack and they cannot see it.\n\n**Answer:** Once: code, globals, heap, file table. Three times: stack, registers, PC. All threads see g = 7.",
+   "why_full": "Threads are everywhere in modern systems, and 'what is shared' is a favourite GATE statement. In GATE: choose the shared and private items, or compare user-level and kernel-level threads on blocking and parallelism.\n\nAsked: 2017 CS1 Q18, 2017 CS2 Q7, 2024 CS1 Q24, 2007 CS Q17, 2011 CS Q16, 2014 CS1 Q20",
+   "trap": "Saying each thread has its own heap or its own open-file table. Only the stack, registers and PC are private. The heap, globals and files are shared."
+  },
+  {
+   "atom_id": "p4",
+   "title": "Context switch",
+   "simple": "You are reading a book and a friend asks you to help with homework. You put in a bookmark and note down where you were, then open your friend's notebook where they left a note too. When you are done, you go back to your own bookmark. Putting away one task and picking up another takes a little time, and during it you do no reading and no homework. That time is the cost. In exam words: a context switch saves the old process's registers and PC in its PCB and loads the new one's. It is pure overhead. A switch between threads of the same process is cheaper because the address space stays the same.",
+   "idea": "A **context switch** saves the running process's CPU state into its PCB and loads another process's state from its PCB. While it happens, the CPU does no useful work for any process. Switching between processes also changes the address space. Switching between threads of one process does not.",
+   "definition": "Saved and restored: PC, stack pointer, general registers, status flags. For a process switch also the page-table base register (and the TLB is flushed or tagged with an address-space id).\n\nOverhead share with quantum $q$ and switch time $s$: useful fraction $=\\dfrac{q}{q+s}$ if every slice is followed by a switch.",
+   "intuition_full": "The CPU has one set of registers, but many processes want to use it. The only way to share it is to copy the registers out to memory when a process leaves and copy another set in when a new process arrives. The PCB is the place for that copy. The OS may also need to change the memory map. A different process has a different page table, so the page-table pointer changes, and cached translations (the TLB) for the old process become wrong. That extra work is why a process switch is more expensive than a thread switch inside one process. The same address space is kept, so the page table and TLB stay valid and only the registers, stack pointer and PC change. A switch is triggered by an interrupt (timer), a blocking call or an exit. It never does useful work for the program, so frequent switches lower the share of time spent on real work.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Process A runs with PC 0x1004, SP 0x7F00 and R1 = 7. Process B is ready, with saved PC 0x2040, SP 0x6F00 and R1 = 3 in its PCB. A timer interrupt fires. Describe the switch from A to B.",
+     "steps": [
+      "Process A is running. The CPU registers hold A's values: PC 0x1004, SP 0x7F00, R1 = 7 and A's page table. Process B, ready, has its saved values in PCB B.",
+      "A timer interrupt arrives. The CPU enters kernel mode and the scheduler starts. A's time slice is over.",
+      "Save: the OS copies the CPU registers into PCB A: PC, SP, R1 and the page-table pointer.",
+      "The scheduler picks B from the ready queue.",
+      "Load: the OS copies PCB B into the CPU, including B's page-table pointer. Address translation now follows B's page table, so A's cached TLB entries are useless.",
+      "B resumes at PC 0x2040 as if it had never stopped. No useful work was done during the switch itself: it is pure overhead."
+     ],
+     "answer": "A's state is saved in PCB A, B's state is loaded from PCB B, and B continues at 0x2040."
+    },
+    {
+     "level": "gate",
+     "setup": "Round robin on one CPU uses a quantum of 6 ms. Four processes each need 30 ms of CPU and never block. A context switch costs 0.5 ms and follows every slice. Find the total time and the fraction of time spent on useful work.",
+     "steps": [
+      "Each process needs $30/6=5$ slices, so there are $4\\times5=20$ slices.",
+      "Useful time $=4\\times30=120$ ms. Switches $=20\\times0.5=10$ ms.",
+      "Total $=120+10=130$ ms. Useful fraction $=120/130=92.3\\%$."
+     ],
+     "answer": "130 ms in all, and 92.3% of the time is useful."
+    },
+    {
+     "level": "twist",
+     "setup": "Threads A1, A2, A3 belong to process A and B1 belongs to process B. A switch between threads of the same process costs 2 $\\mu$s. A switch between threads of different processes costs 9 $\\mu$s. The CPU runs A1, A2, A3, B1, then A1 again. Total switching cost?",
+     "steps": [
+      "A1 to A2: same process, 2 $\\mu$s. A2 to A3: same process, 2 $\\mu$s.",
+      "A3 to B1: different processes, 9 $\\mu$s. B1 to A1: different processes, 9 $\\mu$s.",
+      "Total $=2+2+9+9=22\\ \\mu$s."
+     ],
+     "answer": "22 $\\mu$s. Only the switches between different processes pay the extra address-space cost."
+    }
+   ],
+   "why": "Context switching explains the cost of multitasking and why threads are cheaper than processes. In GATE: what a switch saves, which parts need not change for a thread switch, and the overhead percentage in round robin.",
+   "how": [
+    "Save the old state to its PCB, load the new state from its PCB.",
+    "Process switch: also change the page-table pointer. Thread switch in one process: do not.",
+    "Overhead fraction $=s/(q+s)$ per slice; useful fraction $=q/(q+s)$.",
+    "Total switching cost: add the cost of each switch, using the cheap or dear value as the pair requires."
+   ],
+   "mistake": "Treating a thread switch inside one process as costly as a process switch, or forgetting that the switch time is pure overhead. The page table does not change when the process stays the same.",
+   "edge_cases": [
+    "With address-space ids the TLB need not be flushed on a process switch.",
+    "A switch with only one ready process still enters the scheduler.",
+    "The mode switch to kernel (card p5) happens on the way in; the context switch is a separate step."
+   ],
+   "connections": [
+    "Uses the PCB from card p1.",
+    "Quantum choice and overhead are scheduling topics (os.scheduling)."
+   ],
+   "check": [
+    {
+     "q": "Which register must change on a process switch but not on a thread switch within one process?",
+     "a": "The page-table base register."
+    },
+    {
+     "q": "Quantum 8 ms, switch 2 ms, every slice followed by a switch. Useful fraction?",
+     "a": "$8/10=80\\%$."
+    },
+    {
+     "q": "Does a context switch do useful work for the user program?",
+     "a": "No. It is overhead."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q22, 2024 CS2 Q25, 2000 CS Q1_20, 2011 CS Q6",
+   "try": {
+    "id": "gen.process.011",
+    "label": "Try: the context switch between two threads of one process question (L2)"
+   },
+   "scene": "os.process.p4",
+   "example": {
+    "setup": "Process A runs with PC 0x1004, SP 0x7F00 and R1 = 7. Process B is ready, with saved PC 0x2040, SP 0x6F00 and R1 = 3 in its PCB. A timer interrupt fires. Describe the switch from A to B.",
+    "steps": [
+     "Process A is running. The CPU registers hold A's values: PC 0x1004, SP 0x7F00, R1 = 7 and A's page table. Process B, ready, has its saved values in PCB B.",
+     "A timer interrupt arrives. The CPU enters kernel mode and the scheduler starts. A's time slice is over.",
+     "Save: the OS copies the CPU registers into PCB A: PC, SP, R1 and the page-table pointer.",
+     "The scheduler picks B from the ready queue.",
+     "Load: the OS copies PCB B into the CPU, including B's page-table pointer. Address translation now follows B's page table, so A's cached TLB entries are useless.",
+     "B resumes at PC 0x2040 as if it had never stopped. No useful work was done during the switch itself: it is pure overhead."
+    ],
+    "answer": "A's state is saved in PCB A, B's state is loaded from PCB B, and B continues at 0x2040."
+   },
+   "what": "A **context switch** saves the running process's CPU state into its PCB and loads another process's state from its PCB. While it happens, the CPU does no useful work for any process. Switching between processes also changes the address space. Switching between threads of one process does not.",
+   "what_full": "A **context switch** saves the running process's CPU state into its PCB and loads another process's state from its PCB. While it happens, the CPU does no useful work for any process. Switching between processes also changes the address space. Switching between threads of one process does not.\n\nSaved and restored: PC, stack pointer, general registers, status flags. For a process switch also the page-table base register (and the TLB is flushed or tagged with an address-space id).\n\nOverhead share with quantum $q$ and switch time $s$: useful fraction $=\\dfrac{q}{q+s}$ if every slice is followed by a switch.\n\n**Worked example.** Process A runs with PC 0x1004, SP 0x7F00 and R1 = 7. Process B is ready, with saved PC 0x2040, SP 0x6F00 and R1 = 3 in its PCB. A timer interrupt fires. Describe the switch from A to B.\n\n1. Process A is running. The CPU registers hold A's values: PC 0x1004, SP 0x7F00, R1 = 7 and A's page table. Process B, ready, has its saved values in PCB B.\n2. A timer interrupt arrives. The CPU enters kernel mode and the scheduler starts. A's time slice is over.\n3. Save: the OS copies the CPU registers into PCB A: PC, SP, R1 and the page-table pointer.\n4. The scheduler picks B from the ready queue.\n5. Load: the OS copies PCB B into the CPU, including B's page-table pointer. Address translation now follows B's page table, so A's cached TLB entries are useless.\n6. B resumes at PC 0x2040 as if it had never stopped. No useful work was done during the switch itself: it is pure overhead.\n\n**Answer:** A's state is saved in PCB A, B's state is loaded from PCB B, and B continues at 0x2040.",
+   "why_full": "Context switching explains the cost of multitasking and why threads are cheaper than processes. In GATE: what a switch saves, which parts need not change for a thread switch, and the overhead percentage in round robin.\n\nAsked: 2023 CS Q22, 2024 CS2 Q25, 2000 CS Q1_20, 2011 CS Q6",
+   "trap": "Treating a thread switch inside one process as costly as a process switch, or forgetting that the switch time is pure overhead. The page table does not change when the process stays the same."
+  },
+  {
+   "atom_id": "p5",
+   "title": "System calls and mode switch",
+   "simple": "A shop has a public floor and a staff-only back room. Customers (your program) can walk around the floor freely, count items, and do their own sums. To get something from the back room, they must ring a bell and a staff member goes in for them. Ringing the bell is a system call. The staff member also steps in on their own when something goes wrong, like a spill (a page fault) or a customer asking for the impossible (dividing by zero). Walking around the floor, using a calculator or reading the price list (library functions that stay on the floor) never needs the back room. In exam words: a trap moves the CPU from user mode to kernel mode. System calls, interrupts and exceptions such as page faults cause it. A plain function call does not.",
+   "idea": "The CPU runs in **user mode** for ordinary code and in **kernel mode** for the OS. A **mode switch** from user to kernel happens on a **trap**: a system call, a hardware interrupt or an exception such as a page fault. Ordinary instructions, function calls and most library functions stay in user mode.",
+   "definition": "Causes of a switch to kernel mode: (1) a system call (software trap), for example read, write, sleep, exit, fork; (2) a hardware interrupt, for example a timer or I/O completion; (3) an exception, for example a page fault or division by zero.\n\nNo mode switch: arithmetic, calls and returns inside the program, and library functions such as strlen or malloc that do not need the kernel (malloc enters the kernel only when it must ask for more memory).",
+   "intuition_full": "Kernel mode lets the CPU run privileged instructions that can touch hardware and all of memory. User programs must not do this directly, so the hardware allows entry to the kernel only through controlled doors: the trap instruction and the interrupt and exception vectors. A system call is a request that goes through one of these doors, with the call number and arguments passed in registers. The kernel does the job and then returns to user mode. The cost of a trap is the entry, saving registers, doing the work and returning. That is why programs batch work: one big write is cheaper than many small ones. Library functions are ordinary user code. A function such as printf may call write inside, but only when its buffer needs flushing. So the number of kernel entries can be much smaller than the number of library calls. A mode switch is not the same as a context switch. A mode switch changes privilege on the same process. A context switch changes the process.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A program executes, in order: z = x + y; read(fd,buf,n); strlen(s); sleep(5); f(a) (its own function); a page fault; x / 0. Which events switch the CPU from user mode to kernel mode?",
+     "steps": [
+      "z = x + y is plain arithmetic. It runs in user mode, so there is no mode switch.",
+      "read(fd, buf, n) is a system call. It executes a trap instruction, and the CPU enters kernel mode to do the read. Mode switch 1.",
+      "strlen(s) is a library function that only reads the program's own memory. After the read returns, the CPU is back in user mode and stays there. No switch.",
+      "sleep(5) is a system call: the program must ask the kernel to block it. The CPU traps again. Mode switch 2.",
+      "f(a) calls a function inside the program. It is an ordinary jump and return in user mode. No switch.",
+      "A page fault is raised by the hardware when the page is not in memory. The CPU traps into the kernel to load it. Mode switch 3.",
+      "x / 0 raises a divide-by-zero exception, so the CPU traps into the kernel to handle it. Mode switch 4.",
+      "Total: 4 of the 7 events change the mode: read, sleep, the page fault and the divide error. Plain arithmetic, library calls like strlen and the program's own calls do not."
+     ],
+     "answer": "4 mode switches: read, sleep, the page fault and the divide error."
+    },
+    {
+     "level": "gate",
+     "setup": "A program makes 1000 system calls per second. Each call costs 2 $\\mu$s to enter the kernel, 3 $\\mu$s of kernel work and 2 $\\mu$s to return. What fraction of the CPU goes to system calls?",
+     "steps": [
+      "Cost of one call $=2+3+2=7\\ \\mu$s.",
+      "Per second $=1000\\times7\\ \\mu\\text{s}=7000\\ \\mu\\text{s}=7$ ms.",
+      "Fraction $=7\\text{ ms}/1000\\text{ ms}=0.7\\%$."
+     ],
+     "answer": "0.7% of the CPU."
+    },
+    {
+     "level": "twist",
+     "setup": "A program writes 1 MB ($2^{20}$ bytes) to a file using printf. The C library has a 4096-byte buffer and calls write() only when the buffer is full. How many system calls are made? How many would be made if every byte were written with its own write()?",
+     "steps": [
+      "With the buffer: $2^{20}/4096=256$ write() calls.",
+      "With no buffering: one write() per byte, $2^{20}=1\\,048\\,576$ calls.",
+      "printf is a library call. It enters the kernel only when it flushes."
+     ],
+     "answer": "256 system calls with buffering against 1 048 576 without. A library call is not necessarily a system call."
+    }
+   ],
+   "why": "This is the boundary between user programs and the OS. In GATE: pick which events always cause a mode switch, or tell a library call from a system call.",
+   "how": [
+    "Ask: does the event need the kernel (hardware access, blocking, process control)? Then it traps.",
+    "System calls, interrupts and exceptions (page fault, divide by zero) switch to kernel mode.",
+    "Own-program calls, arithmetic and pure library functions do not.",
+    "Do not confuse a mode switch (same process, higher privilege) with a context switch (different process)."
+   ],
+   "mistake": "Assuming a library call is a system call. malloc and strlen usually run in user mode. exit, sleep and read always trap.",
+   "edge_cases": [
+    "A page fault is raised by the hardware, not requested by the program, but it still switches to kernel mode.",
+    "Returning from the kernel switches back to user mode.",
+    "A timer interrupt switches to kernel mode and may also cause a context switch."
+   ],
+   "connections": [
+    "Context switch (card p4) often follows a trap.",
+    "Page faults here connect to the virtual memory chapter (os.vm)."
+   ],
+   "check": [
+    {
+     "q": "Does calling your own function f() change the mode?",
+     "a": "No."
+    },
+    {
+     "q": "Name two causes of a switch to kernel mode other than a system call.",
+     "a": "A hardware interrupt, and an exception such as a page fault or division by zero."
+    },
+    {
+     "q": "Is a mode switch the same as a context switch?",
+     "a": "No. A mode switch changes privilege level; a context switch changes the process."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q24, 2023 CS Q23, 2001 CS Q1_12, 2001 CS Q2_20, 2011 CS Q11",
+   "try": {
+    "id": "gen.process.006",
+    "label": "Try: the user to kernel mode switch question (L1)"
+   },
+   "scene": "os.process.p5",
+   "example": {
+    "setup": "A program executes, in order: z = x + y; read(fd,buf,n); strlen(s); sleep(5); f(a) (its own function); a page fault; x / 0. Which events switch the CPU from user mode to kernel mode?",
+    "steps": [
+     "z = x + y is plain arithmetic. It runs in user mode, so there is no mode switch.",
+     "read(fd, buf, n) is a system call. It executes a trap instruction, and the CPU enters kernel mode to do the read. Mode switch 1.",
+     "strlen(s) is a library function that only reads the program's own memory. After the read returns, the CPU is back in user mode and stays there. No switch.",
+     "sleep(5) is a system call: the program must ask the kernel to block it. The CPU traps again. Mode switch 2.",
+     "f(a) calls a function inside the program. It is an ordinary jump and return in user mode. No switch.",
+     "A page fault is raised by the hardware when the page is not in memory. The CPU traps into the kernel to load it. Mode switch 3.",
+     "x / 0 raises a divide-by-zero exception, so the CPU traps into the kernel to handle it. Mode switch 4.",
+     "Total: 4 of the 7 events change the mode: read, sleep, the page fault and the divide error. Plain arithmetic, library calls like strlen and the program's own calls do not."
+    ],
+    "answer": "4 mode switches: read, sleep, the page fault and the divide error."
+   },
+   "what": "The CPU runs in **user mode** for ordinary code and in **kernel mode** for the OS. A **mode switch** from user to kernel happens on a **trap**: a system call, a hardware interrupt or an exception such as a page fault. Ordinary instructions, function calls and most library functions stay in user mode.",
+   "what_full": "The CPU runs in **user mode** for ordinary code and in **kernel mode** for the OS. A **mode switch** from user to kernel happens on a **trap**: a system call, a hardware interrupt or an exception such as a page fault. Ordinary instructions, function calls and most library functions stay in user mode.\n\nCauses of a switch to kernel mode: (1) a system call (software trap), for example read, write, sleep, exit, fork; (2) a hardware interrupt, for example a timer or I/O completion; (3) an exception, for example a page fault or division by zero.\n\nNo mode switch: arithmetic, calls and returns inside the program, and library functions such as strlen or malloc that do not need the kernel (malloc enters the kernel only when it must ask for more memory).\n\n**Worked example.** A program executes, in order: z = x + y; read(fd,buf,n); strlen(s); sleep(5); f(a) (its own function); a page fault; x / 0. Which events switch the CPU from user mode to kernel mode?\n\n1. z = x + y is plain arithmetic. It runs in user mode, so there is no mode switch.\n2. read(fd, buf, n) is a system call. It executes a trap instruction, and the CPU enters kernel mode to do the read. Mode switch 1.\n3. strlen(s) is a library function that only reads the program's own memory. After the read returns, the CPU is back in user mode and stays there. No switch.\n4. sleep(5) is a system call: the program must ask the kernel to block it. The CPU traps again. Mode switch 2.\n5. f(a) calls a function inside the program. It is an ordinary jump and return in user mode. No switch.\n6. A page fault is raised by the hardware when the page is not in memory. The CPU traps into the kernel to load it. Mode switch 3.\n7. x / 0 raises a divide-by-zero exception, so the CPU traps into the kernel to handle it. Mode switch 4.\n8. Total: 4 of the 7 events change the mode: read, sleep, the page fault and the divide error. Plain arithmetic, library calls like strlen and the program's own calls do not.\n\n**Answer:** 4 mode switches: read, sleep, the page fault and the divide error.",
+   "why_full": "This is the boundary between user programs and the OS. In GATE: pick which events always cause a mode switch, or tell a library call from a system call.\n\nAsked: 2021 CS1 Q24, 2023 CS Q23, 2001 CS Q1_12, 2001 CS Q2_20, 2011 CS Q11",
+   "trap": "Assuming a library call is a system call. malloc and strlen usually run in user mode. exit, sleep and read always trap."
+  },
+  {
+   "atom_id": "p6",
+   "title": "fork() semantics",
+   "simple": "Imagine a photocopier that can copy a whole notebook, including the page marker showing where you are. You make a copy and hand it to a friend. Now you both start reading from the same line. But if your friend scribbles in their copy, your copy stays clean. The only difference is that you are told your friend's name, while your friend is told 'you are the copy'. In exam words: fork() creates a child process that is a copy of the parent. It returns the child's pid in the parent, 0 in the child, and each has its own private copy of all variables.",
+   "idea": "**fork()** creates a new process that is a copy of the caller: same code, same next line, and its own copy of every variable. It returns **twice**. The parent gets the child's pid, and the child gets **0**. After that the two run independently and changes in one do not appear in the other.",
+   "definition": "$\\text{fork()}=\\begin{cases}0 & \\text{in the child}\\\\ \\text{child's pid}>0 & \\text{in the parent}\\\\ -1 & \\text{on failure}\\end{cases}$\n\nBoth processes continue from the instruction after fork(). Memory is copied (logically; real systems use copy-on-write), so a variable changed by one is not changed in the other. Open files are shared in the sense that the child inherits the descriptors. Buffered output that has not yet been flushed is copied too.",
+   "intuition_full": "fork() duplicates the running program at one instant. Everything the parent has is copied: code, global and local variables, the stack, the registers and the position in the code. The only difference is the return value, which is the program's way to know which copy it is. Tests like if (fork() == 0) pick out the child, and else picks out the parent. Because memory is copied, variables are not shared between parent and child. Writing x in the child changes only the child's x. That is the opposite of threads. Real systems delay the physical copy until one of the processes writes (copy-on-write), but the effect is the same. The copy includes everything in the process's memory, such as unflushed output buffers. This explains a classic surprise: text printed with printf before the fork can come out twice if the output is buffered.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "What is printed, and in what order?\n```c\nint x = 7;\nif (fork() == 0) {\n    x = x * 3;\n    printf(\"%d \", x);\n} else {\n    wait(NULL);\n    x = x + 1;\n    printf(\"%d \", x);\n}\n```",
+     "steps": [
+      "One process runs. It has set int x = 7 and reaches the line if (fork() == 0).",
+      "fork() creates a child: a copy of the parent with the same code, the same next line and its own copy of x = 7.",
+      "fork() returns twice. In the child it returns 0. In the parent it returns the child's pid, here 4321.",
+      "Child: the test is true, so x = x * 3 = 21 and it prints 21. Only the child's copy changed. The parent's x is still 7.",
+      "Parent: the test is false. wait(NULL) returns once the child has exited. Then x = x + 1 = 8, and it prints 8. Output: 21 8."
+     ],
+     "answer": "The output is 21 8. The child prints 21 and the parent, which waited, prints 8."
+    },
+    {
+     "level": "gate",
+     "setup": "What values can be printed, and what is their sum?\n```c\nint i = 0;\nif (fork()) { i += 2; } else { i += 3; }\nif (fork()) { i += 4; }\nprintf(\"%d \", i);\n```",
+     "steps": [
+      "First fork: in the parent (fork() is nonzero) i becomes 2. In the child (fork() returns 0) i becomes 3.",
+      "Second fork: it runs in both processes, so there are four processes in the end. In each, the parent side adds 4 and the child side adds nothing.",
+      "From the process with i = 2: parent side prints 6, child side prints 2.",
+      "From the process with i = 3: parent side prints 7, child side prints 3. Four processes print 6, 2, 7 and 3, in any order. The sum is 18."
+     ],
+     "answer": "The four values 2, 3, 6 and 7 are printed in some order. The sum is 18."
+    },
+    {
+     "level": "twist",
+     "setup": "Standard output goes to a file, so it is fully buffered. How many characters are written?\n```c\nprintf(\"A\");\nfork();\nprintf(\"B\");\n```",
+     "steps": [
+      "printf(A) puts A in the output buffer. The buffer is not flushed, since there is no newline and the output is a file.",
+      "fork() copies the whole process, including the buffer. Parent and child both hold A.",
+      "Each then adds B to its own buffer. At exit each flushes AB: 4 characters in all.",
+      "With unbuffered output, A would be written before the fork and each process would write B: ABB, 3 characters."
+     ],
+     "answer": "4 characters (ABAB) with buffered output, 3 characters (ABB) with unbuffered output."
+    }
+   ],
+   "why": "fork() questions are the core of the process chapter. In GATE: what a given fork program prints, and how variables behave in parent and child.",
+   "how": [
+    "Mark where fork() is called; every live process executes the lines after it.",
+    "In each copy, fork()'s return value decides the branch: 0 for child, nonzero for parent.",
+    "Give each process its own copy of every variable and trace them separately.",
+    "Check for wait(): it fixes the order in which parent and child print."
+   ],
+   "mistake": "Treating a variable as shared after fork(). The parent and child each have a private copy. A change in the child never shows up in the parent.",
+   "edge_cases": [
+    "fork() returns -1 if it fails; the problems normally assume it succeeds.",
+    "Buffered output printed before fork() may be written twice.",
+    "Without wait(), the order in which parent and child print is not fixed."
+   ],
+   "connections": [
+    "Counting the processes created by several forks is the next card.",
+    "wait() and zombies (card p9) decide what happens to the child at its end."
+   ],
+   "check": [
+    {
+     "q": "What does fork() return in the child?",
+     "a": "0."
+    },
+    {
+     "q": "The child changes x. Does the parent's x change?",
+     "a": "No. Each has its own copy."
+    },
+    {
+     "q": "A process runs int x = 5; fork(); x++; printf(x). How many processes print and what do they print?",
+     "a": "Two processes, each printing 6."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q27, 2024 CS1 Q57, 2026 CS1 Q63, 2008 CS Q66, 2012 CS Q8, 2005 CS Q72",
+   "try": {
+    "id": "gen.process.004",
+    "label": "Try: the fork() semantics question (L1)"
+   },
+   "scene": "os.process.p6",
+   "example": {
+    "setup": "What is printed, and in what order?\n```c\nint x = 7;\nif (fork() == 0) {\n    x = x * 3;\n    printf(\"%d \", x);\n} else {\n    wait(NULL);\n    x = x + 1;\n    printf(\"%d \", x);\n}\n```",
+    "steps": [
+     "One process runs. It has set int x = 7 and reaches the line if (fork() == 0).",
+     "fork() creates a child: a copy of the parent with the same code, the same next line and its own copy of x = 7.",
+     "fork() returns twice. In the child it returns 0. In the parent it returns the child's pid, here 4321.",
+     "Child: the test is true, so x = x * 3 = 21 and it prints 21. Only the child's copy changed. The parent's x is still 7.",
+     "Parent: the test is false. wait(NULL) returns once the child has exited. Then x = x + 1 = 8, and it prints 8. Output: 21 8."
+    ],
+    "answer": "The output is 21 8. The child prints 21 and the parent, which waited, prints 8."
+   },
+   "what": "**fork()** creates a new process that is a copy of the caller: same code, same next line, and its own copy of every variable. It returns **twice**. The parent gets the child's pid, and the child gets **0**. After that the two run independently and changes in one do not appear in the other.",
+   "what_full": "**fork()** creates a new process that is a copy of the caller: same code, same next line, and its own copy of every variable. It returns **twice**. The parent gets the child's pid, and the child gets **0**. After that the two run independently and changes in one do not appear in the other.\n\n$\\text{fork()}=\\begin{cases}0 & \\text{in the child}\\\\ \\text{child's pid}>0 & \\text{in the parent}\\\\ -1 & \\text{on failure}\\end{cases}$\n\nBoth processes continue from the instruction after fork(). Memory is copied (logically; real systems use copy-on-write), so a variable changed by one is not changed in the other. Open files are shared in the sense that the child inherits the descriptors. Buffered output that has not yet been flushed is copied too.\n\n**Worked example.** What is printed, and in what order?\n```c\nint x = 7;\nif (fork() == 0) {\n    x = x * 3;\n    printf(\"%d \", x);\n} else {\n    wait(NULL);\n    x = x + 1;\n    printf(\"%d \", x);\n}\n```\n\n1. One process runs. It has set int x = 7 and reaches the line if (fork() == 0).\n2. fork() creates a child: a copy of the parent with the same code, the same next line and its own copy of x = 7.\n3. fork() returns twice. In the child it returns 0. In the parent it returns the child's pid, here 4321.\n4. Child: the test is true, so x = x * 3 = 21 and it prints 21. Only the child's copy changed. The parent's x is still 7.\n5. Parent: the test is false. wait(NULL) returns once the child has exited. Then x = x + 1 = 8, and it prints 8. Output: 21 8.\n\n**Answer:** The output is 21 8. The child prints 21 and the parent, which waited, prints 8.",
+   "why_full": "fork() questions are the core of the process chapter. In GATE: what a given fork program prints, and how variables behave in parent and child.\n\nAsked: 2019 CS Q27, 2024 CS1 Q57, 2026 CS1 Q63, 2008 CS Q66, 2012 CS Q8, 2005 CS Q72",
+   "trap": "Treating a variable as shared after fork(). The parent and child each have a private copy. A change in the child never shows up in the parent."
+  },
+  {
+   "atom_id": "p7",
+   "title": "Counting processes made by fork()",
+   "simple": "Imagine each person in a room can clone themselves once every time a bell rings. After one bell, 1 person becomes 2. After the second bell, those 2 become 4, because the clone also clones. After three bells there are 8. But if the rule says 'only people wearing a red hat may clone', then only some people double, so you must follow each person to count. In exam words: n unconditional forks in a row give 2^n processes. When a fork is inside a condition, a loop with break, or in a branch that only the child takes, trace which processes reach it.",
+   "idea": "Every process that reaches an unconditional **fork()** doubles. So $n$ forks in a row give $2^n$ processes, and $2^n-1$ children of the original. If a fork sits inside an **if**, a loop that **breaks**, or a branch that only the child takes, only some processes run it. Then draw the process tree and count.",
+   "definition": "Unconditional: processes $=2^n$, children of the original $=2^n-1$.\n\nConditional: follow each process separately. A process creates a child each time it executes fork(); the child starts after the fork() with return value 0 and continues. The child inherits the loop counter and variables at that moment.\n\nIn expressions: $a\\ \\&\\&\\ b$ runs $b$ only if $a$ is true; $a\\ \\|\\ b$ runs $b$ only if $a$ is false. Remember that fork() is true (nonzero) in the parent and false (0) in the child.",
+   "intuition_full": "Each fork() call turns one running process into two at the same point in the code. The child then runs the same code that follows, including later forks. This is why forks in sequence multiply: the child also executes all the forks that come after the one that created it. If a fork is guarded by a condition that depends on the fork's own return value, such as if (fork() == 0), then the condition separates parent and child. Then only one side executes the guarded code. The cleanest method is to draw a tree: each node is a process, each edge a fork it executed. To get the count, ask for each process which forks it reaches. Short-circuit operators decide this automatically. With &&, only the side that got a nonzero value (the parent) goes on. With ||, only the side that got zero (the child) goes on. Also remember that the loop variable is copied: a child created in iteration i continues with i, and may run the remaining iterations.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "How many processes exist at the end, counting the original?\n```c\nfork();\nfork();\nif (fork() == 0)\n    fork();\n```",
+     "steps": [
+      "Start: one process, P.",
+      "Line 1, fork(): P creates child a. Two processes.",
+      "Line 2, fork(): both P and a execute it. P creates b and a creates c. Four processes.",
+      "Line 3, if (fork() == 0): all four processes run the fork. Each makes a new child (d, e, f, g), and in that child fork() returned 0. Eight processes.",
+      "Only the four new children pass the test == 0, so only they run the inner fork(): h, i, j and k are created. Twelve processes.",
+      "Total: 12 processes, so 11 are children of the original. Check: three unconditional forks give 2^3 = 8, and the inner fork adds one for each of the 4 children that passed the test: 8 + 4 = 12."
+     ],
+     "answer": "12 processes (11 children of the original)."
+    },
+    {
+     "level": "gate",
+     "setup": "How many times is printf executed?\n```c\nfor (i = 0; i < 4; i++) {\n    if (fork() == 0) {\n        fork();\n        break;\n    }\n}\nprintf(\"x\");\n```",
+     "steps": [
+      "In each iteration, fork() creates a child. The child (where fork() returned 0) runs fork() once more and then breaks out of the loop.",
+      "The parent never breaks, so it goes round all 4 iterations and creates 4 children. Each child creates one more process before it leaves, so there are 4 grandchildren.",
+      "Everyone leaves the loop and reaches printf: the parent (1), the 4 children (4) and the 4 grandchildren (4).",
+      "Total printf calls $=1+4+4=9$."
+     ],
+     "answer": "9. The break stops the child from forking in later iterations, so the count is not $2^4$."
+    },
+    {
+     "level": "twist",
+     "setup": "How many processes exist at the end?\n```c\nfork() || fork() && fork();\n```",
+     "steps": [
+      "&& binds tighter than ||, so this is fork() || (fork() && fork()).",
+      "P runs the first fork(): P gets a nonzero value (true), so || stops there. Child C1 gets 0 (false), so it goes on to evaluate the right side.",
+      "C1 runs fork(): C1 gets a nonzero value, so && goes on and runs the last fork(), creating C3. The new child C2 got 0 (false), so && stops.",
+      "Processes: P, C1, C2, C3."
+     ],
+     "answer": "4 processes. Operator precedence and short-circuit evaluation decide who reaches each fork()."
+    }
+   ],
+   "why": "Counting processes and printf calls is the most repeated fork pattern. In GATE: loops with a fork, conditions on the return value, and && or || with fork().",
+   "how": [
+    "List the lines that call fork() and what guards each of them.",
+    "Draw the tree: each process, and the child it makes at each fork it reaches.",
+    "For loops, remember that the child continues the loop from the current iteration unless it breaks.",
+    "For a printf count, count the processes that reach that printf."
+   ],
+   "mistake": "Counting $2^n$ for a loop whose fork is guarded by a condition or whose child breaks, or counting $2^n$ children instead of $2^n-1$. The original process is not a child.",
+   "edge_cases": [
+    "The parent gets a nonzero value, so fork() as a condition is true in the parent and false in the child.",
+    "A child that calls exit() stops creating processes.",
+    "The order of printing between processes is not fixed unless wait() is used."
+   ],
+   "connections": [
+    "Uses fork() semantics from card p6.",
+    "wait() and exit (card p9) change who reaches later lines."
+   ],
+   "check": [
+    {
+     "q": "How many processes after four unconditional fork() calls in a row?",
+     "a": "$2^4=16$."
+    },
+    {
+     "q": "How many children is that?",
+     "a": "15, since the original is not a child."
+    },
+    {
+     "q": "if (fork() == 0) fork(); How many processes in all?",
+     "a": "3: the original, its child, and the child's child."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q27, 2024 CS1 Q57, 2026 CS1 Q63, 2008 CS Q66, 2012 CS Q8, 2005 CS Q72",
+   "try": {
+    "id": "gen.process.007",
+    "label": "Try: the counting fork() processes question (L2)"
+   },
+   "scene": "os.process.p7",
+   "example": {
+    "setup": "How many processes exist at the end, counting the original?\n```c\nfork();\nfork();\nif (fork() == 0)\n    fork();\n```",
+    "steps": [
+     "Start: one process, P.",
+     "Line 1, fork(): P creates child a. Two processes.",
+     "Line 2, fork(): both P and a execute it. P creates b and a creates c. Four processes.",
+     "Line 3, if (fork() == 0): all four processes run the fork. Each makes a new child (d, e, f, g), and in that child fork() returned 0. Eight processes.",
+     "Only the four new children pass the test == 0, so only they run the inner fork(): h, i, j and k are created. Twelve processes.",
+     "Total: 12 processes, so 11 are children of the original. Check: three unconditional forks give 2^3 = 8, and the inner fork adds one for each of the 4 children that passed the test: 8 + 4 = 12."
+    ],
+    "answer": "12 processes (11 children of the original)."
+   },
+   "what": "Every process that reaches an unconditional **fork()** doubles. So $n$ forks in a row give $2^n$ processes, and $2^n-1$ children of the original. If a fork sits inside an **if**, a loop that **breaks**, or a branch that only the child takes, only some processes run it. Then draw the process tree and count.",
+   "what_full": "Every process that reaches an unconditional **fork()** doubles. So $n$ forks in a row give $2^n$ processes, and $2^n-1$ children of the original. If a fork sits inside an **if**, a loop that **breaks**, or a branch that only the child takes, only some processes run it. Then draw the process tree and count.\n\nUnconditional: processes $=2^n$, children of the original $=2^n-1$.\n\nConditional: follow each process separately. A process creates a child each time it executes fork(); the child starts after the fork() with return value 0 and continues. The child inherits the loop counter and variables at that moment.\n\nIn expressions: $a\\ \\&\\&\\ b$ runs $b$ only if $a$ is true; $a\\ \\|\\ b$ runs $b$ only if $a$ is false. Remember that fork() is true (nonzero) in the parent and false (0) in the child.\n\n**Worked example.** How many processes exist at the end, counting the original?\n```c\nfork();\nfork();\nif (fork() == 0)\n    fork();\n```\n\n1. Start: one process, P.\n2. Line 1, fork(): P creates child a. Two processes.\n3. Line 2, fork(): both P and a execute it. P creates b and a creates c. Four processes.\n4. Line 3, if (fork() == 0): all four processes run the fork. Each makes a new child (d, e, f, g), and in that child fork() returned 0. Eight processes.\n5. Only the four new children pass the test == 0, so only they run the inner fork(): h, i, j and k are created. Twelve processes.\n6. Total: 12 processes, so 11 are children of the original. Check: three unconditional forks give 2^3 = 8, and the inner fork adds one for each of the 4 children that passed the test: 8 + 4 = 12.\n\n**Answer:** 12 processes (11 children of the original).",
+   "why_full": "Counting processes and printf calls is the most repeated fork pattern. In GATE: loops with a fork, conditions on the return value, and && or || with fork().\n\nAsked: 2019 CS Q27, 2024 CS1 Q57, 2026 CS1 Q63, 2008 CS Q66, 2012 CS Q8, 2005 CS Q72",
+   "trap": "Counting $2^n$ for a loop whose fork is guarded by a condition or whose child breaks, or counting $2^n$ children instead of $2^n-1$. The original process is not a child."
+  },
+  {
+   "atom_id": "p8",
+   "title": "Inter-process communication",
+   "simple": "Two friends in different rooms want to share information. A pipe is like passing notes through a school office: each note goes in a tray, and the office staff hand it on. It always needs a visit to the office. Shared memory is like putting a whiteboard on the wall between the two rooms, so both can read and write on it directly. Hanging the whiteboard takes some effort once, but after that no office visit is needed. In exam words: pipes and message passing go through the kernel on every transfer. Shared memory needs the kernel only for the setup, then is accessed directly, so it is the fastest.",
+   "idea": "**Inter-process communication (IPC)** lets separate processes exchange data, since their memory is private. A **pipe** is a one-way byte stream through a kernel buffer. **Message passing** sends discrete messages through the kernel, even between machines. **Shared memory** maps one region into both processes. It needs the kernel for setup only, and then every access is a normal memory access.",
+   "definition": "Pipe: one-way, byte stream, kernel buffer; each write() and read() is a system call. Two-way talk needs two pipes.\n\nMessage passing: send() and receive() through the kernel; works across machines and needs no shared variables.\n\nShared memory: one setup (create and attach) per process, then ordinary loads and stores. The processes must synchronise themselves, because the kernel does not.",
+   "intuition_full": "Processes cannot touch each other's memory, by design, so any data exchange has to be arranged by the OS. The two basic designs differ in who is in the loop. In message passing the kernel is a middleman for every transfer. That is safe and simple, and it also scales to different machines, but each message costs system calls and copies. In shared memory the kernel only sets up the mapping. After that, the data moves without the kernel, which makes large or frequent transfers cheap. The price is that the programmer must avoid races, since both processes can write at the same time. A pipe is the simplest message mechanism: a kernel buffer with a write end and a read end. After fork(), the child inherits the pipe's descriptors, so parent and child can use it. A pipe carries bytes in one direction.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A parent sends 5 messages of 100 bytes to its child. Count the system calls needed (a) with a pipe and (b) with shared memory (create once, attach in both processes).",
+     "steps": [
+      "Pipe: one pipe() call makes a buffer inside the kernel that both processes can reach. System calls so far: 1.",
+      "Each message: the parent calls write(). This is a system call. The kernel copies 100 bytes into its buffer.",
+      "Each message: the child calls read(). Another system call. The kernel copies the bytes out. So 2 system calls per message.",
+      "Five messages cost $5\\times2=10$ calls, plus the pipe() call: 11 system calls in all.",
+      "Shared memory: setup asks the kernel to map one region into both address spaces. That takes shmget, then shmat in the parent and shmat in the child: 3 system calls.",
+      "Now the parent stores into the region and the child loads from it with ordinary instructions: 0 system calls per message. Five messages still cost 3 calls (plus some synchronisation so the child does not read too early)."
+     ],
+     "answer": "11 system calls with a pipe, 3 with shared memory."
+    },
+    {
+     "level": "gate",
+     "setup": "Setting up shared memory costs 30 $\\mu$s once. After that, each message costs 0.5 $\\mu$s. A pipe costs 4.5 $\\mu$s per message (two system calls and two copies) with no setup. From how many messages does shared memory win?",
+     "steps": [
+      "For $n$ messages: shared memory costs $30+0.5n$ and the pipe costs $4.5n$.",
+      "They are equal when $30=4n$, that is $n=7.5$.",
+      "Check: $n=7$: shared 33.5 against pipe 31.5 (pipe wins). $n=8$: shared 34 against pipe 36 (shared memory wins)."
+     ],
+     "answer": "From 8 messages on. For fewer, the setup cost is not paid back."
+    },
+    {
+     "level": "twist",
+     "setup": "A parent and child need to talk both ways with pipes. How many pipe() calls are needed, and why?",
+     "steps": [
+      "A pipe is one-way: one process writes at one end and the other reads at the other end.",
+      "For replies the other way, a second pipe is needed.",
+      "So the parent creates two pipes before fork(), one for each direction."
+     ],
+     "answer": "2 pipe() calls (one for each direction)."
+    }
+   ],
+   "why": "IPC is how processes cooperate without sharing memory. In GATE: which mechanism needs the kernel for every transfer, which is fastest, and what each is suited for.",
+   "how": [
+    "Pipe: one-way kernel stream, system call on every read and write.",
+    "Message passing: kernel on every transfer; works across machines.",
+    "Shared memory: kernel only for setup; fastest; needs your own synchronisation.",
+    "Compare by counting kernel calls and copies per message."
+   ],
+   "mistake": "Thinking that parent and child share ordinary variables after fork(), or that shared memory needs a system call for each read and write. It needs the kernel only for setup.",
+   "edge_cases": [
+    "Shared memory gives no protection from races.",
+    "A pipe's buffer is finite: a writer blocks when it is full, and a reader blocks when it is empty.",
+    "Sockets are message passing that can cross machines."
+   ],
+   "connections": [
+    "Shared memory races lead to the synchronisation chapter (os.sync).",
+    "fork() (card p6) is how a child inherits a pipe."
+   ],
+   "check": [
+    {
+     "q": "Which IPC method needs the kernel only for setup?",
+     "a": "Shared memory."
+    },
+    {
+     "q": "Is a pipe one-way or two-way?",
+     "a": "One-way."
+    },
+    {
+     "q": "Which method works between different machines?",
+     "a": "Message passing (for example sockets)."
+    }
+   ],
+   "asked": "Asked: no standalone blueprint pattern; IPC appears as true/false statements inside the process-chapter questions",
+   "try": {
+    "id": "gen.process.013",
+    "label": "Try: the interprocess communication question with the kernel (L2)"
+   },
+   "scene": "os.process.p8",
+   "example": {
+    "setup": "A parent sends 5 messages of 100 bytes to its child. Count the system calls needed (a) with a pipe and (b) with shared memory (create once, attach in both processes).",
+    "steps": [
+     "Pipe: one pipe() call makes a buffer inside the kernel that both processes can reach. System calls so far: 1.",
+     "Each message: the parent calls write(). This is a system call. The kernel copies 100 bytes into its buffer.",
+     "Each message: the child calls read(). Another system call. The kernel copies the bytes out. So 2 system calls per message.",
+     "Five messages cost $5\\times2=10$ calls, plus the pipe() call: 11 system calls in all.",
+     "Shared memory: setup asks the kernel to map one region into both address spaces. That takes shmget, then shmat in the parent and shmat in the child: 3 system calls.",
+     "Now the parent stores into the region and the child loads from it with ordinary instructions: 0 system calls per message. Five messages still cost 3 calls (plus some synchronisation so the child does not read too early)."
+    ],
+    "answer": "11 system calls with a pipe, 3 with shared memory."
+   },
+   "what": "**Inter-process communication (IPC)** lets separate processes exchange data, since their memory is private. A **pipe** is a one-way byte stream through a kernel buffer. **Message passing** sends discrete messages through the kernel, even between machines. **Shared memory** maps one region into both processes. It needs the kernel for setup only, and then every access is a normal memory access.",
+   "what_full": "**Inter-process communication (IPC)** lets separate processes exchange data, since their memory is private. A **pipe** is a one-way byte stream through a kernel buffer. **Message passing** sends discrete messages through the kernel, even between machines. **Shared memory** maps one region into both processes. It needs the kernel for setup only, and then every access is a normal memory access.\n\nPipe: one-way, byte stream, kernel buffer; each write() and read() is a system call. Two-way talk needs two pipes.\n\nMessage passing: send() and receive() through the kernel; works across machines and needs no shared variables.\n\nShared memory: one setup (create and attach) per process, then ordinary loads and stores. The processes must synchronise themselves, because the kernel does not.\n\n**Worked example.** A parent sends 5 messages of 100 bytes to its child. Count the system calls needed (a) with a pipe and (b) with shared memory (create once, attach in both processes).\n\n1. Pipe: one pipe() call makes a buffer inside the kernel that both processes can reach. System calls so far: 1.\n2. Each message: the parent calls write(). This is a system call. The kernel copies 100 bytes into its buffer.\n3. Each message: the child calls read(). Another system call. The kernel copies the bytes out. So 2 system calls per message.\n4. Five messages cost $5\\times2=10$ calls, plus the pipe() call: 11 system calls in all.\n5. Shared memory: setup asks the kernel to map one region into both address spaces. That takes shmget, then shmat in the parent and shmat in the child: 3 system calls.\n6. Now the parent stores into the region and the child loads from it with ordinary instructions: 0 system calls per message. Five messages still cost 3 calls (plus some synchronisation so the child does not read too early).\n\n**Answer:** 11 system calls with a pipe, 3 with shared memory.",
+   "why_full": "IPC is how processes cooperate without sharing memory. In GATE: which mechanism needs the kernel for every transfer, which is fastest, and what each is suited for.\n\nAsked: no standalone blueprint pattern; IPC appears as true/false statements inside the process-chapter questions",
+   "trap": "Thinking that parent and child share ordinary variables after fork(), or that shared memory needs a system call for each read and write. It needs the kernel only for setup."
+  },
+  {
+   "atom_id": "p9",
+   "title": "wait(), exit, zombies and orphans",
+   "simple": "Imagine a student who finishes an exam and hands it in (exit). The school keeps a note of the student's score until the teacher collects it (wait). Until then, the student has left, but their record is still on the list. That is a zombie. Now imagine the teacher leaves the school while the student is still sitting the exam. The school principal (init) takes over as the student's contact. That student is an orphan. In exam words: wait() blocks the parent until a child ends and collects its exit status. A child that has ended but not been waited for is a zombie. A child whose parent has already exited is an orphan and is adopted by init.",
+   "idea": "When a process ends with **exit**, the kernel frees its memory and files but keeps a small table entry with its exit status. The parent collects it with **wait()**. Until then the child is a **zombie**. If the parent exits first, the running child becomes an **orphan** and the OS hands it to **init**, which waits for it.",
+   "definition": "wait(&s): blocks the caller until one of its children ends, stores the exit status in s and returns the child's pid. After that the child's table entry is freed.\n\nZombie: a process that has terminated but whose parent has not yet called wait(). Orphan: a running process whose parent has terminated; its parent becomes init (pid 1).\n\nIf the parent never calls wait(), zombies stay until the parent exits.",
+   "intuition_full": "A child's exit status is information the parent may want, so the kernel cannot throw it away at once. It keeps a minimal record, and that record is the zombie. The zombie uses no memory or CPU, only a slot in the process table. The slot is released when the parent reads the status with wait(). If the parent is long-running and never waits, zombies pile up and can fill the table. The orphan case is the opposite: the parent has gone, so nobody is left to collect the status. The OS gives the child to init, which calls wait() in a loop, so orphans are cleaned up when they end. wait() is also a synchronisation tool: it makes the parent wait for the child, which fixes the order of their output. Without wait(), the order in which parent and child print is up to the scheduler.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Parent P (pid 500) forks child C (pid 501). C exits with status 3, and later P calls wait(). Then P starts C2 (pid 502) and exits before C2 ends. Follow the process table.",
+     "steps": [
+      "Parent P (pid 500) calls fork(). The child C gets pid 501 and its parent is 500.",
+      "C finishes and calls exit(3). The kernel frees its memory and open files but keeps its table entry with the exit status. C is now a zombie.",
+      "P is busy and has not called wait(). The zombie stays in the process table and uses up a pid slot.",
+      "P calls wait(&s). It gets s = 3 and the return value 501. The kernel removes C's entry: P has reaped its child.",
+      "The other case: P starts a child C2 (pid 502) and then exits first. C2 is still running, an orphan. The OS makes init (pid 1) its new parent.",
+      "When C2 ends, init calls wait() on it, so no zombie is left behind."
+     ],
+     "answer": "C was a zombie until P called wait(). C2 became an orphan, adopted by init."
+    },
+    {
+     "level": "gate",
+     "setup": "What can the program print?\n```c\nif (fork() == 0) {\n    printf(\"A\");\n} else {\n    wait(NULL);\n    printf(\"B\");\n}\nprintf(\"C\");\n```",
+     "steps": [
+      "The child prints A, then C, and exits.",
+      "The parent calls wait(), so it cannot print anything until the child has ended.",
+      "Then the parent prints B and C. The child's output comes entirely first."
+     ],
+     "answer": "Only ACBC. wait() removes every other order."
+    },
+    {
+     "level": "twist",
+     "setup": "Remove the wait(). What outputs are possible now?\n```c\nif (fork() == 0) {\n    printf(\"A\");\n} else {\n    printf(\"B\");\n}\nprintf(\"C\");\n```",
+     "steps": [
+      "The child prints A then C. The parent prints B then C. Each process keeps its own order.",
+      "The two sequences can interleave in any way that keeps AC and BC in order.",
+      "Distinct strings: ACBC, ABCC, BACC and BCAC (ABCC arises in two ways, but is one string)."
+     ],
+     "answer": "Four possible outputs: ABCC, ACBC, BACC, BCAC."
+    }
+   ],
+   "why": "These terms and wait() appear in both definitions and output-order questions. In GATE: name a zombie or an orphan, or find the possible outputs when wait() is present or absent.",
+   "how": [
+    "Zombie = child ended, parent has not waited. Orphan = parent ended first.",
+    "wait() makes the parent block until a child finishes, which fixes the print order.",
+    "Without wait(), interleave the processes' print sequences, keeping each one's own order.",
+    "Count the distinct strings, not the number of interleavings."
+   ],
+   "mistake": "Calling an orphan a zombie, or the reverse. A zombie has finished and waits to be collected. An orphan is still running without a living parent.",
+   "edge_cases": [
+    "A parent that never calls wait() and never exits leaves its zombies in the table.",
+    "wait() returns -1 if the caller has no children.",
+    "init adopts orphans and reaps them."
+   ],
+   "connections": [
+    "Builds on fork() (cards p6, p7).",
+    "Process states (card p2): a zombie is the terminated state before its entry is released."
+   ],
+   "check": [
+    {
+     "q": "A child ends but the parent has not called wait(). What is the child called?",
+     "a": "A zombie."
+    },
+    {
+     "q": "The parent exits while the child still runs. What is the child called, and who adopts it?",
+     "a": "An orphan, adopted by init."
+    },
+    {
+     "q": "What does wait() return?",
+     "a": "The pid of the child that ended, with its exit status stored in the argument."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q27, 2024 CS1 Q57, 2026 CS1 Q63, 2008 CS Q66, 2012 CS Q8, 2005 CS Q72",
+   "try": {
+    "id": "gen.process.005",
+    "label": "Try: the finished child waiting for its parent question (L1)"
+   },
+   "scene": "os.process.p9",
+   "example": {
+    "setup": "Parent P (pid 500) forks child C (pid 501). C exits with status 3, and later P calls wait(). Then P starts C2 (pid 502) and exits before C2 ends. Follow the process table.",
+    "steps": [
+     "Parent P (pid 500) calls fork(). The child C gets pid 501 and its parent is 500.",
+     "C finishes and calls exit(3). The kernel frees its memory and open files but keeps its table entry with the exit status. C is now a zombie.",
+     "P is busy and has not called wait(). The zombie stays in the process table and uses up a pid slot.",
+     "P calls wait(&s). It gets s = 3 and the return value 501. The kernel removes C's entry: P has reaped its child.",
+     "The other case: P starts a child C2 (pid 502) and then exits first. C2 is still running, an orphan. The OS makes init (pid 1) its new parent.",
+     "When C2 ends, init calls wait() on it, so no zombie is left behind."
+    ],
+    "answer": "C was a zombie until P called wait(). C2 became an orphan, adopted by init."
+   },
+   "what": "When a process ends with **exit**, the kernel frees its memory and files but keeps a small table entry with its exit status. The parent collects it with **wait()**. Until then the child is a **zombie**. If the parent exits first, the running child becomes an **orphan** and the OS hands it to **init**, which waits for it.",
+   "what_full": "When a process ends with **exit**, the kernel frees its memory and files but keeps a small table entry with its exit status. The parent collects it with **wait()**. Until then the child is a **zombie**. If the parent exits first, the running child becomes an **orphan** and the OS hands it to **init**, which waits for it.\n\nwait(&s): blocks the caller until one of its children ends, stores the exit status in s and returns the child's pid. After that the child's table entry is freed.\n\nZombie: a process that has terminated but whose parent has not yet called wait(). Orphan: a running process whose parent has terminated; its parent becomes init (pid 1).\n\nIf the parent never calls wait(), zombies stay until the parent exits.\n\n**Worked example.** Parent P (pid 500) forks child C (pid 501). C exits with status 3, and later P calls wait(). Then P starts C2 (pid 502) and exits before C2 ends. Follow the process table.\n\n1. Parent P (pid 500) calls fork(). The child C gets pid 501 and its parent is 500.\n2. C finishes and calls exit(3). The kernel frees its memory and open files but keeps its table entry with the exit status. C is now a zombie.\n3. P is busy and has not called wait(). The zombie stays in the process table and uses up a pid slot.\n4. P calls wait(&s). It gets s = 3 and the return value 501. The kernel removes C's entry: P has reaped its child.\n5. The other case: P starts a child C2 (pid 502) and then exits first. C2 is still running, an orphan. The OS makes init (pid 1) its new parent.\n6. When C2 ends, init calls wait() on it, so no zombie is left behind.\n\n**Answer:** C was a zombie until P called wait(). C2 became an orphan, adopted by init.",
+   "why_full": "These terms and wait() appear in both definitions and output-order questions. In GATE: name a zombie or an orphan, or find the possible outputs when wait() is present or absent.\n\nAsked: 2019 CS Q27, 2024 CS1 Q57, 2026 CS1 Q63, 2008 CS Q66, 2012 CS Q8, 2005 CS Q72",
+   "trap": "Calling an orphan a zombie, or the reverse. A zombie has finished and waits to be collected. An orphan is still running without a living parent."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "os.process.p1",
+   "title": "One program, two processes, two PCBs",
+   "viewBox": [
+    0,
+    0,
+    360,
+    272
+   ],
+   "objects": [
+    {
+     "id": "prog",
+     "kind": "box",
+     "x": 130,
+     "y": 14,
+     "w": 100,
+     "h": 30,
+     "label": "editor.exe"
+    },
+    {
+     "id": "dk",
+     "kind": "text",
+     "x": 124,
+     "y": 29,
+     "text": "file on disk",
+     "size": 12,
+     "anchor": "end",
+     "tone": "muted"
+    },
+    {
+     "id": "pa",
+     "kind": "grid",
+     "x": 24,
+     "y": 114,
+     "rows": 4,
+     "cols": 2,
+     "cw": 66,
+     "ch": 24,
+     "cells": [
+      "pid",
+      "101",
+      "state",
+      "new",
+      "PC",
+      "-",
+      "PT",
+      "-"
+     ],
+     "colTitle": "PCB of process A"
+    },
+    {
+     "id": "pb",
+     "kind": "grid",
+     "x": 204,
+     "y": 114,
+     "rows": 4,
+     "cols": 2,
+     "cw": 66,
+     "ch": 24,
+     "cells": [
+      "pid",
+      "102",
+      "state",
+      "new",
+      "PC",
+      "-",
+      "PT",
+      "-"
+     ],
+     "colTitle": "PCB of process B"
+    },
+    {
+     "id": "a1",
+     "kind": "arrow",
+     "x1": 160,
+     "y1": 44,
+     "x2": 110,
+     "y2": 78
+    },
+    {
+     "id": "a2",
+     "kind": "arrow",
+     "x1": 200,
+     "y1": 44,
+     "x2": 250,
+     "y2": 78
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180,
+     "y": 234,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 180,
+     "y": 256,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A program is a file on disk. It is passive and has no state of its own. Two users, A and B, are about to run the same editor.",
+     "show": [
+      "prog",
+      "dk"
+     ]
+    },
+    {
+     "caption": "User A starts it. The OS creates process 101 and a PCB to hold its pid, state, saved PC and page-table pointer.",
+     "show": [
+      "pa",
+      "a1"
+     ],
+     "set": [
+      {
+       "id": "pa",
+       "cells": [
+        "pid",
+        "101",
+        "state",
+        "ready",
+        "PC",
+        "0x4A00",
+        "PT",
+        "PT-A"
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "process A = program + state"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "User B starts the same program. The OS creates a second process, 102, with its own PCB. One program, two processes.",
+     "show": [
+      "pb",
+      "a2"
+     ],
+     "set": [
+      {
+       "id": "pb",
+       "cells": [
+        "pid",
+        "102",
+        "state",
+        "ready",
+        "PC",
+        "0x4A00",
+        "PT",
+        "PT-B"
+       ]
+      },
+      {
+       "id": "n1",
+       "text": "1 program file, 2 processes, 2 PCBs"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Process 101 gets the CPU. Its PCB state becomes running and the PC is 0x4A20.",
+     "set": [
+      {
+       "id": "pa",
+       "cells": [
+        "pid",
+        "101",
+        "state",
+        "running",
+        "PC",
+        "0x4A20",
+        "PT",
+        "PT-A"
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pa",
+       "cells": [
+        3,
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A timer interrupt stops 101. The OS saves its PC (0x4A24) into PCB 101, marks it ready, and runs 102 from its own saved PC (0x4A00).",
+     "set": [
+      {
+       "id": "pa",
+       "cells": [
+        "pid",
+        "101",
+        "state",
+        "ready",
+        "PC",
+        "0x4A24",
+        "PT",
+        "PT-A"
+       ]
+      },
+      {
+       "id": "pb",
+       "cells": [
+        "pid",
+        "102",
+        "state",
+        "running",
+        "PC",
+        "0x4A00",
+        "PT",
+        "PT-B"
+       ]
+      },
+      {
+       "id": "n2",
+       "text": "save A, load B"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pa",
+       "cells": [
+        3,
+        5
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "pb",
+       "cells": [
+        3,
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Each PCB holds its own pid, state, PC and page table. The file is shared; the execution state never is.",
+     "set": [
+      {
+       "id": "n2",
+       "text": "program: shared. PCB: private per process."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.process.p2",
+   "title": "The life of one process through the states",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "New",
+     "kind": "box",
+     "x": 8,
+     "y": 70,
+     "w": 60,
+     "h": 30,
+     "label": "New"
+    },
+    {
+     "id": "Ready",
+     "kind": "box",
+     "x": 104,
+     "y": 70,
+     "w": 76,
+     "h": 30,
+     "label": "Ready"
+    },
+    {
+     "id": "Running",
+     "kind": "box",
+     "x": 226,
+     "y": 70,
+     "w": 84,
+     "h": 30,
+     "label": "Running"
+    },
+    {
+     "id": "Waiting",
+     "kind": "box",
+     "x": 104,
+     "y": 170,
+     "w": 84,
+     "h": 30,
+     "label": "Waiting"
+    },
+    {
+     "id": "Terminated",
+     "kind": "box",
+     "x": 226,
+     "y": 170,
+     "w": 100,
+     "h": 30,
+     "label": "Terminated"
+    },
+    {
+     "id": "admit",
+     "kind": "arrow",
+     "x1": 68,
+     "y1": 85,
+     "x2": 104,
+     "y2": 85
+    },
+    {
+     "id": "disp",
+     "kind": "arrow",
+     "x1": 180,
+     "y1": 78,
+     "x2": 226,
+     "y2": 78
+    },
+    {
+     "id": "pre",
+     "kind": "arrow",
+     "x1": 226,
+     "y1": 92,
+     "x2": 180,
+     "y2": 92
+    },
+    {
+     "id": "io",
+     "kind": "arrow",
+     "x1": 240,
+     "y1": 100,
+     "x2": 180,
+     "y2": 170
+    },
+    {
+     "id": "done",
+     "kind": "arrow",
+     "x1": 130,
+     "y1": 170,
+     "x2": 130,
+     "y2": 100
+    },
+    {
+     "id": "exit",
+     "kind": "arrow",
+     "x1": 270,
+     "y1": 100,
+     "x2": 270,
+     "y2": 170
+    },
+    {
+     "id": "pm",
+     "kind": "node",
+     "x": 38,
+     "y": 56,
+     "r": 11,
+     "label": "P",
+     "tone": "accent"
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A process is created. It is in the New state and is not yet competing for the CPU.",
+     "move": {
+      "id": "pm",
+      "x": 38,
+      "y": 56
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "created"
+      },
+      {
+       "id": "cnt",
+       "text": "entries into Ready after first admission: 0"
+      }
+     ]
+    },
+    {
+     "caption": "Admit: the OS accepts it. New to Ready. The process waits in the ready queue for the CPU.",
+     "move": {
+      "id": "pm",
+      "x": 142,
+      "y": 56
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "admit: New -> Ready"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "admit",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Dispatch: the scheduler picks it. Ready to Running.",
+     "move": {
+      "id": "pm",
+      "x": 268,
+      "y": 56
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "dispatch: Ready -> Running"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "disp",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The process asks for disk I/O, a blocking call. Running to Waiting.",
+     "move": {
+      "id": "pm",
+      "x": 150,
+      "y": 156
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "blocking call: Running -> Waiting"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "io",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The I/O finishes. Waiting to Ready. It cannot go straight to Running: it has to queue again.",
+     "move": {
+      "id": "pm",
+      "x": 142,
+      "y": 56
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "I/O done: Waiting -> Ready"
+      },
+      {
+       "id": "cnt",
+       "text": "entries into Ready after first admission: 1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "done",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Dispatch again: Ready to Running.",
+     "move": {
+      "id": "pm",
+      "x": 268,
+      "y": 56
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "dispatch: Ready -> Running"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "disp",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Its time slice ends, so a timer interrupt preempts it. Running to Ready.",
+     "move": {
+      "id": "pm",
+      "x": 142,
+      "y": 56
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "preempt: Running -> Ready"
+      },
+      {
+       "id": "cnt",
+       "text": "entries into Ready after first admission: 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pre",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Dispatch: Ready to Running.",
+     "move": {
+      "id": "pm",
+      "x": 268,
+      "y": 56
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "dispatch: Ready -> Running"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "disp",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The process finishes and calls exit. Running to Terminated. Entries into Ready after the first admission: 2.",
+     "move": {
+      "id": "pm",
+      "x": 306,
+      "y": 156
+     },
+     "set": [
+      {
+       "id": "ev",
+       "text": "exit: Running -> Terminated"
+      },
+      {
+       "id": "cnt",
+       "text": "total entries into Ready after first admission: 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "exit",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.process.p3",
+   "title": "What threads share and what they keep private",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "proc",
+     "kind": "box",
+     "x": 8,
+     "y": 6,
+     "w": 344,
+     "h": 238,
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "pt",
+     "kind": "text",
+     "x": 180,
+     "y": 24,
+     "text": "one process = one address space",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "code",
+     "kind": "box",
+     "x": 16,
+     "y": 40,
+     "w": 70,
+     "h": 34,
+     "label": "Code"
+    },
+    {
+     "id": "glob",
+     "kind": "box",
+     "x": 92,
+     "y": 40,
+     "w": 82,
+     "h": 34,
+     "label": "Globals"
+    },
+    {
+     "id": "heap",
+     "kind": "box",
+     "x": 180,
+     "y": 40,
+     "w": 70,
+     "h": 34,
+     "label": "Heap"
+    },
+    {
+     "id": "files",
+     "kind": "box",
+     "x": 256,
+     "y": 40,
+     "w": 90,
+     "h": 34,
+     "label": "Open files"
+    },
+    {
+     "id": "th0",
+     "kind": "box",
+     "x": 16,
+     "y": 104,
+     "w": 100,
+     "h": 26,
+     "label": "Thread 1"
+    },
+    {
+     "id": "sk0",
+     "kind": "box",
+     "x": 16,
+     "y": 134,
+     "w": 100,
+     "h": 30,
+     "label": "Stack"
+    },
+    {
+     "id": "rg0",
+     "kind": "box",
+     "x": 16,
+     "y": 168,
+     "w": 100,
+     "h": 30,
+     "label": "regs + PC"
+    },
+    {
+     "id": "th1",
+     "kind": "box",
+     "x": 130,
+     "y": 104,
+     "w": 100,
+     "h": 26,
+     "label": "Thread 2"
+    },
+    {
+     "id": "sk1",
+     "kind": "box",
+     "x": 130,
+     "y": 134,
+     "w": 100,
+     "h": 30,
+     "label": "Stack"
+    },
+    {
+     "id": "rg1",
+     "kind": "box",
+     "x": 130,
+     "y": 168,
+     "w": 100,
+     "h": 30,
+     "label": "regs + PC"
+    },
+    {
+     "id": "th2",
+     "kind": "box",
+     "x": 244,
+     "y": 104,
+     "w": 100,
+     "h": 26,
+     "label": "Thread 3"
+    },
+    {
+     "id": "sk2",
+     "kind": "box",
+     "x": 244,
+     "y": 134,
+     "w": 100,
+     "h": 30,
+     "label": "Stack"
+    },
+    {
+     "id": "rg2",
+     "kind": "box",
+     "x": 244,
+     "y": 168,
+     "w": 100,
+     "h": 30,
+     "label": "regs + PC"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A process owns one address space and its resources. Threads will run inside it.",
+     "show": [
+      "proc",
+      "pt"
+     ]
+    },
+    {
+     "caption": "These are shared by all threads: one copy of the code, of the global data, of the heap and of the open files.",
+     "show": [
+      "code",
+      "glob",
+      "heap",
+      "files"
+     ],
+     "highlight": [
+      {
+       "id": "code",
+       "tone": "good"
+      },
+      {
+       "id": "glob",
+       "tone": "good"
+      },
+      {
+       "id": "heap",
+       "tone": "good"
+      },
+      {
+       "id": "files",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Thread 1 is created. To run by itself it needs its own stack and its own registers and PC.",
+     "show": [
+      "th0",
+      "sk0",
+      "rg0"
+     ],
+     "highlight": [
+      {
+       "id": "sk0",
+       "tone": "accent"
+      },
+      {
+       "id": "rg0",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Thread 2 is created: another stack, another set of registers and PC.",
+     "show": [
+      "th1",
+      "sk1",
+      "rg1"
+     ],
+     "highlight": [
+      {
+       "id": "sk1",
+       "tone": "accent"
+      },
+      {
+       "id": "rg1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Thread 3 is created in the same way. Three threads, three stacks, three PCs.",
+     "show": [
+      "th2",
+      "sk2",
+      "rg2"
+     ],
+     "highlight": [
+      {
+       "id": "sk2",
+       "tone": "accent"
+      },
+      {
+       "id": "rg2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Shared: 1 code, 1 globals, 1 heap, 1 file table. Private: 3 stacks, 3 register sets. If thread 1 sets the global g = 7, threads 2 and 3 see 7. Thread 1's local variable lives on its stack and they cannot see it.",
+     "set": [
+      {
+       "id": "glob",
+       "label": "g = 7"
+      },
+      {
+       "id": "nt",
+       "text": "shared: 1 copy | private: 3 stacks, 3 PCs"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "code",
+       "tone": "good"
+      },
+      {
+       "id": "glob",
+       "tone": "good"
+      },
+      {
+       "id": "heap",
+       "tone": "good"
+      },
+      {
+       "id": "files",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.process.p4",
+   "title": "Saving one PCB and loading another",
+   "viewBox": [
+    0,
+    0,
+    360,
+    292
+   ],
+   "objects": [
+    {
+     "id": "ct",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "CPU registers",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "cpu",
+     "kind": "grid",
+     "x": 124,
+     "y": 28,
+     "rows": 4,
+     "cols": 2,
+     "cw": 56,
+     "ch": 22,
+     "cells": [
+      "PC",
+      "0x1004",
+      "SP",
+      "0x7F00",
+      "R1",
+      "7",
+      "PTBR",
+      "PT-A"
+     ]
+    },
+    {
+     "id": "ta",
+     "kind": "text",
+     "x": 14,
+     "y": 166,
+     "text": "PCB of A",
+     "size": 13,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "tb",
+     "kind": "text",
+     "x": 346,
+     "y": 166,
+     "text": "PCB of B",
+     "size": 13,
+     "anchor": "end",
+     "bold": true
+    },
+    {
+     "id": "pa",
+     "kind": "grid",
+     "x": 14,
+     "y": 174,
+     "rows": 4,
+     "cols": 2,
+     "cw": 56,
+     "ch": 22,
+     "cells": [
+      "PC",
+      "-",
+      "SP",
+      "-",
+      "R1",
+      "-",
+      "PTBR",
+      "PT-A"
+     ]
+    },
+    {
+     "id": "pb",
+     "kind": "grid",
+     "x": 234,
+     "y": 174,
+     "rows": 4,
+     "cols": 2,
+     "cw": 56,
+     "ch": 22,
+     "cells": [
+      "PC",
+      "0x2040",
+      "SP",
+      "0x6F00",
+      "R1",
+      "3",
+      "PTBR",
+      "PT-B"
+     ]
+    },
+    {
+     "id": "sv",
+     "kind": "arrow",
+     "x1": 150,
+     "y1": 118,
+     "x2": 100,
+     "y2": 172
+    },
+    {
+     "id": "ld",
+     "kind": "arrow",
+     "x1": 210,
+     "y1": 118,
+     "x2": 250,
+     "y2": 172
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 276,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Process A is running. The CPU registers hold A's values: PC 0x1004, SP 0x7F00, R1 = 7 and A's page table. Process B, ready, has its saved values in PCB B.",
+     "set": {
+      "id": "ev",
+      "text": "A runs"
+     },
+     "highlight": "cpu"
+    },
+    {
+     "caption": "A timer interrupt arrives. The CPU enters kernel mode and the scheduler starts. A's time slice is over.",
+     "set": {
+      "id": "ev",
+      "text": "timer interrupt: kernel mode"
+     }
+    },
+    {
+     "caption": "Save: the OS copies the CPU registers into PCB A: PC, SP, R1 and the page-table pointer.",
+     "show": "sv",
+     "set": [
+      {
+       "id": "pa",
+       "cells": [
+        "PC",
+        "0x1004",
+        "SP",
+        "0x7F00",
+        "R1",
+        "7",
+        "PTBR",
+        "PT-A"
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "save A into PCB A"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sv",
+       "tone": "accent"
+      },
+      {
+       "id": "pa",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The scheduler picks B from the ready queue.",
+     "set": {
+      "id": "ev",
+      "text": "scheduler picks B"
+     },
+     "highlight": [
+      {
+       "id": "pb",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Load: the OS copies PCB B into the CPU, including B's page-table pointer. Address translation now follows B's page table, so A's cached TLB entries are useless.",
+     "show": "ld",
+     "set": [
+      {
+       "id": "cpu",
+       "cells": [
+        "PC",
+        "0x2040",
+        "SP",
+        "0x6F00",
+        "R1",
+        "3",
+        "PTBR",
+        "PT-B"
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "load PCB B into the CPU"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ld",
+       "tone": "accent"
+      },
+      {
+       "id": "cpu",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "B resumes at PC 0x2040 as if it had never stopped. No useful work was done during the switch itself: it is pure overhead.",
+     "set": {
+      "id": "ev",
+      "text": "B runs; switch cost = overhead"
+     },
+     "highlight": "cpu"
+    }
+   ]
+  },
+  {
+   "id": "os.process.p5",
+   "title": "Which events switch the CPU into kernel mode",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "ev",
+     "kind": "array",
+     "x": 14,
+     "y": 34,
+     "cells": [
+      "z = x + y",
+      "read(fd,buf,n)",
+      "strlen(s)",
+      "sleep(5)",
+      "f(a), own function",
+      "page fault",
+      "x / 0"
+     ],
+     "cw": 150,
+     "ch": 26,
+     "dir": "down",
+     "indices": false,
+     "label": "the program executes"
+    },
+    {
+     "id": "pt",
+     "kind": "pointer",
+     "array": "ev",
+     "index": 0,
+     "side": "right"
+    },
+    {
+     "id": "um",
+     "kind": "box",
+     "x": 200,
+     "y": 34,
+     "w": 152,
+     "h": 36,
+     "label": "user mode"
+    },
+    {
+     "id": "km",
+     "kind": "box",
+     "x": 200,
+     "y": 130,
+     "w": 152,
+     "h": 36,
+     "label": "kernel mode"
+    },
+    {
+     "id": "cpu",
+     "kind": "node",
+     "x": 334,
+     "y": 52,
+     "r": 14,
+     "label": "CPU",
+     "tone": "accent"
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 274,
+     "y": 222,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "z = x + y is plain arithmetic. It runs in user mode, so there is no mode switch.",
+     "move": [
+      {
+       "id": "cpu",
+       "x": 334,
+       "y": 52
+      },
+      {
+       "id": "pt",
+       "index": 0
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "mode switches so far: 0"
+     },
+     "highlight": [
+      {
+       "id": "ev",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "read(fd, buf, n) is a system call. It executes a trap instruction, and the CPU enters kernel mode to do the read. Mode switch 1.",
+     "move": [
+      {
+       "id": "cpu",
+       "x": 334,
+       "y": 148
+      },
+      {
+       "id": "pt",
+       "index": 1
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "mode switches so far: 1"
+     },
+     "highlight": [
+      {
+       "id": "ev",
+       "cells": [
+        1
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "strlen(s) is a library function that only reads the program's own memory. After the read returns, the CPU is back in user mode and stays there. No switch.",
+     "move": [
+      {
+       "id": "cpu",
+       "x": 334,
+       "y": 52
+      },
+      {
+       "id": "pt",
+       "index": 2
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "mode switches so far: 1"
+     },
+     "highlight": [
+      {
+       "id": "ev",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "sleep(5) is a system call: the program must ask the kernel to block it. The CPU traps again. Mode switch 2.",
+     "move": [
+      {
+       "id": "cpu",
+       "x": 334,
+       "y": 148
+      },
+      {
+       "id": "pt",
+       "index": 3
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "mode switches so far: 2"
+     },
+     "highlight": [
+      {
+       "id": "ev",
+       "cells": [
+        3
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "f(a) calls a function inside the program. It is an ordinary jump and return in user mode. No switch.",
+     "move": [
+      {
+       "id": "cpu",
+       "x": 334,
+       "y": 52
+      },
+      {
+       "id": "pt",
+       "index": 4
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "mode switches so far: 2"
+     },
+     "highlight": [
+      {
+       "id": "ev",
+       "cells": [
+        4
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A page fault is raised by the hardware when the page is not in memory. The CPU traps into the kernel to load it. Mode switch 3.",
+     "move": [
+      {
+       "id": "cpu",
+       "x": 334,
+       "y": 148
+      },
+      {
+       "id": "pt",
+       "index": 5
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "mode switches so far: 3"
+     },
+     "highlight": [
+      {
+       "id": "ev",
+       "cells": [
+        5
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "x / 0 raises a divide-by-zero exception, so the CPU traps into the kernel to handle it. Mode switch 4.",
+     "move": [
+      {
+       "id": "cpu",
+       "x": 334,
+       "y": 148
+      },
+      {
+       "id": "pt",
+       "index": 6
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "mode switches so far: 4"
+     },
+     "highlight": [
+      {
+       "id": "ev",
+       "cells": [
+        6
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Total: 4 of the 7 events change the mode: read, sleep, the page fault and the divide error. Plain arithmetic, library calls like strlen and the program's own calls do not.",
+     "set": {
+      "id": "n1",
+      "text": "4 of 7 switch mode"
+     },
+     "highlight": [
+      {
+       "id": "ev",
+       "cells": [
+        1,
+        3,
+        5,
+        6
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.process.p6",
+   "title": "fork() gives the child its own copy of x",
+   "viewBox": [
+    0,
+    0,
+    360,
+    230
+   ],
+   "objects": [
+    {
+     "id": "par",
+     "kind": "box",
+     "x": 14,
+     "y": 30,
+     "w": 150,
+     "h": 124,
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "pl",
+     "kind": "text",
+     "x": 89,
+     "y": 46,
+     "text": "parent",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "px",
+     "kind": "box",
+     "x": 26,
+     "y": 60,
+     "w": 126,
+     "h": 28,
+     "label": "x = 7"
+    },
+    {
+     "id": "pr",
+     "kind": "box",
+     "x": 26,
+     "y": 96,
+     "w": 126,
+     "h": 28,
+     "label": "fork() -> ?"
+    },
+    {
+     "id": "chd",
+     "kind": "box",
+     "x": 196,
+     "y": 30,
+     "w": 150,
+     "h": 124,
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "cl",
+     "kind": "text",
+     "x": 271,
+     "y": 46,
+     "text": "child",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "cx",
+     "kind": "box",
+     "x": 208,
+     "y": 60,
+     "w": 126,
+     "h": 28,
+     "label": "x = 7"
+    },
+    {
+     "id": "cr",
+     "kind": "box",
+     "x": 208,
+     "y": 96,
+     "w": 126,
+     "h": 28,
+     "label": "fork() -> 0"
+    },
+    {
+     "id": "ln",
+     "kind": "text",
+     "x": 180,
+     "y": 178,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 212,
+     "text": "output:",
+     "size": 15,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "One process runs. It has set int x = 7 and reaches the line if (fork() == 0).",
+     "show": [
+      "par",
+      "pl",
+      "px",
+      "pr"
+     ],
+     "set": {
+      "id": "ln",
+      "text": "if (fork() == 0) ..."
+     }
+    },
+    {
+     "caption": "fork() creates a child: a copy of the parent with the same code, the same next line and its own copy of x = 7.",
+     "show": [
+      "chd",
+      "cl",
+      "cx"
+     ],
+     "set": {
+      "id": "ln",
+      "text": "both continue after fork()"
+     },
+     "highlight": [
+      {
+       "id": "chd",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "fork() returns twice. In the child it returns 0. In the parent it returns the child's pid, here 4321.",
+     "show": "cr",
+     "set": [
+      {
+       "id": "pr",
+       "label": "fork() -> 4321"
+      },
+      {
+       "id": "ln",
+       "text": "child sees 0, parent sees 4321"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cr",
+       "tone": "good"
+      },
+      {
+       "id": "pr",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Child: the test is true, so x = x * 3 = 21 and it prints 21. Only the child's copy changed. The parent's x is still 7.",
+     "set": [
+      {
+       "id": "cx",
+       "label": "x = 21"
+      },
+      {
+       "id": "ln",
+       "text": "child: x = x * 3; print x"
+      },
+      {
+       "id": "out",
+       "text": "output: 21"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cx",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Parent: the test is false. wait(NULL) returns once the child has exited. Then x = x + 1 = 8, and it prints 8. Output: 21 8.",
+     "set": [
+      {
+       "id": "px",
+       "label": "x = 8"
+      },
+      {
+       "id": "ln",
+       "text": "parent: wait; x = x + 1; print x"
+      },
+      {
+       "id": "out",
+       "text": "output: 21 8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "px",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.process.p7",
+   "title": "The process tree grows with each fork",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "t0",
+     "kind": "tree",
+     "x": 180,
+     "y": 30,
+     "root": {
+      "id": "P0",
+      "label": "P"
+     },
+     "dx": 44,
+     "dy": 44,
+     "r": 15
+    },
+    {
+     "id": "t1",
+     "kind": "tree",
+     "x": 180,
+     "y": 30,
+     "root": {
+      "id": "P1",
+      "label": "P",
+      "children": [
+       {
+        "id": "a1",
+        "label": "a"
+       }
+      ]
+     },
+     "dx": 44,
+     "dy": 44,
+     "r": 15
+    },
+    {
+     "id": "t2",
+     "kind": "tree",
+     "x": 180,
+     "y": 30,
+     "root": {
+      "id": "P2",
+      "label": "P",
+      "children": [
+       {
+        "id": "a2",
+        "label": "a",
+        "children": [
+         {
+          "id": "c2",
+          "label": "c"
+         }
+        ]
+       },
+       {
+        "id": "b2",
+        "label": "b"
+       }
+      ]
+     },
+     "dx": 44,
+     "dy": 44,
+     "r": 15
+    },
+    {
+     "id": "t3",
+     "kind": "tree",
+     "x": 180,
+     "y": 30,
+     "root": {
+      "id": "P3",
+      "label": "P",
+      "children": [
+       {
+        "id": "a3",
+        "label": "a",
+        "children": [
+         {
+          "id": "c3",
+          "label": "c",
+          "children": [
+           {
+            "id": "g3",
+            "label": "g"
+           }
+          ]
+         },
+         {
+          "id": "e3",
+          "label": "e"
+         }
+        ]
+       },
+       {
+        "id": "b3",
+        "label": "b",
+        "children": [
+         {
+          "id": "f3",
+          "label": "f"
+         }
+        ]
+       },
+       {
+        "id": "d3",
+        "label": "d"
+       }
+      ]
+     },
+     "dx": 44,
+     "dy": 44,
+     "r": 15
+    },
+    {
+     "id": "t4",
+     "kind": "tree",
+     "x": 180,
+     "y": 30,
+     "root": {
+      "id": "P4",
+      "label": "P",
+      "children": [
+       {
+        "id": "a4",
+        "label": "a",
+        "children": [
+         {
+          "id": "c4",
+          "label": "c",
+          "children": [
+           {
+            "id": "g4",
+            "label": "g",
+            "children": [
+             {
+              "id": "k4",
+              "label": "k"
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "id": "e4",
+          "label": "e",
+          "children": [
+           {
+            "id": "i4",
+            "label": "i"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "b4",
+        "label": "b",
+        "children": [
+         {
+          "id": "f4",
+          "label": "f",
+          "children": [
+           {
+            "id": "j4",
+            "label": "j"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "id": "d4",
+        "label": "d",
+        "children": [
+         {
+          "id": "h4",
+          "label": "h"
+         }
+        ]
+       }
+      ]
+     },
+     "dx": 44,
+     "dy": 44,
+     "r": 15
+    },
+    {
+     "id": "cn",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start: one process, P.",
+     "show": "t0",
+     "set": {
+      "id": "cn",
+      "text": "1 process"
+     }
+    },
+    {
+     "caption": "Line 1, fork(): P creates child a. Two processes.",
+     "hide": "t0",
+     "show": "t1",
+     "set": {
+      "id": "cn",
+      "text": "2 processes"
+     },
+     "highlight": [
+      {
+       "id": "a1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Line 2, fork(): both P and a execute it. P creates b and a creates c. Four processes.",
+     "hide": "t1",
+     "show": "t2",
+     "set": {
+      "id": "cn",
+      "text": "4 processes"
+     },
+     "highlight": [
+      {
+       "id": "b2",
+       "tone": "good"
+      },
+      {
+       "id": "c2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Line 3, if (fork() == 0): all four processes run the fork. Each makes a new child (d, e, f, g), and in that child fork() returned 0. Eight processes.",
+     "hide": "t2",
+     "show": "t3",
+     "set": {
+      "id": "cn",
+      "text": "8 processes"
+     },
+     "highlight": [
+      {
+       "id": "d3",
+       "tone": "good"
+      },
+      {
+       "id": "e3",
+       "tone": "good"
+      },
+      {
+       "id": "f3",
+       "tone": "good"
+      },
+      {
+       "id": "g3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Only the four new children pass the test == 0, so only they run the inner fork(): h, i, j and k are created. Twelve processes.",
+     "hide": "t3",
+     "show": "t4",
+     "set": {
+      "id": "cn",
+      "text": "12 processes"
+     },
+     "highlight": [
+      {
+       "id": "h4",
+       "tone": "good"
+      },
+      {
+       "id": "i4",
+       "tone": "good"
+      },
+      {
+       "id": "j4",
+       "tone": "good"
+      },
+      {
+       "id": "k4",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Total: 12 processes, so 11 are children of the original. Check: three unconditional forks give 2^3 = 8, and the inner fork adds one for each of the 4 children that passed the test: 8 + 4 = 12.",
+     "set": {
+      "id": "cn",
+      "text": "12 processes = 11 children + the original"
+     },
+     "highlight": [
+      {
+       "id": "h4",
+       "tone": "accent"
+      },
+      {
+       "id": "i4",
+       "tone": "accent"
+      },
+      {
+       "id": "j4",
+       "tone": "accent"
+      },
+      {
+       "id": "k4",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.process.p8",
+   "title": "System calls: a pipe versus shared memory",
+   "viewBox": [
+    0,
+    0,
+    360,
+    246
+   ],
+   "objects": [
+    {
+     "id": "par",
+     "kind": "box",
+     "x": 14,
+     "y": 64,
+     "w": 90,
+     "h": 36,
+     "label": "parent"
+    },
+    {
+     "id": "chd",
+     "kind": "box",
+     "x": 256,
+     "y": 64,
+     "w": 90,
+     "h": 36,
+     "label": "child"
+    },
+    {
+     "id": "ker",
+     "kind": "box",
+     "x": 110,
+     "y": 24,
+     "w": 140,
+     "h": 40,
+     "label": "kernel buffer"
+    },
+    {
+     "id": "shm",
+     "kind": "box",
+     "x": 110,
+     "y": 150,
+     "w": 140,
+     "h": 40,
+     "label": "shared memory"
+    },
+    {
+     "id": "w",
+     "kind": "arrow",
+     "from": "par",
+     "to": "ker"
+    },
+    {
+     "id": "r",
+     "kind": "arrow",
+     "from": "ker",
+     "to": "chd"
+    },
+    {
+     "id": "sw",
+     "kind": "arrow",
+     "from": "par",
+     "to": "shm",
+     "dash": true
+    },
+    {
+     "id": "sr",
+     "kind": "arrow",
+     "from": "shm",
+     "to": "chd",
+     "dash": true
+    },
+    {
+     "id": "cn",
+     "kind": "text",
+     "x": 180,
+     "y": 232,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Pipe: one pipe() call makes a buffer inside the kernel that both processes can reach. System calls so far: 1.",
+     "show": [
+      "ker",
+      "w",
+      "r"
+     ],
+     "set": [
+      {
+       "id": "cn",
+       "text": "system calls: 1"
+      },
+      {
+       "id": "nt",
+       "text": "pipe()"
+      }
+     ],
+     "highlight": "ker"
+    },
+    {
+     "caption": "Each message: the parent calls write(). This is a system call. The kernel copies 100 bytes into its buffer.",
+     "highlight": [
+      {
+       "id": "w",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "cn",
+       "text": "system calls: 2"
+      },
+      {
+       "id": "nt",
+       "text": "write(): copy into the kernel"
+      }
+     ]
+    },
+    {
+     "caption": "Each message: the child calls read(). Another system call. The kernel copies the bytes out. So 2 system calls per message.",
+     "highlight": [
+      {
+       "id": "r",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "cn",
+       "text": "system calls: 3"
+      },
+      {
+       "id": "nt",
+       "text": "read(): copy out of the kernel"
+      }
+     ]
+    },
+    {
+     "caption": "Five messages cost $5\\times2=10$ calls, plus the pipe() call: 11 system calls in all.",
+     "highlight": [
+      {
+       "id": "w",
+       "tone": "accent"
+      },
+      {
+       "id": "r",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "cn",
+       "text": "system calls for 5 messages: 11"
+      },
+      {
+       "id": "nt",
+       "text": "1 + 5 x (write + read)"
+      }
+     ]
+    },
+    {
+     "caption": "Shared memory: setup asks the kernel to map one region into both address spaces. That takes shmget, then shmat in the parent and shmat in the child: 3 system calls.",
+     "hide": [
+      "w",
+      "r",
+      "ker"
+     ],
+     "show": [
+      "shm",
+      "sw",
+      "sr"
+     ],
+     "set": [
+      {
+       "id": "cn",
+       "text": "system calls (setup): 3"
+      },
+      {
+       "id": "nt",
+       "text": "shmget, shmat, shmat"
+      }
+     ],
+     "highlight": "shm"
+    },
+    {
+     "caption": "Now the parent stores into the region and the child loads from it with ordinary instructions: 0 system calls per message. Five messages still cost 3 calls (plus some synchronisation so the child does not read too early).",
+     "highlight": [
+      {
+       "id": "sw",
+       "tone": "good"
+      },
+      {
+       "id": "sr",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "cn",
+       "text": "system calls for 5 messages: 3"
+      },
+      {
+       "id": "nt",
+       "text": "plain stores and loads: no kernel"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.process.p9",
+   "title": "Zombie, wait() and orphan",
+   "viewBox": [
+    0,
+    0,
+    360,
+    236
+   ],
+   "objects": [
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 74,
+     "y": 56,
+     "rows": 2,
+     "cols": 3,
+     "cw": 70,
+     "ch": 28,
+     "cells": [
+      "500",
+      "running",
+      "1",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "pid",
+      "state",
+      "parent"
+     ],
+     "rowLabels": [
+      "P",
+      "C"
+     ]
+    },
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "process table",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "ws",
+     "kind": "text",
+     "x": 180,
+     "y": 146,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 184,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "accent",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Parent P (pid 500) calls fork(). The child C gets pid 501 and its parent is 500.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        "500",
+        "running",
+        "1",
+        "501",
+        "running",
+        "500"
+       ]
+      },
+      {
+       "id": "nt",
+       "text": "child created"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        3,
+        4,
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "C finishes and calls exit(3). The kernel frees its memory and open files but keeps its table entry with the exit status. C is now a zombie.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        "500",
+        "running",
+        "1",
+        "501",
+        "zombie",
+        "500"
+       ]
+      },
+      {
+       "id": "nt",
+       "text": "C exited with status 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        4
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "P is busy and has not called wait(). The zombie stays in the process table and uses up a pid slot.",
+     "set": {
+      "id": "nt",
+      "text": "zombie waits for P to collect its status"
+     },
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        3,
+        4,
+        5
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "P calls wait(&s). It gets s = 3 and the return value 501. The kernel removes C's entry: P has reaped its child.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        "500",
+        "running",
+        "1",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ws",
+       "text": "wait() returned 501, status 3"
+      },
+      {
+       "id": "nt",
+       "text": "entry removed"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ws",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The other case: P starts a child C2 (pid 502) and then exits first. C2 is still running, an orphan. The OS makes init (pid 1) its new parent.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        "",
+        "",
+        "",
+        "502",
+        "running",
+        "1"
+       ]
+      },
+      {
+       "id": "ws",
+       "text": "P exited first"
+      },
+      {
+       "id": "nt",
+       "text": "C2 is adopted by init (pid 1)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        3,
+        4,
+        5
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "When C2 ends, init calls wait() on it, so no zombie is left behind.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "nt",
+       "text": "init reaps C2: no zombie"
+      },
+      {
+       "id": "n2",
+       "text": "zombie: ended, not yet waited for\norphan: parent already gone"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

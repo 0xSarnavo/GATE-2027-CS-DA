@@ -1,0 +1,3109 @@
+{
+ "topic_id": "net.routing",
+ "title": "Routing",
+ "chapter_note": {
+  "about": "Routing decides which path a packet takes. This chapter covers the two ways routers learn paths. In distance vector routing, each router keeps a table of costs, shares it with its neighbours only, and improves it with the Bellman-Ford rule. We follow how a table updates, how many rounds news needs to spread, and how stale routes make costs climb after a failure (count to infinity). In link-state routing, each router floods its links so that everyone has the same map, then runs Dijkstra. The last card compares the two and names RIP and OSPF. Questions are small hand simulations or true/false statements.",
+  "simple": "Routers need to know which road leads to each place. In one method, each router asks its neighbours how far everything is, adds the distance to that neighbour, and keeps the best answer. This works but it spreads news slowly, and after a road is cut the routers can keep passing old news back and forth. In the other method, every router tells everyone about its own roads, so all routers hold the same map and each finds the shortest routes itself. In exam words: distance vector (Bellman-Ford, RIP), count to infinity, link state (flooding, Dijkstra, OSPF).",
+  "concept_map": [
+   {
+    "atom_id": "r1",
+    "title": "Distance vector idea",
+    "one_line": "Each router sends its vector to neighbours only; update is Bellman-Ford."
+   },
+   {
+    "atom_id": "r2",
+    "title": "Updating a vector from neighbours",
+    "one_line": "New cost = min over neighbours of link cost plus advertised cost."
+   },
+   {
+    "atom_id": "r3",
+    "title": "Rounds and convergence",
+    "one_line": "News moves one hop per round; rounds = links in the longest cheapest path - 1."
+   },
+   {
+    "atom_id": "r4",
+    "title": "Count-to-infinity and fixes",
+    "one_line": "Stale routes loop after a failure; split horizon fixes only two-router loops."
+   },
+   {
+    "atom_id": "r5",
+    "title": "Link-state flooding",
+    "one_line": "Each router floods its own links; one flood costs 2E - (V - 1)."
+   },
+   {
+    "atom_id": "r6",
+    "title": "Dijkstra at a router",
+    "one_line": "Settle the nearest router; the first hop goes into the forwarding table."
+   },
+   {
+    "atom_id": "r7",
+    "title": "DV versus LS and protocols",
+    "one_line": "DV: Bellman-Ford, RIP. LS: Dijkstra, OSPF, faster convergence."
+   }
+  ],
+  "gate_patterns": [
+   "Compare distance vector and link state, or RIP and OSPF: pick the true or false statements (2025 CS2 Q17, 2014 CS1 Q23, 2014 CS2 Q23, 2023 CS Q25, 2017 CS2 Q9; 5 questions).",
+   "Distance vector table update: new cost and next hop from the neighbours' vectors, with stale values after a failure (2021 CS2 Q55, 2011 CS Q52, 2011 CS Q53). Count to infinity and loop probability appears once (2022 CS Q57).",
+   "Shortest paths and unused links: run shortest paths from every router, mark the links that appear, then change weights and repeat (2010 CS Q54, 2010 CS Q55). Weightage: about 0.5 marks per CS paper; 5 questions in 5 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "r1",
+   "title": "Distance vector idea",
+   "simple": "Imagine a group of friends in different towns, and each one wants to know how far every other town is. Nobody has a map. Each friend only knows the distance to the neighbouring towns, but they phone their neighbours and say 'here is my list of distances'. A friend then thinks: 'my neighbour says town X is 5 away, and my neighbour is 3 away from me, so X is 8 from me'. After a few rounds of phone calls, everybody has a correct list. In exam words: each router keeps a distance vector, sends it only to its neighbours, and updates it with the Bellman-Ford rule.",
+   "idea": "In **distance vector** routing, each router keeps a list (a vector) of its best known cost to every destination. It sends this list to its **neighbours only**. Each router improves its own list using what the neighbours say, and the lists settle after a few rounds.",
+   "definition": "Each router x keeps $D_x(t)$ = its current cost to destination t, and the next hop that achieves it.\n\n**Send:** periodically, and when the vector changes, x sends its whole vector to each direct neighbour.\n\n**Receive:** x updates $D_x(t) = \\min_v [\\, c(x,v) + D_v(t) \\,]$ over its neighbours v, where $c(x,v)$ is the cost of the link to v.\n\nThis is one step of **Bellman-Ford**. The algorithm needs no map of the network, only the neighbours' vectors.\n\nRIP is the standard distance vector protocol (metric = hop count, 16 means unreachable).",
+   "intuition_full": "The whole idea is that a router does not need the network, only its neighbours. If x knows that neighbour v can reach t at cost $D_v(t)$, and the link x-v costs c, then x can reach t at cost c + $D_v(t)$. The best neighbour wins. Because each router uses its neighbours' current best, correct information moves one hop per exchange. Distance-1 destinations are known at the start, distance-2 destinations after one round, and so on. The method is called distributed Bellman-Ford because each router computes a little and trusts others. It is cheap in memory and computation, but it has a weakness (card r4): a router believes what its neighbour says, even if the neighbour's route actually goes back through the router itself.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Four routers U, V, W, Z have links U-V = 3, V-W = 2, W-Z = 4 and U-Z = 10. Each starts knowing only its direct links, then the routers exchange distance vectors in rounds. Follow router U's table until it stops changing.",
+     "steps": [
+      "Each router starts with a vector: its cost to every router. It knows only direct links. U = (0, 3, ∞, 10), V = (3, 0, 2, ∞), W = (∞, 2, 0, 4), Z = (10, ∞, 4, 0) in the order (U, V, W, Z).",
+      "Round 1: every router sends its vector to its **neighbours only**. U receives V's vector (3, 0, 2, ∞) and Z's vector (10, ∞, 4, 0).",
+      "U improves its cost to W: via V it is 3 + 2 = 5, via Z it is 10 + 4 = 14. The minimum is **5**, next hop V. U's cost to Z stays 10 for now.",
+      "The other routers update at the same time. After round 1: V = (3, 0, 2, 6), W = (5, 2, 0, 4), Z = (10, 6, 4, 0).",
+      "Round 2: U now receives V's improved vector (3, 0, 2, 6). Cost to Z via V = 3 + 6 = 9, better than the direct 10. U switches to 9 and changes its next hop for Z from Z to V.",
+      "Round 3 changes nothing, so the tables have **converged**. U = (0, 3, 5, 9), and no router ever needed to know the full map."
+     ],
+     "answer": "U ends with (0, 3, 5, 9). The tables settle after 2 rounds of changes."
+    },
+    {
+     "level": "gate",
+     "setup": "Which algorithm is the basis of distance vector routing and which of link-state routing? Which kind of information does each router send, and to whom?",
+     "steps": [
+      "Distance vector uses the **Bellman-Ford** equation: each router relaxes its cost using the neighbours' vectors.",
+      "Link state uses **Dijkstra**: each router gets the whole map and computes its own shortest-path tree.",
+      "A DV router sends its **entire vector** (cost to every destination) to its **direct neighbours only**.",
+      "An LS router sends information about **its own links** (neighbours and costs) to **all routers** by flooding.",
+      "So 'neighbours' knowledge, vector, Bellman-Ford' goes with DV, and 'whole map, links, Dijkstra' goes with LS."
+     ],
+     "answer": "DV: Bellman-Ford, vector, neighbours only. LS: Dijkstra, own links, everyone."
+    },
+    {
+     "level": "twist",
+     "setup": "In the basic example, how many entries does U need to store, and does U ever learn which routers lie on its path to Z?",
+     "steps": [
+      "U stores 4 entries (one per destination) and a next hop for each. It does not store the network topology.",
+      "U knows its cost to Z is 9 and its next hop is V. It does not know that the full path is U, V, W, Z.",
+      "That is both the strength (small tables, no map) and the weakness: if V's route to Z silently changes, U only learns it from V's next vector."
+     ],
+     "answer": "4 entries and next hops. U knows the cost and the first hop, not the whole path."
+    }
+   ],
+   "why": "Distance vector is half of the routing chapter and the basis for RIP. In GATE: recognise that DV is Bellman-Ford and sends to neighbours only, or compute a router's vector after an exchange.",
+   "how": [
+    "Write each router's initial vector from direct links.",
+    "Each round, every router sends its vector to its neighbours.",
+    "For each destination, new cost = min over neighbours of (link cost + neighbour's advertised cost).",
+    "Repeat until no vector changes."
+   ],
+   "mistake": "Saying DV routers flood to everyone, or that they know the topology. They talk to direct neighbours only, and know only costs and next hops. Another slip is to swap the algorithms: DV is Bellman-Ford, LS is Dijkstra.",
+   "edge_cases": [
+    "A destination not yet heard of has cost infinity.",
+    "Costs on links are symmetric here (the same in both directions), but DV does not require it.",
+    "Low priority: BGP is a path-vector protocol between networks. It is not on the named 2027 list."
+   ],
+   "connections": [
+    "The update rule in detail is the next card (r2).",
+    "Dijkstra's algorithm (algo.shortest) is the Link State counterpart.",
+    "Bellman-Ford itself is in algo.shortest."
+   ],
+   "check": [
+    {
+     "q": "To whom does a DV router send its vector?",
+     "a": "Only to its direct neighbours."
+    },
+    {
+     "q": "Which shortest-path algorithm is DV based on?",
+     "a": "Bellman-Ford."
+    },
+    {
+     "q": "A router has a link of cost 2 to V, and V says its cost to T is 6. What is the cost to T via V?",
+     "a": "2 + 6 = 8."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q17, 2014 CS1 Q23, 2014 CS2 Q23",
+   "try": {
+    "id": "gen.net.routing.003",
+    "label": "Try: who receives a distance vector (L1)"
+   },
+   "scene": "net.routing.r1.dv",
+   "example": {
+    "setup": "Four routers U, V, W, Z have links U-V = 3, V-W = 2, W-Z = 4 and U-Z = 10. Each starts knowing only its direct links, then the routers exchange distance vectors in rounds. Follow router U's table until it stops changing.",
+    "steps": [
+     "Each router starts with a vector: its cost to every router. It knows only direct links. U = (0, 3, ∞, 10), V = (3, 0, 2, ∞), W = (∞, 2, 0, 4), Z = (10, ∞, 4, 0) in the order (U, V, W, Z).",
+     "Round 1: every router sends its vector to its **neighbours only**. U receives V's vector (3, 0, 2, ∞) and Z's vector (10, ∞, 4, 0).",
+     "U improves its cost to W: via V it is 3 + 2 = 5, via Z it is 10 + 4 = 14. The minimum is **5**, next hop V. U's cost to Z stays 10 for now.",
+     "The other routers update at the same time. After round 1: V = (3, 0, 2, 6), W = (5, 2, 0, 4), Z = (10, 6, 4, 0).",
+     "Round 2: U now receives V's improved vector (3, 0, 2, 6). Cost to Z via V = 3 + 6 = 9, better than the direct 10. U switches to 9 and changes its next hop for Z from Z to V.",
+     "Round 3 changes nothing, so the tables have **converged**. U = (0, 3, 5, 9), and no router ever needed to know the full map."
+    ],
+    "answer": "U ends with (0, 3, 5, 9). The tables settle after 2 rounds of changes."
+   },
+   "what": "In **distance vector** routing, each router keeps a list (a vector) of its best known cost to every destination. It sends this list to its **neighbours only**. Each router improves its own list using what the neighbours say, and the lists settle after a few rounds.",
+   "what_full": "In **distance vector** routing, each router keeps a list (a vector) of its best known cost to every destination. It sends this list to its **neighbours only**. Each router improves its own list using what the neighbours say, and the lists settle after a few rounds.\n\nEach router x keeps $D_x(t)$ = its current cost to destination t, and the next hop that achieves it.\n\n**Send:** periodically, and when the vector changes, x sends its whole vector to each direct neighbour.\n\n**Receive:** x updates $D_x(t) = \\min_v [\\, c(x,v) + D_v(t) \\,]$ over its neighbours v, where $c(x,v)$ is the cost of the link to v.\n\nThis is one step of **Bellman-Ford**. The algorithm needs no map of the network, only the neighbours' vectors.\n\nRIP is the standard distance vector protocol (metric = hop count, 16 means unreachable).\n\n**Worked example.** Four routers U, V, W, Z have links U-V = 3, V-W = 2, W-Z = 4 and U-Z = 10. Each starts knowing only its direct links, then the routers exchange distance vectors in rounds. Follow router U's table until it stops changing.\n\n1. Each router starts with a vector: its cost to every router. It knows only direct links. U = (0, 3, ∞, 10), V = (3, 0, 2, ∞), W = (∞, 2, 0, 4), Z = (10, ∞, 4, 0) in the order (U, V, W, Z).\n2. Round 1: every router sends its vector to its **neighbours only**. U receives V's vector (3, 0, 2, ∞) and Z's vector (10, ∞, 4, 0).\n3. U improves its cost to W: via V it is 3 + 2 = 5, via Z it is 10 + 4 = 14. The minimum is **5**, next hop V. U's cost to Z stays 10 for now.\n4. The other routers update at the same time. After round 1: V = (3, 0, 2, 6), W = (5, 2, 0, 4), Z = (10, 6, 4, 0).\n5. Round 2: U now receives V's improved vector (3, 0, 2, 6). Cost to Z via V = 3 + 6 = 9, better than the direct 10. U switches to 9 and changes its next hop for Z from Z to V.\n6. Round 3 changes nothing, so the tables have **converged**. U = (0, 3, 5, 9), and no router ever needed to know the full map.\n\n**Answer:** U ends with (0, 3, 5, 9). The tables settle after 2 rounds of changes.",
+   "why_full": "Distance vector is half of the routing chapter and the basis for RIP. In GATE: recognise that DV is Bellman-Ford and sends to neighbours only, or compute a router's vector after an exchange.\n\nAsked: 2025 CS2 Q17, 2014 CS1 Q23, 2014 CS2 Q23",
+   "trap": "Saying DV routers flood to everyone, or that they know the topology. They talk to direct neighbours only, and know only costs and next hops. Another slip is to swap the algorithms: DV is Bellman-Ford, LS is Dijkstra."
+  },
+  {
+   "atom_id": "r2",
+   "title": "Updating a vector from neighbours",
+   "simple": "A friend wants to get to a town. Three neighbours each say how far the town is from them. The friend cannot just pick the neighbour who says 'only 1 away', because that neighbour might be far from the friend. So the friend adds the distance to each neighbour and the neighbour's own claim, and picks the smallest total. The neighbour with the smallest total becomes the route to take (the next hop). In exam words: new cost = min over neighbours of (link cost + advertised cost), and the minimising neighbour is the next hop.",
+   "idea": "To update its vector, a router asks each neighbour: 'how far is the destination from you?'. It adds **its own link cost to that neighbour**, and keeps the smallest total. The neighbour giving the smallest total is the **next hop**.",
+   "definition": "For each destination t, router x computes $D_x(t) = \\min_{v \\in \\text{neighbours}} \\big[\\, c(x,v) + D_v(t) \\,\\big]$.\n\n$c(x,v)$ = cost of the direct link x-v. $D_v(t)$ = cost to t that v most recently advertised.\n\n**Next hop** for t = the neighbour v that gives the minimum.\n\nIf a neighbour advertises infinity, it contributes infinity.\n\nThe destination x itself has cost 0, and a directly connected destination also competes with the route through other neighbours (the link cost vs the sum).",
+   "intuition_full": "Each neighbour's advertisement is a claim 'I can reach t at cost D'. To use it, x must also pay to get to that neighbour. So every candidate is a sum of two costs. The cheapest sum wins, and that is exactly Bellman-Ford's relaxation. The most common error is to look at the neighbour's advertised cost alone, forgetting the link; a neighbour with a very low advertised cost can still be a bad choice if the link to it is expensive. Another point is that x always uses the neighbour's *most recent* advertisement, not what the neighbour's true cost is now. If the neighbour has just changed its route, x does not know until the next vector arrives, which is the root of stale-information problems.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Router R has neighbours A, B, C at link costs 2, 9, 3. They advertise their costs to destinations D1 and D2: A says (7, 3), B says (1, 6), C says (5, 3). Compute R's new cost and next hop for D1 and D2.",
+     "steps": [
+      "R's inputs: link costs A = 2, B = 9, C = 3, and the advertised costs to (D1, D2): A = (7, 3), B = (1, 6), C = (5, 3).",
+      "For D1, add the link cost to each advertised cost: via A 2 + 7 = 9, via B 9 + 1 = 10, via C 3 + 5 = 8.",
+      "The minimum is 8, achieved through C. So R's cost to D1 is **8** and the next hop is **C**. B advertised the smallest cost (1), but its link is expensive.",
+      "For D2: via A 2 + 3 = 5, via B 9 + 6 = 15, via C 3 + 3 = 6.",
+      "The minimum is 5, through A. So R's cost to D2 is **5** with next hop **A**.",
+      "R's new vector: D1 = 8 (via C), D2 = 5 (via A). Picking the smallest advertised cost alone would have chosen B for D1, which is wrong: add the link cost first."
+     ],
+     "answer": "D1: cost 8 via C. D2: cost 5 via A."
+    },
+    {
+     "level": "gate",
+     "setup": "Router N3 has two neighbours N2 and N4 with link costs 3 and 2. Their last vectors, in the order (N1, N2, N3, N4, N5), are N2 = (4, 0, 3, 8, 6) and N4 = (9, 8, 2, 0, 5). Find N3's new vector, with the next hop for each destination.",
+     "steps": [
+      "For each destination t compute min(3 + N2's cost, 2 + N4's cost). Destination N3 itself is 0.",
+      "N1: 3 + 4 = 7, 2 + 9 = 11. Minimum 7 via N2.",
+      "N2: 3 + 0 = 3, 2 + 8 = 10. Minimum 3 via N2 (the direct link).",
+      "N4: 3 + 8 = 11, 2 + 0 = 2. Minimum 2 via N4 (the direct link).",
+      "N5: 3 + 6 = 9, 2 + 5 = 7. Minimum 7 via N4.",
+      "New vector (N1, N2, N3, N4, N5) = (7, 3, 0, 2, 7)."
+     ],
+     "answer": "N3's vector: (7, 3, 0, 2, 7). Next hops: N1 via N2, N2 direct, N4 direct, N5 via N4."
+    },
+    {
+     "level": "twist",
+     "setup": "Same router N3 and neighbours as before, but N2's advertisement for N1 is now infinity because N2's link to N1 has just failed, while N4's old vector still says N1 is 9 away. What does N3 do for N1?",
+     "steps": [
+      "Via N2: 3 + infinity = infinity. N2 is no longer a candidate.",
+      "Via N4: 2 + 9 = 11 (N4's advertisement is stale: it does not yet know about the failure).",
+      "N3 takes the finite value 11 via N4 for now. If N4's route to N1 actually goes through N3 or N2, this value is wrong and will keep changing (count to infinity, next cards)."
+     ],
+     "answer": "N3 switches to cost 11 via N4. It is a stale value that may be wrong."
+    }
+   ],
+   "why": "This one-line update is the core of every DV calculation. In GATE: compute the new vector of a router after receiving neighbours' vectors, or name the next hop.",
+   "how": [
+    "List the neighbours with their link costs.",
+    "For each destination, add the link cost to the neighbour's advertised cost.",
+    "Take the minimum of the sums. The neighbour giving it is the next hop.",
+    "Use the neighbours' latest vectors, even if they are stale."
+   ],
+   "mistake": "Taking the neighbour with the smallest advertised cost and forgetting the link cost. The cost to reach the neighbour is part of the sum. Also, do not use two-step costs inside one update: only neighbours' advertised values count.",
+   "edge_cases": [
+    "A tie between neighbours: either is correct; GATE questions usually avoid ties or ask only for the cost.",
+    "The direct link competes with indirect routes: the cost to a neighbour may be lower via another router.",
+    "If no neighbour offers a finite sum, the destination stays at infinity."
+   ],
+   "connections": [
+    "DV idea (r1) is the whole protocol; this card is its inner step.",
+    "This is the relaxation step of Bellman-Ford in algo.shortest.",
+    "Count-to-infinity (r4) comes from using stale values in this very formula."
+   ],
+   "check": [
+    {
+     "q": "Link to V costs 4, V advertises 6 for t. Link to W costs 1, W advertises 8 for t. R's cost to t?",
+     "a": "min(4 + 6, 1 + 8) = 9, via W."
+    },
+    {
+     "q": "Does a neighbour's advertised cost of 0 mean you should use it?",
+     "a": "Only if it is the destination itself. You still add the link cost to reach it."
+    },
+    {
+     "q": "What is the next hop?",
+     "a": "The neighbour that gave the minimum sum."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q55, 2011 CS Q52, 2011 CS Q53",
+   "try": {
+    "id": "gen.net.routing.006",
+    "label": "Try: pick the new cost from three advertised vectors (L2)"
+   },
+   "scene": "net.routing.r2.update",
+   "example": {
+    "setup": "Router R has neighbours A, B, C at link costs 2, 9, 3. They advertise their costs to destinations D1 and D2: A says (7, 3), B says (1, 6), C says (5, 3). Compute R's new cost and next hop for D1 and D2.",
+    "steps": [
+     "R's inputs: link costs A = 2, B = 9, C = 3, and the advertised costs to (D1, D2): A = (7, 3), B = (1, 6), C = (5, 3).",
+     "For D1, add the link cost to each advertised cost: via A 2 + 7 = 9, via B 9 + 1 = 10, via C 3 + 5 = 8.",
+     "The minimum is 8, achieved through C. So R's cost to D1 is **8** and the next hop is **C**. B advertised the smallest cost (1), but its link is expensive.",
+     "For D2: via A 2 + 3 = 5, via B 9 + 6 = 15, via C 3 + 3 = 6.",
+     "The minimum is 5, through A. So R's cost to D2 is **5** with next hop **A**.",
+     "R's new vector: D1 = 8 (via C), D2 = 5 (via A). Picking the smallest advertised cost alone would have chosen B for D1, which is wrong: add the link cost first."
+    ],
+    "answer": "D1: cost 8 via C. D2: cost 5 via A."
+   },
+   "what": "To update its vector, a router asks each neighbour: 'how far is the destination from you?'. It adds **its own link cost to that neighbour**, and keeps the smallest total. The neighbour giving the smallest total is the **next hop**.",
+   "what_full": "To update its vector, a router asks each neighbour: 'how far is the destination from you?'. It adds **its own link cost to that neighbour**, and keeps the smallest total. The neighbour giving the smallest total is the **next hop**.\n\nFor each destination t, router x computes $D_x(t) = \\min_{v \\in \\text{neighbours}} \\big[\\, c(x,v) + D_v(t) \\,\\big]$.\n\n$c(x,v)$ = cost of the direct link x-v. $D_v(t)$ = cost to t that v most recently advertised.\n\n**Next hop** for t = the neighbour v that gives the minimum.\n\nIf a neighbour advertises infinity, it contributes infinity.\n\nThe destination x itself has cost 0, and a directly connected destination also competes with the route through other neighbours (the link cost vs the sum).\n\n**Worked example.** Router R has neighbours A, B, C at link costs 2, 9, 3. They advertise their costs to destinations D1 and D2: A says (7, 3), B says (1, 6), C says (5, 3). Compute R's new cost and next hop for D1 and D2.\n\n1. R's inputs: link costs A = 2, B = 9, C = 3, and the advertised costs to (D1, D2): A = (7, 3), B = (1, 6), C = (5, 3).\n2. For D1, add the link cost to each advertised cost: via A 2 + 7 = 9, via B 9 + 1 = 10, via C 3 + 5 = 8.\n3. The minimum is 8, achieved through C. So R's cost to D1 is **8** and the next hop is **C**. B advertised the smallest cost (1), but its link is expensive.\n4. For D2: via A 2 + 3 = 5, via B 9 + 6 = 15, via C 3 + 3 = 6.\n5. The minimum is 5, through A. So R's cost to D2 is **5** with next hop **A**.\n6. R's new vector: D1 = 8 (via C), D2 = 5 (via A). Picking the smallest advertised cost alone would have chosen B for D1, which is wrong: add the link cost first.\n\n**Answer:** D1: cost 8 via C. D2: cost 5 via A.",
+   "why_full": "This one-line update is the core of every DV calculation. In GATE: compute the new vector of a router after receiving neighbours' vectors, or name the next hop.\n\nAsked: 2021 CS2 Q55, 2011 CS Q52, 2011 CS Q53",
+   "trap": "Taking the neighbour with the smallest advertised cost and forgetting the link cost. The cost to reach the neighbour is part of the sum. Also, do not use two-step costs inside one update: only neighbours' advertised values count."
+  },
+  {
+   "atom_id": "r3",
+   "title": "Rounds and convergence",
+   "simple": "Think of a rumour travelling down a line of friends. Each friend tells only the next friend, and only once per round. A friend five steps away hears it after about five rounds. If a friend finds a shortcut, the news of the shortcut also spreads one friend per round, and it stops spreading when it no longer helps. The number of rounds until everybody is up to date is set by the longest of the best routes, counted in steps, not by the distance in cost. In exam words: information moves one hop per round, so convergence takes about (links in the longest cheapest path - 1) rounds.",
+   "idea": "In each round a router hears only from its direct neighbours, so information about a destination moves **one hop per round**. The tables are correct after as many rounds as the longest cheapest path has links, minus one because neighbours are known at the start.",
+   "definition": "In synchronous rounds with all costs known to neighbours at round 0:\n\nA router learns the best cost to t at round $h - 1$, where h is the number of links on its cheapest path to t.\n\n**Rounds to converge** = (maximum number of links on any cheapest path) - 1.\n\nFor a chain of n routers with unit costs: n - 2 rounds. For a ring of n routers: floor(n/2) - 1.\n\n**Good news** (a lower cost) spreads one hop per round and stops when it no longer improves anything. **Bad news** (a higher cost or failure) can spread slowly, because routers keep trusting old, cheaper-looking routes.",
+   "intuition_full": "Each round is one exchange along every link, so a fact can cross exactly one link per round. A router at h links from t cannot learn about t's neighbourhood sooner than h - 1 rounds after the start, because the first link is learned directly. The key subtlety is that the relevant h is the link count of the **cheapest** path, which may be longer than the fewest-hops path when a direct link is expensive. For a failure the story is different. A cost drop is believed because the new value is lower than the old one and wins the minimum. A cost rise is not believed until all the stale cheaper routes held by other routers have been used up, so it may take many rounds, even forever without a limit.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Six routers A, B, C, D, E, F are in a chain with all link costs 1. Each starts knowing only its direct neighbours, and routers exchange vectors in synchronous rounds. After how many rounds does A know its cost to F?",
+     "steps": [
+      "At the start (round 0) each router knows its neighbours. So E knows its cost to F is 1; nobody else knows F. A and F are 5 hops apart.",
+      "Round 1: E sends its vector, so D learns F is 1 + 1 = 2 away.",
+      "Round 2: D sends its vector, so C learns F is 3 away.",
+      "Round 3: C sends, and B learns F is 4 away.",
+      "Round 4: B sends, and A learns F is 5 away. A now has the correct cost.",
+      "Information about F moved one hop per round. A is 5 hops away, and the first hop was already known at the start, so it took 5 - 1 = 4 rounds."
+     ],
+     "answer": "4 rounds."
+    },
+    {
+     "level": "gate",
+     "setup": "A network has links A-B 1, B-C 1, C-D 1, D-E 1, A-E 6 and B-F 2. All routers start knowing only their neighbours and exchange vectors in synchronous rounds. After how many rounds are all vectors correct?",
+     "steps": [
+      "Information moves one hop per round, but the number of rounds depends on the **number of links in the cheapest path**, not on the number of hops in the shortest-hop path.",
+      "A to E: the direct link costs 6, but A-B-C-D-E costs 1 + 1 + 1 + 1 = 4. The cheapest path uses 4 links.",
+      "After round 0 A knows E at cost 6 (direct). The better cost 4 arrives only when the information has travelled 3 more hops: round 3.",
+      "No other pair needs more links: F to E is F-B-C-D-E (4 links). The longest cheapest path has 4 links, so rounds = 4 - 1 = 3. The hop diameter, 3, would give the wrong answer 2."
+     ],
+     "answer": "3 rounds."
+    },
+    {
+     "level": "twist",
+     "setup": "The chain A-F of the basic example has converged. Now a new link A-F of cost 1 appears. How many rounds until all vectors are correct again?",
+     "steps": [
+      "At the moment of change A and F see the new link. A's cost to F drops from 5 to 1, and F's cost to A from 5 to 1.",
+      "Round 1: A and F send their new vectors. B hears A: B's cost to F becomes min(4, 1 + 1) = 2. E hears F: E's cost to A becomes min(4, 1 + 1) = 2.",
+      "Round 2: C looks at B and D: its cost to F stays 3 (via B: 1 + 2 = 3, via D: 1 + 2 = 3). Nothing else improves. The tables are stable.",
+      "Good news (a cheaper path) spreads quickly and only as far as it helps. Bad news (a failure) can take many rounds, as the next card shows."
+     ],
+     "answer": "2 rounds."
+    }
+   ],
+   "why": "This tells you how quickly the network adapts. In GATE: how many rounds until a given router learns a cost, or until all tables are stable.",
+   "how": [
+    "Write the cheapest path for each pair and count its links.",
+    "The largest link count h gives rounds = h - 1 when neighbours are known at the start.",
+    "For a specific pair (x, t), rounds = (links on the cheapest path) - 1.",
+    "Check whether the question counts the start as round 0 or round 1."
+   ],
+   "mistake": "Counting the hop diameter (fewest links) when a cheaper longer path exists, or applying a failure instantly at every router. News moves one link per round, in both directions.",
+   "edge_cases": [
+    "If the question says routers start knowing nothing, even neighbours need one round, and the count goes up by one.",
+    "A ring of 8 routers: the farthest router is 4 hops away, so 3 rounds.",
+    "Asynchronous updates can be faster than synchronous rounds, but the rounds model is the one GATE uses."
+   ],
+   "connections": [
+    "The update rule (r2) is what each router does in a round.",
+    "Count-to-infinity (r4) is the slow bad-news case.",
+    "Link-state (r5) spreads a change by flooding, which reaches everyone in about the network diameter."
+   ],
+   "check": [
+    {
+     "q": "A chain of 8 routers with unit costs. Rounds until the two ends know each other's cost?",
+     "a": "The ends are 7 hops apart, so 7 - 1 = 6 rounds."
+    },
+    {
+     "q": "True or false: after a cost drop on one link, every router learns it in one round.",
+     "a": "False. It spreads one hop per round, and only to routers it helps."
+    },
+    {
+     "q": "A direct link costs 10, the path of three links costs 3. How many links decide the rounds?",
+     "a": "Three, the cheapest path. So 3 - 1 = 2 rounds."
+    }
+   ],
+   "asked": "Asked: no direct question in the blueprint; it is the basis of the DV update and count-to-infinity questions (2021 CS2 Q55, 2022 CS Q57).",
+   "try": {
+    "id": "gen.net.routing.010",
+    "label": "Try: rounds to converge on a five-router chain (L2)"
+   },
+   "scene": "net.routing.r3.rounds",
+   "example": {
+    "setup": "Six routers A, B, C, D, E, F are in a chain with all link costs 1. Each starts knowing only its direct neighbours, and routers exchange vectors in synchronous rounds. After how many rounds does A know its cost to F?",
+    "steps": [
+     "At the start (round 0) each router knows its neighbours. So E knows its cost to F is 1; nobody else knows F. A and F are 5 hops apart.",
+     "Round 1: E sends its vector, so D learns F is 1 + 1 = 2 away.",
+     "Round 2: D sends its vector, so C learns F is 3 away.",
+     "Round 3: C sends, and B learns F is 4 away.",
+     "Round 4: B sends, and A learns F is 5 away. A now has the correct cost.",
+     "Information about F moved one hop per round. A is 5 hops away, and the first hop was already known at the start, so it took 5 - 1 = 4 rounds."
+    ],
+    "answer": "4 rounds."
+   },
+   "what": "In each round a router hears only from its direct neighbours, so information about a destination moves **one hop per round**. The tables are correct after as many rounds as the longest cheapest path has links, minus one because neighbours are known at the start.",
+   "what_full": "In each round a router hears only from its direct neighbours, so information about a destination moves **one hop per round**. The tables are correct after as many rounds as the longest cheapest path has links, minus one because neighbours are known at the start.\n\nIn synchronous rounds with all costs known to neighbours at round 0:\n\nA router learns the best cost to t at round $h - 1$, where h is the number of links on its cheapest path to t.\n\n**Rounds to converge** = (maximum number of links on any cheapest path) - 1.\n\nFor a chain of n routers with unit costs: n - 2 rounds. For a ring of n routers: floor(n/2) - 1.\n\n**Good news** (a lower cost) spreads one hop per round and stops when it no longer improves anything. **Bad news** (a higher cost or failure) can spread slowly, because routers keep trusting old, cheaper-looking routes.\n\n**Worked example.** Six routers A, B, C, D, E, F are in a chain with all link costs 1. Each starts knowing only its direct neighbours, and routers exchange vectors in synchronous rounds. After how many rounds does A know its cost to F?\n\n1. At the start (round 0) each router knows its neighbours. So E knows its cost to F is 1; nobody else knows F. A and F are 5 hops apart.\n2. Round 1: E sends its vector, so D learns F is 1 + 1 = 2 away.\n3. Round 2: D sends its vector, so C learns F is 3 away.\n4. Round 3: C sends, and B learns F is 4 away.\n5. Round 4: B sends, and A learns F is 5 away. A now has the correct cost.\n6. Information about F moved one hop per round. A is 5 hops away, and the first hop was already known at the start, so it took 5 - 1 = 4 rounds.\n\n**Answer:** 4 rounds.",
+   "why_full": "This tells you how quickly the network adapts. In GATE: how many rounds until a given router learns a cost, or until all tables are stable.\n\nAsked: no direct question in the blueprint; it is the basis of the DV update and count-to-infinity questions (2021 CS2 Q55, 2022 CS Q57).",
+   "trap": "Counting the hop diameter (fewest links) when a cheaper longer path exists, or applying a failure instantly at every router. News moves one link per round, in both directions."
+  },
+  {
+   "atom_id": "r4",
+   "title": "Count-to-infinity and fixes",
+   "simple": "Two friends, A and B, both think the other one knows the way to a town. The road to the town (past B) is cut. B says 'I cannot get there any more'. But before A hears this, A tells B 'I can get there in 5'. B thinks 'great, go via A' and says 'I can get there in 8'. A trusts B and says 'then I can get there in 11'. They keep passing the number back and forth, each time higher, and never realise the road is cut. Rules like 'do not tell someone a route you learned from them' and 'treat 16 as unreachable' stop this. In exam words: count to infinity, split horizon, poison reverse, and RIP's infinity of 16.",
+   "idea": "After a link failure, distance vector routers can trust each other's **stale** routes. Two routers keep raising their costs to a dead destination, each believing the other. This is **count to infinity**. Fixes include split horizon, poison reverse, and a small value for infinity.",
+   "definition": "**Count to infinity:** after a failure, router B takes A's old route to the destination, which goes through B itself. The two routers then bounce updates, each raising the cost by the link cost per step, until some limit.\n\n**Defining infinity as a small number** (RIP: 16) stops the count when cost reaches 16.\n\n**Split horizon:** do not advertise a route back to the neighbour you learned it from.\n\n**Poison reverse:** advertise it back with cost infinity.\n\n**Limits:** split horizon and poison reverse stop loops between **two** routers. They do not stop loops through three or more.\n\nA loop forms only if the stale advertisement arrives before the failure news (a race of timers).",
+   "intuition_full": "The rule 'new cost = link + neighbour's advertised cost' has no way to check whether the neighbour's path passes through you. Before the failure A's route to C went through B. After B loses C, A's old advertisement is a lie, and B believes it. From then on both routers justify their routes by each other. Every exchange adds the link cost, so the numbers climb. Good news converges quickly because a lower number wins at once, but bad news needs all the stale lower numbers to be exhausted. Split horizon removes the root cause for two routers: B simply never learns from A a route that A learned from B. With a loop through three routers each hides the route only from the one it came from, and the loop can persist. That is why the practical fix is a small infinity, and why link-state protocols avoid the problem.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Routers A, B, C are in a chain with A-B = 3 and B-C = 2. A's cost to C is 5, B's cost to C is 2. Link B-C fails. Routers use plain distance vector, with infinity = 16 (RIP style), and A's table reaches B before B's failure news reaches A. Follow the costs to C.",
+     "steps": [
+      "Before the failure: A reaches C at 3 + 2 = 5, B at 2.",
+      "B-C fails. B sets its cost to C to infinity (16). A has not heard, so it still says 5.",
+      "B receives A's vector: the cost to C via A is 3 + 5 = 8, which beats infinity. B now believes it can reach C through A (8), but A's route goes **through B**. This is a routing loop.",
+      "B tells A. A's next hop for C is B, so A follows B: 3 + 8 = 11. A tells B.",
+      "B updates: 3 + 11 = 14. A updates: 3 + 14 = 17, which reaches the limit 16, so A marks C unreachable.",
+      "B updates once more: 3 + 16, so also 16. Both know that C is unreachable, after 5 exchanges. Without a limit the costs would climb forever: this is **count to infinity**."
+     ],
+     "answer": "B: 8, 14, 16. A: 11, 16. The costs climb by 6 per round trip until they hit 16."
+    },
+    {
+     "level": "gate",
+     "setup": "A chain P-Q-R has link Q-R fail. P sends routing updates on average once every 4 s and Q once every 1 s, both at independent random times (exponential timers). A loop forms if P's stale update (which says R is reachable) reaches Q before Q's own next update. What is the probability of a loop?",
+     "steps": [
+      "If Q's next update goes out first, it tells P that R is unreachable, P deletes its route, and there is no loop.",
+      "If P's update arrives first, Q takes the stale route via P and the loop begins.",
+      "For independent exponential timers with rates $\\lambda_P = 1/4$ and $\\lambda_Q = 1$ per second, the probability that P fires first is $\\lambda_P / (\\lambda_P + \\lambda_Q)$.",
+      "P(loop) = 0.25 / (0.25 + 1) = 0.25 / 1.25 = 0.2."
+     ],
+     "answer": "0.2."
+    },
+    {
+     "level": "twist",
+     "setup": "The same chain A-B-C (A-B = 3, B-C = 2) uses split horizon with poison reverse. B-C fails. How many exchanges until A knows C is unreachable?",
+     "steps": [
+      "A learned its route to C from B, so A advertises C to B with cost infinity (poison reverse). B never receives a finite cost to C from A.",
+      "B loses its link to C and has no finite alternative, so it sets C to infinity and advertises it to A.",
+      "A receives infinity from B, its next hop for C, and sets C to infinity. One exchange is enough.",
+      "Compare with the plain case: 5 exchanges. Split horizon helps for two routers, but not for a loop through three."
+     ],
+     "answer": "1 exchange, instead of 5."
+    }
+   ],
+   "why": "Count-to-infinity is the standard weakness of distance vector, and so a standard exam point. In GATE: simulate the costs after a failure, or judge what split horizon and poison reverse fix.",
+   "how": [
+    "Write each router's cost to the dead destination in a row.",
+    "Apply the update rule using the neighbour's last advertised value, alternating A, B, A, B.",
+    "Stop when a cost reaches the defined infinity (16 in RIP).",
+    "With split horizon, remove from each advertisement the routes learned from that neighbour.",
+    "For race questions, P(first) = rate / (sum of the rates)."
+   ],
+   "mistake": "Believing split horizon removes all loops. It only fixes loops between two routers. Another slip is to forget that the stale advertisement came **before** the failure news: the order of the first updates decides whether the loop forms.",
+   "edge_cases": [
+    "Good news (cost decrease) never counts to infinity.",
+    "A loop through three routers survives split horizon (unless poisoned) and needs a hold-down timer or a small infinity.",
+    "Link-state routing does not count to infinity, but it can have short-lived loops while tables differ."
+   ],
+   "connections": [
+    "Convergence (r3) explains why bad news is slow.",
+    "The update rule (r2) is the source of the problem.",
+    "DV versus LS (r7) uses this as a key difference."
+   ],
+   "check": [
+    {
+     "q": "What does split horizon say?",
+     "a": "Do not advertise a route to the neighbour from which you learned it."
+    },
+    {
+     "q": "In RIP, what cost means unreachable?",
+     "a": "16."
+    },
+    {
+     "q": "Can split horizon stop a loop through three routers?",
+     "a": "Not in general. It protects only against two-router loops."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q57",
+   "try": {
+    "id": "gen.net.routing.005",
+    "label": "Try: where count-to-infinity occurs (L1)"
+   },
+   "scene": "net.routing.r4.cti",
+   "example": {
+    "setup": "Routers A, B, C are in a chain with A-B = 3 and B-C = 2. A's cost to C is 5, B's cost to C is 2. Link B-C fails. Routers use plain distance vector, with infinity = 16 (RIP style), and A's table reaches B before B's failure news reaches A. Follow the costs to C.",
+    "steps": [
+     "Before the failure: A reaches C at 3 + 2 = 5, B at 2.",
+     "B-C fails. B sets its cost to C to infinity (16). A has not heard, so it still says 5.",
+     "B receives A's vector: the cost to C via A is 3 + 5 = 8, which beats infinity. B now believes it can reach C through A (8), but A's route goes **through B**. This is a routing loop.",
+     "B tells A. A's next hop for C is B, so A follows B: 3 + 8 = 11. A tells B.",
+     "B updates: 3 + 11 = 14. A updates: 3 + 14 = 17, which reaches the limit 16, so A marks C unreachable.",
+     "B updates once more: 3 + 16, so also 16. Both know that C is unreachable, after 5 exchanges. Without a limit the costs would climb forever: this is **count to infinity**."
+    ],
+    "answer": "B: 8, 14, 16. A: 11, 16. The costs climb by 6 per round trip until they hit 16."
+   },
+   "what": "After a link failure, distance vector routers can trust each other's **stale** routes. Two routers keep raising their costs to a dead destination, each believing the other. This is **count to infinity**. Fixes include split horizon, poison reverse, and a small value for infinity.",
+   "what_full": "After a link failure, distance vector routers can trust each other's **stale** routes. Two routers keep raising their costs to a dead destination, each believing the other. This is **count to infinity**. Fixes include split horizon, poison reverse, and a small value for infinity.\n\n**Count to infinity:** after a failure, router B takes A's old route to the destination, which goes through B itself. The two routers then bounce updates, each raising the cost by the link cost per step, until some limit.\n\n**Defining infinity as a small number** (RIP: 16) stops the count when cost reaches 16.\n\n**Split horizon:** do not advertise a route back to the neighbour you learned it from.\n\n**Poison reverse:** advertise it back with cost infinity.\n\n**Limits:** split horizon and poison reverse stop loops between **two** routers. They do not stop loops through three or more.\n\nA loop forms only if the stale advertisement arrives before the failure news (a race of timers).\n\n**Worked example.** Routers A, B, C are in a chain with A-B = 3 and B-C = 2. A's cost to C is 5, B's cost to C is 2. Link B-C fails. Routers use plain distance vector, with infinity = 16 (RIP style), and A's table reaches B before B's failure news reaches A. Follow the costs to C.\n\n1. Before the failure: A reaches C at 3 + 2 = 5, B at 2.\n2. B-C fails. B sets its cost to C to infinity (16). A has not heard, so it still says 5.\n3. B receives A's vector: the cost to C via A is 3 + 5 = 8, which beats infinity. B now believes it can reach C through A (8), but A's route goes **through B**. This is a routing loop.\n4. B tells A. A's next hop for C is B, so A follows B: 3 + 8 = 11. A tells B.\n5. B updates: 3 + 11 = 14. A updates: 3 + 14 = 17, which reaches the limit 16, so A marks C unreachable.\n6. B updates once more: 3 + 16, so also 16. Both know that C is unreachable, after 5 exchanges. Without a limit the costs would climb forever: this is **count to infinity**.\n\n**Answer:** B: 8, 14, 16. A: 11, 16. The costs climb by 6 per round trip until they hit 16.",
+   "why_full": "Count-to-infinity is the standard weakness of distance vector, and so a standard exam point. In GATE: simulate the costs after a failure, or judge what split horizon and poison reverse fix.\n\nAsked: 2022 CS Q57",
+   "trap": "Believing split horizon removes all loops. It only fixes loops between two routers. Another slip is to forget that the stale advertisement came **before** the failure news: the order of the first updates decides whether the loop forms."
+  },
+  {
+   "atom_id": "r5",
+   "title": "Link-state flooding",
+   "simple": "In a link-state network, nobody trusts rumours. Every router writes a short note, 'I am connected to these neighbours, and the cost of each link is this', and sends it to everyone. When a router receives a note it has not seen, it passes a copy to all its neighbours except the one it came from, and it ignores copies it already has. After a short while every router holds every note, so every router has the same map of the whole network. In exam words: each router floods its link-state advertisement, and one flood costs 2E - (V - 1) transmissions.",
+   "idea": "In **link-state** routing, every router floods a short advertisement (LSA) with its own links and their costs to **all** routers. Every router collects all the LSAs and ends up with the same map of the network.",
+   "definition": "**LSA:** a router's id, its neighbours with the cost of each link, and a sequence number (to tell new copies from old).\n\n**Flooding rule:** the origin sends the LSA on all its links. A router that receives a new LSA sends it on every link except the one it arrived on. A repeat (same sequence number) is dropped.\n\n**Cost of one flood:** the origin sends deg(origin) copies, and every other router sends deg - 1 copies, so the total is $\\sum \\deg - (V - 1) = 2E - (V - 1)$ transmissions.\n\nAfter all V routers flood, each router has V LSAs, which together form the **link-state database** (the map).\n\nOSPF is the standard link-state protocol.",
+   "intuition_full": "Flooding needs no routing table: each router knows only its own links, and the rule 'forward everywhere except where it came from' reaches everyone. Duplicates cannot be avoided entirely. A router has no way to know that its neighbour already has the LSA, so the same link carries a copy in each direction when the waves meet. The count is easy once you notice what happens at each router. A non-origin router forwards on every link except its arrival link, so degree - 1 copies, whereas the origin forwards on all links. Adding over all routers gives the sum of degrees (2E, each link counted from both ends) minus one per non-origin router. For a tree, E = V - 1 and the formula gives V - 1: each link is used once. Sequence numbers stop old LSAs from overwriting new ones and stop a copy from circulating forever.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Six routers A to F are joined by 8 links: A-B, A-C, B-C, B-D, C-E, D-E, D-F, E-F. Router A floods one link-state advertisement (LSA). Each other router, on receiving its first copy, forwards it on every link except the one it arrived on, and ignores later copies. Count the transmissions.",
+     "steps": [
+      "A has a new LSA, which lists its links and their costs. As the origin, it sends a copy on **all** its links: A-B and A-C. That is 2 transmissions.",
+      "B and C receive their first copy. B forwards on B-C and B-D, and C forwards on C-B and C-E. That is 4 more, 6 so far. B and C each get a duplicate from the other and discard it.",
+      "D (first copy from B) forwards on D-E and D-F. E (first copy from C) forwards on E-D and E-F. That is 4 more, 10 so far. D and E discard each other's copies.",
+      "F got its first copy from D. It forwards on its only other link F-E, which is a duplicate for E. That is 1 more, 11 in all.",
+      "Check with the formula: each non-origin router sends on (degree - 1) links and the origin on its degree, so the total is $2E - (V - 1)$ = 16 - 5 = 11. Every router now has A's LSA, and when every router floods its own LSA, all routers hold the same map."
+     ],
+     "answer": "11 transmissions."
+    },
+    {
+     "level": "gate",
+     "setup": "A network of 7 routers is a ring (7 links). Each router floods its own LSA by the usual rule. How many transmissions does one LSA need, and how many in total when all 7 routers flood?",
+     "steps": [
+      "Ring: V = 7, E = 7.",
+      "One flood: origin sends on 2 links, each of the other 6 routers forwards on its one other link: 2 + 6 = 8. Check: $2E - (V - 1)$ = 14 - 6 = 8.",
+      "Every router floods once, so the total is 7 x 8 = 56 transmissions.",
+      "After this each router holds 7 LSAs, one per router, and can run Dijkstra on the same map."
+     ],
+     "answer": "8 per LSA, 56 in total."
+    },
+    {
+     "level": "twist",
+     "setup": "The network is a tree with 6 routers and 5 links. How many transmissions does one flood need, and why does the formula differ in spirit from the ring?",
+     "steps": [
+      "V = 6, E = 5. $2E - (V - 1)$ = 10 - 5 = 5.",
+      "In a tree there is exactly one path between any two routers, so no router ever receives a duplicate. Every link is used exactly once, in the direction away from the origin.",
+      "In a graph with loops the extra links E - (V - 1) each carry a duplicate in both directions, adding $2(E - V + 1)$ extra copies on top of the V - 1 useful ones: with V = 6, E = 8 that is 5 + 2 x 3 = 11."
+     ],
+     "answer": "5 transmissions for the tree. The ring and mesh add 2 duplicates for every link beyond a tree."
+    }
+   ],
+   "why": "Flooding is how link-state routers share their view, and its cost is a standard formula. In GATE: count transmissions for a flood, or say what a router sends in link-state routing.",
+   "how": [
+    "Count V (routers) and E (links).",
+    "One flood = $2E - (V - 1)$ transmissions (if the rule is: forward on all links except the arrival link).",
+    "For all routers flooding, multiply by V.",
+    "An LSA lists only the router's own links, and goes to all routers."
+   ],
+   "mistake": "Counting E transmissions (each link once). Duplicates are transmitted too, which is why a link in a loop carries a copy each way. Another slip is saying a router sends its whole table: in link state it sends only its own links.",
+   "edge_cases": [
+    "A tree has no duplicates: V - 1 transmissions.",
+    "If the origin is itself a leaf, the formula still holds: deg(origin) = 1.",
+    "Sequence numbers let a router discard an old copy of an LSA that arrives after a newer one."
+   ],
+   "connections": [
+    "Dijkstra (r6) is what each router does with the collected map.",
+    "DV versus LS (r7) compares the message patterns.",
+    "Graph degrees and the handshake lemma (dm.graphs) give $\\sum \\deg = 2E$."
+   ],
+   "check": [
+    {
+     "q": "A network has 5 routers and 6 links. One flood needs how many transmissions?",
+     "a": "2 x 6 - 4 = 8."
+    },
+    {
+     "q": "What does a link-state router send?",
+     "a": "Its own links and their costs, to all routers."
+    },
+    {
+     "q": "In a tree of V routers, how many transmissions does a flood take?",
+     "a": "V - 1."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q25, 2014 CS1 Q23",
+   "try": {
+    "id": "gen.net.routing.002",
+    "label": "Try: what a link-state router sends out (L1)"
+   },
+   "scene": "net.routing.r5.flood",
+   "example": {
+    "setup": "Six routers A to F are joined by 8 links: A-B, A-C, B-C, B-D, C-E, D-E, D-F, E-F. Router A floods one link-state advertisement (LSA). Each other router, on receiving its first copy, forwards it on every link except the one it arrived on, and ignores later copies. Count the transmissions.",
+    "steps": [
+     "A has a new LSA, which lists its links and their costs. As the origin, it sends a copy on **all** its links: A-B and A-C. That is 2 transmissions.",
+     "B and C receive their first copy. B forwards on B-C and B-D, and C forwards on C-B and C-E. That is 4 more, 6 so far. B and C each get a duplicate from the other and discard it.",
+     "D (first copy from B) forwards on D-E and D-F. E (first copy from C) forwards on E-D and E-F. That is 4 more, 10 so far. D and E discard each other's copies.",
+     "F got its first copy from D. It forwards on its only other link F-E, which is a duplicate for E. That is 1 more, 11 in all.",
+     "Check with the formula: each non-origin router sends on (degree - 1) links and the origin on its degree, so the total is $2E - (V - 1)$ = 16 - 5 = 11. Every router now has A's LSA, and when every router floods its own LSA, all routers hold the same map."
+    ],
+    "answer": "11 transmissions."
+   },
+   "what": "In **link-state** routing, every router floods a short advertisement (LSA) with its own links and their costs to **all** routers. Every router collects all the LSAs and ends up with the same map of the network.",
+   "what_full": "In **link-state** routing, every router floods a short advertisement (LSA) with its own links and their costs to **all** routers. Every router collects all the LSAs and ends up with the same map of the network.\n\n**LSA:** a router's id, its neighbours with the cost of each link, and a sequence number (to tell new copies from old).\n\n**Flooding rule:** the origin sends the LSA on all its links. A router that receives a new LSA sends it on every link except the one it arrived on. A repeat (same sequence number) is dropped.\n\n**Cost of one flood:** the origin sends deg(origin) copies, and every other router sends deg - 1 copies, so the total is $\\sum \\deg - (V - 1) = 2E - (V - 1)$ transmissions.\n\nAfter all V routers flood, each router has V LSAs, which together form the **link-state database** (the map).\n\nOSPF is the standard link-state protocol.\n\n**Worked example.** Six routers A to F are joined by 8 links: A-B, A-C, B-C, B-D, C-E, D-E, D-F, E-F. Router A floods one link-state advertisement (LSA). Each other router, on receiving its first copy, forwards it on every link except the one it arrived on, and ignores later copies. Count the transmissions.\n\n1. A has a new LSA, which lists its links and their costs. As the origin, it sends a copy on **all** its links: A-B and A-C. That is 2 transmissions.\n2. B and C receive their first copy. B forwards on B-C and B-D, and C forwards on C-B and C-E. That is 4 more, 6 so far. B and C each get a duplicate from the other and discard it.\n3. D (first copy from B) forwards on D-E and D-F. E (first copy from C) forwards on E-D and E-F. That is 4 more, 10 so far. D and E discard each other's copies.\n4. F got its first copy from D. It forwards on its only other link F-E, which is a duplicate for E. That is 1 more, 11 in all.\n5. Check with the formula: each non-origin router sends on (degree - 1) links and the origin on its degree, so the total is $2E - (V - 1)$ = 16 - 5 = 11. Every router now has A's LSA, and when every router floods its own LSA, all routers hold the same map.\n\n**Answer:** 11 transmissions.",
+   "why_full": "Flooding is how link-state routers share their view, and its cost is a standard formula. In GATE: count transmissions for a flood, or say what a router sends in link-state routing.\n\nAsked: 2023 CS Q25, 2014 CS1 Q23",
+   "trap": "Counting E transmissions (each link once). Duplicates are transmitted too, which is why a link in a loop carries a copy each way. Another slip is saying a router sends its whole table: in link state it sends only its own links."
+  },
+  {
+   "atom_id": "r6",
+   "title": "Dijkstra at a router",
+   "simple": "Imagine you stand at a crossroads with a full map. You want the shortest way to every other place. You start from your own spot and always visit the closest place you have not finished with yet. Each time you finish a place, you look at its roads, and see if they give a shorter way to anywhere. You repeat until every place is finished. For each place you remember which of your own roads you took first. That list is your signpost table. In exam words: Dijkstra settles the nearest unsettled node each time, and the first hop of each tree path is the forwarding entry.",
+   "idea": "A link-state router has the whole map. It runs **Dijkstra** from itself: repeatedly settle the nearest unsettled router, and relax its links. The result is a shortest-path tree, and the **first hop** on each path goes into the forwarding table.",
+   "definition": "**Dijkstra from source s:**\n\n1. dist(s) = 0, all others infinity.\n\n2. Pick the unsettled router u with the smallest dist. Settle it.\n\n3. For each neighbour v of u: if dist(u) + cost(u, v) < dist(v), set dist(v) to that, and record u as v's predecessor (and inherit the first hop).\n\n4. Repeat until all are settled.\n\n**Forwarding entry** for destination t = the first router after s on the tree path from s to t.\n\nA link is **used** if it is on some shortest path between some pair of routers. Equal-cost ties can give several shortest paths.\n\nCosts must be non-negative.",
+   "intuition_full": "Dijkstra works because the nearest unsettled router can no longer be improved. Any path to it that goes through another unsettled router is already at least as long, since all other candidates are farther away and costs are not negative. So its distance is final, and it can be used to improve its neighbours. This is a greedy algorithm, exactly like Prim's, but with distance from the source rather than edge weight as the key. Every router in a link-state network runs this on the same map, so all routers agree on shortest paths, and a packet forwarded hop by hop follows the tree. The first-hop idea is what turns the tree into a forwarding table: a router does not need the rest of the path, only which neighbour to hand the packet to.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Router S runs Dijkstra on this network: S-A 4, S-B 2, A-B 3, A-C 5, B-D 8, C-D 2, C-E 4, D-E 8. Find the distance to each router and S's forwarding table (the first hop to each destination).",
+     "steps": [
+      "Start with S at distance 0, and settle it. Its neighbours get tentative distances: A = 4, B = 2. The first hop to A is A, and to B is B.",
+      "Settle the nearest unsettled router, B (2). Through B: A would be 2 + 3 = 5, which is worse than 4, so A is unchanged. D = 2 + 8 = 10, with first hop B.",
+      "Settle A (4). Through A: C = 4 + 5 = 9, first hop A (the first hop is inherited from A's path).",
+      "Settle C (9). Through C: E = 9 + 4 = 13, first hop A. D through C would be 9 + 2 = 11, worse than 10, so D is unchanged.",
+      "Settle D (10): E through D would be 18, worse than 13. Settle E (13). All routers are settled.",
+      "The shortest-path tree has the edges S-B, S-A, A-C, B-D and C-E, so the tree paths are S-B, S-A, S-A-C, S-B-D and S-A-C-E.",
+      "S's forwarding table is the first hop of each tree path: A via A, B via B, C via A, D via B, E via A."
+     ],
+     "answer": "Distances A 4, B 2, C 9, D 10, E 13. Forwarding: A to A, B to B, C to A, D to B, E to A."
+    },
+    {
+     "level": "gate",
+     "setup": "A network has links P-S 3, Q-T 2, P-Q 8, P-R 5, Q-S 3, Q-R 2 and P-T 9. All routers learn shortest paths. (a) Which links are on no shortest path? (b) The weights of those unused links are changed to 2 and the routers relearn. Which links are unused now?",
+     "steps": [
+      "A link is **used** if it lies on a shortest path between some pair of routers. Compute all shortest distances (running Dijkstra from each router).",
+      "P-Q (8): the distance from P to Q is 6 through S (3 + 3), which beats 8. So P-Q is never needed.",
+      "P-T (9): from P to T, the route P-S-Q-T costs 3 + 3 + 2 = 8, which beats 9. So P-T is unused as well. Every other link is the unique cheapest route between its own ends, or part of one (P-R, for example, is the cheapest way from P to R).",
+      "(b) Set P-Q = 2 and P-T = 2. Now P to Q costs 2 (direct) and P to T costs 2 (direct). Both are used.",
+      "The route P to R through Q now costs 2 + 2 = 4, less than the direct P-R = 5. So P-R is no longer on any shortest path."
+     ],
+     "answer": "(a) P-Q and P-T. (b) P-R."
+    },
+    {
+     "level": "twist",
+     "setup": "Router S has links S-A 1, S-B 2, A-D 3 and B-D 2. What is the shortest distance to D and the first hop?",
+     "steps": [
+      "Through A: 1 + 3 = 4. Through B: 2 + 2 = 4. The two paths have the **same cost**.",
+      "Dijkstra records only one of them in its tree, whichever it settles D from first. The forwarding table may show A or B.",
+      "Both are correct shortest paths. OSPF can keep both and split traffic between them (equal-cost multipath). For the 'unused links' question, links on either path count as used."
+     ],
+     "answer": "Distance 4. The first hop is A or B (a tie)."
+    }
+   ],
+   "why": "This is how link-state routers (OSPF) compute routes. In GATE: shortest distances and first hops from a source, which links are unused, or a forwarding table.",
+   "how": [
+    "Make a table with dist and first hop for each router; start with the source at 0.",
+    "Settle the nearest unsettled router and relax its links.",
+    "Inherit the first hop from the settled router (for the source's own neighbours it is the neighbour itself).",
+    "After all are settled, list the first hops as the forwarding table.",
+    "For 'unused links', compute shortest paths from every router and mark the links that appear."
+   ],
+   "mistake": "Marking only heavy links as unused. A light link can also be unused when a detour is cheaper still, and a heavy link can be essential. Always compute all-pairs shortest paths. A second slip is to use a router's total distance as the forwarding entry instead of the first hop.",
+   "edge_cases": [
+    "Ties give more than one shortest path; any is correct for distance, the first hop may differ.",
+    "A router's tentative distance can be improved several times before it is settled.",
+    "Dijkstra fails with negative link costs; Bellman-Ford does not (and DV copes with them in principle)."
+   ],
+   "connections": [
+    "Flooding (r5) gives every router the map to run this on.",
+    "This is the same algorithm as in algo.shortest (Dijkstra).",
+    "DV versus LS (r7): LS uses Dijkstra, DV uses Bellman-Ford."
+   ],
+   "check": [
+    {
+     "q": "Which router does Dijkstra settle next?",
+     "a": "The unsettled router with the smallest tentative distance."
+    },
+    {
+     "q": "S-A 2, A-B 3, S-B 7. Distance from S to B and first hop?",
+     "a": "5 via A (2 + 3 beats 7)."
+    },
+    {
+     "q": "What goes in the forwarding table for a destination?",
+     "a": "The first hop on the shortest path to it, not the whole path."
+    }
+   ],
+   "asked": "Asked: 2010 CS Q54, 2010 CS Q55, 2025 CS2 Q17",
+   "try": {
+    "id": "gen.net.routing.008",
+    "label": "Try: dijkstra on a seven-edge network (L2)"
+   },
+   "scene": "net.routing.r6.dijkstra",
+   "example": {
+    "setup": "Router S runs Dijkstra on this network: S-A 4, S-B 2, A-B 3, A-C 5, B-D 8, C-D 2, C-E 4, D-E 8. Find the distance to each router and S's forwarding table (the first hop to each destination).",
+    "steps": [
+     "Start with S at distance 0, and settle it. Its neighbours get tentative distances: A = 4, B = 2. The first hop to A is A, and to B is B.",
+     "Settle the nearest unsettled router, B (2). Through B: A would be 2 + 3 = 5, which is worse than 4, so A is unchanged. D = 2 + 8 = 10, with first hop B.",
+     "Settle A (4). Through A: C = 4 + 5 = 9, first hop A (the first hop is inherited from A's path).",
+     "Settle C (9). Through C: E = 9 + 4 = 13, first hop A. D through C would be 9 + 2 = 11, worse than 10, so D is unchanged.",
+     "Settle D (10): E through D would be 18, worse than 13. Settle E (13). All routers are settled.",
+     "The shortest-path tree has the edges S-B, S-A, A-C, B-D and C-E, so the tree paths are S-B, S-A, S-A-C, S-B-D and S-A-C-E.",
+     "S's forwarding table is the first hop of each tree path: A via A, B via B, C via A, D via B, E via A."
+    ],
+    "answer": "Distances A 4, B 2, C 9, D 10, E 13. Forwarding: A to A, B to B, C to A, D to B, E to A."
+   },
+   "what": "A link-state router has the whole map. It runs **Dijkstra** from itself: repeatedly settle the nearest unsettled router, and relax its links. The result is a shortest-path tree, and the **first hop** on each path goes into the forwarding table.",
+   "what_full": "A link-state router has the whole map. It runs **Dijkstra** from itself: repeatedly settle the nearest unsettled router, and relax its links. The result is a shortest-path tree, and the **first hop** on each path goes into the forwarding table.\n\n**Dijkstra from source s:**\n\n1. dist(s) = 0, all others infinity.\n\n2. Pick the unsettled router u with the smallest dist. Settle it.\n\n3. For each neighbour v of u: if dist(u) + cost(u, v) < dist(v), set dist(v) to that, and record u as v's predecessor (and inherit the first hop).\n\n4. Repeat until all are settled.\n\n**Forwarding entry** for destination t = the first router after s on the tree path from s to t.\n\nA link is **used** if it is on some shortest path between some pair of routers. Equal-cost ties can give several shortest paths.\n\nCosts must be non-negative.\n\n**Worked example.** Router S runs Dijkstra on this network: S-A 4, S-B 2, A-B 3, A-C 5, B-D 8, C-D 2, C-E 4, D-E 8. Find the distance to each router and S's forwarding table (the first hop to each destination).\n\n1. Start with S at distance 0, and settle it. Its neighbours get tentative distances: A = 4, B = 2. The first hop to A is A, and to B is B.\n2. Settle the nearest unsettled router, B (2). Through B: A would be 2 + 3 = 5, which is worse than 4, so A is unchanged. D = 2 + 8 = 10, with first hop B.\n3. Settle A (4). Through A: C = 4 + 5 = 9, first hop A (the first hop is inherited from A's path).\n4. Settle C (9). Through C: E = 9 + 4 = 13, first hop A. D through C would be 9 + 2 = 11, worse than 10, so D is unchanged.\n5. Settle D (10): E through D would be 18, worse than 13. Settle E (13). All routers are settled.\n6. The shortest-path tree has the edges S-B, S-A, A-C, B-D and C-E, so the tree paths are S-B, S-A, S-A-C, S-B-D and S-A-C-E.\n7. S's forwarding table is the first hop of each tree path: A via A, B via B, C via A, D via B, E via A.\n\n**Answer:** Distances A 4, B 2, C 9, D 10, E 13. Forwarding: A to A, B to B, C to A, D to B, E to A.",
+   "why_full": "This is how link-state routers (OSPF) compute routes. In GATE: shortest distances and first hops from a source, which links are unused, or a forwarding table.\n\nAsked: 2010 CS Q54, 2010 CS Q55, 2025 CS2 Q17",
+   "trap": "Marking only heavy links as unused. A light link can also be unused when a detour is cheaper still, and a heavy link can be essential. Always compute all-pairs shortest paths. A second slip is to use a router's total distance as the forwarding entry instead of the first hop."
+  },
+  {
+   "atom_id": "r7",
+   "title": "DV versus LS and protocols",
+   "simple": "There are two ways to find routes. In the first, each router asks its neighbours 'how far is everything from you?' and picks the best answer. It never sees a map and sometimes believes old news. In the second, every router shouts its own list of neighbours to everyone, so everybody ends up with the same map and works out the best routes by itself. The map way needs more memory and work, but it settles faster and is harder to fool. In exam words: DV is Bellman-Ford, sends to neighbours, and is slow to converge; LS is Dijkstra, floods to all, and converges fast. RIP is DV, OSPF is LS.",
+   "idea": "**Distance vector** (DV) routers share vectors with neighbours and use Bellman-Ford. **Link-state** (LS) routers flood their links to everyone and use Dijkstra on the full map. RIP is DV and OSPF is LS.",
+   "definition": "**DV:** sends its vector to neighbours. Knows costs and next hops. Bellman-Ford. Slower convergence, count to infinity, loops possible. **RIP:** hop count, 16 = unreachable.\n\n**LS:** floods its own links to all. Knows the whole map. Dijkstra. Faster convergence, more memory and computation, short loops possible while databases differ. **OSPF:** cost from link bandwidth, intra-domain, carried directly over IP.\n\nBoth are **intra-domain** protocols (inside one organisation).\n\nLow priority: BGP is the inter-domain path-vector protocol and UDP carries RIP; neither is named in the 2027 syllabus.",
+   "intuition_full": "The two families make opposite choices about information. DV gives away little (a vector) to few (neighbours), at the price of trusting second-hand answers. LS gives away a lot (every link) to everyone, at the price of flooding, and gains first-hand knowledge. First-hand knowledge brings fast, clean convergence, since every router computes from the same facts. Second-hand knowledge brings count-to-infinity. The costs are the other way round: LS needs memory for the map and CPU for Dijkstra, and DV does not. Most exam questions are statements from this table. A reliable method is to ask which of the two a statement matches: 'neighbours only', 'Bellman-Ford', 'count to infinity' go with DV; 'whole map', 'Dijkstra', 'flooding', 'faster convergence' go with LS.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Compare distance vector (DV) and link state (LS) routing along seven properties: who the router talks to, what it sends, what it knows, which algorithm it runs, a protocol example, how fast it converges, and its main weakness.",
+     "steps": [
+      "Set up two columns, DV and LS, and fill in one property per row.",
+      "**Who it talks to:** DV sends only to direct neighbours. LS floods to all routers. **What it sends:** DV sends its whole vector (cost to every destination). LS sends only its own links.",
+      "**What it knows:** a DV router knows costs and next hops only, with no map. An LS router holds the whole map, and so can compute any path itself.",
+      "**Algorithm:** DV is Bellman-Ford (relax with neighbours' vectors). LS is Dijkstra on the full map. **Example:** RIP is DV with hop count (16 = infinity). OSPF is LS and carries cost based on link bandwidth.",
+      "**Convergence:** LS converges faster, since news is flooded to everybody at once. DV spreads one hop per round, and bad news can count to infinity.",
+      "**Weakness:** DV risks count-to-infinity and loops. LS needs more memory and CPU, and floods more messages. Neither is better everywhere: small networks use RIP, large ones use OSPF."
+     ],
+     "answer": "DV: neighbours, vector, Bellman-Ford, RIP, slower, count to infinity. LS: everyone, own links, Dijkstra, OSPF, faster, more CPU."
+    },
+    {
+     "level": "gate",
+     "setup": "Which statements are TRUE? (S1) A link-state router does more computation than a distance vector router. (S2) A distance vector router learns the full network topology. (S3) Link-state routing usually converges faster. (S4) RIP uses hop count and treats 16 as unreachable. (S5) OSPF is an inter-domain routing protocol.",
+     "steps": [
+      "S1: an LS router runs Dijkstra on the whole map each time it changes. A DV router does one min per destination. True.",
+      "S2: DV routers know only costs and next hops, never the topology. False.",
+      "S3: floods reach everyone quickly, and there is no count to infinity. True.",
+      "S4: RIP is a hop-count DV protocol with 16 as infinity. True.",
+      "S5: OSPF is an intra-domain (inside one network) protocol. The inter-domain protocol is BGP, which is not on the named 2027 list. False."
+     ],
+     "answer": "S1, S3 and S4 are true. S2 and S5 are false."
+    },
+    {
+     "level": "twist",
+     "setup": "A source reaches a destination by path X (one link of 10 Mbps) or path Y (two links of 100 Mbps each). OSPF uses cost = 100 Mbps / link bandwidth. RIP counts hops. Which path does each protocol choose?",
+     "steps": [
+      "RIP counts hops: X has 1 hop, Y has 2 hops. RIP chooses X.",
+      "OSPF costs: the 10 Mbps link costs 100 / 10 = 10. Each 100 Mbps link costs 100 / 100 = 1. Path X = 10, path Y = 1 + 1 = 2.",
+      "OSPF chooses Y, the cheaper path, though it has more hops. The metric decides, and hop count ignores link speed."
+     ],
+     "answer": "RIP chooses X. OSPF chooses Y."
+    }
+   ],
+   "why": "This is the most frequently asked part of the routing chapter: 5 of its 11 blueprint questions are true/false statements about DV and LS. In GATE: pick the correct statements, or match algorithm, protocol and property.",
+   "how": [
+    "Map each phrase to DV or LS: 'neighbours', 'vector', 'Bellman-Ford', 'RIP', 'count to infinity' for DV.",
+    "'Whole map', 'flooding', 'Dijkstra', 'OSPF', 'faster convergence' for LS.",
+    "Read the question carefully: 'INCORRECT' or 'TRUE' changes what you select.",
+    "OSPF is intra-domain, and RIP and OSPF are both intra-domain."
+   ],
+   "mistake": "Swapping the algorithms: DV is Bellman-Ford, LS is Dijkstra. Another slip is to believe split horizon removes all loops, or to treat OSPF as inter-domain. And do not answer a question that asks for the INCORRECT statements as if it asked for the true ones.",
+   "edge_cases": [
+    "Hop count ignores link speed; OSPF cost does not.",
+    "LS can have brief loops while routers hold different maps, but not count to infinity.",
+    "A small network may run RIP just because it is simple."
+   ],
+   "connections": [
+    "DV: r1 to r4. LS: r5 and r6.",
+    "Layering (net.layering l1): both are network-layer routing protocols that fill the forwarding tables used by IP.",
+    "Count-to-infinity (r4) is the reason LS is preferred in large networks."
+   ],
+   "check": [
+    {
+     "q": "Which algorithm does a link-state router run?",
+     "a": "Dijkstra's shortest path algorithm on the full map."
+    },
+    {
+     "q": "True or false: RIP is a link-state protocol.",
+     "a": "False. RIP is a distance vector protocol."
+    },
+    {
+     "q": "Which family can suffer count to infinity?",
+     "a": "Distance vector."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q17, 2014 CS1 Q23, 2014 CS2 Q23, 2023 CS Q25, 2017 CS2 Q9",
+   "try": {
+    "id": "gen.net.routing.004",
+    "label": "Try: what RIP uses as its metric (L1)"
+   },
+   "scene": "net.routing.r7.compare",
+   "example": {
+    "setup": "Compare distance vector (DV) and link state (LS) routing along seven properties: who the router talks to, what it sends, what it knows, which algorithm it runs, a protocol example, how fast it converges, and its main weakness.",
+    "steps": [
+     "Set up two columns, DV and LS, and fill in one property per row.",
+     "**Who it talks to:** DV sends only to direct neighbours. LS floods to all routers. **What it sends:** DV sends its whole vector (cost to every destination). LS sends only its own links.",
+     "**What it knows:** a DV router knows costs and next hops only, with no map. An LS router holds the whole map, and so can compute any path itself.",
+     "**Algorithm:** DV is Bellman-Ford (relax with neighbours' vectors). LS is Dijkstra on the full map. **Example:** RIP is DV with hop count (16 = infinity). OSPF is LS and carries cost based on link bandwidth.",
+     "**Convergence:** LS converges faster, since news is flooded to everybody at once. DV spreads one hop per round, and bad news can count to infinity.",
+     "**Weakness:** DV risks count-to-infinity and loops. LS needs more memory and CPU, and floods more messages. Neither is better everywhere: small networks use RIP, large ones use OSPF."
+    ],
+    "answer": "DV: neighbours, vector, Bellman-Ford, RIP, slower, count to infinity. LS: everyone, own links, Dijkstra, OSPF, faster, more CPU."
+   },
+   "what": "**Distance vector** (DV) routers share vectors with neighbours and use Bellman-Ford. **Link-state** (LS) routers flood their links to everyone and use Dijkstra on the full map. RIP is DV and OSPF is LS.",
+   "what_full": "**Distance vector** (DV) routers share vectors with neighbours and use Bellman-Ford. **Link-state** (LS) routers flood their links to everyone and use Dijkstra on the full map. RIP is DV and OSPF is LS.\n\n**DV:** sends its vector to neighbours. Knows costs and next hops. Bellman-Ford. Slower convergence, count to infinity, loops possible. **RIP:** hop count, 16 = unreachable.\n\n**LS:** floods its own links to all. Knows the whole map. Dijkstra. Faster convergence, more memory and computation, short loops possible while databases differ. **OSPF:** cost from link bandwidth, intra-domain, carried directly over IP.\n\nBoth are **intra-domain** protocols (inside one organisation).\n\nLow priority: BGP is the inter-domain path-vector protocol and UDP carries RIP; neither is named in the 2027 syllabus.\n\n**Worked example.** Compare distance vector (DV) and link state (LS) routing along seven properties: who the router talks to, what it sends, what it knows, which algorithm it runs, a protocol example, how fast it converges, and its main weakness.\n\n1. Set up two columns, DV and LS, and fill in one property per row.\n2. **Who it talks to:** DV sends only to direct neighbours. LS floods to all routers. **What it sends:** DV sends its whole vector (cost to every destination). LS sends only its own links.\n3. **What it knows:** a DV router knows costs and next hops only, with no map. An LS router holds the whole map, and so can compute any path itself.\n4. **Algorithm:** DV is Bellman-Ford (relax with neighbours' vectors). LS is Dijkstra on the full map. **Example:** RIP is DV with hop count (16 = infinity). OSPF is LS and carries cost based on link bandwidth.\n5. **Convergence:** LS converges faster, since news is flooded to everybody at once. DV spreads one hop per round, and bad news can count to infinity.\n6. **Weakness:** DV risks count-to-infinity and loops. LS needs more memory and CPU, and floods more messages. Neither is better everywhere: small networks use RIP, large ones use OSPF.\n\n**Answer:** DV: neighbours, vector, Bellman-Ford, RIP, slower, count to infinity. LS: everyone, own links, Dijkstra, OSPF, faster, more CPU.",
+   "why_full": "This is the most frequently asked part of the routing chapter: 5 of its 11 blueprint questions are true/false statements about DV and LS. In GATE: pick the correct statements, or match algorithm, protocol and property.\n\nAsked: 2025 CS2 Q17, 2014 CS1 Q23, 2014 CS2 Q23, 2023 CS Q25, 2017 CS2 Q9",
+   "trap": "Swapping the algorithms: DV is Bellman-Ford, LS is Dijkstra. Another slip is to believe split horizon removes all loops, or to treat OSPF as inter-domain. And do not answer a question that asks for the INCORRECT statements as if it asked for the true ones."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "net.routing.r1.dv",
+   "title": "Distance vectors spreading hop by hop",
+   "viewBox": [
+    0,
+    0,
+    360,
+    290
+   ],
+   "objects": [
+    {
+     "id": "nU",
+     "kind": "node",
+     "x": 50,
+     "y": 50,
+     "label": "U",
+     "r": 18
+    },
+    {
+     "id": "nV",
+     "kind": "node",
+     "x": 150,
+     "y": 50,
+     "label": "V",
+     "r": 18
+    },
+    {
+     "id": "nW",
+     "kind": "node",
+     "x": 250,
+     "y": 50,
+     "label": "W",
+     "r": 18
+    },
+    {
+     "id": "nZ",
+     "kind": "node",
+     "x": 150,
+     "y": 125,
+     "label": "Z",
+     "r": 18
+    },
+    {
+     "id": "eUV",
+     "kind": "edge",
+     "from": "nU",
+     "to": "nV",
+     "label": "3"
+    },
+    {
+     "id": "eVW",
+     "kind": "edge",
+     "from": "nV",
+     "to": "nW",
+     "label": "2"
+    },
+    {
+     "id": "eWZ",
+     "kind": "edge",
+     "from": "nW",
+     "to": "nZ",
+     "label": "4"
+    },
+    {
+     "id": "eUZ",
+     "kind": "edge",
+     "from": "nU",
+     "to": "nZ",
+     "label": "10"
+    },
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 92,
+     "y": 176,
+     "rows": 4,
+     "cols": 4,
+     "cells": [
+      [
+       "0",
+       "3",
+       "∞",
+       "10"
+      ],
+      [
+       "3",
+       "0",
+       "2",
+       "∞"
+      ],
+      [
+       "∞",
+       "2",
+       "0",
+       "4"
+      ],
+      [
+       "10",
+       "∞",
+       "4",
+       "0"
+      ]
+     ],
+     "cw": 50,
+     "ch": 26,
+     "rowLabels": [
+      "U",
+      "V",
+      "W",
+      "Z"
+     ],
+     "colLabels": [
+      "to U",
+      "to V",
+      "to W",
+      "to Z"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Each router starts with a vector: its cost to every router. It knows only direct links. U = (0, 3, ∞, 10), V = (3, 0, 2, ∞), W = (∞, 2, 0, 4), Z = (10, ∞, 4, 0) in the order (U, V, W, Z).",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "3",
+         "∞",
+         "10"
+        ],
+        [
+         "3",
+         "0",
+         "2",
+         "∞"
+        ],
+        [
+         "∞",
+         "2",
+         "0",
+         "4"
+        ],
+        [
+         "10",
+         "∞",
+         "4",
+         "0"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Round 1: every router sends its vector to its **neighbours only**. U receives V's vector (3, 0, 2, ∞) and Z's vector (10, ∞, 4, 0).",
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "mid",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ],
+        [
+         3,
+         3
+        ]
+       ]
+      },
+      {
+       "id": "eUV",
+       "tone": "accent"
+      },
+      {
+       "id": "eUZ",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "U improves its cost to W: via V it is 3 + 2 = 5, via Z it is 10 + 4 = 14. The minimum is **5**, next hop V. U's cost to Z stays 10 for now.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "3",
+         "5",
+         "10"
+        ],
+        [
+         "3",
+         "0",
+         "2",
+         "∞"
+        ],
+        [
+         "∞",
+         "2",
+         "0",
+         "4"
+        ],
+        [
+         "10",
+         "∞",
+         "4",
+         "0"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         2
+        ]
+       ]
+      },
+      {
+       "id": "eUV",
+       "tone": "good"
+      },
+      {
+       "id": "eVW",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The other routers update at the same time. After round 1: V = (3, 0, 2, 6), W = (5, 2, 0, 4), Z = (10, 6, 4, 0).",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "3",
+         "5",
+         "10"
+        ],
+        [
+         "3",
+         "0",
+         "2",
+         "6"
+        ],
+        [
+         "5",
+         "2",
+         "0",
+         "4"
+        ],
+        [
+         "10",
+         "6",
+         "4",
+         "0"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         3,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Round 2: U now receives V's improved vector (3, 0, 2, 6). Cost to Z via V = 3 + 6 = 9, better than the direct 10. U switches to 9 and changes its next hop for Z from Z to V.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "3",
+         "5",
+         "9"
+        ],
+        [
+         "3",
+         "0",
+         "2",
+         "6"
+        ],
+        [
+         "5",
+         "2",
+         "0",
+         "4"
+        ],
+        [
+         "9",
+         "6",
+         "4",
+         "0"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         3
+        ],
+        [
+         3,
+         0
+        ]
+       ]
+      },
+      {
+       "id": "eUV",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Round 3 changes nothing, so the tables have **converged**. U = (0, 3, 5, 9), and no router ever needed to know the full map.",
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.routing.r2.update",
+   "title": "R picks the minimum of link plus advertised cost",
+   "viewBox": [
+    0,
+    0,
+    360,
+    214
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 110,
+     "y": 56,
+     "rows": 3,
+     "cols": 3,
+     "cells": [
+      [
+       "2",
+       "7",
+       "3"
+      ],
+      [
+       "9",
+       "1",
+       "6"
+      ],
+      [
+       "3",
+       "5",
+       "3"
+      ]
+     ],
+     "cw": 70,
+     "ch": 32,
+     "rowLabels": [
+      "via A",
+      "via B",
+      "via C"
+     ],
+     "colLabels": [
+      "link",
+      "D1",
+      "D2"
+     ]
+    },
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "R: link cost, then advertised cost",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "R's inputs: link costs A = 2, B = 9, C = 3, and the advertised costs to (D1, D2): A = (7, 3), B = (1, 6), C = (5, 3).",
+     "set": [
+      {
+       "id": "rd",
+       "text": "new cost = min(link + advertised)"
+      }
+     ]
+    },
+    {
+     "caption": "For D1, add the link cost to each advertised cost: via A 2 + 7 = 9, via B 9 + 1 = 10, via C 3 + 5 = 8.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "2",
+         "2+7=9",
+         "3"
+        ],
+        [
+         "9",
+         "9+1=10",
+         "6"
+        ],
+        [
+         "3",
+         "3+5=8",
+         "3"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The minimum is 8, achieved through C. So R's cost to D1 is **8** and the next hop is **C**. B advertised the smallest cost (1), but its link is expensive.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "D1 = 8 via C"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         2,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "For D2: via A 2 + 3 = 5, via B 9 + 6 = 15, via C 3 + 3 = 6.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "2",
+         "2+7=9",
+         "2+3=5"
+        ],
+        [
+         "9",
+         "9+1=10",
+         "9+6=15"
+        ],
+        [
+         "3",
+         "3+5=8",
+         "3+3=6"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The minimum is 5, through A. So R's cost to D2 is **5** with next hop **A**.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "D2 = 5 via A"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "R's new vector: D1 = 8 (via C), D2 = 5 (via A). Picking the smallest advertised cost alone would have chosen B for D1, which is wrong: add the link cost first.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "R: D1 = 8 (C), D2 = 5 (A)",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         2,
+         1
+        ],
+        [
+         0,
+         2
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.routing.r3.rounds",
+   "title": "News about F moves one hop per round",
+   "viewBox": [
+    0,
+    0,
+    360,
+    214
+   ],
+   "objects": [
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 30,
+     "y": 60,
+     "label": "A",
+     "r": 18
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 90,
+     "y": 60,
+     "label": "B",
+     "r": 18
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 150,
+     "y": 60,
+     "label": "C",
+     "r": 18
+    },
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 210,
+     "y": 60,
+     "label": "D",
+     "r": 18
+    },
+    {
+     "id": "nE",
+     "kind": "node",
+     "x": 270,
+     "y": 60,
+     "label": "E",
+     "r": 18
+    },
+    {
+     "id": "nF",
+     "kind": "node",
+     "x": 330,
+     "y": 60,
+     "label": "F",
+     "r": 18
+    },
+    {
+     "id": "e0",
+     "kind": "edge",
+     "from": "nA",
+     "to": "nB"
+    },
+    {
+     "id": "e1",
+     "kind": "edge",
+     "from": "nB",
+     "to": "nC"
+    },
+    {
+     "id": "e2",
+     "kind": "edge",
+     "from": "nC",
+     "to": "nD"
+    },
+    {
+     "id": "e3",
+     "kind": "edge",
+     "from": "nD",
+     "to": "nE"
+    },
+    {
+     "id": "e4",
+     "kind": "edge",
+     "from": "nE",
+     "to": "nF"
+    },
+    {
+     "id": "kn",
+     "kind": "array",
+     "x": 24,
+     "y": 126,
+     "cells": [
+      "?",
+      "?",
+      "?",
+      "?",
+      "1",
+      "0"
+     ],
+     "cw": 52,
+     "ch": 30,
+     "indices": false,
+     "label": "cost to F known at each router"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "At the start (round 0) each router knows its neighbours. So E knows its cost to F is 1; nobody else knows F. A and F are 5 hops apart.",
+     "set": [
+      {
+       "id": "kn",
+       "cells": [
+        "?",
+        "?",
+        "?",
+        "?",
+        "1",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "round 0: only E knows F"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "kn",
+       "tone": "accent",
+       "cells": [
+        4,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Round 1: E sends its vector, so D learns F is 1 + 1 = 2 away.",
+     "set": [
+      {
+       "id": "kn",
+       "cells": [
+        "?",
+        "?",
+        "?",
+        "2",
+        "1",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "round 1: D learns 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "kn",
+       "tone": "good",
+       "cells": [
+        3
+       ]
+      },
+      {
+       "id": "e3",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Round 2: D sends its vector, so C learns F is 3 away.",
+     "set": [
+      {
+       "id": "kn",
+       "cells": [
+        "?",
+        "?",
+        "3",
+        "2",
+        "1",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "round 2: C learns 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "kn",
+       "tone": "good",
+       "cells": [
+        2
+       ]
+      },
+      {
+       "id": "e2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Round 3: C sends, and B learns F is 4 away.",
+     "set": [
+      {
+       "id": "kn",
+       "cells": [
+        "?",
+        "4",
+        "3",
+        "2",
+        "1",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "round 3: B learns 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "kn",
+       "tone": "good",
+       "cells": [
+        1
+       ]
+      },
+      {
+       "id": "e1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Round 4: B sends, and A learns F is 5 away. A now has the correct cost.",
+     "set": [
+      {
+       "id": "kn",
+       "cells": [
+        "5",
+        "4",
+        "3",
+        "2",
+        "1",
+        "0"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "round 4: A learns 5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "kn",
+       "tone": "good",
+       "cells": [
+        0
+       ]
+      },
+      {
+       "id": "e0",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Information about F moved one hop per round. A is 5 hops away, and the first hop was already known at the start, so it took 5 - 1 = 4 rounds.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "5 hops away = 4 rounds",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "kn",
+       "tone": "good",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.routing.r4.cti",
+   "title": "Costs climbing after a link failure",
+   "viewBox": [
+    0,
+    0,
+    360,
+    214
+   ],
+   "objects": [
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 50,
+     "y": 40,
+     "label": "A",
+     "r": 18
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 150,
+     "y": 40,
+     "label": "B",
+     "r": 18
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 250,
+     "y": 40,
+     "label": "C",
+     "r": 18
+    },
+    {
+     "id": "eAB",
+     "kind": "edge",
+     "from": "nA",
+     "to": "nB",
+     "label": "3"
+    },
+    {
+     "id": "eBC",
+     "kind": "edge",
+     "from": "nB",
+     "to": "nC",
+     "label": "2"
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 72,
+     "y": 100,
+     "rows": 2,
+     "cols": 6,
+     "cells": [
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 44,
+     "ch": 30,
+     "rowLabels": [
+      "A",
+      "B"
+     ],
+     "colLabels": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+     ],
+     "colTitle": "cost to C after each exchange"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Before the failure: A reaches C at 3 + 2 = 5, B at 2.",
+     "show": [
+      "eBC"
+     ],
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "5",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "2",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "A = 3 + 2 = 5, B = 2"
+      }
+     ]
+    },
+    {
+     "caption": "B-C fails. B sets its cost to C to infinity (16). A has not heard, so it still says 5.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "5",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "∞",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "B-C fails: B = infinity, A still 5",
+       "tone": "bad"
+      }
+     ],
+     "hide": [
+      "eBC"
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        [
+         1,
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "B receives A's vector: the cost to C via A is 3 + 5 = 8, which beats infinity. B now believes it can reach C through A (8), but A's route goes **through B**. This is a routing loop.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "5",
+         "5",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "∞",
+         "8",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "B hears A: 3 + 5 = 8 (a loop)",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        [
+         1,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "B tells A. A's next hop for C is B, so A follows B: 3 + 8 = 11. A tells B.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "5",
+         "5",
+         "11",
+         "",
+         "",
+         ""
+        ],
+        [
+         "∞",
+         "8",
+         "8",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "A follows B: 3 + 8 = 11"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        [
+         0,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "B updates: 3 + 11 = 14. A updates: 3 + 14 = 17, which reaches the limit 16, so A marks C unreachable.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "5",
+         "5",
+         "11",
+         "11",
+         "∞",
+         ""
+        ],
+        [
+         "∞",
+         "8",
+         "8",
+         "14",
+         "14",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "B = 14, A = 17 -> 16 (infinity)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "bad",
+       "cells": [
+        [
+         1,
+         3
+        ],
+        [
+         0,
+         4
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "B updates once more: 3 + 16, so also 16. Both know that C is unreachable, after 5 exchanges. Without a limit the costs would climb forever: this is **count to infinity**.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "5",
+         "5",
+         "11",
+         "11",
+         "∞",
+         "∞"
+        ],
+        [
+         "∞",
+         "8",
+         "8",
+         "14",
+         "14",
+         "∞"
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "B = 16: C unreachable",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         4
+        ],
+        [
+         1,
+         5
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.routing.r5.flood",
+   "title": "One advertisement flooding the network",
+   "viewBox": [
+    0,
+    0,
+    360,
+    232
+   ],
+   "objects": [
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 36,
+     "y": 100,
+     "label": "A",
+     "r": 18
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 116,
+     "y": 46,
+     "label": "B",
+     "r": 18
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 116,
+     "y": 154,
+     "label": "C",
+     "r": 18
+    },
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 216,
+     "y": 46,
+     "label": "D",
+     "r": 18
+    },
+    {
+     "id": "nE",
+     "kind": "node",
+     "x": 216,
+     "y": 154,
+     "label": "E",
+     "r": 18
+    },
+    {
+     "id": "nF",
+     "kind": "node",
+     "x": 306,
+     "y": 100,
+     "label": "F",
+     "r": 18
+    },
+    {
+     "id": "eAB",
+     "kind": "edge",
+     "from": "nA",
+     "to": "nB"
+    },
+    {
+     "id": "eAC",
+     "kind": "edge",
+     "from": "nA",
+     "to": "nC"
+    },
+    {
+     "id": "eBC",
+     "kind": "edge",
+     "from": "nB",
+     "to": "nC"
+    },
+    {
+     "id": "eBD",
+     "kind": "edge",
+     "from": "nB",
+     "to": "nD"
+    },
+    {
+     "id": "eCE",
+     "kind": "edge",
+     "from": "nC",
+     "to": "nE"
+    },
+    {
+     "id": "eDE",
+     "kind": "edge",
+     "from": "nD",
+     "to": "nE"
+    },
+    {
+     "id": "eDF",
+     "kind": "edge",
+     "from": "nD",
+     "to": "nF"
+    },
+    {
+     "id": "eEF",
+     "kind": "edge",
+     "from": "nE",
+     "to": "nF"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A has a new LSA, which lists its links and their costs. As the origin, it sends a copy on **all** its links: A-B and A-C. That is 2 transmissions.",
+     "set": [
+      {
+       "id": "nA",
+       "tone": "accent"
+      },
+      {
+       "id": "rd",
+       "text": "A sends on 2 links: total 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eAB",
+       "tone": "accent"
+      },
+      {
+       "id": "eAC",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "B and C receive their first copy. B forwards on B-C and B-D, and C forwards on C-B and C-E. That is 4 more, 6 so far. B and C each get a duplicate from the other and discard it.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "B and C forward: total 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eBC",
+       "tone": "mid"
+      },
+      {
+       "id": "eBD",
+       "tone": "accent"
+      },
+      {
+       "id": "eCE",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "D (first copy from B) forwards on D-E and D-F. E (first copy from C) forwards on E-D and E-F. That is 4 more, 10 so far. D and E discard each other's copies.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "D and E forward: total 10"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eDE",
+       "tone": "mid"
+      },
+      {
+       "id": "eDF",
+       "tone": "accent"
+      },
+      {
+       "id": "eEF",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "F got its first copy from D. It forwards on its only other link F-E, which is a duplicate for E. That is 1 more, 11 in all.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "F forwards on F-E: total 11"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eEF",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Check with the formula: each non-origin router sends on (degree - 1) links and the origin on its degree, so the total is $2E - (V - 1)$ = 16 - 5 = 11. Every router now has A's LSA, and when every router floods its own LSA, all routers hold the same map.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "2E - (V-1) = 16 - 5 = 11",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rd",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.routing.r6.dijkstra",
+   "title": "Dijkstra growing the tree from S",
+   "viewBox": [
+    0,
+    0,
+    360,
+    270
+   ],
+   "objects": [
+    {
+     "id": "nS",
+     "kind": "node",
+     "x": 40,
+     "y": 84,
+     "label": "S",
+     "r": 17
+    },
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 130,
+     "y": 34,
+     "label": "A",
+     "r": 17
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 130,
+     "y": 134,
+     "label": "B",
+     "r": 17
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 230,
+     "y": 34,
+     "label": "C",
+     "r": 17
+    },
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 230,
+     "y": 134,
+     "label": "D",
+     "r": 17
+    },
+    {
+     "id": "nE",
+     "kind": "node",
+     "x": 320,
+     "y": 84,
+     "label": "E",
+     "r": 17
+    },
+    {
+     "id": "eSA",
+     "kind": "edge",
+     "from": "nS",
+     "to": "nA",
+     "label": "4"
+    },
+    {
+     "id": "eSB",
+     "kind": "edge",
+     "from": "nS",
+     "to": "nB",
+     "label": "2"
+    },
+    {
+     "id": "eAB",
+     "kind": "edge",
+     "from": "nA",
+     "to": "nB",
+     "label": "3"
+    },
+    {
+     "id": "eAC",
+     "kind": "edge",
+     "from": "nA",
+     "to": "nC",
+     "label": "5"
+    },
+    {
+     "id": "eBD",
+     "kind": "edge",
+     "from": "nB",
+     "to": "nD",
+     "label": "8"
+    },
+    {
+     "id": "eCD",
+     "kind": "edge",
+     "from": "nC",
+     "to": "nD",
+     "label": "2"
+    },
+    {
+     "id": "eCE",
+     "kind": "edge",
+     "from": "nC",
+     "to": "nE",
+     "label": "4"
+    },
+    {
+     "id": "eDE",
+     "kind": "edge",
+     "from": "nD",
+     "to": "nE",
+     "label": "8"
+    },
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 82,
+     "y": 178,
+     "rows": 2,
+     "cols": 6,
+     "cells": [
+      [
+       "0",
+       "4",
+       "2",
+       "∞",
+       "∞",
+       "∞"
+      ],
+      [
+       "-",
+       "A",
+       "B",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 42,
+     "ch": 26,
+     "rowLabels": [
+      "dist",
+      "1st hop"
+     ],
+     "colLabels": [
+      "S",
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+     ]
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 254,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start with S at distance 0, and settle it. Its neighbours get tentative distances: A = 4, B = 2. The first hop to A is A, and to B is B.",
+     "set": [
+      {
+       "id": "nS",
+       "tone": "good"
+      },
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "4",
+         "2",
+         "∞",
+         "∞",
+         "∞"
+        ],
+        [
+         "-",
+         "A",
+         "B",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "settle S: A = 4, B = 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eSA",
+       "tone": "accent"
+      },
+      {
+       "id": "eSB",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Settle the nearest unsettled router, B (2). Through B: A would be 2 + 3 = 5, which is worse than 4, so A is unchanged. D = 2 + 8 = 10, with first hop B.",
+     "set": [
+      {
+       "id": "nB",
+       "tone": "good"
+      },
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "4",
+         "2",
+         "∞",
+         "10",
+         "∞"
+        ],
+        [
+         "-",
+         "A",
+         "B",
+         "",
+         "B",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "settle B (2): D = 10"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eSB",
+       "tone": "good"
+      },
+      {
+       "id": "eBD",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Settle A (4). Through A: C = 4 + 5 = 9, first hop A (the first hop is inherited from A's path).",
+     "set": [
+      {
+       "id": "nA",
+       "tone": "good"
+      },
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "4",
+         "2",
+         "9",
+         "10",
+         "∞"
+        ],
+        [
+         "-",
+         "A",
+         "B",
+         "A",
+         "B",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "settle A (4): C = 9"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eSA",
+       "tone": "good"
+      },
+      {
+       "id": "eAC",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Settle C (9). Through C: E = 9 + 4 = 13, first hop A. D through C would be 9 + 2 = 11, worse than 10, so D is unchanged.",
+     "set": [
+      {
+       "id": "nC",
+       "tone": "good"
+      },
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "4",
+         "2",
+         "9",
+         "10",
+         "13"
+        ],
+        [
+         "-",
+         "A",
+         "B",
+         "A",
+         "B",
+         "A"
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "settle C (9): E = 13"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eCE",
+       "tone": "accent"
+      },
+      {
+       "id": "eCD",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Settle D (10): E through D would be 18, worse than 13. Settle E (13). All routers are settled.",
+     "set": [
+      {
+       "id": "nD",
+       "tone": "good"
+      },
+      {
+       "id": "nE",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "settle D (10) and E (13)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eDE",
+       "tone": "mid"
+      },
+      {
+       "id": "eCE",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The shortest-path tree has the edges S-B, S-A, A-C, B-D and C-E, so the tree paths are S-B, S-A, S-A-C, S-B-D and S-A-C-E.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "tree: SB, SA, AC, BD, CE"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eSB",
+       "tone": "good"
+      },
+      {
+       "id": "eSA",
+       "tone": "good"
+      },
+      {
+       "id": "eAC",
+       "tone": "good"
+      },
+      {
+       "id": "eBD",
+       "tone": "good"
+      },
+      {
+       "id": "eCE",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "S's forwarding table is the first hop of each tree path: A via A, B via B, C via A, D via B, E via A.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "S sends via: A:A B:B C:A D:B E:A",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         1,
+         5
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.routing.r7.compare",
+   "title": "Distance vector against link state",
+   "viewBox": [
+    0,
+    0,
+    360,
+    258
+   ],
+   "objects": [
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 108,
+     "y": 52,
+     "rows": 7,
+     "cols": 2,
+     "cells": [
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ]
+     ],
+     "cw": 116,
+     "ch": 26,
+     "rowLabels": [
+      "sends to",
+      "sends what",
+      "knows",
+      "algorithm",
+      "example",
+      "convergence",
+      "weakness"
+     ],
+     "colLabels": [
+      "DV",
+      "LS"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Set up two columns, DV and LS, and fill in one property per row.",
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "**Who it talks to:** DV sends only to direct neighbours. LS floods to all routers. **What it sends:** DV sends its whole vector (cost to every destination). LS sends only its own links.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "neighbours",
+         "all routers"
+        ],
+        [
+         "its vector",
+         "own links"
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "**What it knows:** a DV router knows costs and next hops only, with no map. An LS router holds the whole map, and so can compute any path itself.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "neighbours",
+         "all routers"
+        ],
+        [
+         "its vector",
+         "own links"
+        ],
+        [
+         "next hops",
+         "whole map"
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "**Algorithm:** DV is Bellman-Ford (relax with neighbours' vectors). LS is Dijkstra on the full map. **Example:** RIP is DV with hop count (16 = infinity). OSPF is LS and carries cost based on link bandwidth.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "neighbours",
+         "all routers"
+        ],
+        [
+         "its vector",
+         "own links"
+        ],
+        [
+         "next hops",
+         "whole map"
+        ],
+        [
+         "Bellman-Ford",
+         "Dijkstra"
+        ],
+        [
+         "RIP",
+         "OSPF"
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "**Convergence:** LS converges faster, since news is flooded to everybody at once. DV spreads one hop per round, and bad news can count to infinity.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "neighbours",
+         "all routers"
+        ],
+        [
+         "its vector",
+         "own links"
+        ],
+        [
+         "next hops",
+         "whole map"
+        ],
+        [
+         "Bellman-Ford",
+         "Dijkstra"
+        ],
+        [
+         "RIP",
+         "OSPF"
+        ],
+        [
+         "slower",
+         "faster"
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         5,
+         0
+        ],
+        [
+         5,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "**Weakness:** DV risks count-to-infinity and loops. LS needs more memory and CPU, and floods more messages. Neither is better everywhere: small networks use RIP, large ones use OSPF.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "neighbours",
+         "all routers"
+        ],
+        [
+         "its vector",
+         "own links"
+        ],
+        [
+         "next hops",
+         "whole map"
+        ],
+        [
+         "Bellman-Ford",
+         "Dijkstra"
+        ],
+        [
+         "RIP",
+         "OSPF"
+        ],
+        [
+         "slower",
+         "faster"
+        ],
+        [
+         "count to inf.",
+         "more CPU"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         6,
+         0
+        ],
+        [
+         6,
+         1
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

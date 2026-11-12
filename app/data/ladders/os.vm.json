@@ -1,0 +1,2168 @@
+{
+ "topic_id": "os.vm",
+ "blueprint": {
+  "atoms": [
+   {
+    "id": "v1",
+    "name": "Demand paging and page faults",
+    "one_line": "Pages load on first use; an invalid entry traps to the OS, which loads the page."
+   },
+   {
+    "id": "v2",
+    "name": "Page table size and PTE",
+    "one_line": "Entries = 2^(VA - offset). Entry width from frame bits plus control bits, rounded to bytes."
+   },
+   {
+    "id": "v3",
+    "name": "Multi-level page tables",
+    "one_line": "Each table fills a page; bits per level = log2(page / entry); count tables level by level."
+   },
+   {
+    "id": "v4",
+    "name": "TLB and effective access time",
+    "one_line": "EAT = h(t + m) + (1 - h)(t + (L + 1) m). Tag = VPN - set-index bits. Reach = entries x page size."
+   },
+   {
+    "id": "v5",
+    "name": "EAT with page faults",
+    "one_line": "EAT = (1 - p) m + p F; faults only follow a TLB miss when the page is absent."
+   },
+   {
+    "id": "v6",
+    "name": "FIFO, LRU, optimal",
+    "one_line": "FIFO evicts the oldest load, LRU the least recent use, OPT the farthest next use."
+   },
+   {
+    "id": "v7",
+    "name": "Belady's anomaly and stack algorithms",
+    "one_line": "FIFO can fault more with more frames. LRU and OPT never do."
+   },
+   {
+    "id": "v8",
+    "name": "Thrashing and working set",
+    "one_line": "Working set = distinct pages in the last window. Thrashing = working sets exceed frames."
+   }
+  ],
+  "patterns": [
+   {
+    "name": "Page-table and PTE size arithmetic",
+    "years": [
+     "2025-CS1-q14",
+     "2015-CS1-q12",
+     "2016-CS1-q47",
+     "2015-CS2-q47",
+     "2001-CS-q2_21",
+     "2003-CS-q26"
+    ],
+    "freq": 6,
+    "note": "Entries from virtual bits, entry size from frame bits; round to whole bytes."
+   },
+   {
+    "name": "Multi-level page tables",
+    "years": [
+     "2023-CS-q58",
+     "2025-CS2-q58",
+     "2024-CS2-q64",
+     "2021-CS2-q58",
+     "2003-CS-q79",
+     "2008-CS-q67",
+     "2013-CS-q52",
+     "2009-CS-q34"
+    ],
+    "freq": 8,
+    "note": "Each table fills a page; count tables per level; minimum versus maximum use."
+   },
+   {
+    "name": "TLB and EAT",
+    "years": [
+     "2020-CS-q63",
+     "2019-CS-q43",
+     "2026-CS2-q54",
+     "2003-CS-q78",
+     "2004-CS-q47",
+     "2006-CS-q62",
+     "2014-CS3-q33",
+     "2015-CS2-q25",
+     "2022-CS-q38",
+     "2026-CS1-q54"
+    ],
+    "freq": 10,
+    "note": "Hit and miss paths with the TLB time on both; faults only on TLB misses."
+   },
+   {
+    "name": "EAT with page faults",
+    "years": [
+     "2018-CS-q20",
+     "2000-CS-q2_22",
+     "2011-CS-q20"
+    ],
+    "freq": 3,
+    "note": "EAT = M + p(F - M); keep units equal."
+   },
+   {
+    "name": "Page-replacement simulation",
+    "years": [
+     "2022-CS-q64",
+     "2025-CS1-q54",
+     "2025-CS2-q47",
+     "2007-CS-q82",
+     "2007-CS-q83",
+     "2010-CS-q24",
+     "2012-CS-q42",
+     "2014-CS1-q33",
+     "2014-CS2-q33",
+     "2014-CS3-q20",
+     "2015-CS1-q47",
+     "2016-CS1-q49",
+     "2023-CS-q57"
+    ],
+    "freq": 13,
+    "note": "Run the policy; scans over more pages than frames fault every time under LRU and FIFO."
+   },
+   {
+    "name": "Belady's anomaly and stack algorithms",
+    "years": [
+     "2017-CS1-q40",
+     "2001-CS-q1_21",
+     "2007-CS-q56",
+     "2009-CS-q9",
+     "2016-CS2-q20"
+    ],
+    "freq": 5,
+    "note": "FIFO is the standard example; LRU and OPT are immune."
+   },
+   {
+    "name": "Concept statements on paging and virtual memory",
+    "years": [
+     "2024-CS2-q24",
+     "2004-CS-q21",
+     "2006-CS-q63",
+     "2001-CS-q1_8",
+     "2009-CS-q10",
+     "2002-CS-q1_23"
+    ],
+    "freq": 6,
+    "note": "MMU versus OS jobs, frame minimum, residency of the page."
+   }
+  ],
+  "traps": [
+   "Using the physical address size to count page-table entries.",
+   "Forgetting the TLB lookup time on a miss.",
+   "Applying the page-fault rate to every access instead of only TLB misses.",
+   "Mixing ms and ns in EAT.",
+   "Forgetting the outer page and the cap of one page of entries in two-level counting.",
+   "Dividing the whole address by index bits and skipping the offset.",
+   "Refreshing the queue on a FIFO hit, or not refreshing on an LRU hit.",
+   "Expecting LRU to beat FIFO on every string, or to cope with a scan larger than memory.",
+   "Treating a TLB miss as a page fault.",
+   "Counting a zero-size or exact-fit result as a leftover."
+  ],
+  "hardest_pyq": "2023-CS-q57",
+  "summary_md": "**Payoff:** size page tables, time translation, and count page faults without guessing.\n\n- **Entries** come from virtual bits, not physical.\n- **TLB** adds t on every access.\n- **LRU** looks back, OPT looks ahead.\n\n$$\\text{EAT} = h(t+m) + (1-h)(t+2m)$$\n\nNext: try the Level 1 questions.",
+  "summary_full_md": "## Core idea\nVirtual memory lets a process use more addresses than physical memory holds. GATE asks four kinds of question: sizes (page table, PTE, TLB), timing (effective access time), counting (page faults under a policy), and concepts (Belady, thrashing, who does what).\n\n## Page table sizes\n1. Offset bits = log2(page size). Virtual page number = VA bits - offset.\n2. Single-level table: 2^(VPN bits) entries.\n3. Entry width: frame bits (PA bits - offset) plus control bits, rounded up to whole bytes.\n4. Multi-level: if every table fills one page, each level indexes log2(page / entry) bits. Levels = ceil(VPN bits / bits per level).\n5. Count tables level by level: leaves = pages / entries per page, then divide again per level up to the single top table.\n6. Two-level minimum versus maximum use: minimum packs pages into few inner tables, maximum spreads them, capped by the number of entries in the outer table.\n\n## TLB and effective access time\n- TLB hit: t + m. Miss with L levels: t + L m + m.\n- EAT = h (t + m) + (1 - h)(t + (L + 1) m).\n- Tag bits = VPN bits - log2(sets). Fully associative: no index. TLB reach = entries x page size.\n- With page faults: EAT = (1 - p) m + p F. A fault needs the page absent, so with a TLB it can only occur on a miss.\n- Keep units equal. Convert ms to ns.\n\n## Page replacement\n- FIFO: evict the oldest load. A hit does not change the queue.\n- LRU: evict the least recently used. A hit refreshes recency.\n- OPT: evict the page whose next use is farthest or never.\n- A cyclic scan over more pages than frames: LRU and FIFO fault every time, OPT and MRU do not.\n- Belady's anomaly: FIFO can fault more with more frames. LRU and OPT are stack algorithms and cannot.\n\n## Thrashing\nThe working set is the set of distinct pages in the last window. If the working sets together exceed the frames, processes spend their time paging and CPU use falls. Reduce multiprogramming.\n\n## Where this goes next\nCache mapping in COA uses the same tag and index arithmetic as TLBs."
+ },
+ "pyq_enrichment": [
+  {
+   "id": "2017-CS1-q40",
+   "difficulty": 2,
+   "quick_method": "- Only **stack** algorithms are immune. Random is not.",
+   "solution": "- Random choice can evict a **useful** page.\n- **LRU** is a stack algorithm: no anomaly.\n- **Answer: B**",
+   "explanation": "- Stack algorithms never show the **anomaly**.",
+   "trap_note": "- Don't call LRU **anomalous**, do check the stack property.",
+   "hints": [
+    "Is the set under n frames always inside the set under n+1 frames?",
+    "Can a random policy be unlucky?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. S1: a random policy has no subset guarantee, so an unlucky run can fault more with more frames. S1 is true.\n2. S2: LRU keeps the n most recently used pages. With n+1 frames it keeps those same n plus one. So faults cannot rise. S2 is false.\n3. S1 true, S2 false: option B.",
+   "explanation_full": "The anomaly needs a policy where the resident set with fewer frames is not always a subset of the set with more frames. FIFO and random qualify. LRU and OPT do not.",
+   "trap_note_full": "Treating LRU as unsafe because it shares the word 'replacement' with FIFO."
+  },
+  {
+   "id": "2018-CS-q20",
+   "difficulty": 2,
+   "quick_method": "- **EAT** = M + p(D - M). Solve for p.",
+   "solution": "- Average time is a **weighted** mix of M and D.\n- The extra time is p times the **penalty** D - M.\n- **Answer: B**",
+   "explanation": "- Rate = extra time over extra **penalty**.",
+   "trap_note": "- Don't swap **X** and D, do subtract M from both.",
+   "hints": [
+    "Write the average as a weighted mix of M and D.",
+    "Collect the p terms."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Average access time X = (1 - p) M + p D.\n2. X = M + p (D - M).\n3. p = (X - M) / (D - M). Option B.",
+   "explanation_full": "The fault rate is the fraction of the extra penalty that actually shows up in the average. Check: X = M gives p = 0, X = D gives p = 1.",
+   "trap_note_full": "Writing (D - M) / (X - M), the inverse fraction."
+  },
+  {
+   "id": "2019-CS-q43",
+   "difficulty": 3,
+   "quick_method": "- Entries x words per **page**.",
+   "solution": "- One page holds 8 KB / 4 B = 2048 **words**.\n- 128 **entries** x 2048 = 2^18.\n- **Answer: B**",
+   "explanation": "- Addresses covered = **entries** x page size in words.",
+   "trap_note": "- Don't count **bytes**, do count words here.",
+   "hints": [
+    "How many addresses does one TLB entry cover?",
+    "Memory is word addressable."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Memory is word addressable, so addresses count words, not bytes.\n2. Page = 8 KB = 8192 bytes = 2048 words.\n3. 128 TLB entries cover 128 x 2048 = 262144 = 256 x 2^10 addresses. Option B.",
+   "explanation_full": "The 64-bit and 48-bit address sizes are distractors. Only the page size, word size and entry count matter.",
+   "trap_note_full": "Using bytes per page (8192), which gives 1024 x 2^10."
+  },
+  {
+   "id": "2020-CS-q63",
+   "difficulty": 3,
+   "quick_method": "- **Base** TLB EAT, plus P(miss) x P(fault) x penalty.",
+   "solution": "- TLB hit 120, miss 220: **base** 125 ns.\n- **Fault** term: 0.05 x 0.1 x 6000 = 30.\n- **Answer: 155**",
+   "explanation": "- Page **faults** arise only on TLB misses.",
+   "trap_note": "- Don't apply faults to all **accesses**, do apply them to misses.",
+   "hints": [
+    "What is the EAT from the TLB and page table alone?",
+    "Which accesses can fault?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. TLB hit: 20 + 100 = 120 ns. TLB miss: 20 + 100 + 100 = 220 ns.\n2. Base EAT = 0.95 x 120 + 0.05 x 220 = 125 ns.\n3. A fault happens on 10% of TLB misses (the page is not in memory, so it is not in the TLB). Penalty = 5000 + 0.2 x 5000 = 6000 ns.\n4. Extra = 0.05 x 0.10 x 6000 = 30 ns. EAT = 155 ns.",
+   "explanation_full": "The official range 154.5 to 155.5 matches this model. Applying the 10% fault rate to every access would give 725, far outside the range.",
+   "trap_note_full": "Using 10% of all accesses for faults, which gives 725 ns."
+  },
+  {
+   "id": "2021-CS2-q58",
+   "difficulty": 3,
+   "quick_method": "- Leaf **tables** + upper tables, each one page.",
+   "solution": "- 2 GB is 2^19 pages: 1024 leaf **tables**.\n- Level 2: 2 **tables**. Level 1: 1.\n- **Answer: 4108**",
+   "explanation": "- Sum the tables at each **level** in KB.",
+   "trap_note": "- Don't forget the upper **levels**, do count each level.",
+   "hints": [
+    "How many pages are in 2 GB?",
+    "How many entries fit in one table?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Entries per table = 4 KB / 8 B = 512. Pages in 2 GB = 2^31 / 2^12 = 2^19.\n2. Level 3 tables = 2^19 / 512 = 1024. Level 2 tables = 1024 / 512 = 2. Level 1 = 1.\n3. Total tables = 1024 + 2 + 1 = 1027, each 4 KB.\n4. 1027 x 4 KB = 4108 KB.",
+   "explanation_full": "Contiguous memory is the minimum case. A sparse layout would need more tables for the same number of pages.",
+   "trap_note_full": "Counting only the 1024 leaf tables (4096 KB)."
+  },
+  {
+   "id": "2022-CS-q38",
+   "difficulty": 3,
+   "quick_method": "- Inverted **tables** hash and chain, so time varies.",
+   "solution": "- TLB search is parallel, so A is **true**.\n- A hash **chain** makes lookup time vary.\n- **Answer: C**",
+   "explanation": "- Hashing means **collisions** mean unequal times.",
+   "trap_note": "- Don't believe **always same**, do check for collision chains.",
+   "hints": [
+    "Does a hashed lookup always take one probe?",
+    "If the TLB hits, can the page be absent from memory?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A is true: a TLB compares the page number with all valid entries in parallel.\n2. B is true: a TLB hit means the page is resident, so a cache miss still finds the word in memory.\n3. C is false: an inverted page table is searched through a hash, and chains of different lengths give different times.\n4. D is also true as written (same hash bucket, so the later address walks a longer chain).",
+   "explanation_full": "Inverted and hashed page tables save memory but give variable lookup time. The question asks for the FALSE statement, so look for the claim that says 'always'.",
+   "trap_note_full": "Missing that the question asks for FALSE, then choosing a true statement."
+  },
+  {
+   "id": "2022-CS-q64",
+   "difficulty": 2,
+   "quick_method": "- LRU, 4 **frames**: count misses, divide by 15.",
+   "solution": "- **Misses** on 7, 2, 3, 5, 4, 6, 7, 1, 5.\n- That is nine **faults** in 15 references.\n- **Answer: 0.6**",
+   "explanation": "- Rate = **faults** / references.",
+   "trap_note": "- Don't divide by **frames**, do divide by references.",
+   "hints": [
+    "Run LRU step by step.",
+    "Divide by 15 at the end."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. 7, 2 miss; 7 hits; 3 misses; 2 hits; 5 misses (frames 7,2,3,5 full, 4 faults); 3 hits.\n2. 4 misses and evicts 7, the least recent (fault 5). 6 misses and evicts 2 (fault 6). 7 misses and evicts 5 (fault 7). 7 hits.\n3. 1 misses and evicts 3 (fault 8). 5 misses and evicts 4 (fault 9). 6 and 1 hit.\n4. Rate = 9 / 15 = 0.6.",
+   "explanation_full": "The count was confirmed by simulation. Rate means faults over total references, not over distinct pages.",
+   "trap_note_full": "Dividing by the number of frames or distinct pages instead of references."
+  },
+  {
+   "id": "2023-CS-q57",
+   "difficulty": 4,
+   "quick_method": "- Column walk: a cycle of 32 pages beats 30 **frames**.",
+   "solution": "- 4 rows per page; a column touches 32 **pages**.\n- 32 > 30 **frames**: every page change faults.\n- **Answer: 4096**",
+   "explanation": "- Cycle larger than memory means LRU **faults** every time.",
+   "trap_note": "- Don't expect cache **hits**, do compare pages with frames.",
+   "hints": [
+    "How many rows fit in one page?",
+    "How many distinct pages does one column visit?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A page holds 512 ints, one row is 128 ints, so 4 rows per page. The array has 32 pages.\n2. D[j][i] walks down column i: rows 0 to 127 visit pages 0, 1, ..., 31 in order, each for 4 consecutive accesses.\n3. 30 frames < 32 pages, so under LRU each page is evicted before its next visit. Every page change faults: 32 faults per column.\n4. 128 columns x 32 = 4096.",
+   "explanation_full": "With 32 or more frames, only the first 32 touches would fault. The jump from 32 to 4096 is the cost of one frame too few under LRU.",
+   "trap_note_full": "Counting 32 faults, the number of pages, instead of per column."
+  },
+  {
+   "id": "2023-CS-q58",
+   "difficulty": 3,
+   "quick_method": "- Index bits per **level** = log2(page / entry).",
+   "solution": "- Entries per page: 4096 / 8 = 512, 9 **bits**.\n- Page number = 57 - 12 = 45 **bits**.\n- **Answer: 5**",
+   "explanation": "- Levels = VPN bits / bits per **level**.",
+   "trap_note": "- Don't use the whole **address**, do remove the offset.",
+   "hints": [
+    "How many entries fit in a page?",
+    "How many bits remain after the offset?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Entries per table page = 4096 / 8 = 512 = 2^9, so 9 bits per level.\n2. Offset = 12 bits. Page-number bits = 57 - 12 = 45.\n3. Levels = 45 / 9 = 5.",
+   "explanation_full": "This is the 5-level paging layout. A 48-bit space gives 4 levels with the same page and entry size.",
+   "trap_note_full": "Dividing 57 by 9, which gives 6.33 and so 7."
+  },
+  {
+   "id": "2024-CS1-q62",
+   "difficulty": 2,
+   "quick_method": "- Split address, look up **frame**, rejoin.",
+   "solution": "- 2500 = page 1, **offset** 452.\n- Page 1 sits in **frame** 3.\n- **Answer: 6596**",
+   "explanation": "- Frame x page size + **offset**.",
+   "trap_note": "- Don't add 2500 to the **base**, do replace the page.",
+   "hints": [
+    "Divide 2500 by 2048.",
+    "What is the frame of that page?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Page size 2048. 2500 / 2048 = 1 remainder 452, so page 1, offset 452.\n2. Page 1 is in frame 3.\n3. Physical = 3 x 2048 + 452 = 6144 + 452 = 6596.",
+   "explanation_full": "Paging keeps the offset and swaps the page number for the frame number.",
+   "trap_note_full": "Using frame 1 because the page number is 1."
+  },
+  {
+   "id": "2024-CS2-q24",
+   "difficulty": 1,
+   "quick_method": "- MMU translates and traps. It does not allocate **tables**.",
+   "solution": "- The MMU **translates** addresses.\n- It traps on missing or read-only **pages**.\n- **Answer: B,C,D**",
+   "explanation": "- OS allocates **tables**. MMU walks them.",
+   "trap_note": "- Don't give **allocation** to the MMU, do give it to the OS.",
+   "hints": [
+    "Is allocating memory a hardware task?",
+    "Which events does hardware detect?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A is false: creating a page table for a new process is an OS job (software).\n2. B is true: translating addresses using the table is the MMU's core job.\n3. C is true: the MMU raises a trap when the entry is invalid.\n4. D is true: the MMU checks permission bits and traps on a write to a read-only page.",
+   "explanation_full": "Hardware does the fast repeated work (translate, check). Software does the rare structural work (allocate, load, evict).",
+   "trap_note_full": "Choosing A because 'managing memory' sounds like the MMU's job."
+  },
+  {
+   "id": "2024-CS2-q64",
+   "difficulty": 3,
+   "quick_method": "- Min packs tables. Max is capped by the **outer** table.",
+   "solution": "- Min: 2000 pages fit in 2 **inner** tables.\n- Max: 1024 inner **tables**, the outer page limit.\n- **Answer: 1028**",
+   "explanation": "- **Packing** gives min; spreading gives max.",
+   "trap_note": "- Don't use 2000 inner **tables**, do cap at 1024.",
+   "hints": [
+    "How many entries does one page hold?",
+    "How many inner tables can the outer page point to?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Entries per page = 4096 / 4 = 1024.\n2. Minimum: ceil(2000 / 1024) = 2 inner tables plus 1 outer page: X = 3.\n3. Maximum: the outer page has 1024 entries, so at most 1024 inner tables: Y = 1025.\n4. X + Y = 3 + 1025 = 1028.",
+   "explanation_full": "The maximum is capped by the outer directory, not by the number of pages touched.",
+   "trap_note_full": "Using 2000 inner tables for the maximum."
+  },
+  {
+   "id": "2025-CS1-q14",
+   "difficulty": 2,
+   "quick_method": "- **Entries** = 2^(VA bits - offset bits).",
+   "solution": "- Page 2048 B: **offset** 11 bits.\n- **Entries** = 2^(32 - 11) = 2^21.\n- **Answer: A**",
+   "explanation": "- Physical **size** is a distractor.",
+   "trap_note": "- Don't use the **physical** bits, do use the virtual ones.",
+   "hints": [
+    "How many bits is the offset?",
+    "Which address size counts entries?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Page 2048 = 2^11 bytes, so the offset is 11 bits.\n2. Virtual page number = 32 - 11 = 21 bits.\n3. A page table has one entry per virtual page: 2^21. Option A.",
+   "explanation_full": "The 20-bit physical address limits frames (2^9 of them) but not the number of virtual pages. The table is still 2^21 entries long.",
+   "trap_note_full": "Using the 20-bit physical address, which gives 2^9."
+  },
+  {
+   "id": "2025-CS1-q54",
+   "difficulty": 4,
+   "quick_method": "- Windowed **OPT**: evict the farthest within 4 references.",
+   "solution": "- Only 4, 1 and 3 force an **eviction**.\n- Each window has one **farthest** page.\n- **Answer: 6**",
+   "explanation": "- Check ties before trusting the **count**.",
+   "trap_note": "- Don't see the whole **future**, do look four ahead.",
+   "hints": [
+    "Which pages show up in the next 3 references?",
+    "Does any tie change the count?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Checked all tie-breaks: the count is 6 for every choice.",
+   "solution_full": "1. 1, 3, 2 fill the frames (3 faults).\n2. 4 (fault 4): the window shows 2, 3, 1, so 1 is farthest. Evict 1. 2 and 3 hit.\n3. 1 (fault 5): the window shows 2, 4, 3, so 3 is farthest. Evict 3. 2 and 4 hit.\n4. 3 (fault 6): the window shows only 1, 4, so 2 is absent. Evict 2. 1 and 4 hit. Total 6.",
+   "explanation_full": "A short window can create ties when several pages are absent from it. Here each decision has a unique best victim, so the answer is well defined, and it equals true OPT.",
+   "trap_note_full": "Using the full future. It also gives 6 here, but only because every window held the true farthest page."
+  },
+  {
+   "id": "2025-CS2-q47",
+   "difficulty": 3,
+   "quick_method": "- Test each **eviction** against each rule.",
+   "solution": "- At the second **fault**, 3 leaves for 5.\n- **LRU** would evict 1, not 3.\n- **Answer: D**",
+   "explanation": "- Optimal evicts the **farthest** next use.",
+   "trap_note": "- Don't stop at one **eviction**, do test all of them.",
+   "hints": [
+    "Which page left at the reference to 4? At 5? At 6?",
+    "Check the next use of each."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Re-simulated LRU, LFU and MFU against the trace; only OPT fits all evictions.",
+   "solution_full": "1. Trace: 4 replaces 2, then 5 replaces 3, then 6 replaces 1, then 1 replaces 4, then 3 replaces 5, then 2 replaces 6.\n2. LRU: when 5 arrives, frames hold 1, 4, 3 with 1 used before 4 and 3, so LRU evicts 1, not 3. LRU fails.\n3. LFU: when 6 arrives, 5 has the lowest count but the trace evicts 1. LFU fails.\n4. MFU: when 3 arrives, MFU would evict 1 (highest count), but 5 leaves. MFU fails.\n5. OPT: each eviction is a page with the farthest next use (or none), so OPT fits. Answer D only.",
+   "explanation_full": "'Could be' means every eviction in the trace must be consistent with the policy. A single mismatch rules a policy out.",
+   "trap_note_full": "Accepting LRU after checking only the first few evictions."
+  },
+  {
+   "id": "2025-CS2-q58",
+   "difficulty": 3,
+   "quick_method": "- Inner **index** = log2(page / entry). Outer = the rest.",
+   "solution": "- Inner index: 4096 / 8 = 512, 9 **bits**.\n- **Outer** = 32 - 9 - 12.\n- **Answer: 11**",
+   "explanation": "- Outer **bits** = VA - inner - offset.",
+   "trap_note": "- Don't forget the **inner** index, do subtract it.",
+   "hints": [
+    "How many bits index the inner table?",
+    "What is left for the outer index?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Page = 4096 = 2^12, offset 12 bits.\n2. Inner table fills a page: 4096 / 8 = 512 entries = 2^9, so 9 index bits.\n3. Outer bits b = 32 - 9 - 12 = 11.",
+   "explanation_full": "'All pages have the same size' is the hint that the inner table also fills one page.",
+   "trap_note_full": "Using 32 - 12 = 20 and splitting it evenly as 10 and 10."
+  },
+  {
+   "id": "2026-CS1-q54",
+   "difficulty": 3,
+   "quick_method": "- A page not in memory means no **TLB** or cache entry.",
+   "solution": "- Page-table miss means page not in **memory**.\n- Then no **TLB** or cache entry may remain.\n- **Answer: B,C**",
+   "explanation": "- Eviction invalidates TLB and cache **entries**.",
+   "trap_note": "- Don't allow a cache **hit**, do note the page is gone.",
+   "hints": [
+    "What does a page-table miss mean?",
+    "What happens to cache blocks of an evicted page?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A: TLB miss, page table hit, cache hit: possible (translation fetched, data still cached).\n2. B: TLB hit with a page-table miss: impossible, since a TLB entry exists only for a resident page.\n3. C: page-table miss with a cache hit: impossible, since the cache blocks of an evicted page are invalidated.\n4. D: all three miss: possible (a cold first access).",
+   "explanation_full": "The invalidation assumption in the question links the three structures: memory residency implies the cache and TLB state.",
+   "trap_note_full": "Allowing a cache hit after the page left memory."
+  },
+  {
+   "id": "2026-CS2-q54",
+   "difficulty": 3,
+   "quick_method": "- Entries from reach; entry **bits** from all four fields.",
+   "solution": "- Reach 1 MB / 4 KB = 256 **entries**.\n- Entry: 4 + 24 + 18 + 2 = 48 **bits**.\n- **Answer: 1536**",
+   "explanation": "- Entries x **bits** per entry / 8.",
+   "trap_note": "- Don't drop the **control** bits, do add every field.",
+   "hints": [
+    "How many entries cover 1 MB?",
+    "Which fields does each entry store?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Entries = 1 MB / 4 KB = 256.\n2. Virtual page number = 36 - 12 = 24 bits (64 GB is 2^36). Frame number = 30 - 12 = 18 bits.\n3. Entry = 4 (process id) + 24 + 18 + 2 = 48 bits = 6 bytes.\n4. TLB size = 256 x 6 = 1536 bytes.",
+   "explanation_full": "Reach is a count of physical memory covered, so it fixes the number of entries.",
+   "trap_note_full": "Using the physical memory size to find the page-number bits."
+  },
+  {
+   "id": "2000-CS-q2_22",
+   "difficulty": 2,
+   "quick_method": "- EAT = hit x t + **miss** x penalty, in one unit.",
+   "solution": "- Convert 10 ms to 10000 **microseconds**.\n- **Weighted** sum: 0.9999 + 0.0001 x 10000 = 1.9999.\n- **Answer: D**",
+   "explanation": "- Fault rate x **penalty** adds 1 microsecond.",
+   "trap_note": "- Don't mix **units**, do use microseconds throughout.",
+   "hints": [
+    "What is the fault rate?",
+    "Put both times in the same unit."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Fault rate = 1 - 0.9999 = 0.0001.\n2. Fault time 10 ms = 10000 microseconds.\n3. EAT = 0.9999 x 1 + 0.0001 x 10000 = 0.9999 + 1 = 1.9999 microseconds.",
+   "explanation_full": "One fault in 10000 accesses doubles the access time. That is why fault rates must be tiny.",
+   "trap_note_full": "Mixing ms and microseconds."
+  },
+  {
+   "id": "2001-CS-q1_8",
+   "difficulty": 1,
+   "quick_method": "- Virtual memory does not shrink **context-switch** cost.",
+   "solution": "- Context switching still saves and restores **state**.\n- Other statements describe real **benefits**.\n- **Answer: D**",
+   "explanation": "- Virtual memory helps **size** and multiprogramming, not switch time.",
+   "trap_note": "- Don't credit it with faster **switches**, do credit capacity.",
+   "hints": [
+    "Which benefits are real for virtual memory?",
+    "Does a switch get cheaper?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A is true: virtual memory translates the program's address space into physical memory.\n2. B is true: a program can be larger than main memory.\n3. C is true: only part of each process is resident, so more processes fit.\n4. D is false: a switch still saves registers and switches page tables, and may even flush the TLB.",
+   "explanation_full": "Paging adds work at a context switch (new page table, TLB handling), so it never reduces the cost.",
+   "trap_note_full": "Choosing C, which is actually a real benefit."
+  },
+  {
+   "id": "2001-CS-q1_21",
+   "difficulty": 2,
+   "quick_method": "- **FIFO** can show Belady's anomaly.",
+   "solution": "- More frames can raise FIFO **faults**.\n- So '**sometimes** increase' is right.\n- **Answer: C**",
+   "explanation": "- **Sometimes** lower, sometimes higher.",
+   "trap_note": "- Don't pick **always**, do pick sometimes.",
+   "hints": [
+    "Which policy shows Belady's anomaly?",
+    "Is the effect universal?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. For most strings, more frames reduce FIFO faults.\n2. On strings such as 1,2,3,4,1,2,5,1,2,3,4,5, 4 frames give 10 faults against 9 for 3 frames.\n3. So 'always decrease' and 'never affect' are false, and 'always increase' is false. 'Sometimes increase' is true.",
+   "explanation_full": "The word 'sometimes' reflects that the anomaly needs specific strings.",
+   "trap_note_full": "Choosing 'always decrease' by intuition."
+  },
+  {
+   "id": "2001-CS-q2_21",
+   "difficulty": 3,
+   "quick_method": "- Entries from VA, entry size from **frame** bits.",
+   "solution": "- 2^20 entries, each needs a 14-bit **frame**.\n- Round up to 2 **bytes**: about 2 MB.\n- **Answer: C**",
+   "explanation": "- Table = virtual **pages** x bytes per entry.",
+   "trap_note": "- Don't size entries from **virtual** bits, do use frame bits.",
+   "hints": [
+    "How many virtual pages are there?",
+    "How many bits name a frame?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Pages = 2^32 / 2^12 = 2^20 entries.\n2. Frames = 64 MB / 4 KB = 2^14, so each entry needs at least 14 bits, which rounds to 2 bytes.\n3. Table = 2^20 x 2 B = 2 MB. Option C.",
+   "explanation_full": "The word 'approximate' covers the control bits and rounding.",
+   "trap_note_full": "Using 4-byte entries, which gives 4 MB."
+  },
+  {
+   "id": "2002-CS-q1_23",
+   "difficulty": 1,
+   "quick_method": "- **OPT** evicts the farthest next use.",
+   "solution": "- OPT looks at the **future**.\n- Evict the **page** not needed for longest.\n- **Answer: B**",
+   "explanation": "- Future use decides **OPT**.",
+   "trap_note": "- Don't pick past **use**, do pick future use.",
+   "hints": [
+    "Does OPT look backwards or forwards?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. OPT evicts the resident page whose next use is farthest in the future.\n2. Option A describes LRU. Options C and D describe frequency policies.\n3. Answer B.",
+   "explanation_full": "OPT minimises faults but cannot be implemented. It is the yardstick for other policies.",
+   "trap_note_full": "Choosing A, the LRU definition."
+  },
+  {
+   "id": "2003-CS-q26",
+   "difficulty": 2,
+   "quick_method": "- 2^22 **entries** per process is too much memory.",
+   "solution": "- 2^22 pages x 4 B = 16 **MB** per process.\n- **Memory** overhead is the problem.\n- **Answer: C**",
+   "explanation": "- Single-**level** tables waste memory on unused pages.",
+   "trap_note": "- Don't blame **fragmentation**, do blame table size.",
+   "hints": [
+    "How many pages does 32 bits give with 1 KB?",
+    "How big is the table per process?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Pages = 2^32 / 2^10 = 2^22, so 4 million entries.\n2. At several bytes each, the table takes tens of MB per process.\n3. Most of the table maps unused pages, so the overhead is the issue (option C).",
+   "explanation_full": "Multi-level page tables fix this by allocating inner tables only for regions in use.",
+   "trap_note_full": "Choosing internal fragmentation, which paging has but is not the reason here."
+  },
+  {
+   "id": "2003-CS-q78",
+   "difficulty": 3,
+   "quick_method": "- **EAT** = translation + data access through the cache.",
+   "solution": "- **Cache** access: 0.9 x 1 + 0.1 x 11 = 2.\n- Hit 3, **miss** 23: 0.96 x 3 + 0.04 x 23.\n- **Answer: D**",
+   "explanation": "- Translation cost adds to the **data** access.",
+   "trap_note": "- Don't skip the **cache** term, do add it to both cases.",
+   "hints": [
+    "What is the average data access time through the cache?",
+    "What does a TLB miss add?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Data access via cache = 0.9 x 1 + 0.1 x (1 + 10) = 2 ns.\n2. TLB hit: 1 + 2 = 3 ns.\n3. TLB miss: 1 + two page-table accesses (2 x 10) + 2 = 23 ns.\n4. EAT = 0.96 x 3 + 0.04 x 23 = 3.8 ns, which rounds to 4 ns.",
+   "explanation_full": "Both the translation and the data can be cached, so the access time is a nested weighted average.",
+   "trap_note_full": "Adding only one page-table access on a TLB miss in a 2-level scheme."
+  },
+  {
+   "id": "2003-CS-q79",
+   "difficulty": 3,
+   "quick_method": "- Count one top table and each used second-**level** table.",
+   "solution": "- Top **table**: 1 page of 4 KB.\n- Code, data, stack sit in 3 **second-level** tables.\n- **Answer: C**",
+   "explanation": "- Pages of tables = 1 + **distinct** second-level indexes.",
+   "trap_note": "- Don't count the **pages**, do count the tables.",
+   "hints": [
+    "Which top-level index does each region use?",
+    "How big is each table?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Each table has 1024 entries of 4 B = 4 KB.\n2. Top-level index = top 10 bits. Code at 0x00000000 uses index 0. Data at 0x00400000 uses index 1. Stack at 0xFFFFF000 uses index 1023.\n3. Three different indexes give 3 second-level tables.\n4. Total = 1 + 3 = 4 tables = 16 KB. Option C.",
+   "explanation_full": "Two pages that share their top 10 address bits share a second-level table. Code and data pages are in different 4 MB regions here.",
+   "trap_note_full": "Counting one table per page, which gives 5 second-level tables."
+  },
+  {
+   "id": "2004-CS-q21",
+   "difficulty": 1,
+   "quick_method": "- Instruction set decides the minimum **frames**.",
+   "solution": "- One instruction may touch several **pages**.\n- All must be **resident** to restart.\n- **Answer: A**",
+   "explanation": "- Minimum **frames** = most pages one instruction needs.",
+   "trap_note": "- Don't use **memory** size, do use the instruction set.",
+   "hints": [
+    "What must be resident to complete one instruction?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. An instruction can reference several pages (instruction, operands, indirect addresses).\n2. If there are fewer frames than those pages, the instruction can never complete.\n3. The minimum is therefore set by the instruction set architecture.",
+   "explanation_full": "A machine with indirect addressing needs more frames than one with only direct addressing.",
+   "trap_note_full": "Choosing physical memory size."
+  },
+  {
+   "id": "2004-CS-q47",
+   "difficulty": 3,
+   "quick_method": "- Instruction = CPU time + 2 accesses + **fault** share.",
+   "solution": "- Page-fault cost: 8 ms / 10000 = 800 **ns**.\n- Key D needs the **miss** cost at 300 ns.\n- **Answer: D**",
+   "explanation": "- Check the **miss** model against the key.",
+   "trap_note": "- Don't assume the **walk** length, do match the key's model.",
+   "hints": [
+    "What does a TLB miss add in this question?",
+    "Compute the fault share per instruction."
+   ],
+   "answer_check": "unsure",
+   "answer_check_note": "Official key D (1230 ns) fits a miss costing 2 memory accesses (300 ns). A strict two-level walk would cost 3 accesses (450 ns) and give 1260 ns, which is not among the options.",
+   "solution_full": "1. Fault cost per instruction = 8 ms / 10000 = 800 ns.\n2. Key D = 1230 gives 1230 - 100 - 800 = 330 ns for 2 accesses, so 165 ns each.\n3. 0.9 x 150 + 0.1 x 300 = 165, so the key assumes a TLB miss costs 2 accesses (300 ns).\n4. A strict 2-level walk would give 150 x 3 = 450 and a total of 1260 ns, which is not an option.",
+   "explanation_full": "The key is accepted for scoring, but the model it implies is lenient about the page-walk length.",
+   "trap_note_full": "Using 450 ns for a miss and finding no matching option."
+  },
+  {
+   "id": "2006-CS-q62",
+   "difficulty": 3,
+   "quick_method": "- **Tag** = VPN bits - set-index bits.",
+   "solution": "- VPN = 32 - 12 = 20 **bits**.\n- 32 sets: 5 index **bits**. Tag 15.\n- **Answer: C**",
+   "explanation": "- **Tag** = VPN - log2(sets).",
+   "trap_note": "- Don't use the full **VPN**, do subtract the index.",
+   "hints": [
+    "How many sets does 4-way give?",
+    "How many bits index them?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. VPN = 32 - 12 = 20 bits.\n2. Sets = 128 / 4 = 32, index = 5 bits.\n3. Tag = 20 - 5 = 15 bits. Option C.",
+   "explanation_full": "The index bits are implied by which set an entry sits in, so they need not be stored.",
+   "trap_note_full": "Choosing 20 bits, the full page number."
+  },
+  {
+   "id": "2006-CS-q63",
+   "difficulty": 2,
+   "quick_method": "- Virtual = physical **size** means no translation needed.",
+   "solution": "- Same size space: no **mapping** hardware needed.\n- Other **options** do not follow.\n- **Answer: C**",
+   "explanation": "- No virtual memory, no **MMU**.",
+   "trap_note": "- Don't expect faster **scheduling**, do expect simpler hardware.",
+   "hints": [
+    "What does hardware memory management provide?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. If the virtual space equals the physical space, programs are loaded in physical memory directly.\n2. Address translation hardware (MMU) is then unnecessary: option C.\n3. Multi-user support, cache organisation and scheduling are unaffected in principle.",
+   "explanation_full": "Protection between processes still needs some hardware, but not paging-style translation.",
+   "trap_note_full": "Choosing A. Multi-user support can use other protection schemes."
+  },
+  {
+   "id": "2007-CS-q56",
+   "difficulty": 2,
+   "quick_method": "- **FIFO** shows anomaly; not all programs have locality.",
+   "solution": "- P is true: **FIFO** can fault more with more frames.\n- Q is true but not the **cause**.\n- **Answer: B**",
+   "explanation": "- The anomaly comes from **FIFO**'s order, not from locality.",
+   "trap_note": "- Don't link Q to **P**, do see they are separate.",
+   "hints": [
+    "Is P true for FIFO?",
+    "Does lack of locality explain Belady?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. P: sometimes more frames raise FIFO's fault rate. True (Belady).\n2. Q: some programs scan memory without reuse, so they lack locality. True.\n3. The cause of P is FIFO's lack of the stack property, not Q. Option B.",
+   "explanation_full": "Belady's anomaly can occur even on strings with good locality. It is a property of the policy.",
+   "trap_note_full": "Choosing A, which links the two statements causally."
+  },
+  {
+   "id": "2007-CS-q82",
+   "difficulty": 2,
+   "quick_method": "- OPT with 3 **frames**: count misses.",
+   "solution": "- **Misses** on 1, 2, 3, 7, 4, 5, 6.\n- **Hits**: the repeat 1, then final 3 and 1.\n- **Answer: A**",
+   "explanation": "- Evict the farthest or never-used **page**.",
+   "trap_note": "- Don't count **hits** as faults, do skip them.",
+   "hints": [
+    "Run OPT, looking ahead at each fault."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Re-simulated: 7 faults.",
+   "solution_full": "1. 1, 2 miss; 1 hits; 3 misses (3 faults). Frames {1,2,3}.\n2. 7 (fault 4): next uses are 3 at position 9, 1 at 10, 2 never. Evict 2.\n3. 4 (fault 5): evict 7 (never used again). 5 (fault 6): evict 4. 6 (fault 7): evict 5.\n4. 3 and 1 hit. Total 7.",
+   "explanation_full": "OPT here gives 7, one more than the number of distinct pages minus none, because every one of the 7 distinct pages must load at least once.",
+   "trap_note_full": "Counting the repeated 1 as a fault."
+  },
+  {
+   "id": "2007-CS-q83",
+   "difficulty": 2,
+   "quick_method": "- LRU 9 **faults**, OPT 7: difference 2.",
+   "solution": "- LRU faults on every page but the **repeat** 1.\n- **LRU** = 9; OPT = 7.\n- **Answer: C**",
+   "explanation": "- Run **LRU**, subtract OPT.",
+   "trap_note": "- Don't forget the **OPT** run, do subtract it.",
+   "hints": [
+    "Run LRU on the same string.",
+    "Subtract the OPT count from the previous question."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Re-simulated: LRU 9, OPT 7.",
+   "solution_full": "1. LRU: 1, 2 fault; 1 hits; 3, 7, 4, 5, 6 fault; 3 and 1 fault again (their pages were evicted).\n2. Total LRU = 9.\n3. OPT = 7 (previous question). Difference = 2. Option C.",
+   "explanation_full": "LRU suffers here because the string ends by returning to old pages 3 and 1, which LRU already evicted but OPT kept.",
+   "trap_note_full": "Reporting the LRU count (9) instead of the difference."
+  },
+  {
+   "id": "2008-CS-q67",
+   "difficulty": 4,
+   "quick_method": "- Next-**level** tables are 2 KB, so 25 bits address them.",
+   "solution": "- Level 3 entry points to a **frame**: 24 bits.\n- Levels 1 and 2 point to 2 KB **tables**: 25.\n- **Answer: D**",
+   "explanation": "- Address **bits** = 36 - log2(size pointed to).",
+   "trap_note": "- Don't assume a full **page**, do check table sizes.",
+   "hints": [
+    "How many entries does the level-2 table have?",
+    "How large is a table of that size?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Frame = 4 KB = 2^12, so a pointer to a frame needs 36 - 12 = 24 bits (level 3 entries).\n2. Level 2 and level 3 tables each have 2^9 entries of 4 B = 2 KB. Level 1 has only 2^2 entries.\n3. Level 1 and level 2 entries point to level 2 and level 3 tables, which are 2 KB aligned, so each needs 36 - 11 = 25 bits.\n4. Result: 25, 25, 24. Option D.",
+   "explanation_full": "Tables smaller than a page need more address bits, since they are aligned to a finer boundary.",
+   "trap_note_full": "Answering 24 for every level by assuming all tables are 4 KB pages."
+  },
+  {
+   "id": "2009-CS-q9",
+   "difficulty": 1,
+   "quick_method": "- **FIFO** is the policy with the anomaly.",
+   "solution": "- Only **FIFO** is listed as non-stack.\n- Optimal, **LRU** and MRU are stack algorithms.\n- **Answer: A**",
+   "explanation": "- **Stack** algorithms cannot show it.",
+   "trap_note": "- Don't pick **MRU**, do check the stack property.",
+   "hints": [
+    "Which listed policies are stack algorithms?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Optimal, LRU and MRU keep a ranking of pages that does not depend on the number of frames, so they are stack algorithms.\n2. FIFO evicts by load time, which can differ with frame count, so it can show the anomaly.\n3. Answer A.",
+   "explanation_full": "A stack algorithm has a priority order over pages, with the n-frame set being the top n pages.",
+   "trap_note_full": "Choosing MRU. It is a stack algorithm and cannot show the anomaly."
+  },
+  {
+   "id": "2009-CS-q10",
+   "difficulty": 1,
+   "quick_method": "- The entry must give the **frame** number.",
+   "solution": "- Translation needs the **frame** number.\n- Page number is the **index**, not stored.\n- **Answer: B**",
+   "explanation": "- Index = page. Content = **frame**.",
+   "trap_note": "- Don't store the page **number**, do store the frame.",
+   "hints": [
+    "What does the hardware need after indexing the table?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. The virtual page number is the index, so it is not stored in the entry.\n2. The entry must contain the frame number to form the physical address.\n3. Access-right bits are also present, but the essential content is the frame number: option B.",
+   "explanation_full": "In an inverted table the entry stores the page number, but that is a different structure.",
+   "trap_note_full": "Choosing the page number, which is the index in a normal table."
+  },
+  {
+   "id": "2009-CS-q34",
+   "difficulty": 1,
+   "quick_method": "- Multi-**level** tables save space for sparse use.",
+   "solution": "- Inner tables exist only where **used**.\n- Time and **fault** rate do not improve.\n- **Answer: B**",
+   "explanation": "- Multi-**level** means smaller tables.",
+   "trap_note": "- Don't expect faster **access**, do expect smaller tables.",
+   "hints": [
+    "Does a second level speed up an access?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A multi-level table allocates inner tables only for the used parts of the address space.\n2. This cuts the memory needed for the table (option B).\n3. Access time actually grows (more lookups), and fault counts are unchanged.",
+   "explanation_full": "A one-level table must cover the whole address space even when most of it is unused.",
+   "trap_note_full": "Choosing A. More levels mean more memory accesses on a miss."
+  },
+  {
+   "id": "2010-CS-q24",
+   "difficulty": 3,
+   "quick_method": "- Last 4 pages stay; reverse start **hits** 4.",
+   "solution": "- Pass one: 100 **faults**.\n- Reverse: first 4 hit, 96 **fault**.\n- **Answer: A**",
+   "explanation": "- **Hits** at the turn: 100 + (100 - 4) = 196.",
+   "trap_note": "- Don't expect a full **reload**, do count the 4 resident pages.",
+   "hints": [
+    "Which 4 pages are in memory after pass one?",
+    "Which are touched first on the reverse?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Simulated: 196.",
+   "solution_full": "1. First pass: 100 distinct pages, each faults: 100.\n2. Frames then hold pages 97 to 100.\n3. Reverse pass starts with 100, 99, 98, 97: all hits.\n4. The remaining 96 references fault under FIFO. Total = 100 + 96 = 196.",
+   "explanation_full": "The 4 frames give 4 hits at the turnaround. A bigger frame count would give more.",
+   "trap_note_full": "Answering 200, ignoring the turnaround hits."
+  },
+  {
+   "id": "2011-CS-q20",
+   "difficulty": 2,
+   "quick_method": "- **EAT** = M + p x penalty.",
+   "solution": "- 10 ms = 10^7 **ns**; p = 10^-6.\n- **Extra** = 10 ns on top of 20.\n- **Answer: B**",
+   "explanation": "- Extra time = rate x **penalty**.",
+   "trap_note": "- Don't mix **units**, do convert to ns.",
+   "hints": [
+    "Convert 10 ms to ns."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Fault time = 10 ms = 10,000,000 ns.\n2. Added time = 10^-6 x 10^7 = 10 ns.\n3. EAT = 20 + 10 = 30 ns.",
+   "explanation_full": "Even a rare fault doubles the access time here.",
+   "trap_note_full": "Using milliseconds against nanoseconds."
+  },
+  {
+   "id": "2012-CS-q42",
+   "difficulty": 3,
+   "quick_method": "- Simulate three policies: OPT 5, FIFO 6, **LRU** 9.",
+   "solution": "- OPT = 5, FIFO = 6, **LRU** = 9.\n- So OPT < FIFO < **LRU**.\n- **Answer: B**",
+   "explanation": "- **LRU** can lose to FIFO on some strings.",
+   "trap_note": "- Don't assume LRU beats **FIFO**, do simulate.",
+   "hints": [
+    "Run FIFO.",
+    "Run LRU, then OPT."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Re-simulated: OPT 5, FIFO 6, LRU 9.",
+   "solution_full": "1. FIFO with 3 frames: misses on 1, 2, 3, 4, 1, 2. Hits on 2, 3, 4, 1. Total 6.\n2. LRU: every reference misses except the second 2. Total 9.\n3. OPT: misses on 1, 2, 3, 4 and the later 2. Total 5.\n4. OPT < FIFO < LRU: option B.",
+   "explanation_full": "The string loops over four pages with only three frames, which is LRU's worst case.",
+   "trap_note_full": "Assuming LRU always does better than FIFO."
+  },
+  {
+   "id": "2013-CS-q52",
+   "difficulty": 3,
+   "quick_method": "- Solve the **equation** 46 - p = 3 (p - 2).",
+   "solution": "- Entries per **page** = page / 4 B.\n- Three **levels**: 46 - p = 3(p - 2); p = 13.\n- **Answer: C**",
+   "explanation": "- Top **table** fills exactly one page.",
+   "trap_note": "- Don't guess the **page** size, do set up the bit equation.",
+   "hints": [
+    "Let the page be 2^p bytes.",
+    "How many bits does each level index?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Let page = 2^p bytes. Each table holds 2^p / 4 = 2^(p-2) entries, so each level indexes p - 2 bits.\n2. Virtual page number = 46 - p bits, split over 3 levels: 46 - p = 3 (p - 2).\n3. 46 - p = 3p - 6, so 4p = 52 and p = 13. Page = 8 KB. Option C.",
+   "explanation_full": "The top table fills one page and the others follow the same size, which pins down the page size.",
+   "trap_note_full": "Guessing 4 KB because it is the usual size."
+  },
+  {
+   "id": "2013-CS-q53",
+   "difficulty": 4,
+   "quick_method": "- **Colours** = 2^(set index + block offset - page offset).",
+   "solution": "- Cache **sets**: 1 MB / (16 x 64) = 1024.\n- Index plus block: 16 **bits**; offset 13.\n- **Answer: C**",
+   "explanation": "- **Colours** = 2^(16 - 13) = 8.",
+   "trap_note": "- Don't use 13 for the **colour**, do count the excess bits.",
+   "hints": [
+    "How many sets does the cache have?",
+    "How many cache index bits lie above the page offset?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Sets = 1 MB / (16 ways x 64 B) = 1024, so 10 index bits and 6 block-offset bits: 16 bits.\n2. Page size is 8 KB (previous question), so the page offset is 13 bits.\n3. 3 index bits lie above the page offset and come from the page number. Colours = 2^3 = 8. Option C.",
+   "explanation_full": "Page colouring makes sure synonyms agree on those 3 bits so they land in the same cache set.",
+   "trap_note_full": "Using the page size in KB instead of counting the overlapping bits."
+  },
+  {
+   "id": "2014-CS1-q33",
+   "difficulty": 2,
+   "quick_method": "- OPT, 3 **frames**: 7 faults.",
+   "solution": "- Fill the **frames** with 1, 2, 3, then 4.\n- Later **faults** on 5, 4 and 6.\n- **Answer: 7**",
+   "explanation": "- Evict the **farthest** next use.",
+   "trap_note": "- Don't count the **hits**, do count only misses.",
+   "hints": [
+    "Run OPT, looking ahead at each fault."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Re-simulated: 7.",
+   "solution_full": "1. 1, 2, 3 fill the frames (3 faults). 4 (fault 4): next uses 2 at 5, 1 at 6, 3 at 8. Evict 3. 2, 1 hit.\n2. 5 (fault 5): evict 1 (never used again). 3 (fault 6): evict 5 (never again). 2 hits.\n3. 4 hits. 6 (fault 7). Total 7.",
+   "explanation_full": "OPT's total includes one fault per distinct page (6 pages) plus one more forced by memory size.",
+   "trap_note_full": "Counting the hits on 2 and 1 as faults."
+  },
+  {
+   "id": "2014-CS2-q33",
+   "difficulty": 3,
+   "quick_method": "- On repeated scans, MRU matches **OPT**.",
+   "solution": "- 100 pages cycle through 20 **frames**.\n- LRU, FIFO **fault** every time; MRU = OPT.\n- **Answer: D**",
+   "explanation": "- On a big cycle, MRU matches **OPT**.",
+   "trap_note": "- Don't trust **LRU**, do see the scan reverses recency.",
+   "hints": [
+    "What does LRU do on a repeated long scan?",
+    "Which policy keeps old pages?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Prefilled-frame simulation: OPT 260 and MRU 260; LRU, FIFO, LIFO 300.",
+   "solution_full": "1. The initial pages 101 to 120 are never referenced, so they are evicted first.\n2. LRU and FIFO evict the page needed soonest in a scan, so all 300 references fault.\n3. OPT keeps the first pages and reaches 260 faults.\n4. MRU evicts the page just used, which is needed last, and also faults 260 times.",
+   "explanation_full": "On a cyclic scan larger than memory, 'most recent' is the same as 'needed farthest in the future'.",
+   "trap_note_full": "Choosing LRU, which is usually good but worst on scans."
+  },
+  {
+   "id": "2014-CS3-q20",
+   "difficulty": 2,
+   "quick_method": "- LRU with 3 **frames**: 6 faults.",
+   "solution": "- **Misses** on 4, 7, 6, 1 (1 evicts 4).\n- Then 2 and 7 miss; the rest **hit**.\n- **Answer: 6**",
+   "explanation": "- Refresh on **hit**; evict the oldest use.",
+   "trap_note": "- Don't forget to **refresh**, do move hits to the front.",
+   "hints": [
+    "Track the recency order.",
+    "Count only misses."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Re-simulated: 6.",
+   "solution_full": "1. 4, 7, 6 fill the frames (3 faults). 1 misses and evicts 4 (fault 4).\n2. 7, 6, 1 hit and refresh the recency order, leaving 7 least recent.\n3. 2 misses and evicts 7 (fault 5). 7 misses and evicts 6 (fault 6). 2 hits.\n4. Total 6.",
+   "explanation_full": "Hits update the recency order, so hits matter even though they are not faults.",
+   "trap_note_full": "Evicting by arrival time (FIFO) instead of last use."
+  },
+  {
+   "id": "2014-CS3-q33",
+   "difficulty": 2,
+   "quick_method": "- **Hit**: t + m. Miss: t + 2m.",
+   "solution": "- **Hit**: 10 + 80 = 90 ms.\n- **Miss**: 10 + 80 + 80 = 170.\n- **Answer: 122**",
+   "explanation": "- **Weighted** mix: 0.6 x 90 + 0.4 x 170.",
+   "trap_note": "- Don't skip the TLB **search**, do add it on a miss.",
+   "hints": [
+    "Add the TLB time on both paths."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Hit: TLB 10 + memory 80 = 90.\n2. Miss: TLB 10 + page table 80 + memory 80 = 170.\n3. EAT = 0.6 x 90 + 0.4 x 170 = 54 + 68 = 122.",
+   "explanation_full": "The TLB is searched first every time, so its time is added on both paths.",
+   "trap_note_full": "Dropping the TLB time on a miss."
+  },
+  {
+   "id": "2015-CS1-q12",
+   "difficulty": 1,
+   "quick_method": "- 2^20 **entries** x 4 B = 4 MB.",
+   "solution": "- 32 - 12 = 20 **bits** of page number.\n- 2^20 **entries** x 4 B.\n- **Answer: 4**",
+   "explanation": "- Pages x entry **size**.",
+   "trap_note": "- Don't divide by the **page** size again, do multiply by entry size.",
+   "hints": [
+    "How many virtual pages are there?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Page 4 KB = 2^12, so 20 bits of page number.\n2. Entries = 2^20. Table = 2^20 x 4 B = 4 MB.",
+   "explanation_full": "The page table size depends on virtual address bits only.",
+   "trap_note_full": "Using page size times entries."
+  },
+  {
+   "id": "2015-CS1-q47",
+   "difficulty": 3,
+   "quick_method": "- FIFO and LRU both **fault** 9 times.",
+   "solution": "- Six distinct pages give six **cold** misses.\n- FIFO adds 3, 8, 2. **LRU** adds 8, 2, 1.\n- **Answer: A**",
+   "explanation": "- Run both. Equal counts are **possible**.",
+   "trap_note": "- Don't assume **LRU** wins, do count both.",
+   "hints": [
+    "Run both with 5 frames."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Re-simulated: FIFO 9, LRU 9.",
+   "solution_full": "1. FIFO misses: 3, 8, 2, 9, 1, 6, 3, 8, 2. That is 9 faults.\n2. LRU misses: 3, 8, 2, 9, 1, 6, 8, 2, 1. That is also 9 faults.\n3. Equal counts: option A.",
+   "explanation_full": "With enough frames relative to the distinct pages, policies often tie.",
+   "trap_note_full": "Assuming LRU is strictly better."
+  },
+  {
+   "id": "2015-CS2-q25",
+   "difficulty": 2,
+   "quick_method": "- **Tag** = VPN - set index.",
+   "solution": "- VPN = 40 - 13 = 27 **bits**.\n- 32 sets: 5 index **bits**.\n- **Answer: 22**",
+   "explanation": "- **Tag** = VPN - log2(sets).",
+   "trap_note": "- Don't use the whole **VPN**, do subtract the index.",
+   "hints": [
+    "How many bits index 32 sets?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Page 8 KB = 2^13, so VPN = 40 - 13 = 27 bits.\n2. Sets = 32, so 5 index bits.\n3. Tag = 27 - 5 = 22 bits.",
+   "explanation_full": "No process id is stored, so the tag is only the page-number bits left after the index.",
+   "trap_note_full": "Answering 27, the full VPN."
+  },
+  {
+   "id": "2015-CS2-q47",
+   "difficulty": 3,
+   "quick_method": "- Entry bits, then **entries**, then VA bits.",
+   "solution": "- Frame = 32 - 13 = 19 bits; entry 24 **bits**.\n- 3 B x 8M **entries** = 24 MB.\n- **Answer: 36**",
+   "explanation": "- **Virtual** bits = log2(entries) + offset.",
+   "trap_note": "- Don't use 4 **bytes**, do round up from 24 bits.",
+   "hints": [
+    "How many bits are in one entry?",
+    "How many entries fit in 24 MB?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Page 8 KB = 2^13. Frame number = 32 - 13 = 19 bits.\n2. Entry = 19 + valid + dirty + 3 permission = 24 bits = 3 bytes.\n3. Entries = 24 MB / 3 B = 8M = 2^23.\n4. Virtual address = 23 + 13 = 36 bits.",
+   "explanation_full": "The entry is 3 bytes exactly, so there is no padding to reason about.",
+   "trap_note_full": "Using 4-byte entries, which gives 6M entries and a different answer."
+  },
+  {
+   "id": "2016-CS1-q47",
+   "difficulty": 2,
+   "quick_method": "- 2^26 **entries** x 6 B = 384 MB.",
+   "solution": "- 40 - 14 = 26 **bits**; 2^26 entries.\n- Entry 48 **bits** = 6 bytes.\n- **Answer: 384**",
+   "explanation": "- **Pages** x bytes per entry.",
+   "trap_note": "- Don't treat 48 as **bytes**, do divide by 8.",
+   "hints": [
+    "How many pages are in the address space?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Page 16 KB = 2^14, so 26 bits of page number: 2^26 entries.\n2. Entry = 48 bits = 6 bytes.\n3. Table = 2^26 x 6 B = 384 MB.",
+   "explanation_full": "6-byte entries give a table that is not a power of two in size.",
+   "trap_note_full": "Reading 48 bits as 48 bytes."
+  },
+  {
+   "id": "2016-CS1-q49",
+   "difficulty": 4,
+   "quick_method": "- A cycle of 20 pages through 10 **frames**.",
+   "solution": "- First pass: 20 **faults** for both.\n- Pass two: LIFO adds 11, OPT adds 10, a **gap** of one.\n- **Answer: 1**",
+   "explanation": "- LIFO sticks with old pages; **OPT** keeps 9 pages.",
+   "trap_note": "- Don't expect a big **gap**, do simulate.",
+   "hints": [
+    "What does LIFO keep resident in a scan?",
+    "How many hits can OPT get on pass two?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Simulated: LIFO 31, OPT 30.",
+   "solution_full": "1. First pass: 20 faults for both policies.\n2. OPT: in the second pass it hits on 10 references, so it faults 10 more times. Total 30.\n3. LIFO: the first pass leaves a1 to a9 and a20 in memory. The second pass hits a1 to a9, then a10 to a20 all fault (11 faults). Total 31.\n4. Difference = 31 - 30 = 1.",
+   "explanation_full": "Both policies keep early pages through the scan boundary, so they end almost equal. The one extra LIFO fault comes from evicting a20 and then needing it again.",
+   "trap_note_full": "Assuming LIFO is as bad as FIFO on a scan."
+  },
+  {
+   "id": "2016-CS2-q20",
+   "difficulty": 1,
+   "quick_method": "- Only **FIFO** is non-stack among the options.",
+   "solution": "- LRU, OPT, MRU are **stack** algorithms.\n- **FIFO** can show the anomaly.\n- **Answer: D**",
+   "explanation": "- Stack algorithms: monotone in **frames**.",
+   "trap_note": "- Don't pick **LRU**, do pick FIFO.",
+   "hints": [
+    "Which policy lacks the stack property?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. LRU, OPT and MRU have the stack property, so more frames never raise faults.\n2. FIFO can fault more with more frames (Belady).\n3. Answer D.",
+   "explanation_full": "This is the most repeated vm concept pattern across years.",
+   "trap_note_full": "Choosing MRU because it is unusual."
+  }
+ ],
+ "ladder": [
+  {
+   "id": "gen.vm.001",
+   "level": 1,
+   "atoms": [
+    "v1"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "In demand paging, a page fault occurs when:",
+   "options": [
+    {
+     "key": "A",
+     "text": "The CPU references a page whose page-table entry is marked invalid because the page is not in memory"
+    },
+    {
+     "key": "B",
+     "text": "The TLB lookup misses"
+    },
+    {
+     "key": "C",
+     "text": "A page is written back to disk"
+    },
+    {
+     "key": "D",
+     "text": "The page table is larger than a page"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Demand paging loads a page only when it is first needed.",
+    "Each page-table entry has a valid bit.",
+    "What does valid = 0 tell the hardware?"
+   ],
+   "solution": "- Valid bit **zero** means the page is not in memory.\n- The hardware traps to the **OS**.\n- **Answer: A**",
+   "quick_method": "- Page **fault** = access to a page not in memory.",
+   "trap_note": "- Don't equate a TLB **miss** with a fault, do check validity.",
+   "explanation": "- The valid bit **marks** residency.",
+   "verified": true,
+   "solution_full": "1. Each page-table entry carries a valid bit.\n2. If the bit is 0, the page is not in a frame (or the access is illegal).\n3. The MMU raises a page-fault trap and the OS loads the page from disk.\n4. A TLB miss only means the translation is not cached. The page may still be in memory.",
+   "explanation_full": "Pages are brought in on demand, so the first touch of any page faults. The OS finds a free frame (or evicts one), reads the page, updates the entry and restarts the instruction.",
+   "trap_note_full": "Treating every TLB miss as a page fault. A TLB miss costs a page-table lookup, not a disk read.",
+   "order_in_topic": 1
+  },
+  {
+   "id": "gen.vm.002",
+   "level": 1,
+   "atoms": [
+    "v2"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "The page table of a process maps:",
+   "options": [
+    {
+     "key": "A",
+     "text": "Virtual page numbers to physical frame numbers"
+    },
+    {
+     "key": "B",
+     "text": "Physical frame numbers to disk blocks"
+    },
+    {
+     "key": "C",
+     "text": "Virtual addresses to cache lines"
+    },
+    {
+     "key": "D",
+     "text": "Segment numbers to base addresses"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Pages are virtual, frames are physical.",
+    "The table is indexed by the virtual page number.",
+    "Each entry also carries control bits."
+   ],
+   "solution": "- The table is indexed by **virtual** page number.\n- Each entry holds a **frame** number.\n- **Answer: A**",
+   "quick_method": "- Index by page number, read the **frame** number.",
+   "trap_note": "- Don't index by **frame** number, do index by page number.",
+   "explanation": "- Translation swaps page number for **frame** number.",
+   "verified": true,
+   "solution_full": "1. The virtual address splits into page number and offset.\n2. The page number indexes the page table.\n3. The entry gives the frame number (plus valid, dirty and permission bits).\n4. Physical address = frame number joined with the offset.",
+   "explanation_full": "The table has one entry per virtual page, not per frame. That is why its size depends on the virtual address space.",
+   "trap_note_full": "Thinking the table is indexed by frame number, which would give one entry per frame.",
+   "order_in_topic": 2
+  },
+  {
+   "id": "gen.vm.003",
+   "level": 1,
+   "atoms": [
+    "v6"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "The optimal page replacement policy evicts the page that:",
+   "options": [
+    {
+     "key": "A",
+     "text": "Will not be used for the longest time in the future"
+    },
+    {
+     "key": "B",
+     "text": "Was used least recently in the past"
+    },
+    {
+     "key": "C",
+     "text": "Was loaded earliest"
+    },
+    {
+     "key": "D",
+     "text": "Has been used the fewest times"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Optimal needs knowledge of the future.",
+    "It minimises faults for a fixed reference string.",
+    "Look ahead and find the page needed last."
+   ],
+   "solution": "- Look **ahead** in the string.\n- Evict the **page** whose next use is farthest.\n- **Answer: A**",
+   "quick_method": "- Evict the **farthest** next use.",
+   "trap_note": "- Don't look **back**, do look ahead.",
+   "explanation": "- Optimal uses the **future**, LRU the past.",
+   "verified": true,
+   "solution_full": "1. On a fault with all frames full, scan forward in the reference string.\n2. For each resident page, find its next use.\n3. Evict the page whose next use is farthest away. A page never used again is the best victim.\n4. Option B is LRU, option C is FIFO, option D is LFU.",
+   "explanation_full": "OPT cannot be built for real because the future is unknown. It serves as the lower bound that FIFO and LRU are compared against.",
+   "trap_note_full": "Mixing it up with LRU, which looks backwards.",
+   "order_in_topic": 3
+  },
+  {
+   "id": "gen.vm.004",
+   "level": 1,
+   "atoms": [
+    "v7"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Belady's anomaly is the observation that:",
+   "options": [
+    {
+     "key": "A",
+     "text": "Giving a process more frames can increase its number of page faults"
+    },
+    {
+     "key": "B",
+     "text": "Giving a process more frames always reduces page faults"
+    },
+    {
+     "key": "C",
+     "text": "Page faults are independent of the replacement policy"
+    },
+    {
+     "key": "D",
+     "text": "LRU needs more frames than FIFO"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "More frames sounds like it should always help.",
+    "For some policies and strings it does not.",
+    "Which option says the opposite of intuition?"
+   ],
+   "solution": "- More frames can mean more **faults**.\n- It shows up with **FIFO**.\n- **Answer: A**",
+   "quick_method": "- Anomaly = more **frames**, more faults.",
+   "trap_note": "- Don't assume more **frames** always help, do test FIFO.",
+   "explanation": "- Some policies are not **monotone**.",
+   "verified": true,
+   "solution_full": "1. The anomaly is a fault count that goes up when frames go up.\n2. FIFO can show it, for example on 1,2,3,4,1,2,5,1,2,3,4,5 (9 faults with 3 frames, 10 with 4).\n3. LRU and OPT never show it.",
+   "explanation_full": "Policies whose resident set with n frames is always a subset of the set with n+1 frames are called stack algorithms. They cannot show the anomaly.",
+   "trap_note_full": "Reading the anomaly as 'faults rise with more memory always'. It happens only for some strings and policies.",
+   "order_in_topic": 4
+  },
+  {
+   "id": "gen.vm.005",
+   "level": 1,
+   "atoms": [
+    "v8"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Thrashing occurs when:",
+   "options": [
+    {
+     "key": "A",
+     "text": "Processes spend most of their time paging because their working sets do not fit in memory"
+    },
+    {
+     "key": "B",
+     "text": "The TLB hit ratio is too high"
+    },
+    {
+     "key": "C",
+     "text": "The disk is full"
+    },
+    {
+     "key": "D",
+     "text": "A process has too few instructions"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "The working set is the pages a process needs right now.",
+    "What happens if the sum of working sets exceeds the frames?",
+    "Useful CPU work collapses."
+   ],
+   "solution": "- Working sets exceed **frames**.\n- Most time goes to **paging**, so CPU use drops.\n- **Answer: A**",
+   "quick_method": "- Sum of working sets > **frames** means thrashing.",
+   "trap_note": "- Don't add more **processes**, do cut multiprogramming.",
+   "explanation": "- Thrashing is a **memory** shortage.",
+   "verified": true,
+   "solution_full": "1. The working set of a process is the set of pages it referenced in the last window of references.\n2. If the working sets of all processes together exceed the frames, every process keeps faulting.\n3. CPU utilisation falls, and a naive scheduler adds more processes, which makes it worse.\n4. The cure is to lower the degree of multiprogramming.",
+   "explanation_full": "The working-set model lets the OS keep only as many processes as can have their working sets resident.",
+   "trap_note_full": "Believing a lower CPU load means the OS should admit more processes. That deepens thrashing.",
+   "order_in_topic": 5
+  },
+  {
+   "id": "gen.vm.006",
+   "level": 1,
+   "atoms": [
+    "v4"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A TLB caches:",
+   "options": [
+    {
+     "key": "A",
+     "text": "Recently used virtual-page to frame translations"
+    },
+    {
+     "key": "B",
+     "text": "Recently used disk blocks"
+    },
+    {
+     "key": "C",
+     "text": "Recently executed instructions"
+    },
+    {
+     "key": "D",
+     "text": "Page tables of all processes"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "It sits next to the MMU.",
+    "It avoids a memory access for the page-table lookup.",
+    "What does it hold per entry?"
+   ],
+   "solution": "- TLB entries hold page-to-frame **translations**.\n- A **hit** skips the page-table walk.\n- **Answer: A**",
+   "quick_method": "- **TLB** = cache for translations.",
+   "trap_note": "- Don't treat the TLB as a data **cache**, do see mappings.",
+   "explanation": "- A TLB hit saves a memory **access**.",
+   "verified": true,
+   "solution_full": "1. The TLB is a small associative cache inside the MMU.\n2. Each entry stores a page number and its frame number (plus control bits).\n3. A hit gives the frame immediately. A miss walks the page table in memory.",
+   "explanation_full": "Without a TLB, every access would need an extra memory access per page-table level. The TLB makes paging affordable.",
+   "trap_note_full": "Confusing the TLB with the data cache. The TLB stores translations, not data.",
+   "order_in_topic": 6
+  },
+  {
+   "id": "gen.vm.007",
+   "level": 2,
+   "atoms": [
+    "v2"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A system has a 32-bit virtual address, 4 KB pages and 4-byte page-table entries, with a single-level page table. The page table size in MB is ______.",
+   "answer": "4",
+   "hints": [
+    "Number of entries = number of virtual pages.",
+    "Offset = 12 bits, so page number = 20 bits.",
+    "Size = entries x entry size."
+   ],
+   "solution": "- Page number is 32 - 12 = 20 **bits**.\n- 2^20 **entries** of 4 bytes each.\n- **Answer: 4**",
+   "quick_method": "- **Entries** = 2^(VA - offset) x entry size.",
+   "trap_note": "- Don't use the **frame** count, do use virtual pages.",
+   "explanation": "- Table size follows the **virtual** space.",
+   "verified": true,
+   "solution_full": "1. 4 KB = 2^12, so the offset is 12 bits.\n2. Page number = 32 - 12 = 20 bits, so 2^20 entries.\n3. Size = 2^20 x 4 B = 4 MB.",
+   "explanation_full": "The physical memory size does not enter the calculation. It only fixes how many bits the frame number inside each entry needs.",
+   "trap_note_full": "Using the number of physical frames instead of virtual pages.",
+   "order_in_topic": 7
+  },
+  {
+   "id": "gen.vm.008",
+   "level": 2,
+   "atoms": [
+    "v3"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A system has a 32-bit virtual address, 4 KB pages and 4-byte entries. A two-level page table is used, and each table fits in exactly one page. The number of bits that index the outer table is ______.",
+   "answer": "10",
+   "hints": [
+    "A table that fills one page holds page size / entry size entries.",
+    "4096 / 4 = 1024 entries, so 10 index bits per level.",
+    "Outer bits = 32 - 12 - inner bits."
+   ],
+   "solution": "- One page holds 1024 **entries**, so 10 bits.\n- **Outer** = 32 - 12 - 10.\n- **Answer: 10**",
+   "quick_method": "- Inner **bits** = log2(page/entry). Outer is the rest.",
+   "trap_note": "- Don't split the **VPN** equally by default, do size from the page.",
+   "explanation": "- Each table must fit one **page**.",
+   "verified": true,
+   "solution_full": "1. Entries per page = 4096 / 4 = 1024 = 2^10, so the inner index takes 10 bits.\n2. The offset takes 12 bits.\n3. Outer index = 32 - 12 - 10 = 10 bits.",
+   "explanation_full": "Fitting every table in one page keeps allocation simple and lets the OS swap page-table pages like any other page.",
+   "trap_note_full": "Assuming the split without checking that each table fills one page.",
+   "order_in_topic": 8
+  },
+  {
+   "id": "gen.vm.009",
+   "level": 2,
+   "atoms": [
+    "v4"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A single-level page table is in memory. TLB lookup takes 10 ns, a memory access takes 100 ns, and the TLB hit ratio is 90%. The effective access time in ns is ______.",
+   "answer": "120",
+   "hints": [
+    "On a hit: TLB + one memory access.",
+    "On a miss: TLB + page-table access + data access.",
+    "Weight by the hit ratio."
+   ],
+   "solution": "- **Hit** costs 10 + 100 = 110.\n- **Miss** costs 10 + 100 + 100 = 210.\n- **Answer: 120**",
+   "quick_method": "- **EAT** = h(t + m) + (1 - h)(t + 2m).",
+   "trap_note": "- Don't drop the **TLB** time on a miss, do add it.",
+   "explanation": "- A miss costs one extra **access**.",
+   "verified": true,
+   "solution_full": "1. Hit: TLB lookup 10 + data access 100 = 110 ns.\n2. Miss: TLB lookup 10 + page-table access 100 + data access 100 = 210 ns.\n3. EAT = 0.9 x 110 + 0.1 x 210 = 99 + 21 = 120 ns.",
+   "explanation_full": "The TLB is checked on every access, hit or miss, so its time is always paid. The miss penalty is one extra memory access per page-table level.",
+   "trap_note_full": "Skipping the TLB lookup time on a miss.",
+   "order_in_topic": 9
+  },
+  {
+   "id": "gen.vm.010",
+   "level": 2,
+   "atoms": [
+    "v5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "Memory access takes 200 ns and a page fault takes 5 ms to service. One access in every 10^6 causes a page fault. The effective access time, to the nearest ns, is ______.",
+   "answer": "205",
+   "hints": [
+    "EAT = (1 - p) x memory time + p x fault time.",
+    "Convert 5 ms to ns first.",
+    "p = 10^-6."
+   ],
+   "solution": "- 5 ms is 5,000,000 **ns**.\n- **EAT** = 200 + p x 5,000,000.\n- **Answer: 205**",
+   "quick_method": "- **EAT** = (1 - p) M + p F.",
+   "trap_note": "- Don't mix **units**, do convert ms to ns first.",
+   "explanation": "- Faults add p times the **penalty**.",
+   "verified": true,
+   "solution_full": "1. Fault service time = 5 ms = 5,000,000 ns. p = 10^-6.\n2. EAT = (1 - 10^-6) x 200 + 10^-6 x 5,000,000 = 199.9998 + 5 = 204.9998.\n3. Rounded, 205 ns.",
+   "explanation_full": "Even a one-in-a-million fault rate adds 2.5 percent, because a disk access is about 25,000 times slower than memory.",
+   "trap_note_full": "Mixing ms and ns, which gives an answer that is off by a factor of one million.",
+   "order_in_topic": 10
+  },
+  {
+   "id": "gen.vm.011",
+   "level": 2,
+   "atoms": [
+    "v6"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A process has 3 frames, initially empty. The reference string is 7,0,1,2,0,3,0,4,2,3,0,3,2. The number of page faults under **FIFO** is ______.",
+   "answer": "10",
+   "hints": [
+    "Keep a queue of pages in arrival order.",
+    "A hit does not change the queue.",
+    "Evict the oldest arrival on each fault."
+   ],
+   "solution": "- **Faults** on 7,0,1,2,3 then 4.\n- Then 2,3,0 **fault** again; 3 and 2 later hit.\n- **Answer: 10**",
+   "quick_method": "- Track the **queue**; count misses.",
+   "trap_note": "- Don't refresh the **queue** on a hit, do leave order alone.",
+   "explanation": "- FIFO ignores **recency**.",
+   "verified": true,
+   "solution_full": "1. 7, 0, 1 fill the frames (3 faults). Queue 7,0,1.\n2. 2 evicts 7 (fault 4). 0 hits. 3 evicts 0 (fault 5). 0 evicts 1 (fault 6).\n3. 4 evicts 2 (fault 7). 2 evicts 3 (fault 8). 3 evicts 0 (fault 9). 0 evicts 4 (fault 10).\n4. 3 and 2 are hits. Total 10.",
+   "explanation_full": "FIFO evicts by load time only. A page that is used constantly can still be evicted because it is the oldest.",
+   "trap_note_full": "Updating the queue on a hit, which turns FIFO into something like LRU.",
+   "order_in_topic": 11
+  },
+  {
+   "id": "gen.vm.012",
+   "level": 2,
+   "atoms": [
+    "v6"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "The same string 7,0,1,2,0,3,0,4,2,3,0,3,2 with 3 initially empty frames. The number of page faults under **LRU** is ______.",
+   "answer": "9",
+   "hints": [
+    "On each hit, move the page to the most recent end.",
+    "On a fault, evict the least recently used page.",
+    "Keep the pages ordered by last use."
+   ],
+   "solution": "- Order frames by last **use**.\n- Hits refresh the **page**.\n- **Answer: 9**",
+   "quick_method": "- Keep a **recency** list; evict the oldest use.",
+   "trap_note": "- Don't evict by arrival **time**, do evict by last use.",
+   "explanation": "- LRU looks **backwards**.",
+   "verified": true,
+   "solution_full": "1. 7, 0, 1 fill the frames (3 faults). 2 evicts 7, the least recent (fault 4). 0 hits.\n2. 3 evicts 1 (fault 5). 0 hits. 4 evicts 2 (fault 6).\n3. 2 evicts 3 (fault 7). 3 evicts 0 (fault 8). 0 evicts 4 (fault 9).\n4. 3 and 2 hit. Total 9.",
+   "explanation_full": "LRU keeps pages that were touched recently on the guess that they will be touched again soon.",
+   "trap_note_full": "Treating a hit as no event, so the recency order is not refreshed.",
+   "order_in_topic": 12
+  },
+  {
+   "id": "gen.vm.013",
+   "level": 2,
+   "atoms": [
+    "v6"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "The same string 7,0,1,2,0,3,0,4,2,3,0,3,2 with 3 initially empty frames. The number of page faults under **optimal** replacement is ______.",
+   "answer": "7",
+   "hints": [
+    "On each fault, look at the future references.",
+    "Evict the page used farthest ahead, or never again.",
+    "Count only the faults."
+   ],
+   "solution": "- Fill with 7,0,1: three **faults**.\n- Then 2, 3, 4 each cost one more **fault**.\n- **Answer: 7**",
+   "quick_method": "- Evict the **farthest** next use. Count misses.",
+   "trap_note": "- Don't evict by **past** use, do check next use.",
+   "explanation": "- OPT sets the **floor** for faults.",
+   "verified": true,
+   "solution_full": "1. 7, 0, 1 fill the frames (3 faults).\n2. 2 evicts 7 (never used again): fault 4. 0 hits. 3 evicts 1 (never used again): fault 5. 0 hits.\n3. 4 evicts 0 or 3 by next use: 0 next at position 11, 3 at 10, 2 at 9. Evict 0: fault 6. Then 2, 3 hit.\n4. 0 faults (fault 7), evicting 4. 3 and 2 hit. Total 7.",
+   "explanation_full": "OPT gives 7 against 9 for LRU and 10 for FIFO on this string. No real policy can beat it, so it is the benchmark.",
+   "trap_note_full": "Choosing the victim by past use instead of looking at the future.",
+   "order_in_topic": 13
+  },
+  {
+   "id": "gen.vm.014",
+   "level": 3,
+   "atoms": [
+    "v2"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A system has 32-bit virtual addresses, 36-bit physical addresses and 4 KB pages. Each page-table entry holds the frame number plus 4 control bits, and is stored in a whole number of bytes. The single-level page table size in MB is ______.",
+   "answer": "4",
+   "hints": [
+    "Frame number bits = PA bits - offset bits = 36 - 12.",
+    "Entry bits = frame bits + control bits, then round up to bytes.",
+    "Entries = 2^(32 - 12)."
+   ],
+   "solution": "- Frame number is 24 **bits**, entry 28 bits.\n- Round to 4 **bytes**; 2^20 entries.\n- **Answer: 4**",
+   "quick_method": "- **Entry** = ceil((PA - offset + control) / 8) bytes.",
+   "trap_note": "- Don't use a 28-bit **entry** unrounded, do round to bytes.",
+   "explanation": "- Entry size comes from the **physical** side.",
+   "verified": true,
+   "solution_full": "1. Offset = 12 bits. Frame number = 36 - 12 = 24 bits.\n2. Entry = 24 + 4 = 28 bits, which needs 4 bytes (3.5 rounds up).\n3. Entries = 2^(32 - 12) = 2^20.\n4. Table = 2^20 x 4 B = 4 MB.",
+   "explanation_full": "The physical address size sets how wide each entry must be. The virtual address size sets how many entries there are. A 3-byte entry would be possible in principle, but entries are padded to a whole number of bytes.",
+   "trap_note_full": "Using 28 bits as 3.5 bytes, which gives 3.5 MB.",
+   "order_in_topic": 14
+  },
+  {
+   "id": "gen.vm.015",
+   "level": 3,
+   "atoms": [
+    "v4"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A two-level page table is in memory. TLB lookup takes 5 ns, each memory access takes 50 ns, and the TLB hit ratio is 80%. The effective access time in ns is ______.",
+   "answer": "75",
+   "hints": [
+    "Hit: TLB plus one data access.",
+    "Miss: TLB plus two table accesses plus data.",
+    "Weight 0.8 and 0.2."
+   ],
+   "solution": "- **Hit**: 5 + 50 = 55.\n- **Miss**: 5 + 50 + 50 + 50 = 155.\n- **Answer: 75**",
+   "quick_method": "- **EAT** = h(t + m) + (1 - h)(t + (L+1)m).",
+   "trap_note": "- Don't add one **level**, do add one access per level.",
+   "explanation": "- Each **level** adds one memory access on a miss.",
+   "verified": true,
+   "solution_full": "1. Hit: 5 + 50 = 55 ns.\n2. Miss: 5 (TLB) + 50 (level 1) + 50 (level 2) + 50 (data) = 155 ns.\n3. EAT = 0.8 x 55 + 0.2 x 155 = 44 + 31 = 75 ns.",
+   "explanation_full": "The more page-table levels, the more a TLB miss hurts. With L levels a miss costs (L + 1) memory accesses.",
+   "trap_note_full": "Counting only one page-table access on a miss in a two-level scheme.",
+   "order_in_topic": 15
+  },
+  {
+   "id": "gen.vm.016",
+   "level": 3,
+   "atoms": [
+    "v6"
+   ],
+   "type": "MCQ",
+   "marks": 2,
+   "stem": "A process has 3 frames, initially empty, and the reference string 2,5,2,5,3,4,3,1,5,3,2,1. If FIFO, LRU and OPT denote the number of faults under each policy, which holds?",
+   "options": [
+    {
+     "key": "A",
+     "text": "OPT < LRU < FIFO"
+    },
+    {
+     "key": "B",
+     "text": "OPT < FIFO < LRU"
+    },
+    {
+     "key": "C",
+     "text": "OPT = LRU < FIFO"
+    },
+    {
+     "key": "D",
+     "text": "LRU < OPT < FIFO"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Count faults for each policy separately.",
+    "OPT is always the smallest.",
+    "The other two differ on this string."
+   ],
+   "solution": "- OPT gives 6, **LRU** gives 8.\n- **FIFO** gives 9.\n- **Answer: A**",
+   "quick_method": "- Simulate all three; **OPT** is the minimum.",
+   "trap_note": "- Don't expect LRU to beat **OPT**, do remember OPT is the floor.",
+   "explanation": "- OPT never loses to **anything**.",
+   "verified": true,
+   "solution_full": "1. FIFO: faults at 2, 5, 3, 4, 1, 5, 3, 2, 1 = 9.\n2. LRU: faults at 2, 5, 3, 4, 1, 5, 3, 2 = 8; the last reference hits.\n3. OPT: faults at 2, 5, 3, 4, 1, 2 = 6.\n4. So OPT < LRU < FIFO.",
+   "explanation_full": "FIFO and LRU can come out in either order depending on the string. OPT is always at or below both.",
+   "trap_note_full": "Believing LRU is always at most FIFO. It is not guaranteed.",
+   "order_in_topic": 16
+  },
+  {
+   "id": "gen.vm.017",
+   "level": 3,
+   "atoms": [
+    "v7"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "FIFO replacement runs on 1,2,3,4,1,2,5,1,2,3,4,5. With 4 frames it incurs how many more page faults than with 3 frames? ______.",
+   "answer": "1",
+   "hints": [
+    "Run FIFO with 3 frames, then with 4.",
+    "3 frames: 9 faults.",
+    "4 frames: count again."
+   ],
+   "solution": "- Three frames give **nine** faults.\n- Four **frames** give ten.\n- **Answer: 1**",
+   "quick_method": "- Run both policies. Take the **difference**.",
+   "trap_note": "- Don't assume a **drop**, do count both runs.",
+   "explanation": "- More frames made FIFO **worse**.",
+   "verified": true,
+   "solution_full": "1. 3 frames: faults at 1, 2, 3, 4, 1, 2, 5, 3, 4 = 9. The hits are 1 and 2 after the 5, and the final 5.\n2. 4 frames: faults at 1, 2, 3, 4, then 5, 1, 2, 3, 4, 5. Only the first repeats of 1 and 2 hit. Total 10.\n3. Difference = 10 - 9 = 1.",
+   "explanation_full": "This is the textbook Belady anomaly. LRU and OPT on the same string never get worse with more frames.",
+   "trap_note_full": "Expecting fewer faults with more frames and so reporting a negative or zero difference.",
+   "order_in_topic": 17
+  },
+  {
+   "id": "gen.vm.018",
+   "level": 3,
+   "atoms": [
+    "v8"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A process references pages 3,1,3,2,3,4,4,5,4,5,5,4. The working-set window is the last 5 references. The working-set size at the 8th reference (page 5) is ______.",
+   "answer": "4",
+   "hints": [
+    "Window = the 5 references ending at the 8th.",
+    "List references 4 to 8.",
+    "Count distinct pages."
+   ],
+   "solution": "- **Window** holds references 4 to 8.\n- Those **references** are 2,3,4,4,5.\n- **Answer: 4**",
+   "quick_method": "- Take the last Delta references; count **distinct** pages.",
+   "trap_note": "- Don't count **references**, do count distinct pages.",
+   "explanation": "- Working set counts **distinct** pages.",
+   "verified": true,
+   "solution_full": "1. References: 1:3, 2:1, 3:3, 4:2, 5:3, 6:4, 7:4, 8:5.\n2. Window of 5 ending at 8 = references 4 to 8 = 2, 3, 4, 4, 5.\n3. Distinct pages: {2, 3, 4, 5}. Size = 4.",
+   "explanation_full": "The working-set size is a measure of a process's current memory need. The OS adds it up across processes to decide whether memory is oversubscribed.",
+   "trap_note_full": "Reporting 5, the number of references in the window.",
+   "order_in_topic": 18
+  },
+  {
+   "id": "gen.vm.019",
+   "level": 3,
+   "atoms": [
+    "v3"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A 48-bit virtual address space uses 4 KB pages and 8-byte page-table entries. All page tables occupy exactly one page. The number of page-table levels needed is ______.",
+   "answer": "4",
+   "hints": [
+    "Entries per page = 4096 / 8 = 512, so 9 bits per level.",
+    "Offset = 12 bits.",
+    "Levels = ceil(page-number bits / 9)."
+   ],
+   "solution": "- Each level indexes 9 **bits**.\n- Page number is 48 - 12 = 36 **bits**.\n- **Answer: 4**",
+   "quick_method": "- **Levels** = ceil((VA - offset) / index bits).",
+   "trap_note": "- Don't divide the full **address**, do remove the offset first.",
+   "explanation": "- Page size and entry size fix the **index** width.",
+   "verified": true,
+   "solution_full": "1. Entries per table page = 4096 / 8 = 512 = 2^9, so 9 index bits per level.\n2. Page-number bits = 48 - 12 = 36.\n3. Levels = 36 / 9 = 4.",
+   "explanation_full": "This is the x86-64 layout. The 57-bit extension adds a fifth level.",
+   "trap_note_full": "Dividing 48 by 9 and rounding up to 6 levels, forgetting the offset.",
+   "order_in_topic": 19
+  },
+  {
+   "id": "gen.vm.020",
+   "level": 3,
+   "atoms": [
+    "v4"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A 32-bit virtual address and 4 KB pages are used. The TLB has 128 entries and is 4-way set associative. The minimum number of tag bits per TLB entry is ______.",
+   "answer": "15",
+   "hints": [
+    "Page number = 32 - 12 = 20 bits.",
+    "Sets = 128 / 4.",
+    "Tag = page-number bits - index bits."
+   ],
+   "solution": "- Page number: 20 **bits**.\n- 32 sets need a 5-bit **index**.\n- **Answer: 15**",
+   "quick_method": "- **Tag** = VPN bits - log2(sets).",
+   "trap_note": "- Don't forget the **index**, do subtract it from the page number.",
+   "explanation": "- Set index bits are not **stored**.",
+   "verified": true,
+   "solution_full": "1. Page number = 32 - 12 = 20 bits.\n2. Sets = 128 / 4 = 32, so the set index is 5 bits.\n3. Tag = 20 - 5 = 15 bits.",
+   "explanation_full": "A fully associative TLB has no index, so the tag is the whole page number. Direct mapped needs the most index bits and the shortest tag.",
+   "trap_note_full": "Using the full 20-bit page number as the tag.",
+   "order_in_topic": 20
+  },
+  {
+   "id": "gen.vm.021",
+   "level": 4,
+   "atoms": [
+    "v3"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A 32-bit system uses 4 KB pages and 4-byte entries with a two-level page table (outer directory plus inner tables). The OS allocates the outer page at process creation and allocates an inner page only when it holds a valid entry. A process touches 3000 unique pages. X is the minimum and Y the maximum number of page-table pages in total. X + Y is ______.",
+   "answer": "1029",
+   "hints": [
+    "Entries per page = 1024.",
+    "Minimum: pack the 3000 pages into as few inner tables as possible.",
+    "Maximum: spread them so every inner table is used."
+   ],
+   "solution": "- Min: 3000 pages need 3 **inner** tables.\n- Max: all 1024 inner **tables**, plus the outer page.\n- **Answer: 1029**",
+   "quick_method": "- Min packs tables. Max is capped by the **outer** table.",
+   "trap_note": "- Don't forget the **outer** page, do add it to both.",
+   "explanation": "- Packing gives the **minimum**, spreading gives the maximum.",
+   "verified": true,
+   "solution_full": "1. Each page holds 4096 / 4 = 1024 entries, so one inner table maps 1024 pages.\n2. Minimum: ceil(3000 / 1024) = 3 inner tables, plus 1 outer page: X = 4.\n3. Maximum: the outer page has only 1024 entries, so at most 1024 inner tables. Y = 1024 + 1 = 1025.\n4. X + Y = 4 + 1025 = 1029.",
+   "explanation_full": "The maximum is limited by the outer table (1024 entries), not by the number of pages touched. The pattern repeats across GATE years.",
+   "trap_note_full": "Using 3000 inner tables for Y, which exceeds the 1024 the outer page can point to.",
+   "variant_of": "2024-CS2-q64",
+   "order_in_topic": 21
+  },
+  {
+   "id": "gen.vm.022",
+   "level": 4,
+   "atoms": [
+    "v4",
+    "v5"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A paging system keeps a single-level page table in memory with a TLB. A memory access takes 80 ns and a TLB lookup 10 ns. The TLB hit ratio is 90%. Page faults occur on 4% of TLB misses (and never on hits). Each page transfer takes 3000 ns, and 30% of faults also write a dirty page back first. Ignoring TLB update time, the effective access time in ns is ______.",
+   "answer": "113.5..113.7",
+   "hints": [
+    "Start with the EAT from TLB and page-table accesses.",
+    "Add the fault penalty weighted by P(miss) x P(fault | miss).",
+    "Penalty = 3000 + 0.3 x 3000."
+   ],
+   "solution": "- **Translation** EAT is 98 ns.\n- **Fault** term: 0.1 x 0.04 x 3900.\n- **Answer: 113.6**",
+   "quick_method": "- **EAT** = base + P(miss) P(fault) penalty.",
+   "trap_note": "- Don't weight faults by all **accesses**, do weight by misses only.",
+   "explanation": "- Faults arise only on a TLB **miss** here.",
+   "verified": true,
+   "solution_full": "1. Hit: 10 + 80 = 90 ns. Miss: 10 + 80 + 80 = 170 ns.\n2. Base EAT = 0.9 x 90 + 0.1 x 170 = 98 ns.\n3. Fault penalty = 3000 + 0.3 x 3000 = 3900 ns.\n4. Added term = 0.1 x 0.04 x 3900 = 15.6 ns.\n5. EAT = 98 + 15.6 = 113.6 ns.",
+   "explanation_full": "A page that is in memory has a valid entry, so a fault is only possible on the page-table path. That is why the fault rate multiplies the miss ratio.",
+   "trap_note_full": "Applying the fault rate to every access instead of only to TLB misses.",
+   "variant_of": "2020-CS-q63",
+   "order_in_topic": 22
+  },
+  {
+   "id": "gen.vm.023",
+   "level": 4,
+   "atoms": [
+    "v6"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "With 3 initially empty frames, the reference string is 1,2,3,4,2,1,5,6,2,1,2,3,7,6,3,2,1,2,3,6. The number of page faults under LRU minus the number under optimal replacement is ______.",
+   "answer": "4",
+   "hints": [
+    "Run LRU, then OPT, both with 3 frames.",
+    "LRU: 15 faults.",
+    "OPT: 11 faults."
+   ],
+   "solution": "- LRU faults **fifteen** times.\n- OPT **faults** eleven times.\n- **Answer: 4**",
+   "quick_method": "- Run both policies. Take the **difference**.",
+   "trap_note": "- Don't start with full **frames**, do count the initial fills.",
+   "explanation": "- The gap measures what LRU **loses**.",
+   "verified": true,
+   "solution_full": "1. LRU: faults on 1, 2, 3, 4 (4 faults); 2 hits; then 1, 5, 6, 2, 1 (9); 2 hits; 3, 7, 6 (12); 3 hits; 2, 1 (14); 2 and 3 hit; 6 (15). Total 15.\n2. OPT: faults on 1, 2, 3, 4 (4); 2 and 1 hit; 5, 6 (6); 2, 1, 2 hit; 3, 7 (8); 6 and 3 hit; 2, 1 (10); 2 and 3 hit; 6 (11). Total 11.\n3. Difference = 15 - 11 = 4.",
+   "explanation_full": "LRU is close to OPT when the string has locality, and far when it scans cyclically. Here the gap is 4 faults on 20 references.",
+   "trap_note_full": "Forgetting that the first three distinct pages count as faults in both runs.",
+   "order_in_topic": 23
+  },
+  {
+   "id": "gen.vm.024",
+   "level": 4,
+   "atoms": [
+    "v6"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "A process has 3 frames. The reference string is 5,2,1,1,5,5,4,5,4,1,3. After each reference the frames hold (a * marks a fault):\n\n`5*{5}  2*{2,5}  1*{1,2,5}  1{1,2,5}  5{1,2,5}  5{1,2,5}  4*{1,4,5}  5{1,4,5}  4{1,4,5}  1{1,4,5}  3*{1,3,4}`\n\nWhich policies could have produced this trace?",
+   "options": [
+    {
+     "key": "A",
+     "text": "FIFO"
+    },
+    {
+     "key": "B",
+     "text": "LRU"
+    },
+    {
+     "key": "C",
+     "text": "Optimal"
+    },
+    {
+     "key": "D",
+     "text": "Most recently used (MRU)"
+    }
+   ],
+   "answer": "B,C",
+   "hints": [
+    "Look at the first eviction (reference 4): which page left?",
+    "FIFO evicts the page that was loaded first.",
+    "Page 5 is loaded first, but it is referenced again right after."
+   ],
+   "solution": "- At **reference** 4, page 2 leaves.\n- **FIFO** would evict 5, the oldest load.\n- **Answer: B,C**",
+   "quick_method": "- Test every **eviction** against each rule.",
+   "trap_note": "- Don't test one **eviction**, do test each fault.",
+   "explanation": "- A trace fits a policy only if every **eviction** fits.",
+   "verified": true,
+   "solution_full": "1. First eviction (reference 4): frames {1,2,5}, page 2 leaves. LRU: 2 was used longest ago, yes. OPT: 2 is never used again, yes. FIFO: the oldest loaded page is 5, so FIFO would evict 5, no. MRU would evict 5 (used most recently, at reference 6), no.\n2. Second eviction (reference 11): frames {1,4,5}, page 5 leaves. LRU: 5 was used before 4 and 1, yes. OPT: no page is used again, so any victim is optimal, yes.\n3. LRU and OPT fit both evictions. FIFO and MRU fail the first. Faults: 5 for LRU and OPT, 6 for FIFO.",
+   "explanation_full": "To identify a policy from a trace, test each eviction in turn. One mismatch rules the policy out. When no page is used again, OPT accepts any victim.",
+   "trap_note_full": "Checking only the last eviction. When no page is used again, every policy looks optimal, so the early evictions decide.",
+   "variant_of": "2025-CS2-q47",
+   "order_in_topic": 24
+  },
+  {
+   "id": "gen.vm.025",
+   "level": 4,
+   "atoms": [
+    "v4"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A TLB has a reach of 512 KB with 4 KB pages. The virtual address is 40 bits and the physical address 32 bits. Each entry stores a 3-bit process id, the page number, the frame number and a 2-bit control field. The TLB size in bytes is ______.",
+   "answer": "848",
+   "hints": [
+    "Entries = reach / page size.",
+    "Bits per entry = pid + VPN + frame + control.",
+    "Total = entries x bits / 8."
+   ],
+   "solution": "- **Entries**: 512 KB / 4 KB = 128.\n- Entry: 3 + 28 + 20 + 2 = 53 **bits**.\n- **Answer: 848**",
+   "quick_method": "- **Entries** x (pid + VPN + frame + control) / 8.",
+   "trap_note": "- Don't forget the **pid**, do add every stored field.",
+   "explanation": "- Reach fixes the **entry** count.",
+   "verified": true,
+   "solution_full": "1. Entries = 512 KB / 4 KB = 128.\n2. VPN = 40 - 12 = 28 bits. Frame number = 32 - 12 = 20 bits.\n3. Entry = 3 + 28 + 20 + 2 = 53 bits.\n4. Total = 128 x 53 = 6784 bits = 848 bytes.",
+   "explanation_full": "TLB reach is entries times page size. Larger pages grow the reach without growing the TLB.",
+   "trap_note_full": "Leaving out the process id or the control bits.",
+   "variant_of": "2026-CS2-q54",
+   "order_in_topic": 25
+  },
+  {
+   "id": "gen.vm.026",
+   "level": 4,
+   "atoms": [
+    "v3"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A system has 16 KB pages and 8-byte page-table entries, with a two-level page table in which every table fits one page. A process uses 4 GB of virtual memory, contiguous from address 0, all of it mapped. The minimum memory for its page tables in KB is ______.",
+   "answer": "2064",
+   "hints": [
+    "Entries per page = 16 KB / 8 B = 2048.",
+    "Pages in 4 GB = 2^18.",
+    "Count leaf tables, then one outer table."
+   ],
+   "solution": "- 2^18 pages need 2^18 / 2048 = 128 leaf **tables**.\n- Plus 1 outer **table**, all 16 KB.\n- **Answer: 2064**",
+   "quick_method": "- **Tables** = (leaf tables + 1) x page size.",
+   "trap_note": "- Don't size tables at 8 **bytes**, do use whole pages.",
+   "explanation": "- Tables are allocated in whole **pages**.",
+   "verified": true,
+   "solution_full": "1. Pages in 4 GB = 2^32 / 2^14 = 2^18.\n2. Entries per table page = 16384 / 8 = 2048 = 2^11.\n3. Leaf tables = 2^18 / 2^11 = 2^7 = 128. The outer table needs 128 entries, which fits in 1 page.\n4. Total = (128 + 1) x 16 KB = 2064 KB.",
+   "explanation_full": "Contiguous use is the best case. Sparse use needs more tables for the same page count, because each touched region needs its own leaf table.",
+   "trap_note_full": "Computing the table size as entries x 8 bytes without rounding up to full pages.",
+   "variant_of": "2021-CS2-q58",
+   "order_in_topic": 26
+  },
+  {
+   "id": "gen.vm.027",
+   "level": 4,
+   "atoms": [
+    "v4",
+    "v1"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Which statements about the TLB are TRUE?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Without address-space identifiers, the TLB must be flushed on a context switch"
+    },
+    {
+     "key": "B",
+     "text": "Using larger pages increases the TLB reach"
+    },
+    {
+     "key": "C",
+     "text": "A TLB hit implies the page is present in main memory"
+    },
+    {
+     "key": "D",
+     "text": "A TLB miss implies a page fault"
+    }
+   ],
+   "answer": "A,B,C",
+   "hints": [
+    "TLB entries belong to one address space.",
+    "Reach = entries x page size.",
+    "What does a TLB entry say about the frame?"
+   ],
+   "solution": "- Entries are **per** address space.\n- Reach grows with **page** size.\n- **Answer: A,B,C**",
+   "quick_method": "- TLB miss is only a lookup, not a **fault**.",
+   "trap_note": "- Don't read a TLB miss as a **fault**, do walk the table.",
+   "explanation": "- Residency decides **faults**, not the TLB.",
+   "verified": true,
+   "solution_full": "1. A is true: another process's mappings would give wrong translations, so flush or tag with a process id.\n2. B is true: reach = entries x page size.\n3. C is true: entries are removed when the page leaves memory, so a hit means the frame is resident.\n4. D is false: a miss only means the translation is not cached. The table may still say the page is present.",
+   "explanation_full": "The TLB is a cache of valid translations. Eviction of a page from memory must also invalidate its TLB entry.",
+   "trap_note_full": "Choosing D. A miss triggers a table walk, and only an invalid entry triggers a fault.",
+   "order_in_topic": 27
+  },
+  {
+   "id": "gen.vm.028",
+   "level": 4,
+   "atoms": [
+    "v6",
+    "v1"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "An int array D[64][64] (4-byte ints) is stored in row-major order. A page holds 256 elements. A process has 14 frames with LRU replacement and runs: for i in 0..63, for j in 0..63: D[j][i] = 0. The number of page faults is ______.",
+   "answer": "1024",
+   "hints": [
+    "One page holds 4 rows (256 / 64).",
+    "The inner loop walks down a column: 64 rows touch 16 pages.",
+    "With 14 frames, those 16 pages cannot all stay."
+   ],
+   "solution": "- A column touches 16 **pages** cyclically.\n- 14 **frames** lose every page to LRU.\n- **Answer: 1024**",
+   "quick_method": "- 16 **page** changes per column x 64 columns.",
+   "trap_note": "- Don't report 16 **faults**, do compare frames with pages.",
+   "explanation": "- A cycle larger than memory thrashes **LRU**.",
+   "verified": true,
+   "solution_full": "1. Row = 64 ints, page = 256 ints, so 4 rows per page. The array has 16 pages.\n2. For a fixed column i, j runs through 64 rows, touching pages 0, 1, ..., 15 in order. Each page is touched for 4 consecutive accesses (1 fault, 3 hits).\n3. Under LRU with 14 frames, a cycle of 16 pages evicts each page before its next use, so every first touch faults: 16 faults per column.\n4. Total = 16 x 64 = 1024. With 16 frames only 16 faults would occur.",
+   "explanation_full": "A cyclic access over N pages with fewer than N frames makes LRU (and FIFO) fault on every page change. This is the same shape as GATE 2023.",
+   "trap_note_full": "Reporting 16 because the array only has 16 pages. That needs 16 frames.",
+   "variant_of": "2023-CS-q57",
+   "order_in_topic": 28
+  },
+  {
+   "id": "gen.vm.029",
+   "level": 5,
+   "atoms": [
+    "v6",
+    "v7"
+   ],
+   "type": "MCQ",
+   "marks": 2,
+   "stem": "A process has 5 frames, initially empty. It references pages 1, 2, ..., 9 in order, and then repeats that whole sequence two more times (27 references). Which policy gives the same number of page faults as optimal replacement?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Least recently used (LRU)"
+    },
+    {
+     "key": "B",
+     "text": "First in first out (FIFO)"
+    },
+    {
+     "key": "C",
+     "text": "Last in first out (LIFO)"
+    },
+    {
+     "key": "D",
+     "text": "Most recently used (MRU)"
+    }
+   ],
+   "answer": "D",
+   "hints": [
+    "On a cycle bigger than memory, LRU and FIFO evict the page needed soonest.",
+    "Which policy keeps the old pages and sacrifices the newest?",
+    "Count the faults: OPT gives 17."
+   ],
+   "solution": "- LRU and FIFO fault on **all** 27.\n- MRU keeps old pages: 17 **faults**, like OPT.\n- **Answer: D**",
+   "quick_method": "- Cycle larger than memory: MRU matches **OPT**.",
+   "trap_note": "- Don't trust **recency** here, do see the cycle reverses it.",
+   "explanation": "- On cycles, the newest page is the **farthest** from reuse.",
+   "verified": true,
+   "solution_full": "1. LRU and FIFO: each page is evicted before it is needed again (9 pages, 5 frames), so all 27 references fault.\n2. OPT: 9 faults in the first pass, then 4 per later pass: 9 + 4 + 4 = 17.\n3. MRU evicts the page used last, which is the one needed latest in a cycle. It also faults 17 times.\n4. LIFO faults 19 times: it evicts the newest loaded page and ends up reloading more.",
+   "explanation_full": "On a repeated sequential scan larger than memory, the page just used is the one needed last, so MRU behaves like OPT. This is the pattern in GATE 2014.",
+   "trap_note_full": "Choosing LRU because it is the usual good policy. A cyclic scan is its worst case.",
+   "variant_of": "2014-CS2-q33",
+   "order_in_topic": 29
+  },
+  {
+   "id": "gen.vm.030",
+   "level": 5,
+   "atoms": [
+    "v6",
+    "v7"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A process has 5 frames. It references 11 distinct pages p0 to p10 in order, then the same 11 pages again in the same order. FIFO page faults minus optimal page faults is ______.",
+   "answer": "5",
+   "hints": [
+    "FIFO on a cycle larger than memory faults every time.",
+    "Count FIFO: 22.",
+    "OPT keeps useful pages: count it."
+   ],
+   "solution": "- FIFO faults on **all** 22 references.\n- OPT **faults** 17.\n- **Answer: 5**",
+   "quick_method": "- FIFO: every reference **faults**. OPT: 11 + 6.",
+   "trap_note": "- Don't expect hits in FIFO on a **cycle**, do count all 22.",
+   "explanation": "- Cycles larger than memory are **worst** for FIFO.",
+   "verified": true,
+   "solution_full": "1. FIFO: 11 first-pass faults. In the second pass each page was evicted before its reuse (11 > 5), so every reference faults: 22 total.\n2. OPT: 11 first-pass faults. In the second pass it keeps 4 well-chosen pages, so 5 of 11 hit and 6 fault: 17 total.\n3. Difference = 22 - 17 = 5.",
+   "explanation_full": "On a repeating scan of N pages with f < N frames, FIFO and LRU fault on every reference while OPT faults on only N - f + 1 of the second-pass references.",
+   "trap_note_full": "Assuming FIFO keeps the most recent pages and gets some hits in the second pass.",
+   "variant_of": "2016-CS1-q49",
+   "order_in_topic": 30
+  },
+  {
+   "id": "gen.vm.031",
+   "level": 5,
+   "atoms": [
+    "v7"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Which statements about Belady's anomaly are TRUE?",
+   "options": [
+    {
+     "key": "A",
+     "text": "LRU never shows the anomaly"
+    },
+    {
+     "key": "B",
+     "text": "Optimal replacement never shows the anomaly"
+    },
+    {
+     "key": "C",
+     "text": "FIFO can show the anomaly"
+    },
+    {
+     "key": "D",
+     "text": "The second-chance (clock) algorithm can never show the anomaly"
+    }
+   ],
+   "answer": "A,B,C",
+   "hints": [
+    "Stack algorithms keep the n-frame set inside the (n+1)-frame set.",
+    "LRU and OPT are stack algorithms.",
+    "Second chance is a FIFO variant."
+   ],
+   "solution": "- Stack algorithms are **immune**.\n- **FIFO** and its variants are not.\n- **Answer: A,B,C**",
+   "quick_method": "- Stack algorithms: no anomaly. **FIFO** family: possible.",
+   "trap_note": "- Don't call clock **safe**, do remember it is FIFO-based.",
+   "explanation": "- Only **stack** algorithms are immune.",
+   "verified": true,
+   "solution_full": "1. A is true: the n-frame content under LRU is always a subset of the (n+1)-frame content.\n2. B is true: the same property holds for OPT.\n3. C is true: 1,2,3,4,1,2,5,1,2,3,4,5 gives 9 faults with 3 frames and 10 with 4.\n4. D is false: second chance degrades to FIFO when all reference bits are set, so it can show the anomaly.",
+   "explanation_full": "The stack property is the clean test: if the set held with n frames is always inside the set held with n+1 frames, the fault count cannot rise.",
+   "trap_note_full": "Choosing D because clock is described as an LRU approximation. It inherits FIFO's behaviour.",
+   "variant_of": "2017-CS1-q40",
+   "order_in_topic": 31
+  },
+  {
+   "id": "gen.vm.032",
+   "level": 5,
+   "atoms": [
+    "v3"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A 48-bit virtual address uses a 4-level page table with 4 KB pages and 8-byte entries, every table in exactly one page. A process maps 1 GB of contiguous virtual memory starting at address 0. The minimum number of page-table pages across all levels is ______.",
+   "answer": "515",
+   "hints": [
+    "Pages in 1 GB = 2^18.",
+    "Each table maps 512 pages (or 512 lower tables).",
+    "Count from the leaves up."
+   ],
+   "solution": "- 2^18 pages need 512 leaf **tables**.\n- Those need 1 **table** above, then 1, then 1.\n- **Answer: 515**",
+   "quick_method": "- Divide by 512 per **level**, add up.",
+   "trap_note": "- Don't count only the **leaves**, do add every level.",
+   "explanation": "- Each level needs its own **tables**.",
+   "verified": true,
+   "solution_full": "1. Pages = 2^30 / 2^12 = 2^18.\n2. Level 4 (leaf) tables = 2^18 / 512 = 512.\n3. Level 3 tables = 512 / 512 = 1. Level 2 tables = 1. Level 1 table = 1.\n4. Total = 512 + 1 + 1 + 1 = 515 pages.",
+   "explanation_full": "The upper levels barely grow for contiguous memory. Their cost shows up only when the layout is sparse.",
+   "trap_note_full": "Counting only the leaf tables (512) and forgetting the three upper levels.",
+   "order_in_topic": 32
+  },
+  {
+   "id": "gen.vm.033",
+   "level": 5,
+   "atoms": [
+    "v5"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "Memory access takes 200 ns and a page fault takes 8 ms. For the effective access time to stay within 10% of 200 ns, at most one access in every ______ can cause a page fault. (Give the integer N so that p = 1/N.)",
+   "answer": "399990",
+   "hints": [
+    "Effective time = (1 - p) M + p F, with F in ns.",
+    "Require EAT at most 220 ns.",
+    "Solve p(F - M) at most 20."
+   ],
+   "solution": "- p times (F - M) must be **at most** 20.\n- The **penalty** over memory time is 7,999,800 ns.\n- **Answer: 399990**",
+   "quick_method": "- **Rate** p = (EAT - M) / (F - M); N = 1/p.",
+   "trap_note": "- Don't forget the **baseline**, do subtract M from F.",
+   "explanation": "- Solve for the fault **rate** from the EAT bound.",
+   "verified": true,
+   "solution_full": "1. EAT = (1 - p) M + p F = M + p (F - M).\n2. We need M + p (F - M) <= 220, so p <= 20 / (F - M).\n3. F = 8 ms = 8,000,000 ns, so F - M = 7,999,800 ns.\n4. p <= 20 / 7,999,800, so N = 1/p = 7,999,800 / 20 = 399,990.",
+   "explanation_full": "This is the inverse of the usual EAT question: it asks how rare faults must be. The answer shows how little disk time is tolerable.",
+   "trap_note_full": "Using F instead of F - M, which gives 400,000 and misses the exact value.",
+   "order_in_topic": 33
+  }
+ ],
+ "flashcards": [
+  {
+   "front": "Single-level page table size",
+   "back": "2^(VA bits - offset bits) x entry size.",
+   "kind": "formula"
+  },
+  {
+   "front": "Page-table entry width",
+   "back": "Frame bits (PA - offset) plus control bits, rounded up to whole bytes.",
+   "kind": "formula"
+  },
+  {
+   "front": "Bits per level in a multi-level table",
+   "back": "log2(page size / entry size), when each table fills one page.",
+   "kind": "formula"
+  },
+  {
+   "front": "Number of levels",
+   "back": "ceil((VA bits - offset bits) / bits per level).",
+   "kind": "formula"
+  },
+  {
+   "front": "TLB EAT with L levels",
+   "back": "h(t + m) + (1 - h)(t + (L + 1) m).",
+   "kind": "formula"
+  },
+  {
+   "front": "EAT with page faults",
+   "back": "(1 - p) m + p F. Convert ms and ns first.",
+   "kind": "formula"
+  },
+  {
+   "front": "TLB tag bits",
+   "back": "VPN bits - log2(number of sets). Fully associative: the whole VPN.",
+   "kind": "formula"
+  },
+  {
+   "front": "TLB reach",
+   "back": "Number of entries x page size.",
+   "kind": "formula"
+  },
+  {
+   "front": "FIFO versus LRU on a hit",
+   "back": "FIFO leaves the queue alone. LRU refreshes the page's recency.",
+   "kind": "trap"
+  },
+  {
+   "front": "Belady's anomaly",
+   "back": "More frames can mean more faults under FIFO. LRU and OPT are stack algorithms: immune.",
+   "kind": "definition"
+  },
+  {
+   "front": "Cyclic scan, N pages, f < N frames",
+   "back": "LRU and FIFO fault on every page change. OPT and MRU do much better.",
+   "kind": "trap"
+  },
+  {
+   "front": "Working set",
+   "back": "Distinct pages referenced in the last window. Count distinct pages, not references.",
+   "kind": "definition"
+  },
+  {
+   "front": "Thrashing",
+   "back": "Sum of working sets exceeds frames: constant paging, low CPU use. Cure: lower multiprogramming.",
+   "kind": "definition"
+  },
+  {
+   "front": "TLB miss versus page fault",
+   "back": "A miss only skips the cache and walks the table. A fault means the page is not in memory.",
+   "kind": "trap"
+  },
+  {
+   "front": "Two-level minimum versus maximum table pages",
+   "back": "Min: pack into few inner tables. Max: cap at the outer table's entry count. Add the outer page.",
+   "kind": "trap"
+  }
+ ]
+}

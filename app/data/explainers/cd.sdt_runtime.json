@@ -1,0 +1,3204 @@
+{
+ "topic_id": "cd.sdt_runtime",
+ "title": "Syntax-directed translation and run-time environments",
+ "chapter_note": {
+  "about": "Syntax-directed translation attaches values to a parse tree, and the run-time environment explains how calls, scopes and parameters behave when the program runs. The chapter first covers synthesized and inherited attributes, the S- and L-attributed classes, evaluating a definition on a tree, and translation schemes whose actions run at fixed points. It then turns to activation records and trees, parameter passing modes, static and dynamic scoping with access links, and storage allocation. GATE asks you to evaluate a definition, classify its rules, or trace a short program.",
+  "simple": "When a compiler reads a program it builds a tree and can write little facts on each branch, some worked out from the pieces below and some handed down from above. Those facts are how it works out meanings, such as the value of an expression or the type of a variable. The second half is about what happens when the program actually runs: each function call gets a card on a pile, arguments can be handed over as copies or as the real thing, and a name can be looked up either by the way the program is written or by who called whom. In exam words: attributes, S- and L-attributed definitions, translation schemes, activation records, parameter passing, scoping and storage allocation.",
+  "concept_map": [
+   {
+    "atom_id": "s1",
+    "title": "Attributes and SDDs",
+    "one_line": "Synthesized attributes flow up from children; inherited ones flow down or across from the parent and left siblings."
+   },
+   {
+    "atom_id": "s2",
+    "title": "S- and L-attributed definitions",
+    "one_line": "S-attributed: only synthesized attributes. L-attributed: an inherited attribute uses only the parent and left siblings."
+   },
+   {
+    "atom_id": "s3",
+    "title": "Evaluating an SDD",
+    "one_line": "Build the parse tree, compute inherited values down and synthesized values up, and include every ε value."
+   },
+   {
+    "atom_id": "s4",
+    "title": "Translation schemes",
+    "one_line": "Actions run where they sit in the body; actions at the end fire at the reduction, so printing follows postorder."
+   },
+   {
+    "atom_id": "s5",
+    "title": "Activation records and trees",
+    "one_line": "Calls follow a preorder walk of the activation tree, returns a postorder walk; the stack holds one root-to-node path."
+   },
+   {
+    "atom_id": "s6",
+    "title": "Parameter passing",
+    "one_line": "Value copies; reference aliases; name re-evaluates; need caches; copy-restore copies out at return."
+   },
+   {
+    "atom_id": "s7",
+    "title": "Scoping and access links",
+    "one_line": "Static scope follows the program text and access links; dynamic scope follows the call chain."
+   },
+   {
+    "atom_id": "s8",
+    "title": "Storage allocation",
+    "one_line": "Static area, stack and heap: recursion needs a stack, and lifetime decides the region."
+   }
+  ],
+  "gate_patterns": [
+   "Evaluate an SDD or scheme to a number or an output: draw the tree, note which rules are left recursive, and include the ε values (2022 CS Q65, 2023 CS Q60, 2024 CS1 Q37, 2004 CS Q45; 7 questions in all).",
+   "Classify rules as S- or L-attributed: find an inherited attribute built from a right sibling (2019 CS Q46, 2020 CS Q43, 2025 CS2 Q22, 2026 CS1 Q53; 6 questions in all).",
+   "Run-time questions: activation trees and stack depth (2021 CS1 Q14, 2023 CS Q36), parameter passing and scoping outputs (2003 CS Q73, 2004 CS Q2) and storage facts (2020 CS Q19, 2014 CS2 Q18). Weightage: about 1.4 marks per CS paper; 13 questions in 8 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "s1",
+   "title": "Attributes and SDDs",
+   "simple": "A parse tree is like a family tree, and an attribute is a fact written on a person's card. Some facts are worked out from the children, like a parent's age group being 'older than all the kids', and they travel up the tree. Other facts have to be handed down from the parent or passed along from an older sibling, like a family name or a type that a declaration gives to a list of variables. Facts that travel up are synthesized and facts that travel down or sideways are inherited. In exam words: a syntax-directed definition attaches attributes to grammar symbols; synthesized attributes depend on children, inherited attributes depend on the parent and siblings.",
+   "idea": "A **syntax-directed definition** (SDD) attaches **attributes** to the nodes of a parse tree and gives rules to compute them. A **synthesized** attribute of a node is computed from its **children** and flows up. An **inherited** attribute is computed from the node's **parent or siblings** and flows down or across.",
+   "definition": "Each grammar symbol has attributes. In a rule A → X1 … Xn with semantic rules:\n\n- an attribute b of A computed from attributes of X1 … Xn is synthesized;\n- an attribute of a child Xi computed from attributes of A or of the siblings X1 … Xn is inherited.\n\nTerminals have only synthesized attributes (intrinsic, supplied by the lexer, such as num.lexval). The start symbol has no inherited attributes unless given an initial value. The values are computed by evaluating the rules over the parse tree, respecting dependencies.",
+   "intuition_full": "The direction of the dependency decides the kind of attribute. Think of arrows between nodes: if an arrow goes from a child to its parent, the attribute is synthesized, because the parent can compute it once the children are done. If the arrow goes from a parent or a left sibling into a child, the attribute is inherited, because the child needs information from its context. Inherited attributes are needed when the meaning of a part depends on what surrounds it, such as the declared type applying to every variable in a list. The question 'which attributes are synthesized?' is answered by reading each rule and asking: whose attribute is being defined, and whose attributes does it use?",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Parse tree for the declaration int x with D → T L, T → int, L → id. Say which attributes are synthesized and which are inherited when the type int reaches x.",
+     "steps": [
+      "Parse tree of the declaration int x: D → T L, T → int, L → id. Each node can carry attributes. We follow the type of x through the tree.",
+      "The token int gives T the attribute T.type = int. It is computed from T's child, so it flows up the tree: a synthesized attribute.",
+      "The rule D → T L sets L.in = T.type. The value comes from T, the left sibling of L, and flows across to L: an inherited attribute.",
+      "L passes its inherited value to its child, so the identifier x gets the type int. Information flows down from the parent: again inherited.",
+      "Rule of thumb: a synthesized attribute is computed from the node's children and flows up. An inherited attribute is computed from the parent or from siblings and flows down or across."
+     ],
+     "answer": "T.type is synthesized (from the token int). L.in and the type given to id are inherited (from the parent or the left sibling T)."
+    },
+    {
+     "level": "gate",
+     "setup": "Classify each attribute: E → T E′ {E′.in = T.val; E.val = E′.val}, E′ → + T E′1 {E′1.in = E′.in + T.val; E′.val = E′1.val}, E′ → ε {E′.val = E′.in}, T → num {T.val = num.lexval}.",
+     "steps": [
+      "E.val is defined from E′.val, an attribute of a child: synthesized.",
+      "E′.in is defined from T.val, a left sibling (in the first rule), and in the second rule E′1.in is defined from the parent's E′.in and from T.val: inherited.",
+      "E′.val is an attribute of the left side E′, defined from a child, E′1.val (or, in the ε-rule, from its own E′.in): synthesized.",
+      "T.val comes from the token num: synthesized."
+     ],
+     "answer": "Synthesized: E.val, E′.val, T.val. Inherited: E′.in."
+    },
+    {
+     "level": "twist",
+     "setup": "Is an attribute of a terminal, such as the value of a number token, synthesized or inherited? Can the start symbol have an inherited attribute?",
+     "steps": [
+      "A terminal has no children in the parse tree, so nothing can flow into it from below. Its attributes, such as lexval, are supplied by the lexical analyser: they count as synthesized (intrinsic).",
+      "The start symbol has no parent and no siblings, so nothing can flow into it from above. It has no inherited attributes unless the translation scheme gives it an initial value.",
+      "So terminals have only synthesized attributes, and the root has only synthesized ones."
+     ],
+     "answer": "Terminal attributes are synthesized. The start symbol normally has no inherited attributes."
+    }
+   ],
+   "why": "Reading the direction of attribute flow is the base for classifying definitions as S- or L-attributed and for evaluating them. In GATE: say which attributes are synthesized or inherited, or complete a definition so that it has a given property.",
+   "how": [
+    "For each rule, ask which symbol's attribute is being defined.",
+    "If it belongs to the left side and uses attributes of the right side, it is synthesized.",
+    "If it belongs to a right-side symbol and uses attributes of the left side or of other right-side symbols, it is inherited.",
+    "Terminals contribute synthesized attributes from the lexer."
+   ],
+   "mistake": "Calling an attribute inherited just because it is passed through a node. Look at the rule that defines it: if the defining node is the parent and the inputs are its children, it is synthesized. Another slip is to treat attributes of terminals as inherited.",
+   "edge_cases": [
+    "An attribute can be both used downwards and recomputed upwards in different rules, but each attribute is classified by its defining rules.",
+    "A copy rule such as L1.in = L.in is an inherited attribute (parent to child).",
+    "If an attribute depends on a right sibling, the definition cannot be evaluated in a single left-to-right pass."
+   ],
+   "connections": [
+    "S- and L-attributed definitions (next card) restrict which dependencies are allowed.",
+    "Evaluating an SDD (card 3) follows these arrows: inherited values down, synthesized values up."
+   ],
+   "check": [
+    {
+     "q": "A.s = B.s + C.s. Synthesized or inherited?",
+     "a": "Synthesized."
+    },
+    {
+     "q": "C.i = A.i. Synthesized or inherited?",
+     "a": "Inherited."
+    },
+    {
+     "q": "Which flows up the tree?",
+     "a": "Synthesized attributes."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q46, 2020 CS Q43, 2025 CS2 Q22, 2026 CS1 Q53, 2024 CS2 Q29, 2003 CS Q18",
+   "try": {
+    "id": "gen.sr.001",
+    "label": "Attribute computed from children (L1)"
+   },
+   "scene": "cd.sdt_runtime.s1.attr",
+   "example": {
+    "setup": "Parse tree for the declaration int x with D → T L, T → int, L → id. Say which attributes are synthesized and which are inherited when the type int reaches x.",
+    "steps": [
+     "Parse tree of the declaration int x: D → T L, T → int, L → id. Each node can carry attributes. We follow the type of x through the tree.",
+     "The token int gives T the attribute T.type = int. It is computed from T's child, so it flows up the tree: a synthesized attribute.",
+     "The rule D → T L sets L.in = T.type. The value comes from T, the left sibling of L, and flows across to L: an inherited attribute.",
+     "L passes its inherited value to its child, so the identifier x gets the type int. Information flows down from the parent: again inherited.",
+     "Rule of thumb: a synthesized attribute is computed from the node's children and flows up. An inherited attribute is computed from the parent or from siblings and flows down or across."
+    ],
+    "answer": "T.type is synthesized (from the token int). L.in and the type given to id are inherited (from the parent or the left sibling T)."
+   },
+   "what": "A **syntax-directed definition** (SDD) attaches **attributes** to the nodes of a parse tree and gives rules to compute them. A **synthesized** attribute of a node is computed from its **children** and flows up. An **inherited** attribute is computed from the node's **parent or siblings** and flows down or across.",
+   "what_full": "A **syntax-directed definition** (SDD) attaches **attributes** to the nodes of a parse tree and gives rules to compute them. A **synthesized** attribute of a node is computed from its **children** and flows up. An **inherited** attribute is computed from the node's **parent or siblings** and flows down or across.\n\nEach grammar symbol has attributes. In a rule A → X1 … Xn with semantic rules:\n\n- an attribute b of A computed from attributes of X1 … Xn is synthesized;\n- an attribute of a child Xi computed from attributes of A or of the siblings X1 … Xn is inherited.\n\nTerminals have only synthesized attributes (intrinsic, supplied by the lexer, such as num.lexval). The start symbol has no inherited attributes unless given an initial value. The values are computed by evaluating the rules over the parse tree, respecting dependencies.\n\n**Worked example.** Parse tree for the declaration int x with D → T L, T → int, L → id. Say which attributes are synthesized and which are inherited when the type int reaches x.\n\n1. Parse tree of the declaration int x: D → T L, T → int, L → id. Each node can carry attributes. We follow the type of x through the tree.\n2. The token int gives T the attribute T.type = int. It is computed from T's child, so it flows up the tree: a synthesized attribute.\n3. The rule D → T L sets L.in = T.type. The value comes from T, the left sibling of L, and flows across to L: an inherited attribute.\n4. L passes its inherited value to its child, so the identifier x gets the type int. Information flows down from the parent: again inherited.\n5. Rule of thumb: a synthesized attribute is computed from the node's children and flows up. An inherited attribute is computed from the parent or from siblings and flows down or across.\n\n**Answer:** T.type is synthesized (from the token int). L.in and the type given to id are inherited (from the parent or the left sibling T).",
+   "why_full": "Reading the direction of attribute flow is the base for classifying definitions as S- or L-attributed and for evaluating them. In GATE: say which attributes are synthesized or inherited, or complete a definition so that it has a given property.\n\nAsked: 2019 CS Q46, 2020 CS Q43, 2025 CS2 Q22, 2026 CS1 Q53, 2024 CS2 Q29, 2003 CS Q18",
+   "trap": "Calling an attribute inherited just because it is passed through a node. Look at the rule that defines it: if the defining node is the parent and the inputs are its children, it is synthesized. Another slip is to treat attributes of terminals as inherited."
+  },
+  {
+   "atom_id": "s2",
+   "title": "S- and L-attributed definitions",
+   "simple": "Imagine filling in forms for a family, one person at a time from left to right. You may use anything already filled in: the parent's form and the forms of people to your left. You may not use the form of someone you have not reached yet, because it is still empty. A definition where every rule respects that order is called L-attributed, and it can be filled in one left-to-right pass. If the only things you ever copy come from the children, so the forms fill from the bottom up, it is even simpler and it is called S-attributed. In exam words: S-attributed definitions use only synthesized attributes; L-attributed definitions allow inherited attributes that depend only on the parent and the left siblings.",
+   "idea": "An **S-attributed** definition uses only **synthesized** attributes, so it can be evaluated bottom-up at each reduction. An **L-attributed** definition may also use inherited attributes, but each must depend only on the **parent's** inherited attributes and on attributes of **left siblings**. Every S-attributed definition is L-attributed.",
+   "definition": "Consider a rule A → X1 X2 … Xn with semantic rules. The definition is L-attributed if every inherited attribute of Xi depends only on:\n\n- inherited attributes of A, and\n- attributes (inherited or synthesized) of X1 … X(i−1),\n\nand never on attributes of Xi itself in a cycle, or of X(i+1) … Xn. Synthesized attributes of A may depend on any attribute of the children.\n\nS-attributed ⊂ L-attributed. L-attributed definitions can be evaluated in one left-to-right depth-first traversal.",
+   "intuition_full": "The restriction ensures that when a child needs a value, the value already exists. A left-to-right depth-first pass visits the parent, then the children in order, so by the time it reaches Xi it has the parent's inherited values and everything from X1 to X(i−1). A dependency on a right sibling would need a value that has not been computed yet, and a dependency on the parent's synthesized attribute would be circular, since that attribute is computed from the children. In S-attributed definitions, nothing flows down, so a bottom-up parser can compute each value right at the reduction. Check each rule: write down every dependency of every inherited attribute and test that it comes from the parent or the left.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "In A → X Y Z, test these rules: Y.i = A.i + 1, Y.i = X.s, Y.i = Z.s, X.i = Y.s, and A.s = X.s + Y.s + Z.s. Which break L-attributedness, and when is a definition S-attributed?",
+     "steps": [
+      "In an L-attributed definition, an inherited attribute of a child may depend only on the parent's inherited attributes and on attributes of the children to its left. Synthesized attributes of A may depend on any child. We test dependencies for A → X Y Z.",
+      "Y.i = A.i + 1 uses the parent's inherited attribute. Allowed.",
+      "Y.i = X.s uses a left sibling. A left-to-right pass has already computed it. Allowed.",
+      "Y.i = Z.s uses the right sibling Z, which a left-to-right pass has not reached yet. Not allowed: the definition is not L-attributed.",
+      "X.i = Y.s: even the leftmost child X may not depend on a sibling to its right. Not allowed.",
+      "A.s = X.s + Y.s + Z.s is a synthesized attribute of A. It may use any children. Allowed.",
+      "A definition whose rules are all of this last kind is S-attributed. Every S-attributed definition is L-attributed, but a definition with inherited attributes is not S-attributed."
+     ],
+     "answer": "Y.i = Z.s and X.i = Y.s break it, because they depend on a right sibling. The others are fine. A definition with only rules like A.s = … is S-attributed."
+    },
+    {
+     "level": "gate",
+     "setup": "For A → B C D, which rule sets are L-attributed? (a) C.i = B.s, D.i = C.s + A.i  (b) B.i = C.s  (c) C.i = A.s  (d) A.s = B.s + D.s, D.i = A.i",
+     "steps": [
+      "(a) C.i uses the left sibling B. D.i uses the left sibling C and the parent's inherited A.i. Both allowed.",
+      "(b) B.i uses the right sibling C. Not allowed.",
+      "(c) C.i uses A.s, a synthesized attribute of the parent that is computed from the children, including C. That is circular and not allowed.",
+      "(d) A.s is synthesized and may use any children. D.i uses the parent's inherited A.i. Allowed."
+     ],
+     "answer": "(a) and (d) are L-attributed."
+    },
+    {
+     "level": "twist",
+     "setup": "Is every L-attributed definition S-attributed? Is every S-attributed definition L-attributed?",
+     "steps": [
+      "An L-attributed definition may use inherited attributes, such as Y.i = X.s, which an S-attributed definition may not. So not every L-attributed definition is S-attributed.",
+      "An S-attributed definition has no inherited attributes, so the L-attributed conditions hold vacuously. So every S-attributed definition is L-attributed.",
+      "Hence S-attributed is a proper subset of L-attributed."
+     ],
+     "answer": "No for the first question, yes for the second."
+    }
+   ],
+   "why": "Classifying definitions is a direct question in GATE, with rule sets to check. In GATE: choose which rule set is S- or L-attributed, and find the dependency that breaks the property.",
+   "how": [
+    "List every inherited attribute and the attributes its rule uses.",
+    "Check each source: parent's inherited, or a left sibling's attribute. Anything else breaks L-attributedness.",
+    "If there are no inherited attributes at all, the definition is S-attributed.",
+    "A synthesized attribute of the parent may use any child."
+   ],
+   "mistake": "Reading a right-sibling dependency as harmless. It breaks L-attributedness, because a left-to-right pass has not computed the right sibling yet. Another slip is to treat the parent's synthesized attribute as a legal source for a child's inherited attribute.",
+   "edge_cases": [
+    "A dependency of Xi on its own synthesized attribute is allowed only if there is no cycle.",
+    "S-attributed definitions can be evaluated during bottom-up parsing, at each reduction.",
+    "L-attributed definitions can be evaluated during top-down parsing or during bottom-up parsing with marker nonterminals."
+   ],
+   "connections": [
+    "Evaluating an SDD (next card) uses the order these classes guarantee.",
+    "Translation schemes (card 4) place actions so that the same restrictions hold."
+   ],
+   "check": [
+    {
+     "q": "Does a right-sibling dependency break S-attributedness or L-attributedness?",
+     "a": "L-attributedness (and it is not S-attributed either, since it is inherited)."
+    },
+    {
+     "q": "Can an S-attributed definition have inherited attributes?",
+     "a": "No."
+    },
+    {
+     "q": "In A → B C, is B.i = C.s allowed in an L-attributed definition?",
+     "a": "No. C is a right sibling."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q46, 2020 CS Q43, 2025 CS2 Q22, 2026 CS1 Q53, 2024 CS2 Q29, 2003 CS Q18",
+   "try": {
+    "id": "gen.sr.006",
+    "label": "Which rule makes the definition S-attributed (L2)"
+   },
+   "scene": "cd.sdt_runtime.s2.sl",
+   "example": {
+    "setup": "In A → X Y Z, test these rules: Y.i = A.i + 1, Y.i = X.s, Y.i = Z.s, X.i = Y.s, and A.s = X.s + Y.s + Z.s. Which break L-attributedness, and when is a definition S-attributed?",
+    "steps": [
+     "In an L-attributed definition, an inherited attribute of a child may depend only on the parent's inherited attributes and on attributes of the children to its left. Synthesized attributes of A may depend on any child. We test dependencies for A → X Y Z.",
+     "Y.i = A.i + 1 uses the parent's inherited attribute. Allowed.",
+     "Y.i = X.s uses a left sibling. A left-to-right pass has already computed it. Allowed.",
+     "Y.i = Z.s uses the right sibling Z, which a left-to-right pass has not reached yet. Not allowed: the definition is not L-attributed.",
+     "X.i = Y.s: even the leftmost child X may not depend on a sibling to its right. Not allowed.",
+     "A.s = X.s + Y.s + Z.s is a synthesized attribute of A. It may use any children. Allowed.",
+     "A definition whose rules are all of this last kind is S-attributed. Every S-attributed definition is L-attributed, but a definition with inherited attributes is not S-attributed."
+    ],
+    "answer": "Y.i = Z.s and X.i = Y.s break it, because they depend on a right sibling. The others are fine. A definition with only rules like A.s = … is S-attributed."
+   },
+   "what": "An **S-attributed** definition uses only **synthesized** attributes, so it can be evaluated bottom-up at each reduction. An **L-attributed** definition may also use inherited attributes, but each must depend only on the **parent's** inherited attributes and on attributes of **left siblings**. Every S-attributed definition is L-attributed.",
+   "what_full": "An **S-attributed** definition uses only **synthesized** attributes, so it can be evaluated bottom-up at each reduction. An **L-attributed** definition may also use inherited attributes, but each must depend only on the **parent's** inherited attributes and on attributes of **left siblings**. Every S-attributed definition is L-attributed.\n\nConsider a rule A → X1 X2 … Xn with semantic rules. The definition is L-attributed if every inherited attribute of Xi depends only on:\n\n- inherited attributes of A, and\n- attributes (inherited or synthesized) of X1 … X(i−1),\n\nand never on attributes of Xi itself in a cycle, or of X(i+1) … Xn. Synthesized attributes of A may depend on any attribute of the children.\n\nS-attributed ⊂ L-attributed. L-attributed definitions can be evaluated in one left-to-right depth-first traversal.\n\n**Worked example.** In A → X Y Z, test these rules: Y.i = A.i + 1, Y.i = X.s, Y.i = Z.s, X.i = Y.s, and A.s = X.s + Y.s + Z.s. Which break L-attributedness, and when is a definition S-attributed?\n\n1. In an L-attributed definition, an inherited attribute of a child may depend only on the parent's inherited attributes and on attributes of the children to its left. Synthesized attributes of A may depend on any child. We test dependencies for A → X Y Z.\n2. Y.i = A.i + 1 uses the parent's inherited attribute. Allowed.\n3. Y.i = X.s uses a left sibling. A left-to-right pass has already computed it. Allowed.\n4. Y.i = Z.s uses the right sibling Z, which a left-to-right pass has not reached yet. Not allowed: the definition is not L-attributed.\n5. X.i = Y.s: even the leftmost child X may not depend on a sibling to its right. Not allowed.\n6. A.s = X.s + Y.s + Z.s is a synthesized attribute of A. It may use any children. Allowed.\n7. A definition whose rules are all of this last kind is S-attributed. Every S-attributed definition is L-attributed, but a definition with inherited attributes is not S-attributed.\n\n**Answer:** Y.i = Z.s and X.i = Y.s break it, because they depend on a right sibling. The others are fine. A definition with only rules like A.s = … is S-attributed.",
+   "why_full": "Classifying definitions is a direct question in GATE, with rule sets to check. In GATE: choose which rule set is S- or L-attributed, and find the dependency that breaks the property.\n\nAsked: 2019 CS Q46, 2020 CS Q43, 2025 CS2 Q22, 2026 CS1 Q53, 2024 CS2 Q29, 2003 CS Q18",
+   "trap": "Reading a right-sibling dependency as harmless. It breaks L-attributedness, because a left-to-right pass has not computed the right sibling yet. Another slip is to treat the parent's synthesized attribute as a legal source for a child's inherited attribute."
+  },
+  {
+   "atom_id": "s3",
+   "title": "Evaluating an SDD",
+   "simple": "To work out the value an SDD gives to a sentence, first draw the sentence's tree. Then fill in the facts in the right order. Some facts, like the running total so far, are passed down the tree from left to right as you go. When you reach the very bottom, the last empty rule gives the first answer, and then the answers are passed back up the tree to the top. The total you carry down is the thing you add to at each step. Do not forget the value of the empty rule, because that is where the upward journey starts. In exam words: build the parse tree, evaluate inherited attributes top-down, synthesized attributes bottom-up, and include the value from each ε-production.",
+   "idea": "To **evaluate an SDD** on a string, build its parse tree, then compute attributes in dependency order: **inherited** values flow **down** (and across) first, **synthesized** values flow **up**. Each ε-production has its own rule, so do not drop its value. Left recursion and right recursion fold the input from different ends.",
+   "definition": "Procedure:\n\n1. Build the parse tree for the input.\n2. Annotate leaves with their intrinsic values.\n3. Evaluate inherited attributes from the root down, in the order the dependencies require (left siblings before right).\n4. Evaluate synthesized attributes bottom-up.\n\nThe answer is the synthesized attribute of the root. For a left-recursive rule L → L1 B {L.val = 2 · L1.val + B.val}, the value is folded from the left; for a right-recursive rule it is folded from the right.",
+   "intuition_full": "Think of the attribute rules as equations on the tree. The order of evaluation is forced by the dependencies: an attribute can be computed only when every attribute it uses is known. An inherited accumulator, like E′.in here, carries partial results down the tree, left to right, and the ε-leaf at the bottom turns the final accumulator into the answer, which is then copied up. The same expression can be evaluated from a left-recursive grammar with only synthesized attributes. With inherited attributes the grammar is right-recursive, which is what top-down parsers need, and the accumulator replaces the left recursion. A frequent mistake is to forget the ε-rule's value or to fold in the wrong direction.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "E → T E′ {E′.in = T.val; E.val = E′.val}, E′ → + T E″ {E″.in = E′.in + T.val; E′.val = E″.val}, E′ → ε {E′.val = E′.in}, with T.val the number. Evaluate E.val for 2 + 3 + 4.",
+     "steps": [
+      "SDD: E → T E′ {E′.in = T.val; E.val = E′.val}; E′ → + T E″ {E″.in = E′.in + T.val; E′.val = E″.val}; E′ → ε {E′.val = E′.in}; T.val is the number. Parse 2 + 3 + 4. We compute inherited values down the tree, then synthesized values up.",
+      "First the leaves: T.val is 2, 3 and 4 for the three numbers. These are synthesized from the tokens.",
+      "Inherited, top-down: E′.in = T.val for the first E′, taking the value of its left sibling T. So the first E′ gets in = 2.",
+      "The second E′ gets in = E′.in + T.val = 2 + 3 = 5, from its parent and the T before it.",
+      "The third E′ gets in = 5 + 4 = 9.",
+      "The third E′ derives ε, and the ε-rule says E′.val = E′.in = 9. Do not drop this value: it starts the upward flow.",
+      "Synthesized, bottom-up: each E′ copies val from its child, so E′.val = 9 at the second and first E′, and E.val = E′.val = 9. The value of 2 + 3 + 4 is 9."
+     ],
+     "answer": "E.val = 9. The inherited values are 2, 5, 9, the ε-rule gives 9, and it is copied up."
+    },
+    {
+     "level": "gate",
+     "setup": "S → A B C {S.val = A.val + B.val × C.val}; A → a A1 {A.val = A1.val + 1} | ε {A.val = 0}; B → b B1 {B.val = B1.val × 2} | ε {B.val = 1}; C → c C1 {C.val = C1.val + 3} | ε {C.val = 2}. Evaluate S.val for the input a a b c.",
+     "steps": [
+      "A derives aa: two uses of A → a A1 and then ε. A.val = 0 + 1 + 1 = 2.",
+      "B derives b: B.val = B1.val × 2 where B1 → ε has value 1. So B.val = 1 × 2 = 2.",
+      "C derives c: C.val = C1.val + 3 with C1 → ε giving 2. So C.val = 2 + 3 = 5.",
+      "S.val = A.val + B.val × C.val = 2 + 2 × 5 = 12. Dropping the ε values (0, 1, 2) would give wrong results."
+     ],
+     "answer": "S.val = 12."
+    },
+    {
+     "level": "twist",
+     "setup": "Two SDDs for a binary string: (1) L → L1 B {L.val = 2·L1.val + B.val} | B {L.val = B.val}; (2) L → B L1 {L.val = B.val + 2·L1.val} | ε {L.val = 0}. What does each give for the string 110?",
+     "steps": [
+      "SDD (1) is left-recursive and folds from the left: L(1) = 1, L(11) = 2·1 + 1 = 3, L(110) = 2·3 + 0 = 6. That is the binary number 110 = 6.",
+      "SDD (2) is right-recursive: L(110) = 1 + 2·L(10), L(10) = 1 + 2·L(0), L(0) = 0 + 2·L(ε) = 0. So L(10) = 1 and L(110) = 1 + 2 = 3.",
+      "SDD (2) reads the digits in the opposite order (011 = 3). The same string gives 6 or 3 depending on the side of the recursion, and the ε value 0 matters."
+     ],
+     "answer": "6 with SDD (1) and 3 with SDD (2). Fold from the side where the recursion is."
+    }
+   ],
+   "why": "Evaluating an SDD to a number is the largest SDT pattern, and the hardest GATE question here combines integer and fraction parts. In GATE: draw the tree, track inherited and synthesized values, and include every ε value.",
+   "how": [
+    "Draw the parse tree for the input.",
+    "Mark the intrinsic values at the leaves, and note which rules are recursive on which side.",
+    "Compute inherited attributes top-down in left-to-right order, then synthesized attributes bottom-up.",
+    "Read the root's synthesized attribute, checking every ε-production has been given its value."
+   ],
+   "mistake": "Dropping the value of an ε-production, or folding from the wrong end of a left- or right-recursive rule. Another slip is to evaluate synthesized attributes before the inherited ones they depend on.",
+   "edge_cases": [
+    "An empty input string still evaluates the ε-rules.",
+    "The same language can have an S-attributed left-recursive SDD and an L-attributed right-recursive one.",
+    "If the dependencies are circular, the SDD cannot be evaluated."
+   ],
+   "connections": [
+    "S- and L-attributed definitions (previous card) guarantee a simple evaluation order.",
+    "Translation schemes (next card) turn the same rules into actions at fixed positions."
+   ],
+   "check": [
+    {
+     "q": "In which order are inherited and synthesized attributes computed?",
+     "a": "Inherited top-down first, synthesized bottom-up after (as the dependencies allow)."
+    },
+    {
+     "q": "E′ → ε {E′.val = E′.in}. Why does it matter?",
+     "a": "It turns the accumulated value into the result that is copied up the tree."
+    },
+    {
+     "q": "Left-recursive L → L1 B {L.val = 2·L1.val + B.val}: value of 101?",
+     "a": "5."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q65, 2023 CS Q60, 2024 CS1 Q37, 2004 CS Q45, 2003 CS Q58, 2006 CS Q59",
+   "try": {
+    "id": "gen.sr.007",
+    "label": "Value of a left-recursive binary SDD for 1101 (L2)"
+   },
+   "scene": "cd.sdt_runtime.s3.eval",
+   "example": {
+    "setup": "E → T E′ {E′.in = T.val; E.val = E′.val}, E′ → + T E″ {E″.in = E′.in + T.val; E′.val = E″.val}, E′ → ε {E′.val = E′.in}, with T.val the number. Evaluate E.val for 2 + 3 + 4.",
+    "steps": [
+     "SDD: E → T E′ {E′.in = T.val; E.val = E′.val}; E′ → + T E″ {E″.in = E′.in + T.val; E′.val = E″.val}; E′ → ε {E′.val = E′.in}; T.val is the number. Parse 2 + 3 + 4. We compute inherited values down the tree, then synthesized values up.",
+     "First the leaves: T.val is 2, 3 and 4 for the three numbers. These are synthesized from the tokens.",
+     "Inherited, top-down: E′.in = T.val for the first E′, taking the value of its left sibling T. So the first E′ gets in = 2.",
+     "The second E′ gets in = E′.in + T.val = 2 + 3 = 5, from its parent and the T before it.",
+     "The third E′ gets in = 5 + 4 = 9.",
+     "The third E′ derives ε, and the ε-rule says E′.val = E′.in = 9. Do not drop this value: it starts the upward flow.",
+     "Synthesized, bottom-up: each E′ copies val from its child, so E′.val = 9 at the second and first E′, and E.val = E′.val = 9. The value of 2 + 3 + 4 is 9."
+    ],
+    "answer": "E.val = 9. The inherited values are 2, 5, 9, the ε-rule gives 9, and it is copied up."
+   },
+   "what": "To **evaluate an SDD** on a string, build its parse tree, then compute attributes in dependency order: **inherited** values flow **down** (and across) first, **synthesized** values flow **up**. Each ε-production has its own rule, so do not drop its value. Left recursion and right recursion fold the input from different ends.",
+   "what_full": "To **evaluate an SDD** on a string, build its parse tree, then compute attributes in dependency order: **inherited** values flow **down** (and across) first, **synthesized** values flow **up**. Each ε-production has its own rule, so do not drop its value. Left recursion and right recursion fold the input from different ends.\n\nProcedure:\n\n1. Build the parse tree for the input.\n2. Annotate leaves with their intrinsic values.\n3. Evaluate inherited attributes from the root down, in the order the dependencies require (left siblings before right).\n4. Evaluate synthesized attributes bottom-up.\n\nThe answer is the synthesized attribute of the root. For a left-recursive rule L → L1 B {L.val = 2 · L1.val + B.val}, the value is folded from the left; for a right-recursive rule it is folded from the right.\n\n**Worked example.** E → T E′ {E′.in = T.val; E.val = E′.val}, E′ → + T E″ {E″.in = E′.in + T.val; E′.val = E″.val}, E′ → ε {E′.val = E′.in}, with T.val the number. Evaluate E.val for 2 + 3 + 4.\n\n1. SDD: E → T E′ {E′.in = T.val; E.val = E′.val}; E′ → + T E″ {E″.in = E′.in + T.val; E′.val = E″.val}; E′ → ε {E′.val = E′.in}; T.val is the number. Parse 2 + 3 + 4. We compute inherited values down the tree, then synthesized values up.\n2. First the leaves: T.val is 2, 3 and 4 for the three numbers. These are synthesized from the tokens.\n3. Inherited, top-down: E′.in = T.val for the first E′, taking the value of its left sibling T. So the first E′ gets in = 2.\n4. The second E′ gets in = E′.in + T.val = 2 + 3 = 5, from its parent and the T before it.\n5. The third E′ gets in = 5 + 4 = 9.\n6. The third E′ derives ε, and the ε-rule says E′.val = E′.in = 9. Do not drop this value: it starts the upward flow.\n7. Synthesized, bottom-up: each E′ copies val from its child, so E′.val = 9 at the second and first E′, and E.val = E′.val = 9. The value of 2 + 3 + 4 is 9.\n\n**Answer:** E.val = 9. The inherited values are 2, 5, 9, the ε-rule gives 9, and it is copied up.",
+   "why_full": "Evaluating an SDD to a number is the largest SDT pattern, and the hardest GATE question here combines integer and fraction parts. In GATE: draw the tree, track inherited and synthesized values, and include every ε value.\n\nAsked: 2022 CS Q65, 2023 CS Q60, 2024 CS1 Q37, 2004 CS Q45, 2003 CS Q58, 2006 CS Q59",
+   "trap": "Dropping the value of an ε-production, or folding from the wrong end of a left- or right-recursive rule. Another slip is to evaluate synthesized attributes before the inherited ones they depend on."
+  },
+  {
+   "atom_id": "s4",
+   "title": "Translation schemes",
+   "simple": "A translation scheme is a grammar with little instructions stuck in between the symbols, such as 'print this now'. The instruction runs exactly when the parser reaches that spot while reading the rule. If the instruction is at the very end of a rule, it runs the moment that rule is complete, that is, when the parser finishes gluing the pieces of that rule together. Because the parser finishes small pieces before the big pieces that contain them, the prints come out in an order where each piece is printed after all of its parts. In exam words: actions execute where they appear in the production; a trailing action fires at the reduction, so the output follows a postorder walk.",
+   "idea": "A **translation scheme** is a grammar with **semantic actions** written inside the right-hand sides. An action runs at the point where it sits. In a **bottom-up** parser an action at the **end** of a rule runs when the rule is **reduced**, so printing actions give **postorder** output. An action in the middle of a rule runs after the symbols to its left have been parsed.",
+   "definition": "A translation scheme embeds actions { … } in productions, for example E → E1 + T {print('+')}. The actions are executed in the order a depth-first, left-to-right traversal of the parse tree reaches them.\n\nFor a bottom-up parser with actions only at the ends of rules, the action runs at each reduction, so the order of actions is the order of reductions: a postorder traversal. An action inside a body is handled with a marker nonterminal that is reduced at that point.\n\nIn L-attributed schemes, an inherited attribute of a symbol must be computed by an action placed before that symbol, and a synthesized attribute of the left side by an action at the end.",
+   "intuition_full": "The tree is the same as in an SDD, but the order of evaluation is explicit: you walk the tree depth first from left to right, and run each action when the walk passes it. An action at the right end of a rule is reached after all the children, which is why trailing prints produce postfix. Prints that sit before a symbol are executed before that symbol's subtree is explored, giving prefix-like output. Mixed positions give mixed orders, and the safest way to answer is to simulate the walk. Output order is not the order of the input: in the postfix example the + of the first rule is printed after the whole right operand, because its rule is reduced last.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Scheme: E → E1 + T {print(+)} | T, T → T1 * F {print(*)} | F, F → num {print(num)}. A bottom-up parser parses 2 + 3 * 4. What is printed?",
+     "steps": [
+      "Scheme: E → E1 + T {print(+)} | T, T → T1 * F {print(*)} | F, F → num {print(num)}. Each action sits at the end of its rule, so a bottom-up parser runs it at the reduction. Input 2 + 3 * 4. The output is the order of reductions with actions.",
+      "Reduce F → 2: the action prints 2. The first number is output.",
+      "Reduce T → F and E → T. These rules have no action, so nothing is printed.",
+      "The parser shifts + and 3, then reduces F → 3, printing 3, and T → F, which prints nothing.",
+      "It shifts * and 4, reduces F → 4 and prints 4, then reduces T → T * F, whose action prints *.",
+      "Finally E → E + T reduces and prints +. The tree is complete.",
+      "Output: 2 3 4 * +, the postfix form of 2 + 3 * 4. An action at the end of a rule fires when its rule is reduced, so the printing order is a postorder walk of the tree."
+     ],
+     "answer": "2 3 4 * +. The prints fire at the reductions F → 2, F → 3, F → 4, T → T * F and E → E + T."
+    },
+    {
+     "level": "gate",
+     "setup": "Scheme: E → E1 + T {print(+)} | T, T → T1 * F {print(*)} | F, F → ( E ) | id {print(id.name)}. What is printed for (a + b) * c?",
+     "steps": [
+      "Reduce F → id for a: print a. Then T → F and E → T print nothing.",
+      "Reduce F → id for b: print b. Then T → F prints nothing, and E → E + T prints +.",
+      "F → ( E ) closes the brackets and has no action. T → F follows.",
+      "Reduce F → id for c: print c. Then T → T * F prints *. Output a b + c *. A script simulation of the scheme gives the same order."
+     ],
+     "answer": "a b + c *. Brackets change the shape of the tree but print nothing."
+    },
+    {
+     "level": "twist",
+     "setup": "Scheme: S → {print(1)} A {print(2)} B {print(3)}, A → a {print(4)}, B → b {print(5)}. What is printed for the input ab?",
+     "steps": [
+      "The walk goes left to right through S's body. The first action, print(1), sits before A, so it runs first.",
+      "Then A is parsed: A → a {print(4)} prints 4. Back in S, the action print(2) runs.",
+      "Then B is parsed: B → b {print(5)} prints 5. Finally print(3) runs at the end of S."
+     ],
+     "answer": "1 4 2 5 3. Actions fire where they sit, in a left-to-right depth-first walk."
+    }
+   ],
+   "why": "Translation scheme questions ask for the printed output, and the order is the whole point. In GATE: simulate a scheme on a short input, or say when a trailing action fires during bottom-up parsing.",
+   "how": [
+    "Draw the parse tree for the input.",
+    "Walk the tree depth first, left to right, writing the actions in the order they are reached.",
+    "A trailing action fires after all the symbols of its rule, an embedded action fires at its position.",
+    "For a bottom-up parser, trailing actions run at reductions: list the reductions in order."
+   ],
+   "mistake": "Printing actions in the order of the input instead of in the order of reductions (postorder). Another slip is to skip rules with no action: they still reduce but print nothing, and the action of the enclosing rule fires later.",
+   "edge_cases": [
+    "Actions placed in the middle of a rule need a marker nonterminal for LR parsers.",
+    "The same scheme can print different orders if the grammar's structure (left versus right recursion) changes.",
+    "A scheme with only trailing actions on every rule is the postfix-style scheme of an S-attributed SDD."
+   ],
+   "connections": [
+    "The attribute rules of an SDD (cards 1 to 3) become actions in a scheme.",
+    "Intermediate code generation (next chapter) uses the same postfix-style walk to emit code."
+   ],
+   "check": [
+    {
+     "q": "When does a trailing action run in a bottom-up parse?",
+     "a": "At the reduction of its rule."
+    },
+    {
+     "q": "What order does a trailing print produce?",
+     "a": "Postorder."
+    },
+    {
+     "q": "Does an action in the middle of a rule run before or after the symbols on its left?",
+     "a": "After them and before the symbols on its right."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q36, 2003 CS Q59, 2022 CS Q65, 2023 CS Q60, 2024 CS1 Q37",
+   "try": {
+    "id": "gen.sr.005",
+    "label": "When is a trailing action executed (L1)"
+   },
+   "scene": "cd.sdt_runtime.s4.scheme",
+   "example": {
+    "setup": "Scheme: E → E1 + T {print(+)} | T, T → T1 * F {print(*)} | F, F → num {print(num)}. A bottom-up parser parses 2 + 3 * 4. What is printed?",
+    "steps": [
+     "Scheme: E → E1 + T {print(+)} | T, T → T1 * F {print(*)} | F, F → num {print(num)}. Each action sits at the end of its rule, so a bottom-up parser runs it at the reduction. Input 2 + 3 * 4. The output is the order of reductions with actions.",
+     "Reduce F → 2: the action prints 2. The first number is output.",
+     "Reduce T → F and E → T. These rules have no action, so nothing is printed.",
+     "The parser shifts + and 3, then reduces F → 3, printing 3, and T → F, which prints nothing.",
+     "It shifts * and 4, reduces F → 4 and prints 4, then reduces T → T * F, whose action prints *.",
+     "Finally E → E + T reduces and prints +. The tree is complete.",
+     "Output: 2 3 4 * +, the postfix form of 2 + 3 * 4. An action at the end of a rule fires when its rule is reduced, so the printing order is a postorder walk of the tree."
+    ],
+    "answer": "2 3 4 * +. The prints fire at the reductions F → 2, F → 3, F → 4, T → T * F and E → E + T."
+   },
+   "what": "A **translation scheme** is a grammar with **semantic actions** written inside the right-hand sides. An action runs at the point where it sits. In a **bottom-up** parser an action at the **end** of a rule runs when the rule is **reduced**, so printing actions give **postorder** output. An action in the middle of a rule runs after the symbols to its left have been parsed.",
+   "what_full": "A **translation scheme** is a grammar with **semantic actions** written inside the right-hand sides. An action runs at the point where it sits. In a **bottom-up** parser an action at the **end** of a rule runs when the rule is **reduced**, so printing actions give **postorder** output. An action in the middle of a rule runs after the symbols to its left have been parsed.\n\nA translation scheme embeds actions { … } in productions, for example E → E1 + T {print('+')}. The actions are executed in the order a depth-first, left-to-right traversal of the parse tree reaches them.\n\nFor a bottom-up parser with actions only at the ends of rules, the action runs at each reduction, so the order of actions is the order of reductions: a postorder traversal. An action inside a body is handled with a marker nonterminal that is reduced at that point.\n\nIn L-attributed schemes, an inherited attribute of a symbol must be computed by an action placed before that symbol, and a synthesized attribute of the left side by an action at the end.\n\n**Worked example.** Scheme: E → E1 + T {print(+)} | T, T → T1 * F {print(*)} | F, F → num {print(num)}. A bottom-up parser parses 2 + 3 * 4. What is printed?\n\n1. Scheme: E → E1 + T {print(+)} | T, T → T1 * F {print(*)} | F, F → num {print(num)}. Each action sits at the end of its rule, so a bottom-up parser runs it at the reduction. Input 2 + 3 * 4. The output is the order of reductions with actions.\n2. Reduce F → 2: the action prints 2. The first number is output.\n3. Reduce T → F and E → T. These rules have no action, so nothing is printed.\n4. The parser shifts + and 3, then reduces F → 3, printing 3, and T → F, which prints nothing.\n5. It shifts * and 4, reduces F → 4 and prints 4, then reduces T → T * F, whose action prints *.\n6. Finally E → E + T reduces and prints +. The tree is complete.\n7. Output: 2 3 4 * +, the postfix form of 2 + 3 * 4. An action at the end of a rule fires when its rule is reduced, so the printing order is a postorder walk of the tree.\n\n**Answer:** 2 3 4 * +. The prints fire at the reductions F → 2, F → 3, F → 4, T → T * F and E → E + T.",
+   "why_full": "Translation scheme questions ask for the printed output, and the order is the whole point. In GATE: simulate a scheme on a short input, or say when a trailing action fires during bottom-up parsing.\n\nAsked: 2021 CS1 Q36, 2003 CS Q59, 2022 CS Q65, 2023 CS Q60, 2024 CS1 Q37",
+   "trap": "Printing actions in the order of the input instead of in the order of reductions (postorder). Another slip is to skip rules with no action: they still reduce but print nothing, and the action of the enclosing rule fires later."
+  },
+  {
+   "atom_id": "s5",
+   "title": "Activation records and trees",
+   "simple": "Every time a function is called, the computer writes a card for that call (its local variables, where to return to) and puts the card on top of a pile. When the function ends, the top card is thrown away. If you draw who called whom, you get a family tree of calls. The pile always holds the cards on the path from the first caller down to the call that is running now, so its height is the length of that path, not the number of calls ever made. In exam words: each call creates an activation record; calls follow a preorder walk of the activation tree, returns follow a postorder walk, and the stack holds the path from the root to the current node.",
+   "idea": "Every call creates an **activation record** (parameters, locals, return address, links) on the **stack**. The **activation tree** has one node per call. Calls visit the tree in **preorder**, returns in **postorder**. At any moment the stack holds the **path from the root to the current call**, so the maximum stack depth is the height of the tree plus 1, not the number of calls.",
+   "definition": "Activation tree: the root is the call of main; the children of a node are the calls made by that call, in order. The control stack contains the records of the calls on the path from the root to the current node.\n\nFacts: the order of calls is a preorder traversal; the order of returns is a postorder traversal; the maximum stack depth (counting records) equals the number of nodes on the longest root-to-leaf path; the total number of records ever created equals the number of nodes.\n\nAn activation record holds actual parameters, return value, control link (caller), access link (static parent), saved registers, local data and temporaries.",
+   "intuition_full": "The stack is last in, first out, and calls are nested: a call finishes before its caller continues. That nesting is exactly the tree structure: a node's whole subtree is executed between the node's call and its return. So at any time the live records are the ancestors of the running node. The number of nodes counts all the work ever done, but the stack only needs room for the deepest chain. This is why a function with two recursive calls takes exponentially many records overall but only linear stack depth. The record at the top is the running call. When asked for stack depth, count the longest chain of nested calls, and say whether main is included.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A(n) with n > 1 calls A(n-1) and then B; B calls C; C returns at once. main calls A(3). Draw the activation tree, then find the number of activation records created and the maximum number on the stack at once.",
+     "steps": [
+      "Program: main calls A(3). A(n) calls A(n-1) and then B when n > 1, and B calls C. Each call creates an activation record, and the activation tree has one node per call. The stack will hold the path from the root to the node being executed.",
+      "Calls follow a preorder walk of the tree. main calls A(3), which calls A(2), which calls A(1). Stack, bottom to top: main, A(3), A(2), A(1).",
+      "A(1) returns and its record is popped. A(2) then calls B, and B calls C. Stack: main, A(3), A(2), B, C. That is 5 records, the deepest point.",
+      "C, B and A(2) return, in postorder: each record is popped after everything it called. The stack is back to main, A(3).",
+      "A(3) now calls B, and B calls C. Stack: main, A(3), B, C, which is 4 records.",
+      "Everything returns. The tree has 8 nodes, so 8 activation records were created in total. But the stack held at most 5 at once: the longest root-to-node path, which is the height of the tree plus 1."
+     ],
+     "answer": "8 records are created. The maximum stack depth is 5: main, A(3), A(2), B, C."
+    },
+    {
+     "level": "gate",
+     "setup": "void t(int n) { if (n > 0) { t(n-1); t(n-2); } } is called as t(4). How many activation records are created in total, and what is the maximum number on the stack at once?",
+     "steps": [
+      "The number of calls N(n) satisfies N(n) = 1 + N(n-1) + N(n-2) for n > 0, and N(n) = 1 for n ≤ 0, where the calls with n ≤ 0 do nothing.",
+      "N(0) = N(-1) = 1, so N(1) = 3, N(2) = 1 + 3 + 1 = 5, N(3) = 1 + 5 + 3 = 9, N(4) = 1 + 9 + 5 = 15.",
+      "The deepest chain follows n-1 every time: t(4), t(3), t(2), t(1), t(0), which is 5 records.",
+      "A recursive simulation of the calls gives the same numbers."
+     ],
+     "answer": "15 records in total, and at most 5 on the stack at once."
+    },
+    {
+     "level": "twist",
+     "setup": "main() { for (i = 0; i < 4; i++) g(); } where g makes no calls. How many records are created and what is the maximum stack depth?",
+     "steps": [
+      "Each loop iteration calls g, which returns before the next iteration, so the calls are siblings in the tree, not nested.",
+      "Records created: main plus 4 calls of g = 5.",
+      "At any time the stack holds main and at most one g: depth 2."
+     ],
+     "answer": "5 records in total and a maximum depth of 2. Sequential calls do not stack up."
+    }
+   ],
+   "why": "Activation trees and stack depth are the base of run-time questions, and the confusion between total calls and stack depth costs marks. In GATE: draw an activation tree, count calls, find the maximum stack depth, or say in what order calls and returns happen.",
+   "how": [
+    "Draw the call tree in call order, children left to right.",
+    "Number the calls in preorder and the returns in postorder.",
+    "The stack at any time is the root-to-current path.",
+    "Maximum depth = nodes on the longest root-to-leaf path, in records."
+   ],
+   "mistake": "Counting all calls when asked for the stack depth. The stack holds only the chain of nested calls. A second slip is to forget whether main's record counts.",
+   "edge_cases": [
+    "Sequential calls (in a loop) share one stack position, one after the other.",
+    "Tail calls can be optimised away, but the standard model keeps every record.",
+    "The heap does not hold activation records."
+   ],
+   "connections": [
+    "Access links and control links (card 7) are fields of these records.",
+    "Parameter passing (card 6) decides what the record stores for each argument."
+   ],
+   "check": [
+    {
+     "q": "Which walk order do calls follow in the activation tree?",
+     "a": "Preorder."
+    },
+    {
+     "q": "Which order do returns follow?",
+     "a": "Postorder."
+    },
+    {
+     "q": "A tree has 12 nodes and height 4. How many records can be on the stack at most?",
+     "a": "5, the longest path in nodes (height 4 means 5 nodes)."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q14, 2023 CS Q36",
+   "try": {
+    "id": "gen.sr.008",
+    "label": "Nodes in the activation tree of fib(4) (L2)"
+   },
+   "scene": "cd.sdt_runtime.s5.activation",
+   "example": {
+    "setup": "A(n) with n > 1 calls A(n-1) and then B; B calls C; C returns at once. main calls A(3). Draw the activation tree, then find the number of activation records created and the maximum number on the stack at once.",
+    "steps": [
+     "Program: main calls A(3). A(n) calls A(n-1) and then B when n > 1, and B calls C. Each call creates an activation record, and the activation tree has one node per call. The stack will hold the path from the root to the node being executed.",
+     "Calls follow a preorder walk of the tree. main calls A(3), which calls A(2), which calls A(1). Stack, bottom to top: main, A(3), A(2), A(1).",
+     "A(1) returns and its record is popped. A(2) then calls B, and B calls C. Stack: main, A(3), A(2), B, C. That is 5 records, the deepest point.",
+     "C, B and A(2) return, in postorder: each record is popped after everything it called. The stack is back to main, A(3).",
+     "A(3) now calls B, and B calls C. Stack: main, A(3), B, C, which is 4 records.",
+     "Everything returns. The tree has 8 nodes, so 8 activation records were created in total. But the stack held at most 5 at once: the longest root-to-node path, which is the height of the tree plus 1."
+    ],
+    "answer": "8 records are created. The maximum stack depth is 5: main, A(3), A(2), B, C."
+   },
+   "what": "Every call creates an **activation record** (parameters, locals, return address, links) on the **stack**. The **activation tree** has one node per call. Calls visit the tree in **preorder**, returns in **postorder**. At any moment the stack holds the **path from the root to the current call**, so the maximum stack depth is the height of the tree plus 1, not the number of calls.",
+   "what_full": "Every call creates an **activation record** (parameters, locals, return address, links) on the **stack**. The **activation tree** has one node per call. Calls visit the tree in **preorder**, returns in **postorder**. At any moment the stack holds the **path from the root to the current call**, so the maximum stack depth is the height of the tree plus 1, not the number of calls.\n\nActivation tree: the root is the call of main; the children of a node are the calls made by that call, in order. The control stack contains the records of the calls on the path from the root to the current node.\n\nFacts: the order of calls is a preorder traversal; the order of returns is a postorder traversal; the maximum stack depth (counting records) equals the number of nodes on the longest root-to-leaf path; the total number of records ever created equals the number of nodes.\n\nAn activation record holds actual parameters, return value, control link (caller), access link (static parent), saved registers, local data and temporaries.\n\n**Worked example.** A(n) with n > 1 calls A(n-1) and then B; B calls C; C returns at once. main calls A(3). Draw the activation tree, then find the number of activation records created and the maximum number on the stack at once.\n\n1. Program: main calls A(3). A(n) calls A(n-1) and then B when n > 1, and B calls C. Each call creates an activation record, and the activation tree has one node per call. The stack will hold the path from the root to the node being executed.\n2. Calls follow a preorder walk of the tree. main calls A(3), which calls A(2), which calls A(1). Stack, bottom to top: main, A(3), A(2), A(1).\n3. A(1) returns and its record is popped. A(2) then calls B, and B calls C. Stack: main, A(3), A(2), B, C. That is 5 records, the deepest point.\n4. C, B and A(2) return, in postorder: each record is popped after everything it called. The stack is back to main, A(3).\n5. A(3) now calls B, and B calls C. Stack: main, A(3), B, C, which is 4 records.\n6. Everything returns. The tree has 8 nodes, so 8 activation records were created in total. But the stack held at most 5 at once: the longest root-to-node path, which is the height of the tree plus 1.\n\n**Answer:** 8 records are created. The maximum stack depth is 5: main, A(3), A(2), B, C.",
+   "why_full": "Activation trees and stack depth are the base of run-time questions, and the confusion between total calls and stack depth costs marks. In GATE: draw an activation tree, count calls, find the maximum stack depth, or say in what order calls and returns happen.\n\nAsked: 2021 CS1 Q14, 2023 CS Q36",
+   "trap": "Counting all calls when asked for the stack depth. The stack holds only the chain of nested calls. A second slip is to forget whether main's record counts."
+  },
+  {
+   "atom_id": "s6",
+   "title": "Parameter passing",
+   "simple": "When you call a function and hand it a variable, there are several ways the function can receive it. It can get a photocopy, so whatever it scribbles never reaches your original (value). It can get your original itself, so every change shows up immediately (reference). It can take a photocopy but write the final result back onto your original when it finishes (copy-restore). Or it can receive only the instruction 'use whatever this expression says' and look it up again each time it needs it (name). The answer to a question depends on which of these is used. In exam words: call by value copies, reference aliases the actual, copy-restore copies in and out, name re-evaluates the argument expression at every use, and need is name with caching.",
+   "idea": "**Call by value** copies the argument, and **call by reference** passes the address, so the formal aliases the actual. **Copy-restore** copies in at the call and out at the return. **Call by name** re-evaluates the argument expression at every use, and **call by need** is call by name with caching.",
+   "definition": "For a call f(E) with formal x:\n\n- value: x is a new variable initialised to the value of E; changes to x are lost;\n- reference: x is bound to the address of E (E must be an l-value); every read or write of x acts on E;\n- copy-restore: copy the value of E into x at entry; at exit copy x back into the address of E, which was computed at the call;\n- name: each occurrence of x in the body is replaced by the expression E, evaluated in the caller's environment at that time;\n- need: as name, but E is evaluated at most once, at the first use, and the value is cached.\n\nFor expressions with side effects or indices, name and reference can differ.",
+   "intuition_full": "Ask two questions: what does the formal hold (a copy or the original), and when is the argument evaluated (once at the call, at every use, or at the first use)? Value and copy-restore evaluate once, at the call. Reference evaluates the address once at the call. Name re-evaluates the expression at every use, which matters when the expression contains a variable that the body changes: A[i] changes meaning if i changes. Copy-restore differs from reference only if the body reads the original through another path (a global) during the call, as with the global n here. When a question gives a global that the function changes, trace the values step by step in each mode.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "int n = 4; void h(int p) { n = n + 1; p = p * 2; } is called as h(n). What is n after the call under call by value, by reference, by copy-restore and by name?",
+     "steps": [
+      "The call h(n) with n = 4 runs n = n + 1 and p = p * 2. The final value of n depends on how p is passed. We try four modes.",
+      "Call by value: p is a copy of 4. n = n + 1 makes n = 5. p = p * 2 changes only the copy, so p = 8. After the call, n = 5.",
+      "Call by reference: p is the same cell as n. n = n + 1 gives 5, then p = p * 2 doubles that same cell: 10. After the call, n = 10.",
+      "Call by copy-restore: p starts as a copy of 4. During the call n = 5 and p = 8. At return, p is copied back into n, so n = 8.",
+      "Call by name: every use of p is replaced by the text n. So n = n + 1 gives 5 and then n = n * 2 gives 10. After the call, n = 10.",
+      "The four modes give four ideas: value 5, reference 10, copy-restore 8, name 10. Reference and name agree here because no expression in the argument changes during the call."
+     ],
+     "answer": "Value: 5. Reference: 10. Copy-restore: 8. Name: 10."
+    },
+    {
+     "level": "gate",
+     "setup": "int i = 1; int A[3] = {4, 5, 6}; void q(int x) { i = i + 1; x = x + 10; } is called as q(A[i]). What are A[0], A[1], A[2] afterwards under each mode?",
+     "steps": [
+      "Value: x is a copy of A[1] = 5. It becomes 15 locally. A is unchanged: 4, 5, 6.",
+      "Reference: x aliases A[1], chosen at the call when i = 1. After i = 2, x is still A[1], and x = x + 10 makes A[1] = 15: 4, 15, 6.",
+      "Copy-restore: x starts as 5 and becomes 15. At return it is copied to the address computed at the call, A[1]: 4, 15, 6.",
+      "Name: x is replaced by A[i]. By the time x = x + 10 runs, i = 2, so A[2] = A[2] + 10 = 16: 4, 5, 16. A script simulating the four modes gives the same results."
+     ],
+     "answer": "Value (4, 5, 6). Reference (4, 15, 6). Copy-restore (4, 15, 6). Name (4, 5, 16)."
+    },
+    {
+     "level": "twist",
+     "setup": "int c = 0; int g() { c = c + 1; return c; } int f(int x) { return x + x; } is called as f(g()). What does f return by value, by name and by need?",
+     "steps": [
+      "By value: g() is evaluated once at the call and returns 1. x = 1, so x + x = 2.",
+      "By name: each x is replaced by g(). The first x gives 1, the second gives 2. So the result is 1 + 2 = 3.",
+      "By need: g() is evaluated at the first use, giving 1, and the value is cached. The second x reuses it: 1 + 1 = 2."
+     ],
+     "answer": "Value 2, name 3, need 2. Name re-evaluates, need caches."
+    }
+   ],
+   "why": "Parameter passing questions give a short program and ask what it prints under each mode. In GATE: trace the values and say where the argument is evaluated and when.",
+   "how": [
+    "Decide for each mode what the formal holds: a copy, the original, or an expression.",
+    "Decide when the argument is evaluated: at the call, at every use, or at the first use.",
+    "Trace the body with the current values of globals and indices.",
+    "For copy-restore, copy back to the address computed at the call, at the return."
+   ],
+   "mistake": "Treating call by name as call by reference. Name re-evaluates the argument expression after side effects, so A[i] can refer to a different element once i changes. Another slip is to copy back to the wrong address in copy-restore.",
+   "edge_cases": [
+    "Reference needs an l-value; passing 2+3 by reference passes a temporary.",
+    "Copy-restore and reference agree unless the body reads the original through a global or another alias.",
+    "Call by name is rarely implemented directly: it needs thunks, small pieces of code that evaluate the argument."
+   ],
+   "connections": [
+    "The activation record (previous card) stores the parameters in these forms.",
+    "Scoping (next card) decides which variables the argument expression refers to."
+   ],
+   "check": [
+    {
+     "q": "Which mode lets the function change the caller's variable immediately?",
+     "a": "Call by reference."
+    },
+    {
+     "q": "When is the argument of a call by name evaluated?",
+     "a": "At every use of the formal parameter."
+    },
+    {
+     "q": "What does call by need add to call by name?",
+     "a": "Caching: it evaluates at most once."
+    }
+   ],
+   "asked": "Asked: 2003 CS Q73, 2003 CS Q74, 2004 CS Q2",
+   "try": {
+    "id": "gen.sr.003",
+    "label": "What a callee receives under call by reference (L1)"
+   },
+   "scene": "cd.sdt_runtime.s6.params",
+   "example": {
+    "setup": "int n = 4; void h(int p) { n = n + 1; p = p * 2; } is called as h(n). What is n after the call under call by value, by reference, by copy-restore and by name?",
+    "steps": [
+     "The call h(n) with n = 4 runs n = n + 1 and p = p * 2. The final value of n depends on how p is passed. We try four modes.",
+     "Call by value: p is a copy of 4. n = n + 1 makes n = 5. p = p * 2 changes only the copy, so p = 8. After the call, n = 5.",
+     "Call by reference: p is the same cell as n. n = n + 1 gives 5, then p = p * 2 doubles that same cell: 10. After the call, n = 10.",
+     "Call by copy-restore: p starts as a copy of 4. During the call n = 5 and p = 8. At return, p is copied back into n, so n = 8.",
+     "Call by name: every use of p is replaced by the text n. So n = n + 1 gives 5 and then n = n * 2 gives 10. After the call, n = 10.",
+     "The four modes give four ideas: value 5, reference 10, copy-restore 8, name 10. Reference and name agree here because no expression in the argument changes during the call."
+    ],
+    "answer": "Value: 5. Reference: 10. Copy-restore: 8. Name: 10."
+   },
+   "what": "**Call by value** copies the argument, and **call by reference** passes the address, so the formal aliases the actual. **Copy-restore** copies in at the call and out at the return. **Call by name** re-evaluates the argument expression at every use, and **call by need** is call by name with caching.",
+   "what_full": "**Call by value** copies the argument, and **call by reference** passes the address, so the formal aliases the actual. **Copy-restore** copies in at the call and out at the return. **Call by name** re-evaluates the argument expression at every use, and **call by need** is call by name with caching.\n\nFor a call f(E) with formal x:\n\n- value: x is a new variable initialised to the value of E; changes to x are lost;\n- reference: x is bound to the address of E (E must be an l-value); every read or write of x acts on E;\n- copy-restore: copy the value of E into x at entry; at exit copy x back into the address of E, which was computed at the call;\n- name: each occurrence of x in the body is replaced by the expression E, evaluated in the caller's environment at that time;\n- need: as name, but E is evaluated at most once, at the first use, and the value is cached.\n\nFor expressions with side effects or indices, name and reference can differ.\n\n**Worked example.** int n = 4; void h(int p) { n = n + 1; p = p * 2; } is called as h(n). What is n after the call under call by value, by reference, by copy-restore and by name?\n\n1. The call h(n) with n = 4 runs n = n + 1 and p = p * 2. The final value of n depends on how p is passed. We try four modes.\n2. Call by value: p is a copy of 4. n = n + 1 makes n = 5. p = p * 2 changes only the copy, so p = 8. After the call, n = 5.\n3. Call by reference: p is the same cell as n. n = n + 1 gives 5, then p = p * 2 doubles that same cell: 10. After the call, n = 10.\n4. Call by copy-restore: p starts as a copy of 4. During the call n = 5 and p = 8. At return, p is copied back into n, so n = 8.\n5. Call by name: every use of p is replaced by the text n. So n = n + 1 gives 5 and then n = n * 2 gives 10. After the call, n = 10.\n6. The four modes give four ideas: value 5, reference 10, copy-restore 8, name 10. Reference and name agree here because no expression in the argument changes during the call.\n\n**Answer:** Value: 5. Reference: 10. Copy-restore: 8. Name: 10.",
+   "why_full": "Parameter passing questions give a short program and ask what it prints under each mode. In GATE: trace the values and say where the argument is evaluated and when.\n\nAsked: 2003 CS Q73, 2003 CS Q74, 2004 CS Q2",
+   "trap": "Treating call by name as call by reference. Name re-evaluates the argument expression after side effects, so A[i] can refer to a different element once i changes. Another slip is to copy back to the wrong address in copy-restore."
+  },
+  {
+   "atom_id": "s7",
+   "title": "Scoping and access links",
+   "simple": "Suppose you are looking for the meaning of a name inside a function. There are two ways to search. In the first, you look in the function where the name is used, then in the function that contains it in the written program, then in the one that contains that, like looking in your own bedroom, then your house, then your street. In the second, you look in your own function, then in whoever called you, then in whoever called them, like asking the person who phoned you, then who phoned them. The two searches can find different things with the same name. In exam words: static (lexical) scoping follows the nesting in the text through access links, while dynamic scoping follows the call chain through control links.",
+   "idea": "With **static (lexical) scoping**, a free name is resolved in the nearest enclosing scope in the **program text**, using **access links** that point to the static parent's record. With **dynamic scoping**, it is resolved in the most recent caller that has the name, using the **control links**. The same program can print different values.",
+   "definition": "Each activation record has two links:\n\n- the control link points to the record of the caller (used to return and for dynamic scoping);\n- the access link points to the record of the procedure that statically encloses this one (used for static scoping).\n\nStatic lookup of a non-local name declared k levels up in the nesting follows k access links, where k = (nesting depth of the use) − (nesting depth of the declaration). For a recursive call, the access link points to the same static parent as the caller's, not to the previous activation.\n\nDynamic lookup walks the control links until a record containing the name is found.",
+   "intuition_full": "Static scope is a property of the text: you can resolve every name by reading the program, without running it. The access link is just a shortcut that finds the right record at run time. Dynamic scope depends on how the procedure was reached, so the same name can mean different variables on different calls. Most languages use static scope because it is predictable. When you trace a question, first draw the call chain (control links) and then draw the nesting structure (access links) separately: they are different pictures. In nested procedures, a procedure's access link points to the record of the nearest enclosing procedure that is currently active, found by following the caller's access links.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "main declares int x = 1, procedure P (local y = 2) containing procedure R, and procedure Q (local x = 10). main calls Q, Q calls P, P calls R, and R prints x + y. What is printed under static and under dynamic scoping?",
+     "steps": [
+      "Program: main declares x = 1, procedure P (with local y = 2) which contains R, and procedure Q (with its own x = 10). The calls are main → Q → P → R, and R prints x + y. Each record has a control link to its caller and an access link to its static parent.",
+      "main calls Q: Q's record is pushed. Its control link points to its caller, main.",
+      "Q calls P, and P calls R. Each new record's control link points to the caller. Stack, top first: R, P, Q, main.",
+      "Access links follow the program text. R is declared inside P, so R's access link points to P's record. P and Q are declared in main, so their access links point to main, and P's skips over Q.",
+      "Static scoping: y is found in P, one access link up. x is not in R or P, so follow the access links to main: x = 1. R prints 1 + 2 = 3.",
+      "Dynamic scoping: follow the control links, the call chain. y = 2 is in P. x is not in R or P, so look in Q, the caller of P: x = 10. R prints 10 + 2 = 12.",
+      "Same program, two answers: 3 and 12. Access links serve lexical (static) scope, control links serve returns and dynamic scope. The number of access-link hops equals the depth of the use minus the depth of the declaration."
+     ],
+     "answer": "Static: 1 + 2 = 3. Dynamic: 10 + 2 = 12."
+    },
+    {
+     "level": "gate",
+     "setup": "Procedures are nested: main (depth 0) contains A (depth 1), A contains B (depth 2), and B contains C (depth 3). Inside C a variable declared in A and a variable declared in main are used. How many access-link hops reach each?",
+     "steps": [
+      "The number of hops is the depth of the use minus the depth of the declaration.",
+      "C is at depth 3 and A at depth 1: 3 − 1 = 2 hops. C's link goes to B, and B's link goes to A.",
+      "For main at depth 0: 3 − 0 = 3 hops.",
+      "A variable of C itself needs 0 hops."
+     ],
+     "answer": "2 hops for A's variable, 3 hops for main's variable."
+    },
+    {
+     "level": "twist",
+     "setup": "P is declared in main and calls itself recursively three times. Where does the access link of the third P record point?",
+     "steps": [
+      "The access link points to the record of the procedure that statically encloses P, which is main.",
+      "A recursive call does not nest P inside the previous P: P's declaration sits in main, so every P record has main as its static parent.",
+      "The control links form a chain P → P → P → main, but the access links all point straight to main."
+     ],
+     "answer": "To main's record, not to the previous P. Recursion changes control links, not access links."
+    }
+   ],
+   "why": "Scoping questions ask what a short program prints under static and dynamic scope, or which record an access link points to. In GATE: trace both lookups, and separate the control chain from the static nesting.",
+   "how": [
+    "Draw the call chain: this gives the control links and the dynamic lookup order.",
+    "Draw the static nesting: this gives the access links and the static lookup order.",
+    "To resolve a name statically, follow access links; dynamically, follow control links.",
+    "For hop counts, subtract the nesting depths."
+   ],
+   "mistake": "Mixing up the access link (lexical) and the control link (caller). They often point to different records, and a recursive call does not change the access link's target. Another slip is to resolve a name along the call chain when the question says static scope.",
+   "edge_cases": [
+    "In a language with only global and local scope, access links are not needed.",
+    "A procedure passed as an argument carries its static environment with it (a closure).",
+    "Dynamic scoping makes programs hard to reason about, because the meaning of a name depends on the caller."
+   ],
+   "connections": [
+    "Activation records (card 5) hold these links.",
+    "Storage allocation (next card) says where the records and the variables live."
+   ],
+   "check": [
+    {
+     "q": "Which link does dynamic scoping follow?",
+     "a": "The control link (the caller chain)."
+    },
+    {
+     "q": "Where does a procedure's access link point?",
+     "a": "To the record of its statically enclosing procedure."
+    },
+    {
+     "q": "A procedure at depth 4 uses a variable of depth 1. How many access-link hops?",
+     "a": "3."
+    }
+   ],
+   "asked": "Asked: 2003 CS Q73, 2003 CS Q74, 2004 CS Q2",
+   "try": {
+    "id": "gen.sr.004",
+    "label": "Where a free variable is resolved under static scoping (L1)"
+   },
+   "scene": "cd.sdt_runtime.s7.scope",
+   "example": {
+    "setup": "main declares int x = 1, procedure P (local y = 2) containing procedure R, and procedure Q (local x = 10). main calls Q, Q calls P, P calls R, and R prints x + y. What is printed under static and under dynamic scoping?",
+    "steps": [
+     "Program: main declares x = 1, procedure P (with local y = 2) which contains R, and procedure Q (with its own x = 10). The calls are main → Q → P → R, and R prints x + y. Each record has a control link to its caller and an access link to its static parent.",
+     "main calls Q: Q's record is pushed. Its control link points to its caller, main.",
+     "Q calls P, and P calls R. Each new record's control link points to the caller. Stack, top first: R, P, Q, main.",
+     "Access links follow the program text. R is declared inside P, so R's access link points to P's record. P and Q are declared in main, so their access links point to main, and P's skips over Q.",
+     "Static scoping: y is found in P, one access link up. x is not in R or P, so follow the access links to main: x = 1. R prints 1 + 2 = 3.",
+     "Dynamic scoping: follow the control links, the call chain. y = 2 is in P. x is not in R or P, so look in Q, the caller of P: x = 10. R prints 10 + 2 = 12.",
+     "Same program, two answers: 3 and 12. Access links serve lexical (static) scope, control links serve returns and dynamic scope. The number of access-link hops equals the depth of the use minus the depth of the declaration."
+    ],
+    "answer": "Static: 1 + 2 = 3. Dynamic: 10 + 2 = 12."
+   },
+   "what": "With **static (lexical) scoping**, a free name is resolved in the nearest enclosing scope in the **program text**, using **access links** that point to the static parent's record. With **dynamic scoping**, it is resolved in the most recent caller that has the name, using the **control links**. The same program can print different values.",
+   "what_full": "With **static (lexical) scoping**, a free name is resolved in the nearest enclosing scope in the **program text**, using **access links** that point to the static parent's record. With **dynamic scoping**, it is resolved in the most recent caller that has the name, using the **control links**. The same program can print different values.\n\nEach activation record has two links:\n\n- the control link points to the record of the caller (used to return and for dynamic scoping);\n- the access link points to the record of the procedure that statically encloses this one (used for static scoping).\n\nStatic lookup of a non-local name declared k levels up in the nesting follows k access links, where k = (nesting depth of the use) − (nesting depth of the declaration). For a recursive call, the access link points to the same static parent as the caller's, not to the previous activation.\n\nDynamic lookup walks the control links until a record containing the name is found.\n\n**Worked example.** main declares int x = 1, procedure P (local y = 2) containing procedure R, and procedure Q (local x = 10). main calls Q, Q calls P, P calls R, and R prints x + y. What is printed under static and under dynamic scoping?\n\n1. Program: main declares x = 1, procedure P (with local y = 2) which contains R, and procedure Q (with its own x = 10). The calls are main → Q → P → R, and R prints x + y. Each record has a control link to its caller and an access link to its static parent.\n2. main calls Q: Q's record is pushed. Its control link points to its caller, main.\n3. Q calls P, and P calls R. Each new record's control link points to the caller. Stack, top first: R, P, Q, main.\n4. Access links follow the program text. R is declared inside P, so R's access link points to P's record. P and Q are declared in main, so their access links point to main, and P's skips over Q.\n5. Static scoping: y is found in P, one access link up. x is not in R or P, so follow the access links to main: x = 1. R prints 1 + 2 = 3.\n6. Dynamic scoping: follow the control links, the call chain. y = 2 is in P. x is not in R or P, so look in Q, the caller of P: x = 10. R prints 10 + 2 = 12.\n7. Same program, two answers: 3 and 12. Access links serve lexical (static) scope, control links serve returns and dynamic scope. The number of access-link hops equals the depth of the use minus the depth of the declaration.\n\n**Answer:** Static: 1 + 2 = 3. Dynamic: 10 + 2 = 12.",
+   "why_full": "Scoping questions ask what a short program prints under static and dynamic scope, or which record an access link points to. In GATE: trace both lookups, and separate the control chain from the static nesting.\n\nAsked: 2003 CS Q73, 2003 CS Q74, 2004 CS Q2",
+   "trap": "Mixing up the access link (lexical) and the control link (caller). They often point to different records, and a recursive call does not change the access link's target. Another slip is to resolve a name along the call chain when the question says static scope."
+  },
+  {
+   "atom_id": "s8",
+   "title": "Storage allocation",
+   "simple": "A program uses three kinds of storage, like three kinds of shelves. One shelf has labels that never move and things that stay for the whole time the program runs, such as globals. Another is a pile of cards, one card per running function call, which is thrown away when that call ends, and it holds the local variables. The third is a big open area where the program can ask for a chunk when it needs one and has to give it back by itself later. Where a variable goes depends on how long it has to live. In exam words: the static area holds globals and static variables, the stack holds activation records, and the heap holds memory allocated at run time with malloc or new; recursion needs a stack.",
+   "idea": "Run-time storage has three regions: the **static area** (globals, static locals and constants, at fixed addresses for the whole run), the **stack** (activation records of the active calls) and the **heap** (memory allocated at run time, which lives until it is freed). **Lifetime** decides the region, and **recursion** needs a stack, not a heap.",
+   "definition": "Static allocation: size and address known at compile time (globals, static locals, code, string literals). Lifetime: the whole program run.\n\nStack allocation: locals, parameters and return addresses live in the activation record, allocated on call and freed on return. Needed for recursion.\n\nHeap allocation: malloc, new; allocated and freed at run time in any order. A pointer variable is itself on the stack (or static), while the block it points to is on the heap.\n\nProblems: a dangling reference points to freed or popped storage; a memory leak is heap memory that is never freed; a stack overflow comes from too many nested calls.",
+   "intuition_full": "Storage must live exactly as long as the program needs it, and each region matches one lifetime pattern. Things that are needed throughout can be fixed at compile time. Things that exist only during a call follow the nesting of calls, so a stack is the natural structure: the last call to start is the first to finish. Things whose lifetime does not follow call nesting, such as a list built in one function and used in another, need a region where blocks are allocated and freed independently: the heap. A subtle point is the pointer: the variable p lives on the stack, but the memory it points to lives on the heap and survives the return. Returning the address of a local is wrong because the local lives on the stack and is popped.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "int g = 5; void f() { int a; static int c; int *p = malloc(4); } Say where g, a, c, p and *p are stored, and what happens when f returns.",
+     "steps": [
+      "Where do the variables of this C program live? Run-time storage has three regions: the static area (fixed addresses, whole run), the stack (activation records) and the heap (memory allocated on request). Lifetime decides the region.",
+      "The global g and the static local c have one fixed address and live for the whole run. They go in the static area.",
+      "The local a and the pointer variable p are created each time f is called and disappear when it returns. They sit in f's activation record on the stack.",
+      "malloc(4) allocates the 4 bytes that p points to while the program runs, and they live until they are freed. That block is in the heap, and p holds its address.",
+      "f returns. Its record is popped, so a and p are gone. g and c stay in the static area. The heap block stays: without free it is a leak, and returning the address of a would give a dangling reference.",
+      "Recursion needs a stack, not a heap, because each call needs its own record that is popped in reverse order. Sizes known at compile time can be static. Sizes known only at run time, or lifetimes not tied to calls, need the heap."
+     ],
+     "answer": "g and c: static area. a and p: stack. *p: heap. At return a and p disappear, g, c and the heap block remain (the block leaks unless freed)."
+    },
+    {
+     "level": "gate",
+     "setup": "In which region is each of these stored? (i) a local variable of a recursive function  (ii) a global array  (iii) memory obtained with new or malloc  (iv) the return address of a call  (v) a static local variable  (vi) a string literal",
+     "steps": [
+      "(i) Each call needs its own copy, created at call and removed at return: stack.",
+      "(ii) A global array has a fixed address and exists for the whole run: static area.",
+      "(iii) Allocated and freed at run time in any order: heap.",
+      "(iv) The return address is stored in the activation record: stack.",
+      "(v) A static local has one copy for the whole run, so it is in the static area, not the stack. (vi) String literals are constant data in the static (read-only) area."
+     ],
+     "answer": "(i) stack, (ii) static, (iii) heap, (iv) stack, (v) static, (vi) static."
+    },
+    {
+     "level": "twist",
+     "setup": "Infinite recursion crashes a program. Forgetting free also hurts it. Which region does each exhaust?",
+     "steps": [
+      "Infinite recursion keeps pushing activation records and never pops them. The stack region fills up: a stack overflow.",
+      "A missing free leaves heap blocks allocated that are never reused. The heap region slowly fills: a memory leak.",
+      "Neither problem touches the static area, whose size is fixed at compile time."
+     ],
+     "answer": "Infinite recursion exhausts the stack, a leak exhausts the heap."
+    }
+   ],
+   "why": "Storage questions are fact checks about regions and lifetimes. In GATE: say where a variable lives, which statement about static, stack and heap is true, and what is known at compile time versus run time.",
+   "how": [
+    "Ask how long the variable must live: the whole run, one call, or until freed.",
+    "Whole run: static. One call: stack. Until freed: heap.",
+    "For a pointer, separate the pointer variable (stack or static) from the object (usually heap).",
+    "Remember that recursion needs a stack, and that sizes known only at run time need the heap or a stack record of variable size."
+   ],
+   "mistake": "Assuming recursion needs the heap. It needs a stack: each call's record is pushed and popped in order. Another slip is to put a static local on the stack, or to forget that the block a local pointer refers to lives on the heap.",
+   "edge_cases": [
+    "Static allocation cannot support recursion, because each recursive call needs fresh locals.",
+    "Variable-length arrays are allocated in the activation record at run time.",
+    "Garbage collection reclaims unreachable heap blocks automatically."
+   ],
+   "connections": [
+    "Activation records (card 5) are what the stack holds.",
+    "Scoping (previous card) is about names; storage is about where the values live."
+   ],
+   "check": [
+    {
+     "q": "Where does a static local variable live?",
+     "a": "In the static area."
+    },
+    {
+     "q": "Where does the object that malloc returns live?",
+     "a": "On the heap."
+    },
+    {
+     "q": "What happens to a local variable's storage when the function returns?",
+     "a": "It is popped with the activation record."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q19, 2026 CS2 Q17, 2010 CS Q14, 2014 CS2 Q18",
+   "try": {
+    "id": "gen.sr.011",
+    "label": "True statement about run-time storage (L2)"
+   },
+   "scene": "cd.sdt_runtime.s8.storage",
+   "example": {
+    "setup": "int g = 5; void f() { int a; static int c; int *p = malloc(4); } Say where g, a, c, p and *p are stored, and what happens when f returns.",
+    "steps": [
+     "Where do the variables of this C program live? Run-time storage has three regions: the static area (fixed addresses, whole run), the stack (activation records) and the heap (memory allocated on request). Lifetime decides the region.",
+     "The global g and the static local c have one fixed address and live for the whole run. They go in the static area.",
+     "The local a and the pointer variable p are created each time f is called and disappear when it returns. They sit in f's activation record on the stack.",
+     "malloc(4) allocates the 4 bytes that p points to while the program runs, and they live until they are freed. That block is in the heap, and p holds its address.",
+     "f returns. Its record is popped, so a and p are gone. g and c stay in the static area. The heap block stays: without free it is a leak, and returning the address of a would give a dangling reference.",
+     "Recursion needs a stack, not a heap, because each call needs its own record that is popped in reverse order. Sizes known at compile time can be static. Sizes known only at run time, or lifetimes not tied to calls, need the heap."
+    ],
+    "answer": "g and c: static area. a and p: stack. *p: heap. At return a and p disappear, g, c and the heap block remain (the block leaks unless freed)."
+   },
+   "what": "Run-time storage has three regions: the **static area** (globals, static locals and constants, at fixed addresses for the whole run), the **stack** (activation records of the active calls) and the **heap** (memory allocated at run time, which lives until it is freed). **Lifetime** decides the region, and **recursion** needs a stack, not a heap.",
+   "what_full": "Run-time storage has three regions: the **static area** (globals, static locals and constants, at fixed addresses for the whole run), the **stack** (activation records of the active calls) and the **heap** (memory allocated at run time, which lives until it is freed). **Lifetime** decides the region, and **recursion** needs a stack, not a heap.\n\nStatic allocation: size and address known at compile time (globals, static locals, code, string literals). Lifetime: the whole program run.\n\nStack allocation: locals, parameters and return addresses live in the activation record, allocated on call and freed on return. Needed for recursion.\n\nHeap allocation: malloc, new; allocated and freed at run time in any order. A pointer variable is itself on the stack (or static), while the block it points to is on the heap.\n\nProblems: a dangling reference points to freed or popped storage; a memory leak is heap memory that is never freed; a stack overflow comes from too many nested calls.\n\n**Worked example.** int g = 5; void f() { int a; static int c; int *p = malloc(4); } Say where g, a, c, p and *p are stored, and what happens when f returns.\n\n1. Where do the variables of this C program live? Run-time storage has three regions: the static area (fixed addresses, whole run), the stack (activation records) and the heap (memory allocated on request). Lifetime decides the region.\n2. The global g and the static local c have one fixed address and live for the whole run. They go in the static area.\n3. The local a and the pointer variable p are created each time f is called and disappear when it returns. They sit in f's activation record on the stack.\n4. malloc(4) allocates the 4 bytes that p points to while the program runs, and they live until they are freed. That block is in the heap, and p holds its address.\n5. f returns. Its record is popped, so a and p are gone. g and c stay in the static area. The heap block stays: without free it is a leak, and returning the address of a would give a dangling reference.\n6. Recursion needs a stack, not a heap, because each call needs its own record that is popped in reverse order. Sizes known at compile time can be static. Sizes known only at run time, or lifetimes not tied to calls, need the heap.\n\n**Answer:** g and c: static area. a and p: stack. *p: heap. At return a and p disappear, g, c and the heap block remain (the block leaks unless freed).",
+   "why_full": "Storage questions are fact checks about regions and lifetimes. In GATE: say where a variable lives, which statement about static, stack and heap is true, and what is known at compile time versus run time.\n\nAsked: 2020 CS Q19, 2026 CS2 Q17, 2010 CS Q14, 2014 CS2 Q18",
+   "trap": "Assuming recursion needs the heap. It needs a stack: each call's record is pushed and popped in order. Another slip is to put a static local on the stack, or to forget that the block a local pointer refers to lives on the heap."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "cd.sdt_runtime.s1.attr",
+   "title": "Synthesized and inherited attributes in int x",
+   "viewBox": [
+    0,
+    0,
+    360,
+    248
+   ],
+   "objects": [
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 180,
+     "y": 36,
+     "label": "D",
+     "r": 18
+    },
+    {
+     "id": "nT",
+     "kind": "node",
+     "x": 80,
+     "y": 108,
+     "label": "T",
+     "r": 18
+    },
+    {
+     "id": "nL",
+     "kind": "node",
+     "x": 262,
+     "y": 108,
+     "label": "L",
+     "r": 18
+    },
+    {
+     "id": "nI",
+     "kind": "node",
+     "x": 80,
+     "y": 180,
+     "label": "int",
+     "r": 18
+    },
+    {
+     "id": "nX",
+     "kind": "node",
+     "x": 262,
+     "y": 180,
+     "label": "id",
+     "r": 18
+    },
+    {
+     "id": "eDT",
+     "kind": "edge",
+     "x1": 180,
+     "y1": 36,
+     "x2": 80,
+     "y2": 108,
+     "tone": "muted"
+    },
+    {
+     "id": "eDL",
+     "kind": "edge",
+     "x1": 180,
+     "y1": 36,
+     "x2": 262,
+     "y2": 108,
+     "tone": "muted"
+    },
+    {
+     "id": "eTI",
+     "kind": "edge",
+     "x1": 80,
+     "y1": 126,
+     "x2": 80,
+     "y2": 162,
+     "tone": "muted"
+    },
+    {
+     "id": "eLX",
+     "kind": "edge",
+     "x1": 262,
+     "y1": 126,
+     "x2": 262,
+     "y2": 162,
+     "tone": "muted"
+    },
+    {
+     "id": "rule",
+     "kind": "text",
+     "x": 180,
+     "y": 8,
+     "text": "D → T L    T → int    L → id",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "aUp",
+     "kind": "arrow",
+     "x1": 98,
+     "y1": 160,
+     "x2": 98,
+     "y2": 128,
+     "tone": "good"
+    },
+    {
+     "id": "tUp",
+     "kind": "text",
+     "x": 44,
+     "y": 144,
+     "text": "T.type = int",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "aAcross",
+     "kind": "arrow",
+     "x1": 100,
+     "y1": 108,
+     "x2": 242,
+     "y2": 108,
+     "tone": "accent"
+    },
+    {
+     "id": "tAcross",
+     "kind": "text",
+     "x": 180,
+     "y": 128,
+     "text": "L.in = T.type",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "aDown",
+     "kind": "arrow",
+     "x1": 280,
+     "y1": 128,
+     "x2": 280,
+     "y2": 160,
+     "tone": "accent"
+    },
+    {
+     "id": "tDown",
+     "kind": "text",
+     "x": 218,
+     "y": 150,
+     "text": "id gets int",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "sum",
+     "kind": "text",
+     "x": 180,
+     "y": 232,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Parse tree of the declaration int x: D → T L, T → int, L → id. Each node can carry attributes. We follow the type of x through the tree.",
+     "hide": [
+      "aUp",
+      "tUp",
+      "aAcross",
+      "tAcross",
+      "aDown",
+      "tDown"
+     ],
+     "highlight": [
+      "nD",
+      "nT",
+      "nL",
+      "nI",
+      "nX"
+     ]
+    },
+    {
+     "caption": "The token int gives T the attribute T.type = int. It is computed from T's child, so it flows up the tree: a synthesized attribute.",
+     "show": [
+      "aUp",
+      "tUp"
+     ],
+     "highlight": [
+      "aUp",
+      "nT"
+     ]
+    },
+    {
+     "caption": "The rule D → T L sets L.in = T.type. The value comes from T, the left sibling of L, and flows across to L: an inherited attribute.",
+     "show": [
+      "aAcross",
+      "tAcross"
+     ],
+     "highlight": [
+      "aAcross",
+      "nL"
+     ]
+    },
+    {
+     "caption": "L passes its inherited value to its child, so the identifier x gets the type int. Information flows down from the parent: again inherited.",
+     "show": [
+      "aDown",
+      "tDown"
+     ],
+     "highlight": [
+      "aDown",
+      "nX"
+     ]
+    },
+    {
+     "caption": "Rule of thumb: a synthesized attribute is computed from the node's children and flows up. An inherited attribute is computed from the parent or from siblings and flows down or across.",
+     "set": [
+      {
+       "id": "sum",
+       "text": "up = synthesized, down/across = inherited",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "sum",
+      "aUp",
+      "aAcross",
+      "aDown"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.sdt_runtime.s2.sl",
+   "title": "Which dependencies are allowed in A → X Y Z",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "A",
+     "kind": "box",
+     "x": 140,
+     "y": 34,
+     "w": 80,
+     "h": 28,
+     "label": "A"
+    },
+    {
+     "id": "X",
+     "kind": "box",
+     "x": 24,
+     "y": 118,
+     "w": 80,
+     "h": 28,
+     "label": "X"
+    },
+    {
+     "id": "Y",
+     "kind": "box",
+     "x": 140,
+     "y": 118,
+     "w": 80,
+     "h": 28,
+     "label": "Y"
+    },
+    {
+     "id": "Z",
+     "kind": "box",
+     "x": 256,
+     "y": 118,
+     "w": 80,
+     "h": 28,
+     "label": "Z"
+    },
+    {
+     "id": "tA",
+     "kind": "edge",
+     "x1": 160,
+     "y1": 62,
+     "x2": 64,
+     "y2": 118,
+     "tone": "muted"
+    },
+    {
+     "id": "tB",
+     "kind": "edge",
+     "x1": 180,
+     "y1": 62,
+     "x2": 180,
+     "y2": 118,
+     "tone": "muted"
+    },
+    {
+     "id": "tC",
+     "kind": "edge",
+     "x1": 200,
+     "y1": 62,
+     "x2": 296,
+     "y2": 118,
+     "tone": "muted"
+    },
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "rule A → X Y Z",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "dAY",
+     "kind": "arrow",
+     "from": "A",
+     "to": "Y",
+     "tone": "good"
+    },
+    {
+     "id": "dXY",
+     "kind": "arrow",
+     "from": "X",
+     "to": "Y",
+     "tone": "good"
+    },
+    {
+     "id": "dZY",
+     "kind": "arrow",
+     "from": "Z",
+     "to": "Y",
+     "tone": "bad"
+    },
+    {
+     "id": "dYX",
+     "kind": "arrow",
+     "from": "Y",
+     "to": "X",
+     "tone": "bad"
+    },
+    {
+     "id": "uX",
+     "kind": "arrow",
+     "from": "X",
+     "to": "A",
+     "tone": "good"
+    },
+    {
+     "id": "uY",
+     "kind": "arrow",
+     "from": "Y",
+     "to": "A",
+     "tone": "good"
+    },
+    {
+     "id": "uZ",
+     "kind": "arrow",
+     "from": "Z",
+     "to": "A",
+     "tone": "good"
+    },
+    {
+     "id": "rule",
+     "kind": "text",
+     "x": 180,
+     "y": 186,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "verd",
+     "kind": "text",
+     "x": 180,
+     "y": 220,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "In an L-attributed definition, an inherited attribute of a child may depend only on the parent's inherited attributes and on attributes of the children to its left. Synthesized attributes of A may depend on any child. We test dependencies for A → X Y Z.",
+     "hide": [
+      "dAY",
+      "dXY",
+      "dZY",
+      "dYX",
+      "uX",
+      "uY",
+      "uZ"
+     ],
+     "highlight": [
+      "A",
+      "X",
+      "Y",
+      "Z"
+     ]
+    },
+    {
+     "caption": "Y.i = A.i + 1 uses the parent's inherited attribute. Allowed.",
+     "show": "dAY",
+     "set": [
+      {
+       "id": "rule",
+       "text": "Y.i = A.i + 1"
+      },
+      {
+       "id": "verd",
+       "text": "allowed",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "dAY"
+     ]
+    },
+    {
+     "caption": "Y.i = X.s uses a left sibling. A left-to-right pass has already computed it. Allowed.",
+     "show": "dXY",
+     "hide": "dAY",
+     "set": [
+      {
+       "id": "rule",
+       "text": "Y.i = X.s"
+      },
+      {
+       "id": "verd",
+       "text": "allowed",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "dXY"
+     ]
+    },
+    {
+     "caption": "Y.i = Z.s uses the right sibling Z, which a left-to-right pass has not reached yet. Not allowed: the definition is not L-attributed.",
+     "show": "dZY",
+     "hide": "dXY",
+     "set": [
+      {
+       "id": "rule",
+       "text": "Y.i = Z.s"
+      },
+      {
+       "id": "verd",
+       "text": "NOT allowed",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      "dZY"
+     ]
+    },
+    {
+     "caption": "X.i = Y.s: even the leftmost child X may not depend on a sibling to its right. Not allowed.",
+     "show": "dYX",
+     "hide": "dZY",
+     "set": [
+      {
+       "id": "rule",
+       "text": "X.i = Y.s"
+      },
+      {
+       "id": "verd",
+       "text": "NOT allowed",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      "dYX"
+     ]
+    },
+    {
+     "caption": "A.s = X.s + Y.s + Z.s is a synthesized attribute of A. It may use any children. Allowed.",
+     "hide": "dYX",
+     "show": [
+      "uX",
+      "uY",
+      "uZ"
+     ],
+     "set": [
+      {
+       "id": "rule",
+       "text": "A.s = X.s + Y.s + Z.s"
+      },
+      {
+       "id": "verd",
+       "text": "allowed",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "uX",
+      "uY",
+      "uZ"
+     ]
+    },
+    {
+     "caption": "A definition whose rules are all of this last kind is S-attributed. Every S-attributed definition is L-attributed, but a definition with inherited attributes is not S-attributed.",
+     "set": [
+      {
+       "id": "rule",
+       "text": "S-attributed ⊂ L-attributed"
+      },
+      {
+       "id": "verd",
+       "text": "only synthesized: S-attributed",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "rule",
+      "verd"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.sdt_runtime.s3.eval",
+   "title": "Evaluating an SDD with an inherited attribute on 2 + 3 + 4",
+   "viewBox": [
+    0,
+    0,
+    360,
+    268
+   ],
+   "objects": [
+    {
+     "id": "nE",
+     "kind": "node",
+     "x": 30,
+     "y": 36,
+     "label": "E",
+     "r": 16
+    },
+    {
+     "id": "nT0",
+     "kind": "node",
+     "x": 30,
+     "y": 100,
+     "label": "T",
+     "r": 16
+    },
+    {
+     "id": "nE1",
+     "kind": "node",
+     "x": 104,
+     "y": 100,
+     "label": "E'",
+     "r": 16
+    },
+    {
+     "id": "nT1",
+     "kind": "node",
+     "x": 76,
+     "y": 164,
+     "label": "T",
+     "r": 16
+    },
+    {
+     "id": "nE2",
+     "kind": "node",
+     "x": 150,
+     "y": 164,
+     "label": "E'",
+     "r": 16
+    },
+    {
+     "id": "nT2",
+     "kind": "node",
+     "x": 122,
+     "y": 228,
+     "label": "T",
+     "r": 16
+    },
+    {
+     "id": "nE3",
+     "kind": "node",
+     "x": 196,
+     "y": 228,
+     "label": "E'",
+     "r": 16
+    },
+    {
+     "id": "e_nE_nT0",
+     "kind": "edge",
+     "from": "nE",
+     "to": "nT0"
+    },
+    {
+     "id": "e_nE_nE1",
+     "kind": "edge",
+     "from": "nE",
+     "to": "nE1"
+    },
+    {
+     "id": "e_nE1_nT1",
+     "kind": "edge",
+     "from": "nE1",
+     "to": "nT1"
+    },
+    {
+     "id": "e_nE1_nE2",
+     "kind": "edge",
+     "from": "nE1",
+     "to": "nE2"
+    },
+    {
+     "id": "e_nE2_nT2",
+     "kind": "edge",
+     "from": "nE2",
+     "to": "nT2"
+    },
+    {
+     "id": "e_nE2_nE3",
+     "kind": "edge",
+     "from": "nE2",
+     "to": "nE3"
+    },
+    {
+     "id": "iE",
+     "kind": "text",
+     "x": 52,
+     "y": 36,
+     "text": "val = 9",
+     "size": 12,
+     "anchor": "start",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "iT0",
+     "kind": "text",
+     "x": 30,
+     "y": 126,
+     "text": "val = 2",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "iT1",
+     "kind": "text",
+     "x": 76,
+     "y": 190,
+     "text": "val = 3",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "iT2",
+     "kind": "text",
+     "x": 122,
+     "y": 254,
+     "text": "val = 4",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "iE1",
+     "kind": "text",
+     "x": 126,
+     "y": 100,
+     "text": "in = 2",
+     "size": 12,
+     "anchor": "start",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "iE2",
+     "kind": "text",
+     "x": 172,
+     "y": 164,
+     "text": "in = 5",
+     "size": 12,
+     "anchor": "start",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "iE3",
+     "kind": "text",
+     "x": 218,
+     "y": 228,
+     "text": "in = 9",
+     "size": 12,
+     "anchor": "start",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "rules",
+     "kind": "text",
+     "x": 270,
+     "y": 40,
+     "text": "E → T E′\nE′ → + T E″\nE′ → ε",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "ans",
+     "kind": "text",
+     "x": 270,
+     "y": 150,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "SDD: E → T E′ {E′.in = T.val; E.val = E′.val}; E′ → + T E″ {E″.in = E′.in + T.val; E′.val = E″.val}; E′ → ε {E′.val = E′.in}; T.val is the number. Parse 2 + 3 + 4. We compute inherited values down the tree, then synthesized values up.",
+     "hide": [
+      "iE",
+      "iT0",
+      "iT1",
+      "iT2",
+      "iE1",
+      "iE2",
+      "iE3"
+     ],
+     "highlight": [
+      "rules",
+      "nE"
+     ]
+    },
+    {
+     "caption": "First the leaves: T.val is 2, 3 and 4 for the three numbers. These are synthesized from the tokens.",
+     "show": [
+      "iT0",
+      "iT1",
+      "iT2"
+     ],
+     "highlight": [
+      "nT0",
+      "nT1",
+      "nT2"
+     ]
+    },
+    {
+     "caption": "Inherited, top-down: E′.in = T.val for the first E′, taking the value of its left sibling T. So the first E′ gets in = 2.",
+     "show": "iE1",
+     "highlight": [
+      "nE1",
+      "iE1",
+      "nT0"
+     ]
+    },
+    {
+     "caption": "The second E′ gets in = E′.in + T.val = 2 + 3 = 5, from its parent and the T before it.",
+     "show": "iE2",
+     "highlight": [
+      "nE2",
+      "iE2"
+     ]
+    },
+    {
+     "caption": "The third E′ gets in = 5 + 4 = 9.",
+     "show": "iE3",
+     "highlight": [
+      "nE3",
+      "iE3"
+     ]
+    },
+    {
+     "caption": "The third E′ derives ε, and the ε-rule says E′.val = E′.in = 9. Do not drop this value: it starts the upward flow.",
+     "set": [
+      {
+       "id": "iE3",
+       "text": "in = 9\nval = 9"
+      }
+     ],
+     "highlight": [
+      "nE3",
+      "iE3"
+     ]
+    },
+    {
+     "caption": "Synthesized, bottom-up: each E′ copies val from its child, so E′.val = 9 at the second and first E′, and E.val = E′.val = 9. The value of 2 + 3 + 4 is 9.",
+     "set": [
+      {
+       "id": "iE2",
+       "text": "in = 5\nval = 9"
+      },
+      {
+       "id": "iE1",
+       "text": "in = 2\nval = 9"
+      },
+      {
+       "id": "ans",
+       "text": "E.val = 9",
+       "tone": "good"
+      }
+     ],
+     "show": [
+      "iE",
+      "ans"
+     ],
+     "highlight": [
+      "nE2",
+      "nE1",
+      "nE"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.sdt_runtime.s4.scheme",
+   "title": "A translation scheme printing postfix for 2 + 3 * 4",
+   "viewBox": [
+    0,
+    0,
+    360,
+    272
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "input: 2 + 3 * 4",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "pt",
+     "kind": "tree",
+     "x": 180,
+     "y": 44,
+     "root": {
+      "label": "E",
+      "children": [
+       {
+        "label": "E",
+        "children": [
+         {
+          "label": "T",
+          "children": [
+           {
+            "label": "F",
+            "children": [
+             {
+              "label": "2",
+              "id": "n2"
+             }
+            ],
+            "id": "f1"
+           }
+          ],
+          "id": "t1"
+         }
+        ],
+        "id": "e1"
+       },
+       {
+        "label": "+",
+        "id": "pl"
+       },
+       {
+        "label": "T",
+        "children": [
+         {
+          "label": "T",
+          "children": [
+           {
+            "label": "F",
+            "children": [
+             {
+              "label": "3",
+              "id": "n3"
+             }
+            ],
+            "id": "f2"
+           }
+          ],
+          "id": "t3"
+         },
+         {
+          "label": "*",
+          "id": "st"
+         },
+         {
+          "label": "F",
+          "children": [
+           {
+            "label": "4",
+            "id": "n4"
+           }
+          ],
+          "id": "f3"
+         }
+        ],
+        "id": "t2"
+       }
+      ],
+      "id": "e0"
+     },
+     "dx": 34,
+     "dy": 32,
+     "r": 13
+    },
+    {
+     "id": "act",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "out",
+     "kind": "array",
+     "x": 70,
+     "y": 232,
+     "cells": [],
+     "cw": 44,
+     "ch": 30,
+     "slots": 5,
+     "indices": false,
+     "label": "output"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Scheme: E → E1 + T {print(+)} | T, T → T1 * F {print(*)} | F, F → num {print(num)}. Each action sits at the end of its rule, so a bottom-up parser runs it at the reduction. Input 2 + 3 * 4. The output is the order of reductions with actions.",
+     "highlight": [
+      "hd",
+      "pt"
+     ]
+    },
+    {
+     "caption": "Reduce F → 2: the action prints 2. The first number is output.",
+     "push": {
+      "id": "out",
+      "value": "2"
+     },
+     "set": [
+      {
+       "id": "act",
+       "text": "F → num: print 2"
+      }
+     ],
+     "highlight": [
+      "f1",
+      "n2"
+     ]
+    },
+    {
+     "caption": "Reduce T → F and E → T. These rules have no action, so nothing is printed.",
+     "set": [
+      {
+       "id": "act",
+       "text": "T → F, E → T: no action"
+      }
+     ],
+     "highlight": [
+      "t1",
+      "e1"
+     ]
+    },
+    {
+     "caption": "The parser shifts + and 3, then reduces F → 3, printing 3, and T → F, which prints nothing.",
+     "push": {
+      "id": "out",
+      "value": "3"
+     },
+     "set": [
+      {
+       "id": "act",
+       "text": "F → num: print 3"
+      }
+     ],
+     "highlight": [
+      "f2",
+      "t3",
+      "n3"
+     ]
+    },
+    {
+     "caption": "It shifts * and 4, reduces F → 4 and prints 4, then reduces T → T * F, whose action prints *.",
+     "push": [
+      {
+       "id": "out",
+       "value": "4"
+      },
+      {
+       "id": "out",
+       "value": "*"
+      }
+     ],
+     "set": [
+      {
+       "id": "act",
+       "text": "F: print 4, T → T * F: print *"
+      }
+     ],
+     "highlight": [
+      "f3",
+      "n4",
+      "t2"
+     ]
+    },
+    {
+     "caption": "Finally E → E + T reduces and prints +. The tree is complete.",
+     "push": {
+      "id": "out",
+      "value": "+"
+     },
+     "set": [
+      {
+       "id": "act",
+       "text": "E → E + T: print +"
+      }
+     ],
+     "highlight": [
+      "e0"
+     ]
+    },
+    {
+     "caption": "Output: 2 3 4 * +, the postfix form of 2 + 3 * 4. An action at the end of a rule fires when its rule is reduced, so the printing order is a postorder walk of the tree.",
+     "set": [
+      {
+       "id": "act",
+       "text": "postfix: 2 3 4 * +",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "out",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.sdt_runtime.s5.activation",
+   "title": "Activation tree and stack for main calling A(3)",
+   "viewBox": [
+    0,
+    0,
+    360,
+    284
+   ],
+   "objects": [
+    {
+     "id": "code",
+     "kind": "text",
+     "x": 356,
+     "y": 16,
+     "text": "A(n): if n > 1 { A(n-1); B(); }\nB(): C();    C(): return;",
+     "size": 12,
+     "anchor": "end",
+     "mono": true
+    },
+    {
+     "id": "pt",
+     "kind": "tree",
+     "x": 105,
+     "y": 52,
+     "root": {
+      "label": "main",
+      "children": [
+       {
+        "label": "A(3)",
+        "children": [
+         {
+          "label": "A(2)",
+          "children": [
+           {
+            "label": "A(1)",
+            "id": "a1"
+           },
+           {
+            "label": "B",
+            "children": [
+             {
+              "label": "C",
+              "id": "ca"
+             }
+            ],
+            "id": "ba"
+           }
+          ],
+          "id": "a2"
+         },
+         {
+          "label": "B",
+          "children": [
+           {
+            "label": "C",
+            "id": "cb"
+           }
+          ],
+          "id": "bb"
+         }
+        ],
+        "id": "a3"
+       }
+      ],
+      "id": "m"
+     },
+     "dx": 52,
+     "dy": 46,
+     "r": 17
+    },
+    {
+     "id": "stk",
+     "kind": "array",
+     "x": 252,
+     "y": 252,
+     "cells": [],
+     "cw": 90,
+     "ch": 28,
+     "dir": "up",
+     "slots": 5,
+     "indices": false,
+     "label": "stack"
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 300,
+     "y": 78,
+     "text": "",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 272,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Program: main calls A(3). A(n) calls A(n-1) and then B when n > 1, and B calls C. Each call creates an activation record, and the activation tree has one node per call. The stack will hold the path from the root to the node being executed.",
+     "highlight": [
+      "code",
+      "m"
+     ],
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "main"
+       ]
+      },
+      {
+       "id": "cnt",
+       "text": "on stack: 1"
+      }
+     ]
+    },
+    {
+     "caption": "Calls follow a preorder walk of the tree. main calls A(3), which calls A(2), which calls A(1). Stack, bottom to top: main, A(3), A(2), A(1).",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "main",
+        "A(3)",
+        "A(2)",
+        "A(1)"
+       ]
+      },
+      {
+       "id": "cnt",
+       "text": "on stack: 4"
+      }
+     ],
+     "highlight": [
+      "m",
+      "a3",
+      "a2",
+      "a1"
+     ]
+    },
+    {
+     "caption": "A(1) returns and its record is popped. A(2) then calls B, and B calls C. Stack: main, A(3), A(2), B, C. That is 5 records, the deepest point.",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "main",
+        "A(3)",
+        "A(2)",
+        "B",
+        "C"
+       ]
+      },
+      {
+       "id": "cnt",
+       "text": "on stack: 5 (max)"
+      },
+      {
+       "id": "note",
+       "text": "deepest path: main, A(3), A(2), B, C"
+      }
+     ],
+     "highlight": [
+      "m",
+      "a3",
+      "a2",
+      "ba",
+      "ca"
+     ]
+    },
+    {
+     "caption": "C, B and A(2) return, in postorder: each record is popped after everything it called. The stack is back to main, A(3).",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "main",
+        "A(3)"
+       ]
+      },
+      {
+       "id": "cnt",
+       "text": "on stack: 2"
+      }
+     ],
+     "highlight": [
+      "a2"
+     ]
+    },
+    {
+     "caption": "A(3) now calls B, and B calls C. Stack: main, A(3), B, C, which is 4 records.",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "main",
+        "A(3)",
+        "B",
+        "C"
+       ]
+      },
+      {
+       "id": "cnt",
+       "text": "on stack: 4"
+      }
+     ],
+     "highlight": [
+      "bb",
+      "cb"
+     ]
+    },
+    {
+     "caption": "Everything returns. The tree has 8 nodes, so 8 activation records were created in total. But the stack held at most 5 at once: the longest root-to-node path, which is the height of the tree plus 1.",
+     "set": [
+      {
+       "id": "stk",
+       "cells": []
+      },
+      {
+       "id": "cnt",
+       "text": "8 created, max 5",
+       "tone": "good"
+      },
+      {
+       "id": "note",
+       "text": "max stack = longest path, not all calls",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "m"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.sdt_runtime.s6.params",
+   "title": "One call, four parameter-passing modes",
+   "viewBox": [
+    0,
+    0,
+    360,
+    284
+   ],
+   "objects": [
+    {
+     "id": "code",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "h(p): n = n + 1; p = p * 2;  call h(n), n = 4",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "N",
+     "kind": "array",
+     "x": 60,
+     "y": 74,
+     "cells": [
+      4
+     ],
+     "cw": 60,
+     "ch": 36,
+     "indices": false,
+     "label": "n (caller)"
+    },
+    {
+     "id": "P",
+     "kind": "array",
+     "x": 240,
+     "y": 74,
+     "cells": [
+      4
+     ],
+     "cw": 60,
+     "ch": 36,
+     "indices": false,
+     "label": "p (callee)"
+    },
+    {
+     "id": "al",
+     "kind": "arrow",
+     "x1": 238,
+     "y1": 92,
+     "x2": 124,
+     "y2": 92,
+     "tone": "accent",
+     "dash": true
+    },
+    {
+     "id": "alt",
+     "kind": "text",
+     "x": 181,
+     "y": 78,
+     "text": "alias",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 140,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "T",
+     "kind": "grid",
+     "x": 150,
+     "y": 176,
+     "rows": 4,
+     "cols": 1,
+     "cw": 70,
+     "ch": 24,
+     "colLabels": [
+      "final n"
+     ],
+     "rowLabels": [
+      "value",
+      "reference",
+      "copy-restore",
+      "name"
+     ],
+     "cells": [
+      [
+       ""
+      ],
+      [
+       ""
+      ],
+      [
+       ""
+      ],
+      [
+       ""
+      ]
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The call h(n) with n = 4 runs n = n + 1 and p = p * 2. The final value of n depends on how p is passed. We try four modes.",
+     "hide": [
+      "P",
+      "al",
+      "alt"
+     ],
+     "highlight": [
+      "N",
+      "code"
+     ]
+    },
+    {
+     "caption": "Call by value: p is a copy of 4. n = n + 1 makes n = 5. p = p * 2 changes only the copy, so p = 8. After the call, n = 5.",
+     "show": "P",
+     "set": [
+      {
+       "id": "N",
+       "cells": [
+        5
+       ]
+      },
+      {
+       "id": "P",
+       "cells": [
+        8
+       ]
+      },
+      {
+       "id": "note",
+       "text": "value: copy changes, n stays 5"
+      },
+      {
+       "id": "T",
+       "cells": [
+        [
+         "5"
+        ],
+        [
+         ""
+        ],
+        [
+         ""
+        ],
+        [
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         0
+        ]
+       ]
+      },
+      "P"
+     ]
+    },
+    {
+     "caption": "Call by reference: p is the same cell as n. n = n + 1 gives 5, then p = p * 2 doubles that same cell: 10. After the call, n = 10.",
+     "hide": "P",
+     "show": [
+      "al",
+      "alt"
+     ],
+     "set": [
+      {
+       "id": "N",
+       "cells": [
+        10
+       ]
+      },
+      {
+       "id": "note",
+       "text": "reference: one cell, n becomes 10"
+      },
+      {
+       "id": "T",
+       "cells": [
+        [
+         "5"
+        ],
+        [
+         "10"
+        ],
+        [
+         ""
+        ],
+        [
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         0
+        ]
+       ]
+      },
+      "al"
+     ]
+    },
+    {
+     "caption": "Call by copy-restore: p starts as a copy of 4. During the call n = 5 and p = 8. At return, p is copied back into n, so n = 8.",
+     "hide": [
+      "al",
+      "alt"
+     ],
+     "show": "P",
+     "set": [
+      {
+       "id": "N",
+       "cells": [
+        8
+       ]
+      },
+      {
+       "id": "P",
+       "cells": [
+        8
+       ]
+      },
+      {
+       "id": "note",
+       "text": "copy-restore: p copied back at return, n = 8"
+      },
+      {
+       "id": "T",
+       "cells": [
+        [
+         "5"
+        ],
+        [
+         "10"
+        ],
+        [
+         "8"
+        ],
+        [
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         2,
+         0
+        ]
+       ]
+      },
+      "N"
+     ]
+    },
+    {
+     "caption": "Call by name: every use of p is replaced by the text n. So n = n + 1 gives 5 and then n = n * 2 gives 10. After the call, n = 10.",
+     "hide": "P",
+     "set": [
+      {
+       "id": "N",
+       "cells": [
+        10
+       ]
+      },
+      {
+       "id": "note",
+       "text": "name: p is replaced by n, n becomes 10"
+      },
+      {
+       "id": "T",
+       "cells": [
+        [
+         "5"
+        ],
+        [
+         "10"
+        ],
+        [
+         "8"
+        ],
+        [
+         "10"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         3,
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The four modes give four ideas: value 5, reference 10, copy-restore 8, name 10. Reference and name agree here because no expression in the argument changes during the call.",
+     "set": [
+      {
+       "id": "note",
+       "text": "value 5, ref 10, copy-restore 8, name 10",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         3,
+         0
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.sdt_runtime.s7.scope",
+   "title": "Access links versus control links",
+   "viewBox": [
+    0,
+    0,
+    360,
+    272
+   ],
+   "objects": [
+    {
+     "id": "code",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "main: x = 1;  P (y = 2) contains R;  Q (x = 10)\ncalls: main → Q → P → R;   R prints x + y",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "rR",
+     "kind": "box",
+     "x": 126,
+     "y": 66,
+     "w": 108,
+     "h": 28,
+     "label": "R"
+    },
+    {
+     "id": "rP",
+     "kind": "box",
+     "x": 126,
+     "y": 100,
+     "w": 108,
+     "h": 28,
+     "label": "P  y = 2"
+    },
+    {
+     "id": "rQ",
+     "kind": "box",
+     "x": 126,
+     "y": 134,
+     "w": 108,
+     "h": 28,
+     "label": "Q  x = 10"
+    },
+    {
+     "id": "rM",
+     "kind": "box",
+     "x": 126,
+     "y": 168,
+     "w": 108,
+     "h": 28,
+     "label": "main  x = 1"
+    },
+    {
+     "id": "cra",
+     "kind": "edge",
+     "x1": 126,
+     "y1": 80,
+     "x2": 100,
+     "y2": 80,
+     "tone": "muted"
+    },
+    {
+     "id": "crb",
+     "kind": "edge",
+     "x1": 100,
+     "y1": 80,
+     "x2": 100,
+     "y2": 114,
+     "tone": "muted"
+    },
+    {
+     "id": "crc",
+     "kind": "arrow",
+     "x1": 100,
+     "y1": 114,
+     "x2": 126,
+     "y2": 114,
+     "tone": "muted"
+    },
+    {
+     "id": "cpa",
+     "kind": "edge",
+     "x1": 126,
+     "y1": 114,
+     "x2": 100,
+     "y2": 114,
+     "tone": "muted"
+    },
+    {
+     "id": "cpb",
+     "kind": "edge",
+     "x1": 100,
+     "y1": 114,
+     "x2": 100,
+     "y2": 148,
+     "tone": "muted"
+    },
+    {
+     "id": "cpc",
+     "kind": "arrow",
+     "x1": 100,
+     "y1": 148,
+     "x2": 126,
+     "y2": 148,
+     "tone": "muted"
+    },
+    {
+     "id": "cqa",
+     "kind": "edge",
+     "x1": 126,
+     "y1": 148,
+     "x2": 100,
+     "y2": 148,
+     "tone": "muted"
+    },
+    {
+     "id": "cqb",
+     "kind": "edge",
+     "x1": 100,
+     "y1": 148,
+     "x2": 100,
+     "y2": 182,
+     "tone": "muted"
+    },
+    {
+     "id": "cqc",
+     "kind": "arrow",
+     "x1": 100,
+     "y1": 182,
+     "x2": 126,
+     "y2": 182,
+     "tone": "muted"
+    },
+    {
+     "id": "ara",
+     "kind": "edge",
+     "x1": 234,
+     "y1": 80,
+     "x2": 252,
+     "y2": 80,
+     "tone": "accent"
+    },
+    {
+     "id": "arb",
+     "kind": "edge",
+     "x1": 252,
+     "y1": 80,
+     "x2": 252,
+     "y2": 114,
+     "tone": "accent"
+    },
+    {
+     "id": "arc",
+     "kind": "arrow",
+     "x1": 252,
+     "y1": 114,
+     "x2": 234,
+     "y2": 114,
+     "tone": "accent"
+    },
+    {
+     "id": "apa",
+     "kind": "edge",
+     "x1": 234,
+     "y1": 118,
+     "x2": 274,
+     "y2": 118,
+     "tone": "accent"
+    },
+    {
+     "id": "apb",
+     "kind": "edge",
+     "x1": 274,
+     "y1": 118,
+     "x2": 274,
+     "y2": 186,
+     "tone": "accent"
+    },
+    {
+     "id": "apc",
+     "kind": "arrow",
+     "x1": 274,
+     "y1": 186,
+     "x2": 234,
+     "y2": 186,
+     "tone": "accent"
+    },
+    {
+     "id": "aqa",
+     "kind": "edge",
+     "x1": 234,
+     "y1": 152,
+     "x2": 252,
+     "y2": 152,
+     "tone": "accent"
+    },
+    {
+     "id": "aqb",
+     "kind": "edge",
+     "x1": 252,
+     "y1": 152,
+     "x2": 252,
+     "y2": 178,
+     "tone": "accent"
+    },
+    {
+     "id": "aqc",
+     "kind": "arrow",
+     "x1": 252,
+     "y1": 178,
+     "x2": 234,
+     "y2": 178,
+     "tone": "accent"
+    },
+    {
+     "id": "lg",
+     "kind": "text",
+     "x": 180,
+     "y": 224,
+     "text": "grey = control link (caller)\nblue = access link (static parent)",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 252,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Program: main declares x = 1, procedure P (with local y = 2) which contains R, and procedure Q (with its own x = 10). The calls are main → Q → P → R, and R prints x + y. Each record has a control link to its caller and an access link to its static parent.",
+     "hide": [
+      "rR",
+      "rP",
+      "rQ",
+      "cra",
+      "crb",
+      "crc",
+      "cpa",
+      "cpb",
+      "cpc",
+      "cqa",
+      "cqb",
+      "cqc",
+      "ara",
+      "arb",
+      "arc",
+      "apa",
+      "apb",
+      "apc",
+      "aqa",
+      "aqb",
+      "aqc",
+      "lg"
+     ],
+     "highlight": [
+      "rM",
+      "code"
+     ]
+    },
+    {
+     "caption": "main calls Q: Q's record is pushed. Its control link points to its caller, main.",
+     "show": [
+      "rQ",
+      "cqa",
+      "cqb",
+      "cqc"
+     ],
+     "highlight": [
+      "rQ"
+     ]
+    },
+    {
+     "caption": "Q calls P, and P calls R. Each new record's control link points to the caller. Stack, top first: R, P, Q, main.",
+     "show": [
+      "rP",
+      "rR",
+      "cpa",
+      "cpb",
+      "cpc",
+      "cra",
+      "crb",
+      "crc"
+     ],
+     "highlight": [
+      "rP",
+      "rR"
+     ]
+    },
+    {
+     "caption": "Access links follow the program text. R is declared inside P, so R's access link points to P's record. P and Q are declared in main, so their access links point to main, and P's skips over Q.",
+     "show": [
+      "ara",
+      "arb",
+      "arc",
+      "apa",
+      "apb",
+      "apc",
+      "aqa",
+      "aqb",
+      "aqc",
+      "lg"
+     ],
+     "highlight": [
+      "ara",
+      "arb",
+      "arc",
+      "apa",
+      "apb",
+      "apc",
+      "aqa",
+      "aqb",
+      "aqc"
+     ]
+    },
+    {
+     "caption": "Static scoping: y is found in P, one access link up. x is not in R or P, so follow the access links to main: x = 1. R prints 1 + 2 = 3.",
+     "highlight": [
+      {
+       "id": "rR",
+       "tone": "good"
+      },
+      {
+       "id": "rP",
+       "tone": "good"
+      },
+      {
+       "id": "rM",
+       "tone": "good"
+      },
+      {
+       "id": "ara",
+       "tone": "good"
+      },
+      {
+       "id": "arb",
+       "tone": "good"
+      },
+      {
+       "id": "arc",
+       "tone": "good"
+      },
+      {
+       "id": "apa",
+       "tone": "good"
+      },
+      {
+       "id": "apb",
+       "tone": "good"
+      },
+      {
+       "id": "apc",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "res",
+       "text": "static: x + y = 1 + 2 = 3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Dynamic scoping: follow the control links, the call chain. y = 2 is in P. x is not in R or P, so look in Q, the caller of P: x = 10. R prints 10 + 2 = 12.",
+     "highlight": [
+      {
+       "id": "rR",
+       "tone": "mid"
+      },
+      {
+       "id": "rP",
+       "tone": "mid"
+      },
+      {
+       "id": "rQ",
+       "tone": "mid"
+      },
+      {
+       "id": "cra",
+       "tone": "mid"
+      },
+      {
+       "id": "crb",
+       "tone": "mid"
+      },
+      {
+       "id": "crc",
+       "tone": "mid"
+      },
+      {
+       "id": "cpa",
+       "tone": "mid"
+      },
+      {
+       "id": "cpb",
+       "tone": "mid"
+      },
+      {
+       "id": "cpc",
+       "tone": "mid"
+      },
+      {
+       "id": "cqa",
+       "tone": "mid"
+      },
+      {
+       "id": "cqb",
+       "tone": "mid"
+      },
+      {
+       "id": "cqc",
+       "tone": "mid"
+      }
+     ],
+     "set": [
+      {
+       "id": "res",
+       "text": "dynamic: x + y = 10 + 2 = 12",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Same program, two answers: 3 and 12. Access links serve lexical (static) scope, control links serve returns and dynamic scope. The number of access-link hops equals the depth of the use minus the depth of the declaration.",
+     "set": [
+      {
+       "id": "res",
+       "text": "hops = use depth - declaration depth",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "res"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.sdt_runtime.s8.storage",
+   "title": "Static area, stack and heap for one C function",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "code",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "int g = 5;   void f() { int a; static int c;\n                 int *p = malloc(4); }",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "rS",
+     "kind": "box",
+     "x": 14,
+     "y": 64,
+     "w": 100,
+     "h": 150,
+     "fill": false,
+     "tone": "muted"
+    },
+    {
+     "id": "rK",
+     "kind": "box",
+     "x": 130,
+     "y": 64,
+     "w": 100,
+     "h": 150,
+     "fill": false,
+     "tone": "muted"
+    },
+    {
+     "id": "rH",
+     "kind": "box",
+     "x": 246,
+     "y": 64,
+     "w": 100,
+     "h": 150,
+     "fill": false,
+     "tone": "muted"
+    },
+    {
+     "id": "hS",
+     "kind": "text",
+     "x": 64,
+     "y": 58,
+     "text": "static area",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "hK",
+     "kind": "text",
+     "x": 180,
+     "y": 58,
+     "text": "stack",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "hH",
+     "kind": "text",
+     "x": 296,
+     "y": 58,
+     "text": "heap",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "cg",
+     "kind": "box",
+     "x": 22,
+     "y": 80,
+     "w": 84,
+     "h": 26,
+     "label": "g = 5",
+     "tone": "good"
+    },
+    {
+     "id": "cc",
+     "kind": "box",
+     "x": 22,
+     "y": 114,
+     "w": 84,
+     "h": 26,
+     "label": "c (static)",
+     "tone": "good"
+    },
+    {
+     "id": "ca",
+     "kind": "box",
+     "x": 138,
+     "y": 176,
+     "w": 84,
+     "h": 26,
+     "label": "a",
+     "tone": "accent"
+    },
+    {
+     "id": "cp",
+     "kind": "box",
+     "x": 138,
+     "y": 142,
+     "w": 84,
+     "h": 26,
+     "label": "p (pointer)",
+     "tone": "accent"
+    },
+    {
+     "id": "ch",
+     "kind": "box",
+     "x": 254,
+     "y": 80,
+     "w": 84,
+     "h": 26,
+     "label": "*p (4 B)",
+     "tone": "mid"
+    },
+    {
+     "id": "ptr",
+     "kind": "arrow",
+     "from": "cp",
+     "to": "ch",
+     "tone": "mid"
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Where do the variables of this C program live? Run-time storage has three regions: the static area (fixed addresses, whole run), the stack (activation records) and the heap (memory allocated on request). Lifetime decides the region.",
+     "hide": [
+      "cg",
+      "cc",
+      "ca",
+      "cp",
+      "ch",
+      "ptr"
+     ],
+     "highlight": [
+      "rS",
+      "rK",
+      "rH"
+     ]
+    },
+    {
+     "caption": "The global g and the static local c have one fixed address and live for the whole run. They go in the static area.",
+     "show": [
+      "cg",
+      "cc"
+     ],
+     "highlight": [
+      "cg",
+      "cc"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "lifetime: whole run"
+      }
+     ]
+    },
+    {
+     "caption": "The local a and the pointer variable p are created each time f is called and disappear when it returns. They sit in f's activation record on the stack.",
+     "show": [
+      "ca",
+      "cp"
+     ],
+     "highlight": [
+      "ca",
+      "cp"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "lifetime: until f returns"
+      }
+     ]
+    },
+    {
+     "caption": "malloc(4) allocates the 4 bytes that p points to while the program runs, and they live until they are freed. That block is in the heap, and p holds its address.",
+     "show": [
+      "ch",
+      "ptr"
+     ],
+     "highlight": [
+      "ch",
+      "ptr"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "lifetime: until free()"
+      }
+     ]
+    },
+    {
+     "caption": "f returns. Its record is popped, so a and p are gone. g and c stay in the static area. The heap block stays: without free it is a leak, and returning the address of a would give a dangling reference.",
+     "dim": [
+      "ca",
+      "cp"
+     ],
+     "highlight": [
+      "ch"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "after return: a, p gone; *p leaked",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Recursion needs a stack, not a heap, because each call needs its own record that is popped in reverse order. Sizes known at compile time can be static. Sizes known only at run time, or lifetimes not tied to calls, need the heap.",
+     "undim": [
+      "ca",
+      "cp"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "recursion needs the stack;\ndynamic size or lifetime: heap",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "rK"
+     ]
+    }
+   ]
+  }
+ ]
+}

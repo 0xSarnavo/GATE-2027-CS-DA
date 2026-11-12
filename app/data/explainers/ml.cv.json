@@ -1,0 +1,3222 @@
+{
+  "topic_id": "ml.cv",
+  "title": "Cross-validation",
+  "chapter_note": {
+    "about": "Cross-validation answers one question: how will this model do on data it has never seen? You hide part of the training data, train on the rest and score on the hidden part. Then you rotate which part is hidden and average. The same scores let you choose settings such as k or λ without touching the test set. The exam asks you to count splits and fits, compute the CV error from fold errors, and judge protocols for imbalanced data and leakage.",
+    "concept_map": [
+      {
+        "atom_id": "c1",
+        "title": "Purpose of cross-validation",
+        "one_line": "CV estimates generalisation error and tunes settings without touching the test set."
+      },
+      {
+        "atom_id": "c2",
+        "title": "k-fold mechanics",
+        "one_line": "Split into k folds. Validate on each once, train on the other k minus 1."
+      },
+      {
+        "atom_id": "c5",
+        "title": "CV error estimate",
+        "one_line": "The CV error is the mean of the fold errors, weighted by size if the folds differ."
+      },
+      {
+        "atom_id": "c3",
+        "title": "Leave-one-out",
+        "one_line": "Leave-one-out is k equal to n: n fits, each on n minus 1 samples."
+      },
+      {
+        "atom_id": "c4",
+        "title": "Counting splits and fits",
+        "one_line": "Remove the test set first. Splits, fold sizes and grid fits all follow from the pool."
+      },
+      {
+        "atom_id": "c6",
+        "title": "Bias, variance and cost of CV",
+        "one_line": "Bigger k means less bias and more cost. LOOCV models are nearly identical."
+      },
+      {
+        "atom_id": "c7",
+        "title": "Stratified folds",
+        "one_line": "Deal each class evenly into the folds. Prefer AUC to accuracy on rare classes."
+      },
+      {
+        "atom_id": "c7b",
+        "title": "Data leakage",
+        "one_line": "Fit scalers and selectors inside each fold, never on all the data."
+      },
+      {
+        "atom_id": "c8",
+        "title": "Model selection",
+        "one_line": "Choose the lowest mean CV error, refit on the pool, report the test error once."
+      }
+    ],
+    "gate_patterns": [
+      "Count the splits. After the test set is removed, LOOCV makes one split per remaining sample. Asked in 2026 DA (Q12), with the number of classes and features as distractors.",
+      "Pick a trustworthy evaluation for imbalanced data: stratified folds with AUC, not accuracy on one split. Asked in the 2024 DA sample paper (Q11, outside the listed syllabus).",
+      "Small calculations: fold sizes, fits in a grid search with a refit, the mean of fold errors. About 0.33 marks per DA paper."
+    ],
+    "simple": "Cross-validation is a fair way to test a model using only the data you already have. You cut the data into pieces. You hide one piece, learn from the others and test on the hidden piece. Then you hide the next piece and repeat. Averaging the test scores tells you how the model will behave on new data, and it also lets you choose the best settings. The real test set stays sealed until the end. Careful habits, such as keeping the class mix and fitting every adjustment inside each round, stop the score from being too good to be true."
+  },
+  "cards": [
+    {
+      "atom_id": "c1",
+      "title": "Purpose of cross-validation",
+      "simple": "You are preparing for a big exam and you have 5 old papers. If you study all 5 and then test yourself on the same 5, you will score well, but that proves nothing about the real exam. So you hide one paper, study the other 4, and test yourself on the hidden one. Then you hide a different paper and repeat. The average of those scores is an honest guess for the real exam. You also use these scores to decide how to study. The real exam (the test set) stays sealed until the very end. In exam words: cross-validation estimates generalisation error and tunes hyperparameters without touching the test set.",
+      "idea": "A model's error on its own training data is too rosy, because the model has already seen the answers. **Cross-validation (CV)** gives a fairer number. It repeatedly hides part of the training pool, trains on the rest, and scores the model on the hidden part. The average score estimates how the model will do on new data. You use it to choose settings called **hyperparameters**, and you keep the test set sealed until the end.",
+      "definition": "$$\\text{CV estimate}=\\frac1k\\sum_{i=1}^{k}\\text{error on held-out part } i$$\n\nSymbols: the data is split into a **training pool** (used for fitting and tuning) and a **test set** (opened once, at the end). A **hyperparameter** is a setting chosen before training, such as $k$ in k-NN or $\\lambda$ in ridge. The part hidden in each round is the validation fold.",
+      "intuition_full": "Training error answers 'how well does the model remember what it saw?' That is rarely what you want. You want to know how it does on data it has never seen. A hidden part imitates new data, because the model never trained on it. One hidden part can be unlucky, so CV rotates which part is hidden and averages. That is why CV is steadier than a single split. There is a second job. To pick between models you need scores you can compare fairly. If you use the test set for picking, the test set stops being new data, because you have tuned to it. That is why the test set is opened once, after every choice has been made. Think of three roles: training data to learn, validation data to choose, test data to report.",
+      "example": {
+        "level": "basic",
+        "setup": "You have 100 labelled samples. 20 go into a sealed test set. Three models A, B and C are tuned on the other 80 (the training pool). Training errors are A 0%, B 6%, C 12%. Cross-validation errors on held-out parts are A 31%, B 14%, C 19%. Which model do you choose, and when do you open the test set?",
+        "steps": [
+          "Split first: 80 samples in the training pool and 20 in the test set. The test set is sealed.",
+          "Training errors: A 0%, B 6%, C 12%. A looks best, but a model can score 0% by memorising.",
+          "CV errors on held-out parts: A 31%, B 14%, C 19%. Now A is the worst.",
+          "Choose by CV error. B is the lowest at 14%.",
+          "Open the test set once, for B only. Suppose B scores 15%. Report 15%, which is close to the CV estimate of 14%."
+        ],
+        "answer": "Choose B. Report its single test-set error (15%)."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "You have 100 labelled samples. 20 go into a sealed test set. Three models A, B and C are tuned on the other 80 (the training pool). Training errors are A 0%, B 6%, C 12%. Cross-validation errors on held-out parts are A 31%, B 14%, C 19%. Which model do you choose, and when do you open the test set?",
+          "steps": [
+            "Split first: 80 samples in the training pool and 20 in the test set. The test set is sealed.",
+            "Training errors: A 0%, B 6%, C 12%. A looks best, but a model can score 0% by memorising.",
+            "CV errors on held-out parts: A 31%, B 14%, C 19%. Now A is the worst.",
+            "Choose by CV error. B is the lowest at 14%.",
+            "Open the test set once, for B only. Suppose B scores 15%. Report 15%, which is close to the CV estimate of 14%."
+          ],
+          "answer": "Choose B. Report its single test-set error (15%)."
+        },
+        {
+          "level": "gate",
+          "setup": "Model X has training error 2% and CV error 25%. Model Y has training error 12% and CV error 14%. After the choice is made, the sealed test set gives 24% for X and 15% for Y. (a) Which model does CV choose? (b) How close is each CV estimate to its test error? (c) What if the training error had been used to choose?",
+          "steps": [
+            "(a) Lowest CV error: Y (14%) beats X (25%). CV picks Y.",
+            "(b) X: CV 25% against test 24%, a gap of 1 point. Y: CV 14% against test 15%, a gap of 1 point. CV was an honest guide.",
+            "(c) Training error would pick X, since 2% < 12%. X's test error is 24%, against 15% for Y: nine points worse.",
+            "X's training error (2%) is 22 points below its test error (24%). It says nothing about new data."
+          ],
+          "answer": "(a) Y. (b) Both CV estimates are within 1 point of the test error. (c) Training error would choose X, which is 9 points worse on the test set."
+        },
+        {
+          "level": "twist",
+          "setup": "Models P and Q are scored with 5 folds of 20 samples each. Mistakes per fold: P makes 3, 5, 4, 6, 2. Q makes 5, 2, 4, 3, 4. Someone judges using fold 1 only. What does fold 1 say, and what does the full CV say?",
+          "steps": [
+            "Fold 1 alone: P makes 3 mistakes (15%) and Q makes 5 (25%). It says P is better.",
+            "All folds: P makes 3 + 5 + 4 + 6 + 2 = 20 mistakes. Q makes 5 + 2 + 4 + 3 + 4 = 18.",
+            "Out of 100 predictions, P errs 20% and Q errs 18%.",
+            "The ranking flipped. One lucky split misled; averaging over folds gives a steadier verdict."
+          ],
+          "answer": "Fold 1 says P. The full CV says Q (18% against 20%). One split is not enough."
+        }
+      ],
+      "why": "Without an honest error estimate you cannot compare models or settings. CV gives one without spending the test set. In GATE: what CV is for, which dataset does which job, and how to count splits and fits.",
+      "how": [
+        "Set the test set aside first and leave it alone until the end.",
+        "Split the remaining pool into folds.",
+        "In each round, train on some folds and score on the held-out fold.",
+        "Average the scores. Choose the model or setting with the best average.",
+        "Refit on the whole pool, then use the test set once to report the final number."
+      ],
+      "mistake": "Using the training error, or the test set, to choose a model. Training error rewards memorising. Using the test set again and again turns it into a second validation set, and the final score is then too optimistic.",
+      "edge_cases": [
+        "Very small datasets: each held-out part is tiny, so the CV score is noisy.",
+        "Time-ordered data: random folds let the future leak into the past. Use ordered splits instead.",
+        "Huge datasets: one validation split can be enough, since it is already large.",
+        "CV scores the training recipe, not one particular fitted model."
+      ],
+      "connections": [
+        "Bias and variance: the train and test errors in the underfit and overfit diagnosis come from held-out measurements like these.",
+        "Ridge regression and k-NN: λ and k are the hyperparameters that CV chooses.",
+        "Foundations: Algebra. Averages and percentages."
+      ],
+      "check": [
+        {
+          "q": "Which data do you use to choose between two models: training error, CV error or test error?",
+          "a": "CV (validation) error."
+        },
+        {
+          "q": "A 1-NN classifier is scored on its own training points. What error does it get, and is that useful?",
+          "a": "0%, because each point is its own nearest neighbour. It is not useful."
+        },
+        {
+          "q": "How many times should the test set be used to report the final performance?",
+          "a": "Once, at the very end."
+        }
+      ],
+      "asked": "Asked: 2024 DA sample Q11 (which evaluation protocol is acceptable for imbalanced data) and 2026 DA Q12 (LOOCV split count after a test set is removed) both rest on this purpose. The sample paper has no official key.",
+      "try": {
+        "id": "gen.ml.cv.001",
+        "label": "What cross-validation is mainly used for"
+      },
+      "scene": "ml.cv.purpose",
+      "what": "A model's error on its own training data is too rosy, because the model has already seen the answers. **Cross-validation (CV)** gives a fairer number. It repeatedly hides part of the training pool, trains on the rest, and scores the model on the hidden part. The average score estimates how the model will do on new data. You use it to choose settings called **hyperparameters**, and you keep the test set sealed until the end.",
+      "what_full": "A model's error on its own training data is too rosy, because the model has already seen the answers. **Cross-validation (CV)** gives a fairer number. It repeatedly hides part of the training pool, trains on the rest, and scores the model on the hidden part. The average score estimates how the model will do on new data. You use it to choose settings called **hyperparameters**, and you keep the test set sealed until the end.\n\n$$\\text{CV estimate}=\\frac1k\\sum_{i=1}^{k}\\text{error on held-out part } i$$\n\nSymbols: the data is split into a **training pool** (used for fitting and tuning) and a **test set** (opened once, at the end). A **hyperparameter** is a setting chosen before training, such as $k$ in k-NN or $\\lambda$ in ridge. The part hidden in each round is the validation fold.\n\n**Worked example.** You have 100 labelled samples. 20 go into a sealed test set. Three models A, B and C are tuned on the other 80 (the training pool). Training errors are A 0%, B 6%, C 12%. Cross-validation errors on held-out parts are A 31%, B 14%, C 19%. Which model do you choose, and when do you open the test set?\n\n1. Split first: 80 samples in the training pool and 20 in the test set. The test set is sealed.\n2. Training errors: A 0%, B 6%, C 12%. A looks best, but a model can score 0% by memorising.\n3. CV errors on held-out parts: A 31%, B 14%, C 19%. Now A is the worst.\n4. Choose by CV error. B is the lowest at 14%.\n5. Open the test set once, for B only. Suppose B scores 15%. Report 15%, which is close to the CV estimate of 14%.\n\n**Answer:** Choose B. Report its single test-set error (15%).\n\n**Check yourself:** Which data do you use to choose between two models: training error, CV error or test error?\n\n*Answer:* CV (validation) error.",
+      "trap": "Using the training error, or the test set, to choose a model. Training error rewards memorising. Using the test set again and again turns it into a second validation set, and the final score is then too optimistic.",
+      "why_full": "Without an honest error estimate you cannot compare models or settings. CV gives one without spending the test set. In GATE: what CV is for, which dataset does which job, and how to count splits and fits.\n\nAsked: 2024 DA sample Q11 (which evaluation protocol is acceptable for imbalanced data) and 2026 DA Q12 (LOOCV split count after a test set is removed) both rest on this purpose. The sample paper has no official key."
+    },
+    {
+      "atom_id": "c2",
+      "title": "k-fold mechanics",
+      "simple": "Think of dealing a pack of cards into 4 piles of 3. In round 1, pile 1 is the quiz and piles 2, 3 and 4 are the study material. In round 2, pile 2 is the quiz and the other three are the study material. You carry on like that. After 4 rounds every card has been in a quiz pile exactly once, and in the study material three times. Nothing is wasted, and nothing is quizzed on something it has just studied. In exam words: k-fold CV splits the data into k folds, validates on each fold once and trains on the other k − 1.",
+      "idea": "In **k-fold cross-validation** you split the data into k equal folds. In each round, one fold is the validation fold and the other k − 1 folds are the training set. After k rounds every sample has been validated exactly once. Each round trains on $\\frac{k-1}{k}$ of the data.",
+      "definition": "$$\\text{fold size}=\\frac nk,\\qquad \\text{training size per round}=n\\cdot\\frac{k-1}{k}$$\n\nSymbols: $n$ is the number of samples in the pool and $k$ is the number of folds. Each sample is validated once and used for training $k-1$ times. The $k$ validation folds never overlap. The $k$ training sets do overlap.",
+      "intuition_full": "The folds partition the data: they cover everything and do not overlap. That gives two guarantees. First, every sample is validated once, so none is wasted and none is favoured. Second, a model is never scored on a sample it trained on in the same round. A larger k means a bigger training set in each round, closer to the full data, so each model looks more like the final model. It also means more rounds, so more work. Check the small cases. With k = 2 each round trains on half the data. With k = n each round trains on all but one sample.",
+      "example": {
+        "level": "basic",
+        "setup": "Twelve samples, numbered 1 to 12, are dealt into k = 4 folds in order: fold 1 is samples 1 to 3, fold 2 is 4 to 6, fold 3 is 7 to 9, fold 4 is 10 to 12. Write down the 4 rounds. How often is each sample validated, and how often does it train?",
+        "steps": [
+          "Fold size = 12 / 4 = 3. Training size per round = 12 − 3 = 9.",
+          "Round 1: validate on samples 1 to 3, train on 4 to 12.",
+          "Round 2: validate on 4 to 6, train on 1 to 3 and 7 to 12.",
+          "Round 3: validate on 7 to 9, train on the other 9 samples.",
+          "Round 4: validate on 10 to 12, train on 1 to 9.",
+          "Look down any column: exactly one V and three T. Each sample is validated once and trains 3 = k − 1 times."
+        ],
+        "answer": "Each round trains on 9 and validates on 3. Every sample is validated once and trains in the other 3 rounds."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Twelve samples, numbered 1 to 12, are dealt into k = 4 folds in order: fold 1 is samples 1 to 3, fold 2 is 4 to 6, fold 3 is 7 to 9, fold 4 is 10 to 12. Write down the 4 rounds. How often is each sample validated, and how often does it train?",
+          "steps": [
+            "Fold size = 12 / 4 = 3. Training size per round = 12 − 3 = 9.",
+            "Round 1: validate on samples 1 to 3, train on 4 to 12.",
+            "Round 2: validate on 4 to 6, train on 1 to 3 and 7 to 12.",
+            "Round 3: validate on 7 to 9, train on the other 9 samples.",
+            "Round 4: validate on 10 to 12, train on 1 to 9.",
+            "Look down any column: exactly one V and three T. Each sample is validated once and trains 3 = k − 1 times."
+          ],
+          "answer": "Each round trains on 9 and validates on 3. Every sample is validated once and trains in the other 3 rounds."
+        },
+        {
+          "level": "gate",
+          "setup": "A pool has 240 samples and 8-fold CV is used. Find (a) the validation size, (b) the training size, (c) in how many of the 8 rounds a given sample is used for training, and (d) the total number of validation predictions over all rounds.",
+          "steps": [
+            "(a) Validation size = 240 / 8 = 30.",
+            "(b) Training size = 240 − 30 = 210.",
+            "(c) A sample sits in the validation fold in exactly 1 round, so it trains in 8 − 1 = 7 rounds.",
+            "(d) Each round makes 30 predictions: 8 × 30 = 240. That is one prediction per sample."
+          ],
+          "answer": "(a) 30. (b) 210. (c) 7. (d) 240."
+        },
+        {
+          "level": "twist",
+          "setup": "The pool has 103 samples and k = 5, which does not divide evenly. What are the fold sizes and the training sizes?",
+          "steps": [
+            "103 / 5 = 20.6, which is not a whole number, so the folds cannot all be equal.",
+            "Deal them as evenly as possible: 21, 21, 21, 20, 20. Check: 3 × 21 + 2 × 20 = 63 + 40 = 103.",
+            "When a 21-sample fold is held out, training has 103 − 21 = 82 samples.",
+            "When a 20-sample fold is held out, training has 103 − 20 = 83 samples."
+          ],
+          "answer": "Fold sizes 21, 21, 21, 20, 20. Training sizes 82 (three rounds) or 83 (two rounds). Folds differ by at most 1."
+        }
+      ],
+      "why": "Almost every CV question is about k-fold, and the counts are quick marks. In GATE: the sizes of folds and training sets, how often a sample is used, and how many models are trained.",
+      "how": [
+        "Fold size = n / k.",
+        "Training size per round = n − n / k.",
+        "Each sample: validated once, used for training k − 1 times.",
+        "Rounds = k, so k models are trained."
+      ],
+      "mistake": "Mixing up the sizes. The validation fold is n / k, not n(k − 1)/k. In 6-fold CV on 120 samples, 20 validate and 100 train. Also do not think the validation folds overlap: they never do.",
+      "edge_cases": [
+        "n not divisible by k: fold sizes differ by at most 1.",
+        "k = 2: two rounds, each training on half the data.",
+        "k = n: this is leave-one-out.",
+        "Ordered data (sorted by label, say): shuffle first, or the folds are not representative."
+      ],
+      "connections": [
+        "CV error estimate (next card): what to do with the k fold scores.",
+        "Leave-one-out: the case k = n.",
+        "Foundations: Algebra. Fractions such as (k − 1)/k."
+      ],
+      "check": [
+        {
+          "q": "100 samples, 5-fold CV. What are the fold size and the training size?",
+          "a": "Fold size 100 / 5 = 20. Training size 100 − 20 = 80."
+        },
+        {
+          "q": "In k-fold CV, how many times is each sample used for validation?",
+          "a": "Exactly once."
+        },
+        {
+          "q": "How many models are trained in 10-fold CV?",
+          "a": "10, one per round."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. The ladder has several count questions on folds.",
+      "try": {
+        "id": "gen.ml.cv.002",
+        "label": "Validation fold size in k-fold"
+      },
+      "scene": "ml.cv.kfold",
+      "what": "In **k-fold cross-validation** you split the data into k equal folds. In each round, one fold is the validation fold and the other k − 1 folds are the training set. After k rounds every sample has been validated exactly once. Each round trains on $\\frac{k-1}{k}$ of the data.",
+      "what_full": "In **k-fold cross-validation** you split the data into k equal folds. In each round, one fold is the validation fold and the other k − 1 folds are the training set. After k rounds every sample has been validated exactly once. Each round trains on $\\frac{k-1}{k}$ of the data.\n\n$$\\text{fold size}=\\frac nk,\\qquad \\text{training size per round}=n\\cdot\\frac{k-1}{k}$$\n\nSymbols: $n$ is the number of samples in the pool and $k$ is the number of folds. Each sample is validated once and used for training $k-1$ times. The $k$ validation folds never overlap. The $k$ training sets do overlap.\n\n**Worked example.** Twelve samples, numbered 1 to 12, are dealt into k = 4 folds in order: fold 1 is samples 1 to 3, fold 2 is 4 to 6, fold 3 is 7 to 9, fold 4 is 10 to 12. Write down the 4 rounds. How often is each sample validated, and how often does it train?\n\n1. Fold size = 12 / 4 = 3. Training size per round = 12 − 3 = 9.\n2. Round 1: validate on samples 1 to 3, train on 4 to 12.\n3. Round 2: validate on 4 to 6, train on 1 to 3 and 7 to 12.\n4. Round 3: validate on 7 to 9, train on the other 9 samples.\n5. Round 4: validate on 10 to 12, train on 1 to 9.\n6. Look down any column: exactly one V and three T. Each sample is validated once and trains 3 = k − 1 times.\n\n**Answer:** Each round trains on 9 and validates on 3. Every sample is validated once and trains in the other 3 rounds.\n\n**Check yourself:** 100 samples, 5-fold CV. What are the fold size and the training size?\n\n*Answer:* Fold size 100 / 5 = 20. Training size 100 − 20 = 80.",
+      "trap": "Mixing up the sizes. The validation fold is n / k, not n(k − 1)/k. In 6-fold CV on 120 samples, 20 validate and 100 train. Also do not think the validation folds overlap: they never do.",
+      "why_full": "Almost every CV question is about k-fold, and the counts are quick marks. In GATE: the sizes of folds and training sets, how often a sample is used, and how many models are trained.\n\nAsked: no direct past question yet. The ladder has several count questions on folds."
+    },
+    {
+      "atom_id": "c5",
+      "title": "CV error estimate",
+      "simple": "Say you take 5 mock tests and make 12, 8, 10, 14 and 6 mistakes. To say how good you are, you do not quote your best day or your worst day. You take the average: 50 mistakes over 5 tests is 10 per test. Cross-validation does exactly this with the error from each fold. If the tests have different numbers of questions, a longer test should count for more, so you add up all the mistakes and divide by all the questions. In exam words: the CV error is the mean of the fold errors, weighted by fold size when the folds are unequal.",
+      "idea": "Each round of CV gives one error number from its validation fold. The **CV estimate** is the average of these numbers. If all folds have the same size, take the plain mean. If the sizes differ, weight each fold by its size. That works out to total mistakes divided by total samples.",
+      "definition": "$$\\widehat{E}_{CV}=\\frac1k\\sum_{i=1}^{k}E_i\\qquad\\text{(equal folds)}$$\n\n$$\\widehat{E}_{CV}=\\frac{\\sum_i n_iE_i}{\\sum_i n_i}=\\frac{\\text{total mistakes}}{\\text{total samples}}\\qquad\\text{(unequal folds)}$$\n\nSymbols: $E_i$ is the error rate on fold $i$ and $n_i$ is the size of fold $i$.",
+      "intuition_full": "A fold with more samples gives a more reliable error rate, so it deserves a bigger say. Weighting by size gives exactly total mistakes over total samples, so every validation prediction counts once. If you average the rates of unequal folds, a tiny fold gets the same say as a huge one, and the result is distorted. The mean also hides how much the folds disagree. Two models with the same mean can differ in spread, and the one with steadier fold errors is easier to trust. Never report only the best fold. It is the most flattering of k numbers, and it does not estimate anything.",
+      "example": {
+        "level": "basic",
+        "setup": "5-fold CV with equal folds gives error rates of 12%, 8%, 10%, 14% and 6%. What is the CV estimate?",
+        "steps": [
+          "Add the fold errors: 12 + 8 + 10 + 14 + 6 = 50.",
+          "Divide by the number of folds: 50 / 5 = 10.",
+          "Not the best fold (6%) and not the worst fold (14%). The estimate uses all five."
+        ],
+        "answer": "CV estimate = 10%."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "5-fold CV with equal folds gives error rates of 12%, 8%, 10%, 14% and 6%. What is the CV estimate?",
+          "steps": [
+            "Add the fold errors: 12 + 8 + 10 + 14 + 6 = 50.",
+            "Divide by the number of folds: 50 / 5 = 10.",
+            "Not the best fold (6%) and not the worst fold (14%). The estimate uses all five."
+          ],
+          "answer": "CV estimate = 10%."
+        },
+        {
+          "level": "gate",
+          "setup": "Three folds have sizes 12, 4 and 4 (20 samples in all). The numbers of mistakes are 1, 2 and 2. Find the CV error as total mistakes ÷ total samples, and compare it with the plain mean of the three fold error rates.",
+          "steps": [
+            "Pooled: (1 + 2 + 2) / 20 = 5 / 20 = 0.25.",
+            "Fold rates: 1/12 = 0.083, 2/4 = 0.5, 2/4 = 0.5.",
+            "Plain mean of the rates: (0.083 + 0.5 + 0.5) / 3 = 1.083 / 3 = 0.361.",
+            "The plain mean over-weights the two tiny folds. The size-weighted answer is 0.25."
+          ],
+          "answer": "CV error = 0.25. The plain mean 0.361 is wrong when fold sizes differ."
+        },
+        {
+          "level": "twist",
+          "setup": "Two models are scored on 5 folds. Model A has fold errors 9, 10, 11, 10, 10. Model B has fold errors 2, 18, 10, 16, 4. Both have the same mean. Which estimate would you trust more?",
+          "steps": [
+            "Model A: 9 + 10 + 11 + 10 + 10 = 50, mean 50 / 5 = 10.",
+            "Model B: 2 + 18 + 10 + 16 + 4 = 50, mean 50 / 5 = 10.",
+            "Spread: A's folds are within 1 of the mean. B's folds are as far as 8 away (variance 40 against 0.4).",
+            "B's score depends heavily on which fold you look at. A's mean is the more reliable number."
+          ],
+          "answer": "Both means are 10, but A's estimate is more trustworthy because its folds agree."
+        }
+      ],
+      "why": "Reporting and comparing models needs one number. In GATE: compute the CV error from fold errors, weighting by fold size when sizes differ.",
+      "how": [
+        "List the fold errors.",
+        "Equal folds: add them and divide by k.",
+        "Unequal folds: total mistakes ÷ total samples.",
+        "Never report only the best fold."
+      ],
+      "mistake": "Averaging only the best fold, or averaging the rates of unequal folds as if they had equal size. Use every fold, and weight by size.",
+      "edge_cases": [
+        "Equal folds: the weighted mean and the plain mean are the same.",
+        "LOOCV: each fold has one sample, so the estimate is the fraction of wrong predictions.",
+        "For squared error instead of error rate, the same weighting applies.",
+        "The spread of fold errors shows how stable the estimate is."
+      ],
+      "connections": [
+        "Descriptive statistics and moments (prob.desc): mean and spread.",
+        "Model selection (last card): the choice is made by this average.",
+        "Foundations: Algebra. Weighted averages and fractions."
+      ],
+      "check": [
+        {
+          "q": "Fold errors are 10%, 20% and 30% (equal folds). What is the CV error?",
+          "a": "(10 + 20 + 30) / 3 = 20%."
+        },
+        {
+          "q": "Two folds: 10 samples with 1 mistake and 30 samples with 9 mistakes. What is the pooled error?",
+          "a": "(1 + 9) / (10 + 30) = 10 / 40 = 25%."
+        },
+        {
+          "q": "Why not report the best fold?",
+          "a": "It is the most flattering of k numbers. It is not an estimate of future error."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. A ladder item asks for the pooled error of unequal folds.",
+      "try": {
+        "id": "gen.ml.cv.007",
+        "label": "Mean of fold errors"
+      },
+      "scene": "ml.cv.estimate",
+      "what": "Each round of CV gives one error number from its validation fold. The **CV estimate** is the average of these numbers. If all folds have the same size, take the plain mean. If the sizes differ, weight each fold by its size. That works out to total mistakes divided by total samples.",
+      "what_full": "Each round of CV gives one error number from its validation fold. The **CV estimate** is the average of these numbers. If all folds have the same size, take the plain mean. If the sizes differ, weight each fold by its size. That works out to total mistakes divided by total samples.\n\n$$\\widehat{E}_{CV}=\\frac1k\\sum_{i=1}^{k}E_i\\qquad\\text{(equal folds)}$$\n\n$$\\widehat{E}_{CV}=\\frac{\\sum_i n_iE_i}{\\sum_i n_i}=\\frac{\\text{total mistakes}}{\\text{total samples}}\\qquad\\text{(unequal folds)}$$\n\nSymbols: $E_i$ is the error rate on fold $i$ and $n_i$ is the size of fold $i$.\n\n**Worked example.** 5-fold CV with equal folds gives error rates of 12%, 8%, 10%, 14% and 6%. What is the CV estimate?\n\n1. Add the fold errors: 12 + 8 + 10 + 14 + 6 = 50.\n2. Divide by the number of folds: 50 / 5 = 10.\n3. Not the best fold (6%) and not the worst fold (14%). The estimate uses all five.\n\n**Answer:** CV estimate = 10%.\n\n**Check yourself:** Fold errors are 10%, 20% and 30% (equal folds). What is the CV error?\n\n*Answer:* (10 + 20 + 30) / 3 = 20%.",
+      "trap": "Averaging only the best fold, or averaging the rates of unequal folds as if they had equal size. Use every fold, and weight by size.",
+      "why_full": "Reporting and comparing models needs one number. In GATE: compute the CV error from fold errors, weighting by fold size when sizes differ.\n\nAsked: no direct past question yet. A ladder item asks for the pooled error of unequal folds."
+    },
+    {
+      "atom_id": "c3",
+      "title": "Leave-one-out",
+      "simple": "Leave-one-out is the most extreme way of hiding data. With 5 friends, you hide one friend, guess his answer using the other four, then hide the next friend, and so on. Five friends means five rounds, and in each round you learn from almost everyone: 4 out of 5. This is a very fair test, but you do the whole job 5 times. With a million friends it would take a million rounds. In exam words: leave-one-out CV uses k = n. It trains n models, each on n − 1 samples.",
+      "idea": "**Leave-one-out cross-validation (LOOCV)** is k-fold with k = n. Each round hides exactly one sample, trains on the other n − 1, and tests on the hidden one. After n rounds you have n predictions, and the error is the fraction that were wrong (or the average squared error).",
+      "definition": "$$\\text{LOOCV}=\\frac1n\\sum_{i=1}^{n}L\\!\\left(y_i,\\ \\hat f^{(-i)}(x_i)\\right)$$\n\nSymbols: $\\hat f^{(-i)}$ is the model trained on every sample except sample $i$, and $L$ is the loss, such as 0-1 error or squared error. It needs $n$ fits, each on $n-1$ samples. There is no randomness in the folds.",
+      "intuition_full": "Each round's model has seen all but one sample, so it is almost the full model. That makes the estimate very close to the error of the model trained on everything: low bias. The price is cost, because you fit n models. The rounds are also nearly the same model repeated, so their errors move together. For some models the n fits can be avoided: for 1-NN you only need the nearest other point, and for least squares there is a shortcut using leverage. When doing 1-NN by hand, remember to leave the held-out point out of its own neighbour search. Otherwise it finds itself at distance 0, and the error collapses to the training error.",
+      "example": {
+        "level": "basic",
+        "setup": "Five points on a line: x = 1, 3, 4, 8, 9 with labels A, B, A, B, B. Use the 1-nearest-neighbour rule (the nearest OTHER point) with leave-one-out CV. What is the LOOCV error rate?",
+        "steps": [
+          "5 points means 5 rounds. Each round hides one point and predicts it from the nearest of the other four.",
+          "Hide x = 1 (A): the nearest other point is x = 3 (B, distance 2). Predict B. Wrong.",
+          "Hide x = 3 (B): the nearest is x = 4 (A, distance 1). Predict A. Wrong.",
+          "Hide x = 4 (A): the nearest is x = 3 (B, distance 1). Predict B. Wrong.",
+          "Hide x = 8 (B): the nearest is x = 9 (B, distance 1). Predict B. Right.",
+          "Hide x = 9 (B): the nearest is x = 8 (B, distance 1). Predict B. Right.",
+          "3 wrong out of 5, so the LOOCV error is 3/5 = 0.6."
+        ],
+        "answer": "LOOCV error = 0.6."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Five points on a line: x = 1, 3, 4, 8, 9 with labels A, B, A, B, B. Use the 1-nearest-neighbour rule (the nearest OTHER point) with leave-one-out CV. What is the LOOCV error rate?",
+          "steps": [
+            "5 points means 5 rounds. Each round hides one point and predicts it from the nearest of the other four.",
+            "Hide x = 1 (A): the nearest other point is x = 3 (B, distance 2). Predict B. Wrong.",
+            "Hide x = 3 (B): the nearest is x = 4 (A, distance 1). Predict A. Wrong.",
+            "Hide x = 4 (A): the nearest is x = 3 (B, distance 1). Predict B. Wrong.",
+            "Hide x = 8 (B): the nearest is x = 9 (B, distance 1). Predict B. Right.",
+            "Hide x = 9 (B): the nearest is x = 8 (B, distance 1). Predict B. Right.",
+            "3 wrong out of 5, so the LOOCV error is 3/5 = 0.6."
+          ],
+          "answer": "LOOCV error = 0.6."
+        },
+        {
+          "level": "gate",
+          "setup": "A model predicts the mean of its training labels. The data labels are y = 4, 7, 13. Find the LOOCV mean squared error, and compare it with the training MSE of the model fitted to all three.",
+          "steps": [
+            "Hide 4: predict the mean of 7 and 13, which is 10. Error 4 − 10 = −6. Squared: 36.",
+            "Hide 7: predict the mean of 4 and 13, which is 8.5. Error 7 − 8.5 = −1.5. Squared: 2.25.",
+            "Hide 13: predict the mean of 4 and 7, which is 5.5. Error 13 − 5.5 = 7.5. Squared: 56.25.",
+            "LOOCV MSE = (36 + 2.25 + 56.25) / 3 = 94.5 / 3 = 31.5.",
+            "Training MSE: the mean of all three is 8. Errors −4, −1, +5. Squares 16, 1, 25. Sum 42. MSE = 42 / 3 = 14."
+          ],
+          "answer": "LOOCV MSE = 31.5, more than twice the training MSE of 14. Training error is optimistic."
+        },
+        {
+          "level": "twist",
+          "setup": "Same five points and 1-NN rule, but this time the held-out point is NOT removed from the pool when its neighbour is searched. What error comes out?",
+          "steps": [
+            "If the held-out point stays in the pool, its nearest neighbour is itself, at distance 0.",
+            "So each prediction equals its own label, in all five rounds.",
+            "Wrong predictions: 0 out of 5, so the error is 0.",
+            "The honest answer was 0.6. Leaving the point in turns LOOCV into the training error."
+          ],
+          "answer": "0, which is wrong. The held-out point must be excluded; the true LOOCV error is 0.6."
+        }
+      ],
+      "why": "LOOCV is the extreme case that explains the others: bias, cost and counting. In GATE: how many models it trains, how many splits it makes (after removing the test set), and small hand calculations with 1-NN.",
+      "how": [
+        "Count the pool size n, without the test set.",
+        "For each sample: remove it, fit on the other n − 1, predict it.",
+        "Collect the n losses and average them.",
+        "For 1-NN, exclude the held-out point from the neighbour search."
+      ],
+      "mistake": "Counting the test samples in n, or leaving the held-out point in the pool during 1-NN. In the first case the split count is wrong. In the second the error collapses to the training error, which is 0.",
+      "edge_cases": [
+        "n fits for n samples: the cost grows with the data.",
+        "No randomness: LOOCV gives the same number every time.",
+        "Tiny datasets: LOOCV is often the only sensible choice.",
+        "For least squares, a leverage shortcut gives the LOOCV residuals from a single fit."
+      ],
+      "connections": [
+        "k-nearest neighbours: leave-one-out error is how k is chosen there.",
+        "Linear regression: the shortcut e / (1 − h) gives LOOCV residuals without refitting.",
+        "Bias, variance and cost of CV (a few cards on): why LOOCV is costly."
+      ],
+      "check": [
+        {
+          "q": "Leave-one-out on 30 samples. How many models are trained, and on how many samples each?",
+          "a": "30 models, each on 29 samples."
+        },
+        {
+          "q": "In 1-NN LOOCV, why must the held-out point be excluded from its own neighbour search?",
+          "a": "Otherwise it is its own nearest neighbour and the error is always 0."
+        },
+        {
+          "q": "Is LOOCV random?",
+          "a": "No. The splits are fixed."
+        }
+      ],
+      "asked": "Asked: 2026 DA Q12 asks the number of LOOCV splits after a test set is removed (1000 − 100 = 900). A ladder item asks the 1-NN LOOCV error on a line.",
+      "try": {
+        "id": "gen.ml.cv.003",
+        "label": "Models trained in leave-one-out"
+      },
+      "scene": "ml.cv.loo",
+      "what": "**Leave-one-out cross-validation (LOOCV)** is k-fold with k = n. Each round hides exactly one sample, trains on the other n − 1, and tests on the hidden one. After n rounds you have n predictions, and the error is the fraction that were wrong (or the average squared error).",
+      "what_full": "**Leave-one-out cross-validation (LOOCV)** is k-fold with k = n. Each round hides exactly one sample, trains on the other n − 1, and tests on the hidden one. After n rounds you have n predictions, and the error is the fraction that were wrong (or the average squared error).\n\n$$\\text{LOOCV}=\\frac1n\\sum_{i=1}^{n}L\\!\\left(y_i,\\ \\hat f^{(-i)}(x_i)\\right)$$\n\nSymbols: $\\hat f^{(-i)}$ is the model trained on every sample except sample $i$, and $L$ is the loss, such as 0-1 error or squared error. It needs $n$ fits, each on $n-1$ samples. There is no randomness in the folds.\n\n**Worked example.** Five points on a line: x = 1, 3, 4, 8, 9 with labels A, B, A, B, B. Use the 1-nearest-neighbour rule (the nearest OTHER point) with leave-one-out CV. What is the LOOCV error rate?\n\n1. 5 points means 5 rounds. Each round hides one point and predicts it from the nearest of the other four.\n2. Hide x = 1 (A): the nearest other point is x = 3 (B, distance 2). Predict B. Wrong.\n3. Hide x = 3 (B): the nearest is x = 4 (A, distance 1). Predict A. Wrong.\n4. Hide x = 4 (A): the nearest is x = 3 (B, distance 1). Predict B. Wrong.\n5. Hide x = 8 (B): the nearest is x = 9 (B, distance 1). Predict B. Right.\n6. Hide x = 9 (B): the nearest is x = 8 (B, distance 1). Predict B. Right.\n7. 3 wrong out of 5, so the LOOCV error is 3/5 = 0.6.\n\n**Answer:** LOOCV error = 0.6.\n\n**Check yourself:** Leave-one-out on 30 samples. How many models are trained, and on how many samples each?\n\n*Answer:* 30 models, each on 29 samples.",
+      "trap": "Counting the test samples in n, or leaving the held-out point in the pool during 1-NN. In the first case the split count is wrong. In the second the error collapses to the training error, which is 0.",
+      "why_full": "LOOCV is the extreme case that explains the others: bias, cost and counting. In GATE: how many models it trains, how many splits it makes (after removing the test set), and small hand calculations with 1-NN.\n\nAsked: 2026 DA Q12 asks the number of LOOCV splits after a test set is removed (1000 − 100 = 900). A ladder item asks the 1-NN LOOCV error on a line."
+    },
+    {
+      "atom_id": "c4",
+      "title": "Counting splits and fits",
+      "simple": "Count the work like a teacher marking practice papers. First lock the papers for the final exam in a drawer, because they are not part of the practice. Hiding one paper at a time over 320 papers makes 320 rounds. If you try 6 study plans and check each on 5 groups of papers, that is 6 × 5 = 30 rounds. At the end you study once more with the best plan on all the papers, so 31. In exam words: remove the test data first; LOOCV splits = pool size; fits = grid size × k, plus 1 refit.",
+      "idea": "Counting questions all follow one order. First **remove the test set**. What is left is the pool. LOOCV makes one split per pool sample. K-fold makes k splits. Searching a grid of G settings with k folds trains $G\\times k$ models, and the final refit on the whole pool adds 1.",
+      "definition": "$$\\text{pool}=N-N_{test},\\qquad \\text{LOOCV splits}=\\text{pool},\\qquad \\text{grid fits}=G\\cdot k\\ (+1\\text{ refit})$$\n\nSymbols: $N$ is the total number of samples, $N_{test}$ the samples kept for testing, $G$ the number of hyperparameter combinations and $k$ the number of folds. Two hyperparameters multiply: $G=G_1\\times G_2$.",
+      "intuition_full": "Follow the order of events. The test set is set aside before anything else, so it can never appear in a CV count. A split is one round of 'train here, validate there'. K-fold has k of them. LOOCV has one per pool sample. If you repeat the whole CV for every candidate setting, you multiply by the number of candidates. After choosing the winner you usually train one final model on the whole pool, and that is the +1. Irrelevant numbers such as the number of classes or features never change a count. The other common question is the training size per round, which is pool × (k − 1)/k.",
+      "example": {
+        "level": "basic",
+        "setup": "A dataset has 400 samples. 80 are kept for testing. On the remaining pool: (a) How many LOOCV splits are there? (b) With 5-fold CV, how many samples validate and how many train in each round? (c) A grid search tries 6 values of a hyperparameter with 5-fold CV, then refits once on the whole pool. How many models are fitted?",
+        "steps": [
+          "The CV pool is 400 − 80 = 320 samples. The test set is never counted.",
+          "(a) LOOCV makes one split per pool sample: 320 splits.",
+          "(b) 5-fold: validation = 320 / 5 = 64 and training = 320 − 64 = 256.",
+          "(c) 6 values × 5 folds = 30 fits.",
+          "Add the final refit on the whole pool: 30 + 1 = 31 fits."
+        ],
+        "answer": "(a) 320. (b) 64 validate, 256 train. (c) 31 fits."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A dataset has 400 samples. 80 are kept for testing. On the remaining pool: (a) How many LOOCV splits are there? (b) With 5-fold CV, how many samples validate and how many train in each round? (c) A grid search tries 6 values of a hyperparameter with 5-fold CV, then refits once on the whole pool. How many models are fitted?",
+          "steps": [
+            "The CV pool is 400 − 80 = 320 samples. The test set is never counted.",
+            "(a) LOOCV makes one split per pool sample: 320 splits.",
+            "(b) 5-fold: validation = 320 / 5 = 64 and training = 320 − 64 = 256.",
+            "(c) 6 values × 5 folds = 30 fits.",
+            "Add the final refit on the whole pool: 30 + 1 = 31 fits."
+          ],
+          "answer": "(a) 320. (b) 64 validate, 256 train. (c) 31 fits."
+        },
+        {
+          "level": "gate",
+          "setup": "A dataset has 1000 samples, 10 classes and 512 features. The first 150 samples are kept for testing, and LOOCV is run on the rest. How many splits are there, and how many samples train in each?",
+          "steps": [
+            "The test samples are excluded first: 1000 − 150 = 850 samples are in the pool.",
+            "LOOCV makes one split per pool sample: 850 splits.",
+            "Each split holds out 1 sample and trains on 850 − 1 = 849.",
+            "The 10 classes and 512 features are distractors. They change nothing in the count."
+          ],
+          "answer": "850 splits, each training on 849 samples."
+        },
+        {
+          "level": "twist",
+          "setup": "A grid search tries 3 values of λ and 4 values of the polynomial degree, with 5-fold CV and one final refit. How many models are fitted?",
+          "steps": [
+            "Two hyperparameters multiply. The number of combinations is 3 × 4 = 12, not 3 + 4 = 7.",
+            "Each combination is scored with 5 folds: 12 × 5 = 60 fits.",
+            "Add the final refit: 60 + 1 = 61."
+          ],
+          "answer": "61 fits. Adding the counts (7 × 5 + 1 = 36) would be wrong."
+        }
+      ],
+      "why": "Counting splits and fits is where CV questions turn into pure arithmetic, and the 2026 DA paper asked exactly this. The traps are all about forgetting to remove the test set or forgetting the refit.",
+      "how": [
+        "Remove the test set: pool = N − N_test.",
+        "Splits: LOOCV = pool size, k-fold = k.",
+        "Sizes: validation = pool / k, training = pool − pool / k.",
+        "Grid: combinations × k. Multiply the counts of different hyperparameters.",
+        "Add 1 if the best setting is refitted."
+      ],
+      "mistake": "Counting the test set in the CV pool (answering 1000 instead of 900), or forgetting the final refit. Numbers such as the number of classes or features are distractors.",
+      "edge_cases": [
+        "If no refit is mentioned, do not add 1.",
+        "Nested CV: outer folds × (inner grid × inner folds + 1).",
+        "Two hyperparameters multiply: 3 values and 4 values give 12 combinations.",
+        "Repeating k-fold r times multiplies the fits by r."
+      ],
+      "connections": [
+        "Leave-one-out: splits = pool size.",
+        "Model selection (last card): why a grid is searched.",
+        "Foundations: Algebra. Multiplying and subtracting."
+      ],
+      "check": [
+        {
+          "q": "500 samples, 100 kept for testing. How many LOOCV splits?",
+          "a": "500 − 100 = 400."
+        },
+        {
+          "q": "7 settings, 3-fold CV, no refit. How many fits?",
+          "a": "7 × 3 = 21."
+        },
+        {
+          "q": "6 settings, 3-fold CV, plus one refit. How many fits?",
+          "a": "6 × 3 + 1 = 19."
+        }
+      ],
+      "asked": "Asked: 2026 DA Q12 (LOOCV splits after removing the test set: 1000 − 100 = 900, with classes and features as distractors).",
+      "try": {
+        "id": "gen.ml.cv.008",
+        "label": "LOOCV splits after a test split"
+      },
+      "scene": "ml.cv.count",
+      "what": "Counting questions all follow one order. First **remove the test set**. What is left is the pool. LOOCV makes one split per pool sample. K-fold makes k splits. Searching a grid of G settings with k folds trains $G\\times k$ models, and the final refit on the whole pool adds 1.",
+      "what_full": "Counting questions all follow one order. First **remove the test set**. What is left is the pool. LOOCV makes one split per pool sample. K-fold makes k splits. Searching a grid of G settings with k folds trains $G\\times k$ models, and the final refit on the whole pool adds 1.\n\n$$\\text{pool}=N-N_{test},\\qquad \\text{LOOCV splits}=\\text{pool},\\qquad \\text{grid fits}=G\\cdot k\\ (+1\\text{ refit})$$\n\nSymbols: $N$ is the total number of samples, $N_{test}$ the samples kept for testing, $G$ the number of hyperparameter combinations and $k$ the number of folds. Two hyperparameters multiply: $G=G_1\\times G_2$.\n\n**Worked example.** A dataset has 400 samples. 80 are kept for testing. On the remaining pool: (a) How many LOOCV splits are there? (b) With 5-fold CV, how many samples validate and how many train in each round? (c) A grid search tries 6 values of a hyperparameter with 5-fold CV, then refits once on the whole pool. How many models are fitted?\n\n1. The CV pool is 400 − 80 = 320 samples. The test set is never counted.\n2. (a) LOOCV makes one split per pool sample: 320 splits.\n3. (b) 5-fold: validation = 320 / 5 = 64 and training = 320 − 64 = 256.\n4. (c) 6 values × 5 folds = 30 fits.\n5. Add the final refit on the whole pool: 30 + 1 = 31 fits.\n\n**Answer:** (a) 320. (b) 64 validate, 256 train. (c) 31 fits.\n\n**Check yourself:** 500 samples, 100 kept for testing. How many LOOCV splits?\n\n*Answer:* 500 − 100 = 400.",
+      "trap": "Counting the test set in the CV pool (answering 1000 instead of 900), or forgetting the final refit. Numbers such as the number of classes or features are distractors.",
+      "why_full": "Counting splits and fits is where CV questions turn into pure arithmetic, and the 2026 DA paper asked exactly this. The traps are all about forgetting to remove the test set or forgetting the refit.\n\nAsked: 2026 DA Q12 (LOOCV splits after removing the test set: 1000 − 100 = 900, with classes and features as distractors)."
+    },
+    {
+      "atom_id": "c6",
+      "title": "Bias, variance and cost of CV",
+      "simple": "Imagine judging a cook by letting them use only half the ingredients. Their dish tastes worse than it would with everything, so you underrate the cook. If you give them almost all the ingredients, your judgement is fairer. That is the bias of the CV score: less data in each round means a weaker model and a gloomier score. But giving almost everything means redoing the dish once per ingredient, which is slow, and the dishes come out nearly identical, so the rounds are not independent opinions. In exam words: a larger k gives lower bias but higher cost; LOOCV has the lowest bias, but its n models are highly correlated.",
+      "idea": "The choice of k is a trade. A small k trains on less data, so each model is weaker and the CV error is **too pessimistic** (biased high). A large k trains on almost all the data, so the bias is small, but you fit **more models**, and those models are nearly copies of each other. k = 5 or 10 is the usual compromise.",
+      "definition": "$$\\text{training size}=n\\,\\frac{k-1}{k},\\qquad \\text{fits}=k,\\qquad \\text{work}\\approx n(k-1)\\ \\ (\\text{if training time}\\propto\\text{size})$$\n\nSymbols: $n$ is the pool size and $k$ the number of folds. Smaller training sets give a pessimistic estimate, which is the bias. LOOCV has $k=n$ and the smallest bias. Two LOOCV training sets share $n-2$ of their $n-1$ samples, so the models are nearly identical.",
+      "intuition_full": "Bias here means: does the CV error differ from the error of the model you will really deploy, trained on all n samples? A model trained on fewer samples is worse (that is what a learning curve shows), so a small-k estimate lands above the truth. As k grows the gap closes. The variance of the estimate is subtler. The k errors you average come from overlapping training sets, so they are positively correlated, and averaging correlated numbers helps less than averaging independent ones. LOOCV is the extreme case because its models are almost identical. That is why LOOCV, despite its low bias, is not always the lowest-variance choice. 5 or 10 is the safe middle.",
+      "example": {
+        "level": "basic",
+        "setup": "A pool has n = 200 samples. Compare k = 2, 5, 10 and 200 (LOOCV). Find the training size per round, the number of fits, and the total work relative to one fit on all 200 samples, if training time is proportional to training size.",
+        "steps": [
+          "Training size = 200 × (k − 1)/k. For k = 2 it is 100. For k = 5 it is 160. For k = 10 it is 180. For k = 200 it is 199.",
+          "A training set smaller than 200 gives a weaker model and a pessimistic score. The shortfall is 100, 40, 20 and 1 samples.",
+          "Number of fits = k: 2, 5, 10 and 200.",
+          "Work relative to one full fit = k × (training size) / 200 = k − 1. That is 1, 4, 9 and 199.",
+          "k = 5 or 10 keeps the bias small for modest work. LOOCV has the least bias but costs 199 times as much."
+        ],
+        "answer": "Training sizes 100, 160, 180, 199. Fits 2, 5, 10, 200. Relative work 1, 4, 9, 199."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A pool has n = 200 samples. Compare k = 2, 5, 10 and 200 (LOOCV). Find the training size per round, the number of fits, and the total work relative to one fit on all 200 samples, if training time is proportional to training size.",
+          "steps": [
+            "Training size = 200 × (k − 1)/k. For k = 2 it is 100. For k = 5 it is 160. For k = 10 it is 180. For k = 200 it is 199.",
+            "A training set smaller than 200 gives a weaker model and a pessimistic score. The shortfall is 100, 40, 20 and 1 samples.",
+            "Number of fits = k: 2, 5, 10 and 200.",
+            "Work relative to one full fit = k × (training size) / 200 = k − 1. That is 1, 4, 9 and 199.",
+            "k = 5 or 10 keeps the bias small for modest work. LOOCV has the least bias but costs 199 times as much."
+          ],
+          "answer": "Training sizes 100, 160, 180, 199. Fits 2, 5, 10, 200. Relative work 1, 4, 9, 199."
+        },
+        {
+          "level": "gate",
+          "setup": "Which statements are true when 10-fold CV is compared with 2-fold CV on the same data? (i) 10-fold gives a less pessimistic error estimate. (ii) 10-fold trains more models. (iii) The two training sets of 2-fold CV overlap heavily. (iv) 2-fold CV is the more optimistic one.",
+          "steps": [
+            "(i) 10-fold trains on 90% of the data, against 50% for 2-fold. Bigger training sets mean less pessimism. True.",
+            "(ii) 10 fits against 2. True.",
+            "(iii) The two 2-fold training sets are the two halves. They share nothing. False.",
+            "(iv) Smaller training sets make the estimate more pessimistic, not more optimistic. False."
+          ],
+          "answer": "(i) and (ii) are true. (iii) and (iv) are false."
+        },
+        {
+          "level": "twist",
+          "setup": "For n = 100, how many samples do two different training sets share in LOOCV, and in 5-fold CV? What does that say about the models?",
+          "steps": [
+            "LOOCV: each training set has 99 samples. Two of them differ only in which sample is missing, so they share 100 − 2 = 98 samples.",
+            "5-fold: each training set has 80 samples (the validation fold is 20). Two rounds leave out two different folds of 20, so they share 100 − 40 = 60 samples, which is 75% of each.",
+            "LOOCV models are almost the same model, so their errors move together. Averaging them reduces the variance less than it would for independent models."
+          ],
+          "answer": "LOOCV shares 98 of 99 samples. 5-fold shares 60 of 80. Highly overlapping training sets give correlated fold errors."
+        }
+      ],
+      "why": "Choosing k is the standard trade-off question around CV. The numbers (training size, fits) are quick arithmetic, and statements about bias and cost are common. In GATE: compare LOOCV with 5-fold on bias and cost.",
+      "how": [
+        "Training size = n(k − 1)/k.",
+        "Fits = k.",
+        "Compare: larger k means lower bias and more cost.",
+        "LOOCV: lowest bias, n fits, highly correlated models.",
+        "The default is k = 5 or 10."
+      ],
+      "mistake": "Saying LOOCV always has the lowest variance because it uses the most data. The n models are almost identical, so their errors are highly correlated and the average is not as stable as it looks.",
+      "edge_cases": [
+        "k = 2: the largest bias (half the data) and the fewest fits.",
+        "Huge data: even k = 5 can be expensive. A single split may do.",
+        "If the model is already saturated (flat learning curve), small k has little bias.",
+        "From smaller training sets the bias is pessimistic. Leakage causes optimism, which is a separate problem."
+      ],
+      "connections": [
+        "Learning curves (Bias and variance): error falls as the training size grows, which is why small training sets give pessimistic scores.",
+        "Leave-one-out: the case k = n.",
+        "Foundations: Algebra. The fraction (k − 1)/k."
+      ],
+      "check": [
+        {
+          "q": "n = 60 and 6-fold CV. What is the training size per round?",
+          "a": "60 × 5/6 = 50."
+        },
+        {
+          "q": "Which has the higher bias in its error estimate: 3-fold or 10-fold CV?",
+          "a": "3-fold. It trains on less data."
+        },
+        {
+          "q": "True or false: 10-fold CV trains 10 models (ignoring a final refit).",
+          "a": "True."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. A ladder item asks how LOOCV compares with 5-fold CV on bias and cost.",
+      "try": {
+        "id": "gen.ml.cv.010",
+        "label": "LOOCV against 5-fold CV"
+      },
+      "scene": "ml.cv.bias",
+      "what": "The choice of k is a trade. A small k trains on less data, so each model is weaker and the CV error is **too pessimistic** (biased high). A large k trains on almost all the data, so the bias is small, but you fit **more models**, and those models are nearly copies of each other. k = 5 or 10 is the usual compromise.",
+      "what_full": "The choice of k is a trade. A small k trains on less data, so each model is weaker and the CV error is **too pessimistic** (biased high). A large k trains on almost all the data, so the bias is small, but you fit **more models**, and those models are nearly copies of each other. k = 5 or 10 is the usual compromise.\n\n$$\\text{training size}=n\\,\\frac{k-1}{k},\\qquad \\text{fits}=k,\\qquad \\text{work}\\approx n(k-1)\\ \\ (\\text{if training time}\\propto\\text{size})$$\n\nSymbols: $n$ is the pool size and $k$ the number of folds. Smaller training sets give a pessimistic estimate, which is the bias. LOOCV has $k=n$ and the smallest bias. Two LOOCV training sets share $n-2$ of their $n-1$ samples, so the models are nearly identical.\n\n**Worked example.** A pool has n = 200 samples. Compare k = 2, 5, 10 and 200 (LOOCV). Find the training size per round, the number of fits, and the total work relative to one fit on all 200 samples, if training time is proportional to training size.\n\n1. Training size = 200 × (k − 1)/k. For k = 2 it is 100. For k = 5 it is 160. For k = 10 it is 180. For k = 200 it is 199.\n2. A training set smaller than 200 gives a weaker model and a pessimistic score. The shortfall is 100, 40, 20 and 1 samples.\n3. Number of fits = k: 2, 5, 10 and 200.\n4. Work relative to one full fit = k × (training size) / 200 = k − 1. That is 1, 4, 9 and 199.\n5. k = 5 or 10 keeps the bias small for modest work. LOOCV has the least bias but costs 199 times as much.\n\n**Answer:** Training sizes 100, 160, 180, 199. Fits 2, 5, 10, 200. Relative work 1, 4, 9, 199.\n\n**Check yourself:** n = 60 and 6-fold CV. What is the training size per round?\n\n*Answer:* 60 × 5/6 = 50.",
+      "trap": "Saying LOOCV always has the lowest variance because it uses the most data. The n models are almost identical, so their errors are highly correlated and the average is not as stable as it looks.",
+      "why_full": "Choosing k is the standard trade-off question around CV. The numbers (training size, fits) are quick arithmetic, and statements about bias and cost are common. In GATE: compare LOOCV with 5-fold on bias and cost.\n\nAsked: no direct past question yet. A ladder item asks how LOOCV compares with 5-fold CV on bias and cost."
+    },
+    {
+      "atom_id": "c7",
+      "title": "Stratified folds",
+      "simple": "Imagine a class of 100 students where only 10 wear glasses. If you make 5 teams by picking at random, one team might get no glasses wearers at all. You cannot test a 'spot the glasses' method on a team that has none. Stratified teams fix this. You deliberately put 2 glasses wearers in every team, so each team looks like the whole class in miniature. In exam words: stratified k-fold keeps the class ratio the same in every fold. Use it for imbalanced data.",
+      "idea": "In plain k-fold the folds are random. With a rare class, a fold can get too many of it, or none. **Stratified k-fold** deals out each class separately, so every fold has the same share of each class as the whole data. For imbalanced data it is the safe default, and you should report a metric that sees the rare class, such as AUC or recall, not plain accuracy.",
+      "definition": "For a class with $n_c$ samples, stratified $k$-fold puts about $n_c/k$ of them in each fold.\n\n$$\\text{positives per fold}\\approx\\frac{n_{pos}}{k}$$\n\nSymbols: $n_{pos}$ is the number of positive samples and $k$ the number of folds. The same rule holds for every class. Stratify on the labels, not on the features.",
+      "intuition_full": "A rare class makes plain random folds unreliable. If 10 of 100 samples are positive and you make 5 random folds, the positives could split 4, 0, 3, 1, 2. The fold with 0 positives cannot measure recall at all, because recall divides by the number of positives. The fold with 4 is twice as positive as average. Each fold's score then reflects the luck of the split, and the average is noisy. Stratification removes that luck: 2 positives in each fold, always. Accuracy has its own trap on imbalanced data. A model that always says 'negative' gets 90% accuracy when 10% are positive, and finds nothing. AUC and recall do not have this problem.",
+      "example": {
+        "level": "basic",
+        "setup": "A dataset has 100 samples: 10 positive and 90 negative. It is split into 5 folds of 20. Random folds contain 4, 0, 3, 1 and 2 positives. Compare them with stratified folds, using an 'always negative' model's accuracy in each fold.",
+        "steps": [
+          "Overall positive rate: 10 / 100 = 10%.",
+          "Random folds: positives per fold are 4, 0, 3, 1, 2 (total 10). Fold 2 has none, so recall cannot even be computed there. Fold 1 has 20% positives.",
+          "Stratified folds: 10 / 5 = 2 positives and 90 / 5 = 18 negatives in every fold of 20. Every fold is 10% positive.",
+          "'Always negative' accuracy = 1 − (positives / 20). Random folds: 80%, 100%, 85%, 95%, 90%. Stratified: 90% in every fold.",
+          "The averages agree (90%), but random folds swing by 20 points. Stratified folds do not."
+        ],
+        "answer": "Stratified folds put 2 positives and 18 negatives in every fold. Random folds can leave a fold with no positives."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A dataset has 100 samples: 10 positive and 90 negative. It is split into 5 folds of 20. Random folds contain 4, 0, 3, 1 and 2 positives. Compare them with stratified folds, using an 'always negative' model's accuracy in each fold.",
+          "steps": [
+            "Overall positive rate: 10 / 100 = 10%.",
+            "Random folds: positives per fold are 4, 0, 3, 1, 2 (total 10). Fold 2 has none, so recall cannot even be computed there. Fold 1 has 20% positives.",
+            "Stratified folds: 10 / 5 = 2 positives and 90 / 5 = 18 negatives in every fold of 20. Every fold is 10% positive.",
+            "'Always negative' accuracy = 1 − (positives / 20). Random folds: 80%, 100%, 85%, 95%, 90%. Stratified: 90% in every fold.",
+            "The averages agree (90%), but random folds swing by 20 points. Stratified folds do not."
+          ],
+          "answer": "Stratified folds put 2 positives and 18 negatives in every fold. Random folds can leave a fold with no positives."
+        },
+        {
+          "level": "gate",
+          "setup": "A dataset has 500 samples and 20 positives. Which evaluation is trustworthy: (i) 97% accuracy on a single split, (ii) stratified 5-fold CV with mean AUC 0.83, (iii) training accuracy of 100%? How many positives and negatives are in each stratified validation fold?",
+          "steps": [
+            "Always predicting negative gets 480 / 500 = 96% accuracy. So 97% accuracy is only 1 point better than doing nothing. (i) is not convincing.",
+            "(iii) Training accuracy says nothing about new data. Not trustworthy.",
+            "(ii) Stratified CV with AUC averages several splits and does not depend on the class ratio. Trustworthy.",
+            "Each stratified fold has 500 / 5 = 100 samples: 20 / 5 = 4 positives and 100 − 4 = 96 negatives."
+          ],
+          "answer": "(ii) is the trustworthy one. Each fold has 4 positives and 96 negatives."
+        },
+        {
+          "level": "twist",
+          "setup": "A dataset has 100 samples with only 4 positives. A student asks for stratified 5-fold CV. What happens to the positives?",
+          "steps": [
+            "4 positives dealt into 5 folds gives 4 / 5 = 0.8 per fold, which is not a whole number.",
+            "Four folds can each get 1 positive. The fifth fold gets 0.",
+            "A fold without positives cannot measure recall or AUC.",
+            "Fix it with fewer folds (k = 4 gives exactly 1 positive per fold), or report pooled results."
+          ],
+          "answer": "One fold has no positives. A class with fewer than k samples cannot appear in every fold."
+        }
+      ],
+      "why": "Rare classes are the usual reason a CV score is misleading. Stratified folds make sure every fold can measure the rare class. In GATE: choose the right protocol for imbalanced data, meaning stratified folds and AUC rather than accuracy.",
+      "how": [
+        "Count each class.",
+        "Divide each class count by k: that is the share per fold.",
+        "Build every fold with the same class mix.",
+        "For imbalanced data, report AUC or recall, not plain accuracy."
+      ],
+      "mistake": "Trusting accuracy on imbalanced data. If 4% are positive, a model that always says negative gets 96% accuracy and finds nothing. Use stratified folds and a metric that sees the rare class.",
+      "edge_cases": [
+        "A class with fewer than k samples cannot appear in every fold.",
+        "Stratify on the labels, not on the features.",
+        "Stratification keeps class ratios. It does not keep other properties, such as patient groups, together.",
+        "With balanced data, plain k-fold is fine."
+      ],
+      "connections": [
+        "Logistic regression: the confusion-matrix metrics (precision, recall).",
+        "Naive Bayes: class priors are the ratios that stratification preserves.",
+        "Data leakage (next card): the other way a CV score goes wrong."
+      ],
+      "check": [
+        {
+          "q": "120 samples, 24 positive, 6 stratified folds. How many positives are in each fold?",
+          "a": "24 / 6 = 4 positives in each fold of 20."
+        },
+        {
+          "q": "With 4% positives, what accuracy does an 'always negative' model get?",
+          "a": "96%."
+        },
+        {
+          "q": "Should stratification use the labels or the features?",
+          "a": "The labels."
+        }
+      ],
+      "asked": "Asked: 2024 DA sample Q11 asks which evaluation protocol is acceptable for 5% positives. The derived answer is D, CV with AUC. The sample paper has no official key.",
+      "try": {
+        "id": "gen.ml.cv.011",
+        "label": "Best folds for rare positives"
+      },
+      "scene": "ml.cv.strat",
+      "what": "In plain k-fold the folds are random. With a rare class, a fold can get too many of it, or none. **Stratified k-fold** deals out each class separately, so every fold has the same share of each class as the whole data. For imbalanced data it is the safe default, and you should report a metric that sees the rare class, such as AUC or recall, not plain accuracy.",
+      "what_full": "In plain k-fold the folds are random. With a rare class, a fold can get too many of it, or none. **Stratified k-fold** deals out each class separately, so every fold has the same share of each class as the whole data. For imbalanced data it is the safe default, and you should report a metric that sees the rare class, such as AUC or recall, not plain accuracy.\n\nFor a class with $n_c$ samples, stratified $k$-fold puts about $n_c/k$ of them in each fold.\n\n$$\\text{positives per fold}\\approx\\frac{n_{pos}}{k}$$\n\nSymbols: $n_{pos}$ is the number of positive samples and $k$ the number of folds. The same rule holds for every class. Stratify on the labels, not on the features.\n\n**Worked example.** A dataset has 100 samples: 10 positive and 90 negative. It is split into 5 folds of 20. Random folds contain 4, 0, 3, 1 and 2 positives. Compare them with stratified folds, using an 'always negative' model's accuracy in each fold.\n\n1. Overall positive rate: 10 / 100 = 10%.\n2. Random folds: positives per fold are 4, 0, 3, 1, 2 (total 10). Fold 2 has none, so recall cannot even be computed there. Fold 1 has 20% positives.\n3. Stratified folds: 10 / 5 = 2 positives and 90 / 5 = 18 negatives in every fold of 20. Every fold is 10% positive.\n4. 'Always negative' accuracy = 1 − (positives / 20). Random folds: 80%, 100%, 85%, 95%, 90%. Stratified: 90% in every fold.\n5. The averages agree (90%), but random folds swing by 20 points. Stratified folds do not.\n\n**Answer:** Stratified folds put 2 positives and 18 negatives in every fold. Random folds can leave a fold with no positives.\n\n**Check yourself:** 120 samples, 24 positive, 6 stratified folds. How many positives are in each fold?\n\n*Answer:* 24 / 6 = 4 positives in each fold of 20.",
+      "trap": "Trusting accuracy on imbalanced data. If 4% are positive, a model that always says negative gets 96% accuracy and finds nothing. Use stratified folds and a metric that sees the rare class.",
+      "why_full": "Rare classes are the usual reason a CV score is misleading. Stratified folds make sure every fold can measure the rare class. In GATE: choose the right protocol for imbalanced data, meaning stratified folds and AUC rather than accuracy.\n\nAsked: 2024 DA sample Q11 asks which evaluation protocol is acceptable for 5% positives. The derived answer is D, CV with AUC. The sample paper has no official key."
+    },
+    {
+      "atom_id": "c7b",
+      "title": "Data leakage",
+      "simple": "Imagine you study for a quiz and, by accident, you read the answer key. Your score is great, but it says nothing about how much you learned. Data leakage is the same thing. If anything about the quiz questions (the validation fold) shapes how you prepare, the score comes out too good. A common slip is to work out averages for rescaling, or to pick the best features, using all the data before cross-validation. Those numbers already contain a peek at the validation data. Do every preparation step inside each round, using only that round's training part. In exam words: fit scalers and feature selectors inside the fold.",
+      "idea": "**Leakage** means information from the validation data sneaks into training. Any step that learns from data (a scaler's mean and standard deviation, feature selection, imputation values, PCA) must be fitted on the training part of each fold only, and then applied to the validation part. Fitting it on all the data first makes the CV score **too optimistic**.",
+      "definition": "For each CV round:\n\n1. Fit the preprocessing (scaler, selector, imputer) on the training part only.\n2. Apply those fitted numbers to both the training part and the validation part.\n3. Train the model.\n4. Score on the validation part.\n\nThe leaky version fits the preprocessing on all the data before splitting. The same rule holds for the test set: fit on the pool, then apply to the test set.",
+      "intuition_full": "The validation fold is supposed to play the role of data the model has never seen. A mean computed on all the data includes the validation rows, so the training pipeline has already 'seen' them. Here is a small example. If the validation point is an outlier, the mean of all the data is dragged toward it. Centring with that mean makes the outlier look less extreme than it really is. In a real deployment the new data would not have helped compute the mean, so the honest number is the training-only mean. Feature selection with labels is even worse: choosing the features that best predict the labels, using all labels, builds the answer into the model. The score looks great, and it falls apart on genuinely new data. Duplicate rows in different folds leak in the same way.",
+      "example": {
+        "level": "basic",
+        "setup": "A feature has values 1, 3, 5, 7, 9 in the training part and 35 in the validation part. Centre it by subtracting the mean. Compare the mean computed from the training part only with the mean computed on all six values. What is the centred validation value in each case?",
+        "steps": [
+          "The data: training values 1, 3, 5, 7, 9 and one validation value 35.",
+          "Honest mean, training only: (1 + 3 + 5 + 7 + 9) / 5 = 25 / 5 = 5.",
+          "Leaky mean, all six values: (25 + 35) / 6 = 60 / 6 = 10.",
+          "The leaky mean moved from 5 to 10, pulled toward the validation point.",
+          "Centred validation value: honest 35 − 5 = 30, leaky 35 − 10 = 25. The leak makes the outlier look less extreme."
+        ],
+        "answer": "Honest mean 5 gives 30. The leaky mean 10 gives 25. The validation point has shaped its own preprocessing."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A feature has values 1, 3, 5, 7, 9 in the training part and 35 in the validation part. Centre it by subtracting the mean. Compare the mean computed from the training part only with the mean computed on all six values. What is the centred validation value in each case?",
+          "steps": [
+            "The data: training values 1, 3, 5, 7, 9 and one validation value 35.",
+            "Honest mean, training only: (1 + 3 + 5 + 7 + 9) / 5 = 25 / 5 = 5.",
+            "Leaky mean, all six values: (25 + 35) / 6 = 60 / 6 = 10.",
+            "The leaky mean moved from 5 to 10, pulled toward the validation point.",
+            "Centred validation value: honest 35 − 5 = 30, leaky 35 − 10 = 25. The leak makes the outlier look less extreme."
+          ],
+          "answer": "Honest mean 5 gives 30. The leaky mean 10 gives 25. The validation point has shaped its own preprocessing."
+        },
+        {
+          "level": "gate",
+          "setup": "Which practices make a reported CV score too optimistic? (i) Standardising all features with the mean and standard deviation of the whole dataset before CV. (ii) Fitting the scaler inside each training fold only. (iii) Choosing the 10 features most correlated with the labels, using all samples, before CV. (iv) Tuning λ on the test set.",
+          "steps": [
+            "(i) The mean and standard deviation include the validation rows. Leak. Optimistic.",
+            "(ii) The scaler only sees training rows, then is applied to validation. Correct. Not optimistic.",
+            "(iii) Selecting features with all labels puts label information into the model. Leak. Optimistic.",
+            "(iv) Tuning on the test set uses the data meant for the final report. Optimistic."
+          ],
+          "answer": "(i), (iii) and (iv) make the score optimistic. (ii) is the correct practice."
+        },
+        {
+          "level": "twist",
+          "setup": "A hospital dataset has 100 rows from 50 patients, two rows per patient (almost the same measurements). It is split into 5 random folds of 20. On average, how many of the 20 validation rows have their twin in the training part?",
+          "steps": [
+            "Take one validation row. Its twin is one of the other 99 rows.",
+            "19 of those 99 rows are in the same validation fold. The other 80 are in the training part.",
+            "Chance the twin is in the training part: 80 / 99 ≈ 0.81.",
+            "Out of 20 validation rows: 20 × 80 / 99 ≈ 16.2 on average.",
+            "So about 16 rows are 'seen' in training through their twin. The fix is group k-fold: keep both rows of a patient in the same fold."
+          ],
+          "answer": "About 16 of 20. Duplicates leak, so keep each patient's rows together."
+        }
+      ],
+      "why": "Leakage is the quiet reason many reported scores look too good. The exam version is a statement to judge: what is wrong with scaling or selecting on the whole dataset first.",
+      "how": [
+        "Split first.",
+        "Inside each round, fit scalers, imputers, selectors and PCA on the training part only.",
+        "Apply the fitted step to the validation part.",
+        "Use the same rule for the final test: fit on the pool, apply to the test set."
+      ],
+      "mistake": "Scaling or selecting features on the whole dataset before CV. It feels harmless, but the validation rows have already shaped the numbers, and the reported score is optimistic.",
+      "edge_cases": [
+        "Rows from the same person, or duplicates, in different folds also leak. Group them.",
+        "Using labels for feature selection leaks more than using features alone.",
+        "Shuffling rows before splitting is fine: it uses no values from the data.",
+        "The test set must not be used to fit a scaler either."
+      ],
+      "connections": [
+        "PCA and LDA: both are fitted on training data only, inside each fold.",
+        "Ridge regression: features are scaled before the penalty, and the scaling must be learned inside the fold.",
+        "Model selection (next card): the best score among many tried is optimistic for a related reason."
+      ],
+      "check": [
+        {
+          "q": "A scaler computes a mean and a standard deviation. On which data should it be fitted in each CV round?",
+          "a": "Only the training folds of that round."
+        },
+        {
+          "q": "Selecting features using all the labels before CV. Is that leakage?",
+          "a": "Yes."
+        },
+        {
+          "q": "Shuffling the rows before splitting. Is that leakage?",
+          "a": "No. It uses no information from the data."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. A ladder item asks what is wrong with standardising on the whole dataset before CV.",
+      "try": {
+        "id": "gen.ml.cv.005",
+        "label": "Correct use of a held-out test set"
+      },
+      "scene": "ml.cv.leak",
+      "what": "**Leakage** means information from the validation data sneaks into training. Any step that learns from data (a scaler's mean and standard deviation, feature selection, imputation values, PCA) must be fitted on the training part of each fold only, and then applied to the validation part. Fitting it on all the data first makes the CV score **too optimistic**.",
+      "what_full": "**Leakage** means information from the validation data sneaks into training. Any step that learns from data (a scaler's mean and standard deviation, feature selection, imputation values, PCA) must be fitted on the training part of each fold only, and then applied to the validation part. Fitting it on all the data first makes the CV score **too optimistic**.\n\nFor each CV round:\n\n1. Fit the preprocessing (scaler, selector, imputer) on the training part only.\n2. Apply those fitted numbers to both the training part and the validation part.\n3. Train the model.\n4. Score on the validation part.\n\nThe leaky version fits the preprocessing on all the data before splitting. The same rule holds for the test set: fit on the pool, then apply to the test set.\n\n**Worked example.** A feature has values 1, 3, 5, 7, 9 in the training part and 35 in the validation part. Centre it by subtracting the mean. Compare the mean computed from the training part only with the mean computed on all six values. What is the centred validation value in each case?\n\n1. The data: training values 1, 3, 5, 7, 9 and one validation value 35.\n2. Honest mean, training only: (1 + 3 + 5 + 7 + 9) / 5 = 25 / 5 = 5.\n3. Leaky mean, all six values: (25 + 35) / 6 = 60 / 6 = 10.\n4. The leaky mean moved from 5 to 10, pulled toward the validation point.\n5. Centred validation value: honest 35 − 5 = 30, leaky 35 − 10 = 25. The leak makes the outlier look less extreme.\n\n**Answer:** Honest mean 5 gives 30. The leaky mean 10 gives 25. The validation point has shaped its own preprocessing.\n\n**Check yourself:** A scaler computes a mean and a standard deviation. On which data should it be fitted in each CV round?\n\n*Answer:* Only the training folds of that round.",
+      "trap": "Scaling or selecting features on the whole dataset before CV. It feels harmless, but the validation rows have already shaped the numbers, and the reported score is optimistic.",
+      "why_full": "Leakage is the quiet reason many reported scores look too good. The exam version is a statement to judge: what is wrong with scaling or selecting on the whole dataset first.\n\nAsked: no direct past question yet. A ladder item asks what is wrong with standardising on the whole dataset before CV."
+    },
+    {
+      "atom_id": "c8",
+      "title": "Model selection",
+      "simple": "You are choosing between 4 study plans. For each plan you take 4 practice tests and note the mistakes. You do not pick the plan with the single best day. You average each plan's 4 scores and choose the plan with the lowest average. Then you study once more with that plan, using all your practice papers, and take the real exam once. Remember that the best average you saw is a bit lucky, because you picked the best of several. So quote the real exam score, not the practice average. In exam words: choose the hyperparameter with the lowest mean CV error, refit on the full pool, and report the test error once.",
+      "idea": "To choose a hyperparameter (k in k-NN, λ in ridge, tree depth), compute the CV error for every candidate and pick the lowest **mean**. Then refit on the whole pool with that value. The CV score of the winner is slightly optimistic, because it is the best of several noisy numbers. The honest final number comes from the test set, used once.",
+      "definition": "$$\\hat h=\\arg\\min_{h}\\ \\widehat{E}_{CV}(h)$$\n\nThen refit on the whole pool with $\\hat h$ and report the error on the test set.\n\nSymbols: $h$ is a candidate value of the hyperparameter, $\\widehat{E}_{CV}(h)$ is its mean CV error, and argmin means 'the value of $h$ with the smallest score'.",
+      "intuition_full": "Choosing is a competition between candidates, each scored on the same folds. The mean is the right summary, because it uses every fold, so one lucky fold cannot win alone. Picking the minimum of several noisy scores biases the winner's score downward. Suppose 40 settings are all equally good. The best of 40 noisy scores will look better than any of them really is. So the CV score of the winner is optimistic, and you use the test set, which took no part in the choice, to report. After picking, you refit on the whole pool. That is more data than any single round had, so the final model is better. Nested CV (an outer loop for reporting and an inner loop for tuning) does the same job when you cannot spare a test set.",
+      "example": {
+        "level": "basic",
+        "setup": "4-fold CV errors (%) for k-NN with different k. k = 1: 30, 26, 28, 32. k = 3: 22, 26, 20, 24. k = 5: 20, 22, 24, 18. k = 9: 24, 26, 22, 28. Choose k, then say what happens next.",
+        "steps": [
+          "Mean for k = 1: (30 + 26 + 28 + 32) / 4 = 116 / 4 = 29.",
+          "k = 3: (22 + 26 + 20 + 24) / 4 = 92 / 4 = 23. k = 5: (20 + 22 + 24 + 18) / 4 = 84 / 4 = 21.",
+          "k = 9: (24 + 26 + 22 + 28) / 4 = 100 / 4 = 25.",
+          "The lowest mean is k = 5, at 21%.",
+          "Refit k-NN with k = 5 on the whole pool, then use the test set once to report the final error."
+        ],
+        "answer": "Choose k = 5 (mean CV error 21%). Refit on the whole pool and test once."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "4-fold CV errors (%) for k-NN with different k. k = 1: 30, 26, 28, 32. k = 3: 22, 26, 20, 24. k = 5: 20, 22, 24, 18. k = 9: 24, 26, 22, 28. Choose k, then say what happens next.",
+          "steps": [
+            "Mean for k = 1: (30 + 26 + 28 + 32) / 4 = 116 / 4 = 29.",
+            "k = 3: (22 + 26 + 20 + 24) / 4 = 92 / 4 = 23. k = 5: (20 + 22 + 24 + 18) / 4 = 84 / 4 = 21.",
+            "k = 9: (24 + 26 + 22 + 28) / 4 = 100 / 4 = 25.",
+            "The lowest mean is k = 5, at 21%.",
+            "Refit k-NN with k = 5 on the whole pool, then use the test set once to report the final error."
+          ],
+          "answer": "Choose k = 5 (mean CV error 21%). Refit on the whole pool and test once."
+        },
+        {
+          "level": "gate",
+          "setup": "Two models have 5-fold CV errors (%). Model M1: 8, 34, 26, 30, 22. Model M2: 18, 22, 20, 21, 19. M1 has the best single fold. Which model do you choose?",
+          "steps": [
+            "M1: 8 + 34 + 26 + 30 + 22 = 120, so the mean is 120 / 5 = 24.",
+            "M2: 18 + 22 + 20 + 21 + 19 = 100, so the mean is 100 / 5 = 20.",
+            "M1's fold of 8 is the best single fold, but it is also followed by a 34. One good fold means little.",
+            "Compare the means: 20 < 24, so choose M2."
+          ],
+          "answer": "Choose M2 (mean 20 against 24). Never choose by the best single fold."
+        },
+        {
+          "level": "twist",
+          "setup": "From 4 candidate settings, the best mean CV error is 21%. After refitting on the whole pool, the sealed test set gives 24%. Which number should you report as the final performance, and why do they differ?",
+          "steps": [
+            "The CV score 21% is the minimum of several noisy numbers, so it is a little too good.",
+            "The test set had no part in choosing the setting, so its 24% is an unbiased estimate.",
+            "Report 24%.",
+            "A gap of 3 points is normal. The more candidates you tried, the bigger the gap tends to be."
+          ],
+          "answer": "Report 24%, the test error. The winning CV score is optimistic because it was selected for being low."
+        }
+      ],
+      "why": "Hyperparameter choice is the everyday use of CV: k, λ, depth. The exam version is a small table of fold errors. In GATE: find the lowest mean, and remember the refit.",
+      "how": [
+        "Average each candidate's fold errors.",
+        "Choose the candidate with the smallest mean.",
+        "Refit on the whole pool with that setting.",
+        "Report the test error, used once. Do not quote the winning CV score as the final result."
+      ],
+      "mistake": "Choosing by the best single fold, or quoting the best CV score among many tried settings as the final performance. The best of many noisy scores is optimistic.",
+      "edge_cases": [
+        "Ties: prefer the simpler model.",
+        "Unequal folds: weight the mean by fold size.",
+        "Many candidates and little data: the selection effect is bigger.",
+        "No spare test set: use nested CV to get an honest number."
+      ],
+      "connections": [
+        "k-nearest neighbours: choosing k by CV.",
+        "Ridge regression: choosing λ by CV.",
+        "Bias and variance: the U-shaped test error is what CV is searching for the bottom of."
+      ],
+      "check": [
+        {
+          "q": "Candidate A has fold errors 10, 14, 12. Candidate B has 8, 9, 17. Which is chosen?",
+          "a": "A: 36 / 3 = 12. B: 34 / 3 = 11.33. Choose B."
+        },
+        {
+          "q": "After picking the best setting, what is the next step?",
+          "a": "Refit on the whole pool, then use the test set once."
+        },
+        {
+          "q": "Why is the best CV score among many settings optimistic?",
+          "a": "It is the smallest of several noisy numbers, so it is partly luck."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. A ladder item asks which λ has the lowest mean CV error.",
+      "try": {
+        "id": "gen.ml.cv.009",
+        "label": "Fits in a grid search with a final refit"
+      },
+      "scene": "ml.cv.select",
+      "what": "To choose a hyperparameter (k in k-NN, λ in ridge, tree depth), compute the CV error for every candidate and pick the lowest **mean**. Then refit on the whole pool with that value. The CV score of the winner is slightly optimistic, because it is the best of several noisy numbers. The honest final number comes from the test set, used once.",
+      "what_full": "To choose a hyperparameter (k in k-NN, λ in ridge, tree depth), compute the CV error for every candidate and pick the lowest **mean**. Then refit on the whole pool with that value. The CV score of the winner is slightly optimistic, because it is the best of several noisy numbers. The honest final number comes from the test set, used once.\n\n$$\\hat h=\\arg\\min_{h}\\ \\widehat{E}_{CV}(h)$$\n\nThen refit on the whole pool with $\\hat h$ and report the error on the test set.\n\nSymbols: $h$ is a candidate value of the hyperparameter, $\\widehat{E}_{CV}(h)$ is its mean CV error, and argmin means 'the value of $h$ with the smallest score'.\n\n**Worked example.** 4-fold CV errors (%) for k-NN with different k. k = 1: 30, 26, 28, 32. k = 3: 22, 26, 20, 24. k = 5: 20, 22, 24, 18. k = 9: 24, 26, 22, 28. Choose k, then say what happens next.\n\n1. Mean for k = 1: (30 + 26 + 28 + 32) / 4 = 116 / 4 = 29.\n2. k = 3: (22 + 26 + 20 + 24) / 4 = 92 / 4 = 23. k = 5: (20 + 22 + 24 + 18) / 4 = 84 / 4 = 21.\n3. k = 9: (24 + 26 + 22 + 28) / 4 = 100 / 4 = 25.\n4. The lowest mean is k = 5, at 21%.\n5. Refit k-NN with k = 5 on the whole pool, then use the test set once to report the final error.\n\n**Answer:** Choose k = 5 (mean CV error 21%). Refit on the whole pool and test once.\n\n**Check yourself:** Candidate A has fold errors 10, 14, 12. Candidate B has 8, 9, 17. Which is chosen?\n\n*Answer:* A: 36 / 3 = 12. B: 34 / 3 = 11.33. Choose B.",
+      "trap": "Choosing by the best single fold, or quoting the best CV score among many tried settings as the final performance. The best of many noisy scores is optimistic.",
+      "why_full": "Hyperparameter choice is the everyday use of CV: k, λ, depth. The exam version is a small table of fold errors. In GATE: find the lowest mean, and remember the refit.\n\nAsked: no direct past question yet. A ladder item asks which λ has the lowest mean CV error."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "ml.cv.purpose",
+      "title": "Choose with CV error, report with the test set",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "hdr",
+          "kind": "text",
+          "x": 180,
+          "y": 18,
+          "text": "100 labelled samples",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "pool",
+          "kind": "box",
+          "x": 20,
+          "y": 30,
+          "w": 232,
+          "h": 30,
+          "label": "training pool: 80"
+        },
+        {
+          "id": "test",
+          "kind": "box",
+          "x": 260,
+          "y": 30,
+          "w": 80,
+          "h": 30,
+          "label": "test: 20",
+          "tone": "mid"
+        },
+        {
+          "id": "tt1",
+          "kind": "text",
+          "x": 95,
+          "y": 98,
+          "text": "training error %",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "btr",
+          "kind": "bar",
+          "x": 20,
+          "y": 118,
+          "w": 150,
+          "h": 84,
+          "values": [
+            0,
+            6,
+            12
+          ],
+          "labels": [
+            "A",
+            "B",
+            "C"
+          ],
+          "max": 35
+        },
+        {
+          "id": "tt2",
+          "kind": "text",
+          "x": 265,
+          "y": 98,
+          "text": "CV error %",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "bcv",
+          "kind": "bar",
+          "x": 190,
+          "y": 118,
+          "w": 150,
+          "h": 84,
+          "values": [
+            31,
+            14,
+            19
+          ],
+          "labels": [
+            "A",
+            "B",
+            "C"
+          ],
+          "max": 35
+        },
+        {
+          "id": "pick",
+          "kind": "text",
+          "x": 180,
+          "y": 244,
+          "text": "choose B: lowest CV error (14%)",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "tres",
+          "kind": "text",
+          "x": 180,
+          "y": 272,
+          "text": "open the test set once: B scores 15%",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "100 labelled samples. Split first: 80 form the training pool and 20 go into a sealed test set. Nothing is tuned on the test set.",
+          "show": [
+            "pool",
+            "test"
+          ],
+          "highlight": [
+            {
+              "id": "test",
+              "tone": "mid"
+            }
+          ]
+        },
+        {
+          "caption": "Three models A, B and C. Their TRAINING errors are 0%, 6% and 12%. A looks best, but a model can reach 0% by memorising.",
+          "show": [
+            "tt1",
+            "btr"
+          ],
+          "highlight": [
+            {
+              "id": "btr",
+              "cells": [
+                0
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "Now the CV errors, measured on parts the model did not train on: A 31%, B 14%, C 19%. The ranking flips: A is the worst.",
+          "show": [
+            "tt2",
+            "bcv"
+          ],
+          "highlight": [
+            "bcv"
+          ]
+        },
+        {
+          "caption": "Choose by CV error. B has the lowest, 14%.",
+          "show": "pick",
+          "highlight": [
+            {
+              "id": "bcv",
+              "cells": [
+                1
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "pick",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Open the test set once, for B only. It scores 15%, close to the CV estimate of 14%. Report 15%.",
+          "show": "tres",
+          "set": {
+            "id": "test",
+            "label": "test: 15%",
+            "tone": "good"
+          },
+          "highlight": [
+            {
+              "id": "test",
+              "tone": "good"
+            },
+            {
+              "id": "tres",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.cv.kfold",
+      "title": "k-fold with k = 4: V is validation, T is training",
+      "viewBox": [
+        0,
+        0,
+        360,
+        230
+      ],
+      "objects": [
+        {
+          "id": "g",
+          "kind": "grid",
+          "x": 62,
+          "y": 60,
+          "rows": 4,
+          "cols": 12,
+          "cw": 24,
+          "ch": 28,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "R1",
+            "R2",
+            "R3",
+            "R4"
+          ],
+          "colLabels": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12"
+          ]
+        },
+        {
+          "id": "f1",
+          "kind": "text",
+          "x": 98,
+          "y": 28,
+          "text": "fold 1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "f2",
+          "kind": "text",
+          "x": 170,
+          "y": 28,
+          "text": "fold 2",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "f3",
+          "kind": "text",
+          "x": 242,
+          "y": 28,
+          "text": "fold 3",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "f4",
+          "kind": "text",
+          "x": 314,
+          "y": 28,
+          "text": "fold 4",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "sm",
+          "kind": "text",
+          "x": 180,
+          "y": 206,
+          "text": "each sample: 1 V and 3 T",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Twelve samples dealt into k = 4 folds of 12 / 4 = 3. Each round, one fold validates and the other three train.",
+          "highlight": [
+            "g"
+          ]
+        },
+        {
+          "caption": "Round 1: validate on samples 1 to 3 (V), train on the other 9 (T).",
+          "set": {
+            "id": "g",
+            "cells": [
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "dim": {
+            "id": "g",
+            "cells": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11
+            ]
+          },
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                0,
+                1,
+                2
+              ],
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Round 2: validate on samples 4 to 6, train on the other 9.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "dim": {
+            "id": "g",
+            "cells": [
+              12,
+              13,
+              14,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23
+            ]
+          },
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                15,
+                16,
+                17
+              ],
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Round 3: validate on samples 7 to 9, train on the other 9.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "dim": {
+            "id": "g",
+            "cells": [
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              33,
+              34,
+              35
+            ]
+          },
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                30,
+                31,
+                32
+              ],
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Round 4: validate on samples 10 to 12, train on the other 9.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "V",
+              "V",
+              "V",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "T",
+              "V",
+              "V",
+              "V"
+            ]
+          },
+          "dim": {
+            "id": "g",
+            "cells": [
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44
+            ]
+          },
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                45,
+                46,
+                47
+              ],
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Look down any column: exactly one V and three T. Every sample is validated once and trains k − 1 = 3 times.",
+          "show": "sm",
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                0,
+                12,
+                24,
+                36
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "sm",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.cv.estimate",
+      "title": "The CV estimate is the mean of the fold errors",
+      "viewBox": [
+        0,
+        0,
+        360,
+        282
+      ],
+      "objects": [
+        {
+          "id": "f",
+          "kind": "bar",
+          "x": 40,
+          "y": 44,
+          "w": 280,
+          "h": 136,
+          "values": [
+            12,
+            8,
+            10,
+            14,
+            6
+          ],
+          "labels": [
+            "fold 1",
+            "fold 2",
+            "fold 3",
+            "fold 4",
+            "fold 5"
+          ],
+          "max": 15
+        },
+        {
+          "id": "ml",
+          "kind": "edge",
+          "x1": 40,
+          "y1": 89.3,
+          "x2": 320,
+          "y2": 89.3,
+          "dash": true,
+          "tone": "accent"
+        },
+        {
+          "id": "mtx",
+          "kind": "text",
+          "x": 326,
+          "y": 89.3,
+          "text": "mean\n10",
+          "size": 12,
+          "anchor": "start",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "s1",
+          "kind": "text",
+          "x": 180,
+          "y": 220,
+          "text": "sum = 12 + 8 + 10 + 14 + 6 = 50",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "s2",
+          "kind": "text",
+          "x": 180,
+          "y": 244,
+          "text": "CV estimate = 50 / 5 = 10",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "s3",
+          "kind": "text",
+          "x": 180,
+          "y": 268,
+          "text": "not the best fold (6), not the worst (14)",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "bad"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Five folds give five error rates: 12%, 8%, 10%, 14% and 6%. All five folds have the same size.",
+          "highlight": [
+            "f"
+          ]
+        },
+        {
+          "caption": "Add them: 12 + 8 + 10 + 14 + 6 = 50.",
+          "show": "s1",
+          "highlight": [
+            "s1"
+          ]
+        },
+        {
+          "caption": "Divide by the number of folds: 50 / 5 = 10. The dashed line marks the mean, 10%.",
+          "show": [
+            "ml",
+            "mtx",
+            "s2"
+          ],
+          "draw": "ml",
+          "highlight": [
+            {
+              "id": "ml",
+              "tone": "accent"
+            },
+            {
+              "id": "s2",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "The estimate uses all five folds. Quoting the best fold (6%) or the worst (14%) would mislead.",
+          "show": "s3",
+          "highlight": [
+            {
+              "id": "f",
+              "cells": [
+                4,
+                3
+              ],
+              "tone": "bad"
+            },
+            {
+              "id": "s3",
+              "tone": "bad"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.cv.loo",
+      "title": "Leave-one-out with the 1-nearest-neighbour rule",
+      "viewBox": [
+        0,
+        0,
+        360,
+        250
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 40,
+          "y": 128,
+          "unit": 30,
+          "xr": [
+            0,
+            10
+          ],
+          "yr": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "n1",
+          "kind": "node",
+          "x": 70,
+          "y": 96,
+          "label": "A",
+          "r": 12,
+          "tone": "accent"
+        },
+        {
+          "id": "n3",
+          "kind": "node",
+          "x": 130,
+          "y": 96,
+          "label": "B",
+          "r": 12,
+          "tone": "mid"
+        },
+        {
+          "id": "n4",
+          "kind": "node",
+          "x": 160,
+          "y": 96,
+          "label": "A",
+          "r": 12,
+          "tone": "accent"
+        },
+        {
+          "id": "n8",
+          "kind": "node",
+          "x": 280,
+          "y": 96,
+          "label": "B",
+          "r": 12,
+          "tone": "mid"
+        },
+        {
+          "id": "n9",
+          "kind": "node",
+          "x": 310,
+          "y": 96,
+          "label": "B",
+          "r": 12,
+          "tone": "mid"
+        },
+        {
+          "id": "a1",
+          "kind": "arrow",
+          "from": "n1",
+          "to": "n3",
+          "tone": "bad"
+        },
+        {
+          "id": "a3",
+          "kind": "arrow",
+          "from": "n3",
+          "to": "n4",
+          "tone": "bad"
+        },
+        {
+          "id": "a4",
+          "kind": "arrow",
+          "from": "n4",
+          "to": "n3",
+          "tone": "bad"
+        },
+        {
+          "id": "a8",
+          "kind": "arrow",
+          "from": "n8",
+          "to": "n9",
+          "tone": "good"
+        },
+        {
+          "id": "a9",
+          "kind": "arrow",
+          "from": "n9",
+          "to": "n8",
+          "tone": "good"
+        },
+        {
+          "id": "rt",
+          "kind": "text",
+          "x": 180,
+          "y": 184,
+          "text": "",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "sc",
+          "kind": "text",
+          "x": 180,
+          "y": 224,
+          "text": "",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Five points on a line, labelled A, B, A, B, B at x = 1, 3, 4, 8, 9. LOOCV makes 5 rounds. Each hides one point and predicts it from the nearest of the other four.",
+          "set": [
+            {
+              "id": "rt",
+              "text": "5 points\n5 rounds, one hidden each time"
+            },
+            {
+              "id": "sc",
+              "text": "errors so far: 0"
+            }
+          ]
+        },
+        {
+          "caption": "Hide x = 1 (A). The nearest other point is x = 3, label B, at distance 2. Predict B. Wrong.",
+          "show": "a1",
+          "highlight": [
+            {
+              "id": "n1",
+              "tone": "accent"
+            }
+          ],
+          "set": [
+            {
+              "id": "rt",
+              "text": "hide x = 1 (A)\nnearest x = 3 (B), predict B: wrong"
+            },
+            {
+              "id": "sc",
+              "text": "errors: 1 of 1 rounds"
+            }
+          ]
+        },
+        {
+          "caption": "Hide x = 3 (B). The nearest is x = 4, label A, at distance 1. Predict A. Wrong.",
+          "hide": "a1",
+          "show": "a3",
+          "highlight": [
+            {
+              "id": "n3",
+              "tone": "mid"
+            }
+          ],
+          "set": [
+            {
+              "id": "rt",
+              "text": "hide x = 3 (B)\nnearest x = 4 (A), predict A: wrong"
+            },
+            {
+              "id": "sc",
+              "text": "errors: 2 of 2 rounds"
+            }
+          ]
+        },
+        {
+          "caption": "Hide x = 4 (A). The nearest is x = 3, label B, at distance 1. Predict B. Wrong.",
+          "hide": "a3",
+          "show": "a4",
+          "highlight": [
+            {
+              "id": "n4",
+              "tone": "accent"
+            }
+          ],
+          "set": [
+            {
+              "id": "rt",
+              "text": "hide x = 4 (A)\nnearest x = 3 (B), predict B: wrong"
+            },
+            {
+              "id": "sc",
+              "text": "errors: 3 of 3 rounds"
+            }
+          ]
+        },
+        {
+          "caption": "Hide x = 8 (B). The nearest is x = 9, label B, at distance 1. Predict B. Right.",
+          "hide": "a4",
+          "show": "a8",
+          "highlight": [
+            {
+              "id": "n8",
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "rt",
+              "text": "hide x = 8 (B)\nnearest x = 9 (B), predict B: right"
+            },
+            {
+              "id": "sc",
+              "text": "errors: 3 of 4 rounds"
+            }
+          ]
+        },
+        {
+          "caption": "Hide x = 9 (B). The nearest is x = 8, label B, at distance 1. Predict B. Right.",
+          "hide": "a8",
+          "show": "a9",
+          "highlight": [
+            {
+              "id": "n9",
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "rt",
+              "text": "hide x = 9 (B)\nnearest x = 8 (B), predict B: right"
+            },
+            {
+              "id": "sc",
+              "text": "errors: 3 of 5 rounds"
+            }
+          ]
+        },
+        {
+          "caption": "3 wrong out of 5. The LOOCV error is 3 / 5 = 0.6.",
+          "hide": "a9",
+          "set": [
+            {
+              "id": "rt",
+              "text": "5 rounds finished\n3 wrong, 2 right"
+            },
+            {
+              "id": "sc",
+              "text": "LOOCV error = 3 / 5 = 0.6"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "sc",
+              "tone": "accent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.cv.count",
+      "title": "Counting splits and fits: remove the test set first",
+      "viewBox": [
+        0,
+        0,
+        360,
+        336
+      ],
+      "objects": [
+        {
+          "id": "hdr",
+          "kind": "text",
+          "x": 180,
+          "y": 18,
+          "text": "400 samples",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "pool",
+          "kind": "box",
+          "x": 20,
+          "y": 30,
+          "w": 252,
+          "h": 30,
+          "label": "pool: 320"
+        },
+        {
+          "id": "test",
+          "kind": "box",
+          "x": 277,
+          "y": 30,
+          "w": 63,
+          "h": 30,
+          "label": "test 80",
+          "tone": "mid"
+        },
+        {
+          "id": "ls",
+          "kind": "text",
+          "x": 180,
+          "y": 86,
+          "text": "LOOCV: one split per pool sample = 320",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "fo1",
+          "kind": "box",
+          "x": 20.0,
+          "y": 30,
+          "w": 50.4,
+          "h": 30,
+          "label": "64"
+        },
+        {
+          "id": "fo2",
+          "kind": "box",
+          "x": 70.4,
+          "y": 30,
+          "w": 50.4,
+          "h": 30,
+          "label": "64"
+        },
+        {
+          "id": "fo3",
+          "kind": "box",
+          "x": 120.8,
+          "y": 30,
+          "w": 50.4,
+          "h": 30,
+          "label": "64"
+        },
+        {
+          "id": "fo4",
+          "kind": "box",
+          "x": 171.2,
+          "y": 30,
+          "w": 50.4,
+          "h": 30,
+          "label": "64"
+        },
+        {
+          "id": "fo5",
+          "kind": "box",
+          "x": 221.6,
+          "y": 30,
+          "w": 50.4,
+          "h": 30,
+          "label": "64",
+          "tone": "accent"
+        },
+        {
+          "id": "fs",
+          "kind": "text",
+          "x": 180,
+          "y": 86,
+          "text": "5-fold: validate 320 / 5 = 64\ntrain 320 − 64 = 256",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "gt",
+          "kind": "text",
+          "x": 180,
+          "y": 118,
+          "text": "6 values × 5 folds",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "g",
+          "kind": "grid",
+          "x": 88,
+          "y": 146,
+          "rows": 6,
+          "cols": 5,
+          "cw": 40,
+          "ch": 20,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "λ1",
+            "λ2",
+            "λ3",
+            "λ4",
+            "λ5",
+            "λ6"
+          ],
+          "colLabels": [
+            "f1",
+            "f2",
+            "f3",
+            "f4",
+            "f5"
+          ]
+        },
+        {
+          "id": "rf",
+          "kind": "box",
+          "x": 88,
+          "y": 280,
+          "w": 200,
+          "h": 26,
+          "label": "refit on all 320: fit #31",
+          "tone": "accent"
+        },
+        {
+          "id": "tot",
+          "kind": "text",
+          "x": 180,
+          "y": 324,
+          "text": "6 × 5 + 1 = 31 fits",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "400 samples. 80 are kept for testing, so the CV pool is 400 − 80 = 320. The test set is never counted.",
+          "show": [
+            "pool",
+            "test"
+          ],
+          "highlight": [
+            {
+              "id": "test",
+              "tone": "mid"
+            }
+          ]
+        },
+        {
+          "caption": "LOOCV makes one split per pool sample, so 320 splits. Each trains on 319.",
+          "show": "ls",
+          "highlight": [
+            {
+              "id": "ls",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "5-fold on the pool: each fold has 320 / 5 = 64 samples. One fold validates (64), the other four train: 320 − 64 = 256.",
+          "hide": [
+            "pool",
+            "ls"
+          ],
+          "show": [
+            "fo1",
+            "fo2",
+            "fo3",
+            "fo4",
+            "fo5",
+            "fs"
+          ],
+          "highlight": [
+            {
+              "id": "fo5",
+              "tone": "accent"
+            },
+            {
+              "id": "fs",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Grid search: 6 values of the hyperparameter, each scored with 5 folds. Every cell is one fit: 6 × 5 = 30.",
+          "show": [
+            "gt",
+            "g"
+          ],
+          "set": {
+            "id": "g",
+            "cells": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30
+            ]
+          },
+          "highlight": [
+            "g"
+          ]
+        },
+        {
+          "caption": "After choosing the best value, refit once on the whole pool of 320: fit number 31.",
+          "show": [
+            "rf",
+            "tot"
+          ],
+          "highlight": [
+            {
+              "id": "rf",
+              "tone": "accent"
+            },
+            {
+              "id": "tot",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.cv.bias",
+      "title": "Bigger k: less bias, more work",
+      "viewBox": [
+        0,
+        0,
+        360,
+        320
+      ],
+      "objects": [
+        {
+          "id": "tt",
+          "kind": "text",
+          "x": 180,
+          "y": 18,
+          "text": "training samples per round (full pool = 200)",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "ts",
+          "kind": "bar",
+          "x": 40,
+          "y": 48,
+          "w": 280,
+          "h": 100,
+          "values": [
+            100,
+            160,
+            180,
+            199
+          ],
+          "labels": [
+            "k=2",
+            "k=5",
+            "k=10",
+            "k=200"
+          ],
+          "max": 200
+        },
+        {
+          "id": "pe",
+          "kind": "text",
+          "x": 180,
+          "y": 186,
+          "text": "samples missing from each round: 100, 40, 20, 1",
+          "size": 12,
+          "anchor": "middle",
+          "tone": "bad"
+        },
+        {
+          "id": "tt2",
+          "kind": "text",
+          "x": 180,
+          "y": 214,
+          "text": "number of fits",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "bf",
+          "kind": "bar",
+          "x": 40,
+          "y": 240,
+          "w": 280,
+          "h": 36,
+          "values": [
+            2,
+            5,
+            10,
+            200
+          ],
+          "labels": [
+            "k=2",
+            "k=5",
+            "k=10",
+            "k=200"
+          ],
+          "max": 200
+        },
+        {
+          "id": "rc",
+          "kind": "text",
+          "x": 180,
+          "y": 308,
+          "text": "work vs one full fit: 1×, 4×, 9×, 199×",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Pool of 200. Training size per round is 200 × (k − 1)/k: 100 for k = 2, 160 for k = 5, 180 for k = 10, 199 for LOOCV. The full pool is 200.",
+          "show": [
+            "tt",
+            "ts"
+          ],
+          "highlight": [
+            "ts"
+          ]
+        },
+        {
+          "caption": "Each round misses some data: 100, 40, 20 and 1 samples. A model trained on less is weaker, so the CV error is pessimistic. Small k has the most bias.",
+          "show": "pe",
+          "highlight": [
+            {
+              "id": "pe",
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "The number of fits is k: 2, 5, 10 and 200. LOOCV needs 200 fits.",
+          "show": [
+            "tt2",
+            "bf"
+          ],
+          "highlight": [
+            "bf"
+          ]
+        },
+        {
+          "caption": "If training time is proportional to training size, total work is k × size / 200 = k − 1 full fits: 1, 4, 9 and 199.",
+          "show": "rc",
+          "highlight": [
+            {
+              "id": "rc",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "k = 5 or 10 keeps the bias small for modest work. LOOCV has the least bias but costs 199 times as much, and its 200 models are almost identical.",
+          "highlight": [
+            {
+              "id": "ts",
+              "cells": [
+                1,
+                2
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "bf",
+              "cells": [
+                1,
+                2
+              ],
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.cv.strat",
+      "title": "Stratified folds keep the class mix",
+      "viewBox": [
+        0,
+        0,
+        360,
+        285
+      ],
+      "objects": [
+        {
+          "id": "hdr",
+          "kind": "text",
+          "x": 180,
+          "y": 18,
+          "text": "100 samples: 10 positive, 90 negative",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "gr",
+          "kind": "grid",
+          "x": 84,
+          "y": 70,
+          "rows": 2,
+          "cols": 5,
+          "cw": 50,
+          "ch": 26,
+          "cells": [
+            "4",
+            "0",
+            "3",
+            "1",
+            "2",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "pos",
+            "acc %"
+          ],
+          "colLabels": [
+            "f1",
+            "f2",
+            "f3",
+            "f4",
+            "f5"
+          ],
+          "colTitle": "random folds"
+        },
+        {
+          "id": "gs",
+          "kind": "grid",
+          "x": 84,
+          "y": 176,
+          "rows": 2,
+          "cols": 5,
+          "cw": 50,
+          "ch": 26,
+          "cells": [
+            "2",
+            "2",
+            "2",
+            "2",
+            "2",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "pos",
+            "acc %"
+          ],
+          "colLabels": [
+            "f1",
+            "f2",
+            "f3",
+            "f4",
+            "f5"
+          ],
+          "colTitle": "stratified folds"
+        },
+        {
+          "id": "note",
+          "kind": "text",
+          "x": 180,
+          "y": 258,
+          "text": "overall: 10 / 100 = 10% positive",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "10 of the 100 samples are positive, so 10% overall. We cut them into 5 folds of 20 and compare random folds with stratified folds.",
+          "set": {
+            "id": "note",
+            "text": "overall: 10 / 100 = 10% positive"
+          }
+        },
+        {
+          "caption": "Random folds happen to hold 4, 0, 3, 1 and 2 positives. Fold 2 has none, so recall cannot be measured there. Fold 1 is 20% positive.",
+          "show": "gr",
+          "set": {
+            "id": "note",
+            "text": "fold 2 has no positives: recall is undefined"
+          },
+          "highlight": [
+            {
+              "id": "gr",
+              "cells": [
+                0,
+                1
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "Stratified folds deal each class separately: 10 / 5 = 2 positives and 90 / 5 = 18 negatives in every fold of 20.",
+          "show": "gs",
+          "set": {
+            "id": "note",
+            "text": "every fold: 2 positive, 18 negative"
+          },
+          "highlight": [
+            {
+              "id": "gs",
+              "cells": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "An 'always negative' model's accuracy is 1 − positives/20. Random folds give 80%, 100%, 85%, 95%, 90%. Stratified folds give 90% every time.",
+          "set": [
+            {
+              "id": "gr",
+              "cells": [
+                "4",
+                "0",
+                "3",
+                "1",
+                "2",
+                "80",
+                "100",
+                "85",
+                "95",
+                "90"
+              ]
+            },
+            {
+              "id": "gs",
+              "cells": [
+                "2",
+                "2",
+                "2",
+                "2",
+                "2",
+                "90",
+                "90",
+                "90",
+                "90",
+                "90"
+              ]
+            },
+            {
+              "id": "note",
+              "text": "'always no' accuracy\nrandom: 80 to 100.  stratified: 90 each"
+            }
+          ],
+          "highlight": [
+            "gr",
+            "gs"
+          ]
+        },
+        {
+          "caption": "The average is 90% both ways, but random folds swing by 20 points. Stratified folds do not. Every fold looks like the whole data.",
+          "set": {
+            "id": "note",
+            "text": "stratified folds mirror the whole data"
+          },
+          "highlight": [
+            "gs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.cv.leak",
+      "title": "Leakage: the validation point shifts the mean",
+      "viewBox": [
+        0,
+        0,
+        360,
+        236
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 30,
+          "y": 150,
+          "unit": 8,
+          "xr": [
+            0,
+            38
+          ],
+          "yr": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "lg1",
+          "kind": "text",
+          "x": 20,
+          "y": 22,
+          "text": "training values",
+          "size": 12,
+          "anchor": "start",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "lg2",
+          "kind": "text",
+          "x": 150,
+          "y": 22,
+          "text": "validation value",
+          "size": 12,
+          "anchor": "start",
+          "tone": "bad",
+          "bold": true
+        },
+        {
+          "id": "t1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            3
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "t3",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            3
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "t5",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            3
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "t7",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            7,
+            3
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "t9",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            9,
+            3
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "v",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            35,
+            3
+          ],
+          "tone": "bad"
+        },
+        {
+          "id": "lv",
+          "kind": "text",
+          "x": 310,
+          "y": 106,
+          "text": "validation\n35",
+          "size": 12,
+          "anchor": "middle",
+          "tone": "bad"
+        },
+        {
+          "id": "mh",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            5,
+            0
+          ],
+          "to": [
+            5,
+            8
+          ],
+          "tone": "good",
+          "dash": true
+        },
+        {
+          "id": "lh",
+          "kind": "text",
+          "x": 62,
+          "y": 62,
+          "text": "honest\nmean 5",
+          "size": 12,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "ml",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            10,
+            0
+          ],
+          "to": [
+            10,
+            8
+          ],
+          "tone": "bad",
+          "dash": true
+        },
+        {
+          "id": "ll",
+          "kind": "text",
+          "x": 130,
+          "y": 62,
+          "text": "leaky\nmean 10",
+          "size": 12,
+          "anchor": "middle",
+          "tone": "bad",
+          "bold": true
+        },
+        {
+          "id": "c1",
+          "kind": "text",
+          "x": 180,
+          "y": 188,
+          "text": "honest: 35 − 5 = 30",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "c2",
+          "kind": "text",
+          "x": 180,
+          "y": 212,
+          "text": "leaky:   35 − 10 = 25",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "bad",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "One CV round. The training part holds 1, 3, 5, 7, 9 and the validation part holds one value, 35. We will centre the feature by subtracting a mean.",
+          "highlight": [
+            {
+              "id": "v",
+              "tone": "bad"
+            },
+            {
+              "id": "t1",
+              "tone": "accent"
+            },
+            {
+              "id": "t3",
+              "tone": "accent"
+            },
+            {
+              "id": "t5",
+              "tone": "accent"
+            },
+            {
+              "id": "t7",
+              "tone": "accent"
+            },
+            {
+              "id": "t9",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Honest way: fit the mean on the training part only. (1+3+5+7+9) / 5 = 25 / 5 = 5.",
+          "show": [
+            "mh",
+            "lh"
+          ],
+          "draw": "mh",
+          "highlight": [
+            {
+              "id": "mh",
+              "tone": "good"
+            },
+            {
+              "id": "lh",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Leaky way: fit the mean on all six values. (25 + 35) / 6 = 60 / 6 = 10. The mean has been pulled toward the validation point.",
+          "show": [
+            "ml",
+            "ll"
+          ],
+          "draw": "ml",
+          "highlight": [
+            {
+              "id": "ml",
+              "tone": "bad"
+            },
+            {
+              "id": "ll",
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "Centre the validation value. Honest: 35 − 5 = 30. Leaky: 35 − 10 = 25. The leak makes the outlier look less extreme.",
+          "show": [
+            "c1",
+            "c2"
+          ],
+          "highlight": [
+            {
+              "id": "c1",
+              "tone": "good"
+            },
+            {
+              "id": "c2",
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "The validation point shaped its own preprocessing, so the model's job looks easier than it will be on new data. Fit every step inside the fold.",
+          "highlight": [
+            {
+              "id": "v",
+              "tone": "bad"
+            },
+            {
+              "id": "ml",
+              "tone": "bad"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.cv.select",
+      "title": "Pick the lowest mean CV error, then refit",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "ttl",
+          "kind": "text",
+          "x": 180,
+          "y": 22,
+          "text": "4-fold CV error (%) for k-NN",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "g",
+          "kind": "grid",
+          "x": 80,
+          "y": 50,
+          "rows": 4,
+          "cols": 5,
+          "cw": 48,
+          "ch": 30,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "k=1",
+            "k=3",
+            "k=5",
+            "k=9"
+          ],
+          "colLabels": [
+            "f1",
+            "f2",
+            "f3",
+            "f4",
+            "mean"
+          ]
+        },
+        {
+          "id": "pk",
+          "kind": "text",
+          "x": 180,
+          "y": 194,
+          "text": "lowest mean: k = 5 (21%)",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "rf",
+          "kind": "box",
+          "x": 60,
+          "y": 214,
+          "w": 240,
+          "h": 30,
+          "label": "refit k = 5 on the whole pool",
+          "tone": "accent"
+        },
+        {
+          "id": "fin",
+          "kind": "text",
+          "x": 180,
+          "y": 268,
+          "text": "then use the test set once",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Fold errors for four values of k, from 4-fold CV. Each row is one candidate.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "30",
+              "26",
+              "28",
+              "32",
+              "",
+              "22",
+              "26",
+              "20",
+              "24",
+              "",
+              "20",
+              "22",
+              "24",
+              "18",
+              "",
+              "24",
+              "26",
+              "22",
+              "28",
+              ""
+            ]
+          },
+          "highlight": [
+            "g"
+          ]
+        },
+        {
+          "caption": "Average each row. k=1: 116/4 = 29. k=3: 92/4 = 23. k=5: 84/4 = 21. k=9: 100/4 = 25.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "30",
+              "26",
+              "28",
+              "32",
+              "29",
+              "22",
+              "26",
+              "20",
+              "24",
+              "23",
+              "20",
+              "22",
+              "24",
+              "18",
+              "21",
+              "24",
+              "26",
+              "22",
+              "28",
+              "25"
+            ]
+          },
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                4,
+                9,
+                14,
+                19
+              ],
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "The lowest mean is k = 5, at 21%.",
+          "show": "pk",
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                10,
+                11,
+                12,
+                13,
+                14
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "pk",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Refit k-NN with k = 5 on the whole pool, then open the test set once to report the final error.",
+          "show": [
+            "rf",
+            "fin"
+          ],
+          "highlight": [
+            {
+              "id": "rf",
+              "tone": "accent"
+            },
+            {
+              "id": "fin",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

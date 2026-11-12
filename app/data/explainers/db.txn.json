@@ -1,0 +1,2421 @@
+{
+ "topic_id": "db.txn",
+ "title": "Transactions and schedules",
+ "chapter_note": {
+  "about": "A transaction is a group of reads and writes that the database treats as one unit. This chapter asks two questions about a schedule, which is the interleaving of several transactions. Is it equivalent to running them one after another, and could it be repaired after a failure? It starts with ACID and the transaction states, then conflicts and the precedence graph, counting serial orders, view serializability, recoverability, and finally how a log is used to recover after a crash.",
+  "simple": "Think of several people editing the same shared documents at the same time. You want the final result to be the same as if they had taken turns, one after another, and you want to be able to recover if the power fails halfway. The first part is called serializability. You find out by drawing arrows between people whose edits clash, and checking for a loop. The second part is called recoverability. A diary of every change, the log, lets you redo finished jobs and cancel unfinished ones. In exam words: ACID, conflict and view serializability, recoverable, cascadeless and strict schedules, log recovery.",
+  "concept_map": [
+   {
+    "atom_id": "t1",
+    "title": "ACID properties",
+    "one_line": "Atomicity, consistency, isolation, durability and who enforces each."
+   },
+   {
+    "atom_id": "t2",
+    "title": "Transaction states",
+    "one_line": "Active, partially committed, committed, failed, aborted."
+   },
+   {
+    "atom_id": "t3",
+    "title": "Conflicts and anomalies",
+    "one_line": "Different transactions, same item, at least one write."
+   },
+   {
+    "atom_id": "t4",
+    "title": "Precedence graph",
+    "one_line": "Edges from conflicts; acyclic means conflict serializable."
+   },
+   {
+    "atom_id": "t5",
+    "title": "Equivalent serial orders and counting",
+    "one_line": "Topological orders of the graph; n! when there are no edges."
+   },
+   {
+    "atom_id": "t6",
+    "title": "View serializability",
+    "one_line": "Same initial reads, reads-from and final writes; blind writes."
+   },
+   {
+    "atom_id": "t7",
+    "title": "Recoverability",
+    "one_line": "Recoverable, cascadeless, strict."
+   },
+   {
+    "atom_id": "t8",
+    "title": "Log-based recovery",
+    "one_line": "Redo committed, undo uncommitted, checkpoints, idempotence."
+   }
+  ],
+  "gate_patterns": [
+   "Conflict serializability of a given schedule: build the precedence graph, look for a cycle, or list the equivalent serial orders (2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44).",
+   "ACID and conflict definitions: match a story to the violated property, or pick the pair of operations that conflicts (2024 CS2 Q19, 2025 CS2 Q27, 2026 CS2 Q20).",
+   "Recoverability and log recovery: reader commits before the writer, redo and undo lists, and what happens if recovery crashes (2021 CS2 Q42, 2021 CS1 Q23). Weightage: about 0.7 marks per CS paper; the chapter is not tested in DA."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "t1",
+   "title": "ACID properties",
+   "simple": "Think of paying at a shop. Either the whole payment goes through, or nothing changes (all or nothing). The shop's books must still add up afterwards. If two customers pay at the same moment, it must look as if they paid one after the other. And once you get the receipt, the payment stays even if the power goes off. Those four promises are what a database gives each transaction. In exam words: Atomicity, Consistency, Isolation, Durability (ACID).",
+   "idea": "A **transaction** is a group of reads and writes treated as one unit. The database promises four things about it: all or nothing (**atomicity**), valid state to valid state (**consistency**), no interference (**isolation**) and permanence after commit (**durability**).",
+   "definition": "**Atomicity:** either all operations of the transaction take effect or none do. **Consistency:** a correct transaction takes a consistent database to a consistent database. **Isolation:** concurrent transactions behave as if run one after another. **Durability:** committed changes survive crashes.\n\nThe recovery manager supplies atomicity and durability, concurrency control supplies isolation, and the programmer (with constraints) supplies consistency.",
+   "intuition_full": "Each letter guards against one failure. A crash in the middle of a transfer would break atomicity, so the system logs old values and can undo. Two transactions overlapping could corrupt each other's reads, so concurrency control restricts the interleavings; this is the topic of the rest of the chapter. A power cut after a successful commit must not lose the work, so the log is forced to disk before the commit is acknowledged. Consistency is the odd one: the system can only check constraints it knows about, so consistency is the programmer's contract and the system's promise not to break declared rules. A good way to answer ACID questions is to ask 'what went wrong?' and map it to the property whose job is to prevent that.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A transfer moves 100 from account $A$ (balance 500) to account $B$ (balance 300). The invariant is that $A + B = 800$. The power fails after the debit but before the credit. Follow what each ACID property does.",
+     "steps": [
+      "Before the transfer: $A = 500$, $B = 300$, total $800$. The database is **consistent**.",
+      "The transaction debits $A$: $A = 400$. The total is $700$ for now. That is allowed inside a running transaction.",
+      "The power fails before the credit. The disk shows $A = 400$, $B = 300$, total $700$. Money has vanished, so **atomicity** (all or nothing) has been violated.",
+      "On restart the recovery manager undoes the debit: $A = 500$, $B = 300$, total $800$. This is how atomicity is restored.",
+      "The transaction runs again and commits: $A = 400$, $B = 400$, total $800$. **Durability** now promises that a later crash cannot undo it."
+     ],
+     "answer": "The crash breaks atomicity; the recovery manager restores it by undoing the debit, and the rerun ends consistent and durable."
+    },
+    {
+     "level": "gate",
+     "setup": "Match each story to the ACID property it breaks: (a) a crash leaves a debit without its credit; (b) two transactions update the same row and one update is lost; (c) a committed deposit disappears after a power cut; (d) a transaction leaves a balance of $-50$ although a `CHECK (balance >= 0)` rule exists.",
+     "steps": [
+      "(a) Half of a transaction survived. That is **atomicity**.",
+      "(b) Concurrent transactions interfered, so the result is not equal to any serial run. That is **isolation**.",
+      "(c) A committed change was lost. That is **durability**.",
+      "(d) The database moved to a state that breaks a rule. That is **consistency**."
+     ],
+     "answer": "(a) atomicity, (b) isolation, (c) durability, (d) consistency."
+    },
+    {
+     "level": "twist",
+     "setup": "A buggy transfer debits 100 from $A$ but credits only 90 to $B$. It is atomic, isolated and durable. Does ACID protect the database?",
+     "steps": [
+      "Atomicity holds: both writes happen or neither does.",
+      "Isolation and durability hold as well: no interference, and the result survives a crash.",
+      "But the total moved from 800 to 790. Consistency in ACID means a correct transaction takes a consistent state to a consistent state. It is partly the programmer's job.",
+      "The DBMS can enforce declared constraints, but not the meaning of a wrong program."
+     ],
+     "answer": "No. ACID cannot fix a transaction that is logically wrong; consistency also depends on correct program logic."
+    }
+   ],
+   "why": "ACID is the vocabulary for the whole chapter. In GATE: match a scenario to the violated property, or say which component enforces which (2024 CS2 Q19, 2025 CS2 Q27).",
+   "how": [
+    "Ask what went wrong: partial effect, interference, lost commit, or broken rule.",
+    "Partial effect: atomicity. Interference: isolation. Lost commit: durability. Broken rule: consistency.",
+    "Who enforces: recovery manager gives A and D; concurrency control gives I; constraints and program logic give C.",
+    "If two properties fit, choose the one that describes the cause (a crash mid-way is atomicity first)."
+   ],
+   "mistake": "Treating consistency as something the DBMS guarantees on its own. It guarantees declared constraints only, so a logically wrong transaction can still break the meaning of the data. Also mixing up atomicity (partial effects) and isolation (interference).",
+   "edge_cases": [
+    "A crash after commit must not undo the transaction (durability), but a crash before commit must (atomicity).",
+    "Isolation levels weaker than serializable allow some anomalies.",
+    "A rolled-back transaction leaves no effects, so atomicity includes explicit aborts.",
+    "Consistency can be violated temporarily inside a transaction."
+   ],
+   "connections": [
+    "**Transaction states** (next card) is the life cycle behind atomicity and durability.",
+    "**Concurrency control** (`db.cc`) implements isolation with locks or timestamps.",
+    "**Log-based recovery** (last card) implements atomicity and durability."
+   ],
+   "check": [
+    {
+     "q": "A server crash leaves half of a multi-row update in the table. Which property is violated?",
+     "a": "Atomicity."
+    },
+    {
+     "q": "Which component of the DBMS is mainly responsible for isolation?",
+     "a": "The concurrency control manager."
+    },
+    {
+     "q": "Which property says committed data survive a crash?",
+     "a": "Durability."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q19, 2025 CS2 Q27",
+   "try": {
+    "id": "gen.db.txn.001",
+    "label": "Try: recovery manager undoes a partial transaction (L1)"
+   },
+   "scene": "db.txn.t1.acid",
+   "example": {
+    "setup": "A transfer moves 100 from account $A$ (balance 500) to account $B$ (balance 300). The invariant is that $A + B = 800$. The power fails after the debit but before the credit. Follow what each ACID property does.",
+    "steps": [
+     "Before the transfer: $A = 500$, $B = 300$, total $800$. The database is **consistent**.",
+     "The transaction debits $A$: $A = 400$. The total is $700$ for now. That is allowed inside a running transaction.",
+     "The power fails before the credit. The disk shows $A = 400$, $B = 300$, total $700$. Money has vanished, so **atomicity** (all or nothing) has been violated.",
+     "On restart the recovery manager undoes the debit: $A = 500$, $B = 300$, total $800$. This is how atomicity is restored.",
+     "The transaction runs again and commits: $A = 400$, $B = 400$, total $800$. **Durability** now promises that a later crash cannot undo it."
+    ],
+    "answer": "The crash breaks atomicity; the recovery manager restores it by undoing the debit, and the rerun ends consistent and durable."
+   },
+   "what": "A **transaction** is a group of reads and writes treated as one unit. The database promises four things about it: all or nothing (**atomicity**), valid state to valid state (**consistency**), no interference (**isolation**) and permanence after commit (**durability**).",
+   "what_full": "A **transaction** is a group of reads and writes treated as one unit. The database promises four things about it: all or nothing (**atomicity**), valid state to valid state (**consistency**), no interference (**isolation**) and permanence after commit (**durability**).\n\n**Atomicity:** either all operations of the transaction take effect or none do. **Consistency:** a correct transaction takes a consistent database to a consistent database. **Isolation:** concurrent transactions behave as if run one after another. **Durability:** committed changes survive crashes.\n\nThe recovery manager supplies atomicity and durability, concurrency control supplies isolation, and the programmer (with constraints) supplies consistency.\n\n**Worked example.** A transfer moves 100 from account $A$ (balance 500) to account $B$ (balance 300). The invariant is that $A + B = 800$. The power fails after the debit but before the credit. Follow what each ACID property does.\n\n1. Before the transfer: $A = 500$, $B = 300$, total $800$. The database is **consistent**.\n2. The transaction debits $A$: $A = 400$. The total is $700$ for now. That is allowed inside a running transaction.\n3. The power fails before the credit. The disk shows $A = 400$, $B = 300$, total $700$. Money has vanished, so **atomicity** (all or nothing) has been violated.\n4. On restart the recovery manager undoes the debit: $A = 500$, $B = 300$, total $800$. This is how atomicity is restored.\n5. The transaction runs again and commits: $A = 400$, $B = 400$, total $800$. **Durability** now promises that a later crash cannot undo it.\n\n**Answer:** The crash breaks atomicity; the recovery manager restores it by undoing the debit, and the rerun ends consistent and durable.",
+   "why_full": "ACID is the vocabulary for the whole chapter. In GATE: match a scenario to the violated property, or say which component enforces which (2024 CS2 Q19, 2025 CS2 Q27).\n\nAsked: 2024 CS2 Q19, 2025 CS2 Q27",
+   "trap": "Treating consistency as something the DBMS guarantees on its own. It guarantees declared constraints only, so a logically wrong transaction can still break the meaning of the data. Also mixing up atomicity (partial effects) and isolation (interference)."
+  },
+  {
+   "atom_id": "t2",
+   "title": "Transaction states",
+   "simple": "Think of an exam answer sheet. First you are writing (active). When you write the last line you hand it in, but the teacher has not yet filed it (partially committed). Once it is filed in the office safely, it is final (committed). If you tear the sheet halfway because of a mistake, it is marked invalid (failed), and then the invalid sheet is thrown away (aborted). In exam words: a transaction moves through active, partially committed, committed, failed and aborted.",
+   "idea": "A transaction passes through up to five **states**. It starts **active**. After its last statement it is **partially committed**. When its changes are safely logged it is **committed**. If anything goes wrong it becomes **failed**, and after rollback it is **aborted**.",
+   "definition": "**Active:** executing. **Partially committed:** the last statement has executed. **Committed:** the commit record is durable, so the effects are permanent. **Failed:** normal execution can't continue. **Aborted:** rolled back; the database is as if it never ran.\n\nTransitions: active to partially committed or failed; partially committed to committed or failed; failed to aborted.",
+   "intuition_full": "The extra step between 'last statement' and 'committed' exists because the changes may still be only in memory. The commit becomes real only after the log is on disk, which is what durability relies on. A failure at any point before commit must lead to abort, which undoes the changes, which is atomicity. After commit there is no way back; a mistake is repaired by running a new compensating transaction. After an abort, the system can restart the transaction if the cause was external (such as a deadlock victim choice) or kill it if the cause was a bug. This small state machine is the usual target of one-line GATE questions.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Follow two transactions through the states: $T_1$ runs to completion and commits, $T_2$ hits an error part-way and is rolled back.",
+     "steps": [
+      "$T_1$ starts and runs its statements. State: **active**.",
+      "$T_1$ executes its last statement, but its changes are not yet safely on disk. State: **partially committed**.",
+      "The commit record reaches the log on disk. State: **committed**. The transaction can no longer be rolled back.",
+      "$T_2$ hits an error while active (a failed constraint, a crash, a deadlock). State: **failed**.",
+      "The system rolls $T_2$'s changes back. State: **aborted**. From here it can be restarted or killed."
+     ],
+     "answer": "$T_1$: active, partially committed, committed. $T_2$: active, failed, aborted."
+    },
+    {
+     "level": "gate",
+     "setup": "Which of these transitions are possible? (1) active to committed (2) partially committed to failed (3) committed to aborted (4) failed to aborted.",
+     "steps": [
+      "(1) Active to committed directly is not possible. Every transaction passes through partially committed first.",
+      "(2) Partially committed to failed is possible: the final write to disk or the log can fail.",
+      "(3) Committed to aborted is not possible. A committed transaction is permanent; a compensating transaction is needed to undo its effect.",
+      "(4) Failed to aborted is the only exit from failed. Possible."
+     ],
+     "answer": "Possible: (2) and (4). Not possible: (1) and (3)."
+    },
+    {
+     "level": "twist",
+     "setup": "A transaction aborted, and the application restarts it. Is the restarted transaction the same as the aborted one?",
+     "steps": [
+      "An aborted transaction has no effects, so there is nothing left to undo.",
+      "The system may restart it as a new transaction, or kill it, if the error was an internal one (for example a deadlock).",
+      "If the error is in the program (a logic bug), restarting will fail again. The restart is a fresh transaction with a new timestamp."
+     ],
+     "answer": "No. A restart is a new transaction; the aborted one is finished."
+    }
+   ],
+   "why": "State questions are quick marks if you know the arrows. In GATE: name the state of a transaction after a given event, or pick the impossible transition (2024 CS2 Q19, 2025 CS2 Q27).",
+   "how": [
+    "Draw the five states and the arrows: active to partially committed or failed, partially committed to committed or failed, failed to aborted.",
+    "Locate the event: last statement executed means partially committed; log forced means committed.",
+    "Committed and aborted are the two terminal states.",
+    "A committed transaction never goes back."
+   ],
+   "mistake": "Calling a transaction committed as soon as its last statement runs. It is only partially committed until the commit record is safely on disk. Another slip is allowing a committed transaction to be aborted.",
+   "edge_cases": [
+    "The failed state can be entered from active or partially committed.",
+    "Committed and aborted are terminal.",
+    "A transaction can be killed rather than restarted if the error is a logic bug.",
+    "Some textbooks name partially committed 'ready to commit'."
+   ],
+   "connections": [
+    "**ACID** (previous card) explains why the states exist.",
+    "**Log-based recovery** decides committed versus uncommitted from the log.",
+    "**Deadlock** in `db.cc` is a common reason for an abort and restart."
+   ],
+   "check": [
+    {
+     "q": "Can a transaction go from active directly to committed?",
+     "a": "No. It passes through partially committed."
+    },
+    {
+     "q": "Which two states are terminal?",
+     "a": "Committed and aborted."
+    },
+    {
+     "q": "After the last statement runs but before the log is on disk, what state is it in?",
+     "a": "Partially committed."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q19, 2025 CS2 Q27",
+   "try": {
+    "id": "gen.db.txn.005",
+    "label": "Try: state of a transaction after its last statement (L1)"
+   },
+   "scene": "db.txn.t2.states",
+   "example": {
+    "setup": "Follow two transactions through the states: $T_1$ runs to completion and commits, $T_2$ hits an error part-way and is rolled back.",
+    "steps": [
+     "$T_1$ starts and runs its statements. State: **active**.",
+     "$T_1$ executes its last statement, but its changes are not yet safely on disk. State: **partially committed**.",
+     "The commit record reaches the log on disk. State: **committed**. The transaction can no longer be rolled back.",
+     "$T_2$ hits an error while active (a failed constraint, a crash, a deadlock). State: **failed**.",
+     "The system rolls $T_2$'s changes back. State: **aborted**. From here it can be restarted or killed."
+    ],
+    "answer": "$T_1$: active, partially committed, committed. $T_2$: active, failed, aborted."
+   },
+   "what": "A transaction passes through up to five **states**. It starts **active**. After its last statement it is **partially committed**. When its changes are safely logged it is **committed**. If anything goes wrong it becomes **failed**, and after rollback it is **aborted**.",
+   "what_full": "A transaction passes through up to five **states**. It starts **active**. After its last statement it is **partially committed**. When its changes are safely logged it is **committed**. If anything goes wrong it becomes **failed**, and after rollback it is **aborted**.\n\n**Active:** executing. **Partially committed:** the last statement has executed. **Committed:** the commit record is durable, so the effects are permanent. **Failed:** normal execution can't continue. **Aborted:** rolled back; the database is as if it never ran.\n\nTransitions: active to partially committed or failed; partially committed to committed or failed; failed to aborted.\n\n**Worked example.** Follow two transactions through the states: $T_1$ runs to completion and commits, $T_2$ hits an error part-way and is rolled back.\n\n1. $T_1$ starts and runs its statements. State: **active**.\n2. $T_1$ executes its last statement, but its changes are not yet safely on disk. State: **partially committed**.\n3. The commit record reaches the log on disk. State: **committed**. The transaction can no longer be rolled back.\n4. $T_2$ hits an error while active (a failed constraint, a crash, a deadlock). State: **failed**.\n5. The system rolls $T_2$'s changes back. State: **aborted**. From here it can be restarted or killed.\n\n**Answer:** $T_1$: active, partially committed, committed. $T_2$: active, failed, aborted.",
+   "why_full": "State questions are quick marks if you know the arrows. In GATE: name the state of a transaction after a given event, or pick the impossible transition (2024 CS2 Q19, 2025 CS2 Q27).\n\nAsked: 2024 CS2 Q19, 2025 CS2 Q27",
+   "trap": "Calling a transaction committed as soon as its last statement runs. It is only partially committed until the commit record is safely on disk. Another slip is allowing a committed transaction to be aborted."
+  },
+  {
+   "atom_id": "t3",
+   "title": "Conflicts and anomalies",
+   "simple": "Two people editing the same cell of a shared spreadsheet is risky only if at least one of them changes it. If both just look, nothing goes wrong. If one changes it while the other is working from the old value, one of the changes can be lost. That is what a conflict is: the same item, two different people, and at least one writer. Reading something that someone else changed but has not saved yet is also dangerous, because they may cancel. In exam words: operations conflict when they are in different transactions, on the same item, with at least one write.",
+   "idea": "Two operations **conflict** if they belong to different transactions, touch the same item and at least one is a write. Swapping a conflicting pair can change the result. The classic problems are the **dirty read**, **unrepeatable read** and **lost update**.",
+   "definition": "Conflicting pairs: read-write ($r_i(x), w_j(x)$), write-read ($w_i(x), r_j(x)$) and write-write ($w_i(x), w_j(x)$) with $i \\ne j$. Read-read never conflicts.\n\n**Dirty read:** reading data written by an uncommitted transaction (WR). **Unrepeatable read:** two reads of the same item return different values because another transaction wrote in between (RW). **Lost update:** two transactions overwrite each other's update (WW).",
+   "intuition_full": "Two operations can be swapped without changing anything exactly when they commute. Reads commute with reads, and operations on different items commute. A write does not commute with another read or write of the same item, because the order decides which value is seen or kept. Conflicts therefore define what a legal rearrangement of a schedule is: we may swap non-conflicting neighbours freely, and nothing else. That is the idea behind conflict serializability, the next topic. The three anomaly names are just the three types of conflict pair named by their symptom: WR gives dirty reads, RW gives unrepeatable reads, and WW gives lost updates.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Item $x = 100$. $T_1$ adds 10 to $x$ and $T_2$ adds 20 to $x$. The two run concurrently with the schedule $r_1(x)\\ r_2(x)\\ w_2(x)\\ w_1(x)$. What does $x$ end up as, and which operation pairs conflict?",
+     "steps": [
+      "Start with $x = 100$. A serial run would give $100 + 10 + 20 = 130$.",
+      "$r_1(x)$: $T_1$ reads 100.",
+      "$r_2(x)$: $T_2$ also reads 100, before $T_1$ has written.",
+      "$w_2(x)$: $T_2$ writes $100 + 20 = 120$. Now $x = 120$.",
+      "$w_1(x)$: $T_1$ writes $100 + 10 = 110$, using its stale read. This overwrites $T_2$'s result.",
+      "Final $x = 110$, not 130. $T_2$'s update is lost (a **lost update**). The conflicting pairs are $r_1$ with $w_2$, $r_2$ with $w_1$ and $w_2$ with $w_1$."
+     ],
+     "answer": "$x = 110$, a lost update. Conflicts: $r_1(x)/w_2(x)$, $r_2(x)/w_1(x)$, $w_2(x)/w_1(x)$."
+    },
+    {
+     "level": "gate",
+     "setup": "Which of these operation pairs conflict? (1) $r_1(x), r_2(x)$ (2) $r_1(x), w_2(y)$ (3) $w_1(x), r_1(x)$ (4) $w_1(x), w_2(x)$ (5) $r_1(x), w_2(x)$.",
+     "steps": [
+      "A conflict needs three things: different transactions, the same item, and at least one write.",
+      "(1) Two reads. No write, so no conflict.",
+      "(2) Different items, $x$ and $y$. No conflict.",
+      "(3) Same transaction. No conflict.",
+      "(4) and (5): different transactions, same item, at least one write. Both conflict."
+     ],
+     "answer": "Only (4) and (5) conflict."
+    },
+    {
+     "level": "twist",
+     "setup": "$T_1$ writes $x$, $T_2$ reads $x$, and then $T_1$ aborts. Which anomaly is this, and why is it dangerous?",
+     "steps": [
+      "$w_1(x)$ writes a value that is not yet committed.",
+      "$r_2(x)$ reads that uncommitted value. This is a **dirty read** (a write-read conflict).",
+      "$T_1$ aborts, so its value never existed. $T_2$ has used a value that was rolled back.",
+      "If $T_2$ had committed, it can no longer be undone. This is why recoverability (a later card) matters."
+     ],
+     "answer": "A dirty read. $T_2$ read data that was rolled back."
+    }
+   ],
+   "why": "The conflict definition is the base of every serializability question. In GATE: which pair of operations conflicts, or which anomaly a schedule shows (2026 CS2 Q20, 2021 CS2 Q42).",
+   "how": [
+    "Check three conditions: different transactions, same item, at least one write.",
+    "If all three hold, name the type: RW, WR or WW.",
+    "Name the anomaly from the type: WR dirty read, RW unrepeatable read, WW lost update.",
+    "Read-read pairs and pairs on different items are always safe."
+   ],
+   "mistake": "Treating read-read as a conflict, or treating operations of the same transaction as a conflict. Both are safe. Also, forgetting that the item must be the same: $r_1(x)$ and $w_2(y)$ do not conflict.",
+   "edge_cases": [
+    "Two operations of the same transaction never conflict.",
+    "Reading a value that was later aborted is a dirty read even if nothing visible goes wrong.",
+    "A blind write ($w$ without a prior read) still conflicts with other writes.",
+    "A phantom is an anomaly on a set of rows; it does not fit the three simple pair types."
+   ],
+   "connections": [
+    "**Precedence graph** (next card) turns conflicts into edges.",
+    "**Recoverability** deals with dirty reads and commit order.",
+    "**Locking** (`db.cc`) prevents the dangerous interleavings."
+   ],
+   "check": [
+    {
+     "q": "Do $r_1(x)$ and $r_2(x)$ conflict?",
+     "a": "No. Two reads never conflict."
+    },
+    {
+     "q": "Do $w_1(x)$ and $r_2(y)$ conflict?",
+     "a": "No. Different items."
+    },
+    {
+     "q": "$T_2$ reads a value that $T_1$ wrote but has not committed. Name the anomaly.",
+     "a": "Dirty read."
+    }
+   ],
+   "asked": "Asked: 2026 CS2 Q20, 2021 CS2 Q42",
+   "try": {
+    "id": "gen.db.txn.002",
+    "label": "Try: which pairs of operations conflict (L1)"
+   },
+   "scene": "db.txn.t3.lostupdate",
+   "example": {
+    "setup": "Item $x = 100$. $T_1$ adds 10 to $x$ and $T_2$ adds 20 to $x$. The two run concurrently with the schedule $r_1(x)\\ r_2(x)\\ w_2(x)\\ w_1(x)$. What does $x$ end up as, and which operation pairs conflict?",
+    "steps": [
+     "Start with $x = 100$. A serial run would give $100 + 10 + 20 = 130$.",
+     "$r_1(x)$: $T_1$ reads 100.",
+     "$r_2(x)$: $T_2$ also reads 100, before $T_1$ has written.",
+     "$w_2(x)$: $T_2$ writes $100 + 20 = 120$. Now $x = 120$.",
+     "$w_1(x)$: $T_1$ writes $100 + 10 = 110$, using its stale read. This overwrites $T_2$'s result.",
+     "Final $x = 110$, not 130. $T_2$'s update is lost (a **lost update**). The conflicting pairs are $r_1$ with $w_2$, $r_2$ with $w_1$ and $w_2$ with $w_1$."
+    ],
+    "answer": "$x = 110$, a lost update. Conflicts: $r_1(x)/w_2(x)$, $r_2(x)/w_1(x)$, $w_2(x)/w_1(x)$."
+   },
+   "what": "Two operations **conflict** if they belong to different transactions, touch the same item and at least one is a write. Swapping a conflicting pair can change the result. The classic problems are the **dirty read**, **unrepeatable read** and **lost update**.",
+   "what_full": "Two operations **conflict** if they belong to different transactions, touch the same item and at least one is a write. Swapping a conflicting pair can change the result. The classic problems are the **dirty read**, **unrepeatable read** and **lost update**.\n\nConflicting pairs: read-write ($r_i(x), w_j(x)$), write-read ($w_i(x), r_j(x)$) and write-write ($w_i(x), w_j(x)$) with $i \\ne j$. Read-read never conflicts.\n\n**Dirty read:** reading data written by an uncommitted transaction (WR). **Unrepeatable read:** two reads of the same item return different values because another transaction wrote in between (RW). **Lost update:** two transactions overwrite each other's update (WW).\n\n**Worked example.** Item $x = 100$. $T_1$ adds 10 to $x$ and $T_2$ adds 20 to $x$. The two run concurrently with the schedule $r_1(x)\\ r_2(x)\\ w_2(x)\\ w_1(x)$. What does $x$ end up as, and which operation pairs conflict?\n\n1. Start with $x = 100$. A serial run would give $100 + 10 + 20 = 130$.\n2. $r_1(x)$: $T_1$ reads 100.\n3. $r_2(x)$: $T_2$ also reads 100, before $T_1$ has written.\n4. $w_2(x)$: $T_2$ writes $100 + 20 = 120$. Now $x = 120$.\n5. $w_1(x)$: $T_1$ writes $100 + 10 = 110$, using its stale read. This overwrites $T_2$'s result.\n6. Final $x = 110$, not 130. $T_2$'s update is lost (a **lost update**). The conflicting pairs are $r_1$ with $w_2$, $r_2$ with $w_1$ and $w_2$ with $w_1$.\n\n**Answer:** $x = 110$, a lost update. Conflicts: $r_1(x)/w_2(x)$, $r_2(x)/w_1(x)$, $w_2(x)/w_1(x)$.",
+   "why_full": "The conflict definition is the base of every serializability question. In GATE: which pair of operations conflicts, or which anomaly a schedule shows (2026 CS2 Q20, 2021 CS2 Q42).\n\nAsked: 2026 CS2 Q20, 2021 CS2 Q42",
+   "trap": "Treating read-read as a conflict, or treating operations of the same transaction as a conflict. Both are safe. Also, forgetting that the item must be the same: $r_1(x)$ and $w_2(y)$ do not conflict."
+  },
+  {
+   "atom_id": "t4",
+   "title": "Precedence graph",
+   "simple": "Imagine each transaction is a person queueing for shared tools. If Asha used the hammer before Ravi needed it to change something, then Asha must come before Ravi in any fair order. Draw an arrow from Asha to Ravi for every such case. If the arrows form a loop, with Asha before Ravi before Meera before Asha, no one-after-another order can satisfy everybody. If there is no loop, a one-after-another order exists. In exam words: draw an edge $T_i \\to T_j$ for each conflict where $T_i$'s operation comes first; the schedule is conflict serializable iff the graph has no cycle.",
+   "idea": "The **precedence graph** has one node per transaction and an edge $T_i \\to T_j$ whenever an operation of $T_i$ conflicts with and comes before an operation of $T_j$. A schedule is **conflict serializable** exactly when this graph has **no cycle**.",
+   "definition": "For schedule $S$: nodes are the transactions; edge $T_i \\to T_j$ if some $o_i$ in $T_i$ conflicts with some $o_j$ in $T_j$ and $o_i$ precedes $o_j$ in $S$.\n\n$S$ is conflict serializable $\\iff$ the graph is acyclic. Any topological order of the graph is an equivalent serial schedule.",
+   "intuition_full": "Conflicting operations cannot be swapped, so each conflict fixes the relative order of its two transactions in every equivalent schedule. The edges collect all these forced orders. If they contradict each other (a cycle), no serial order can satisfy them all. If they are consistent (acyclic), any topological order is a serial schedule that keeps every forced order, and so it is conflict equivalent. For a long schedule, work item by item: list the operations on each item in order and add edges for each earlier-to-later conflicting pair. Cycles can involve three or more transactions, so look at the whole graph, not just pairs.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Schedule $S$: $r_1(x)\\ r_2(y)\\ w_2(x)\\ w_3(y)\\ w_1(z)\\ r_3(z)$. Build the precedence graph and decide whether $S$ is conflict serializable.",
+     "steps": [
+      "Create one node per transaction: $T_1, T_2, T_3$. For every conflicting pair, draw an edge from the earlier transaction to the later one.",
+      "Item $x$: $r_1(x)$ comes before $w_2(x)$, a read-write conflict. Edge $T_1 \\to T_2$.",
+      "Item $y$: $r_2(y)$ comes before $w_3(y)$. Edge $T_2 \\to T_3$.",
+      "Item $z$: $w_1(z)$ comes before $r_3(z)$, a write-read conflict. Edge $T_1 \\to T_3$.",
+      "The graph has edges $T_1 \\to T_2$, $T_2 \\to T_3$, $T_1 \\to T_3$ and no cycle. $S$ is conflict serializable, equivalent to the serial order $T_1, T_2, T_3$."
+     ],
+     "answer": "Conflict serializable; equivalent serial order $T_1\\,T_2\\,T_3$."
+    },
+    {
+     "level": "gate",
+     "setup": "Schedule $S$: $r_1(x)\\ w_2(x)\\ r_3(y)\\ w_1(y)\\ w_3(x)$. How many distinct edges does the precedence graph have, and is $S$ conflict serializable?",
+     "steps": [
+      "Item $x$: operations $r_1, w_2, w_3$ in that order. Pairs: $r_1 \\to w_2$ gives $T_1 \\to T_2$; $r_1 \\to w_3$ gives $T_1 \\to T_3$; $w_2 \\to w_3$ gives $T_2 \\to T_3$.",
+      "Item $y$: operations $r_3, w_1$. The pair $r_3 \\to w_1$ gives $T_3 \\to T_1$.",
+      "Distinct edges: $T_1 \\to T_2$, $T_1 \\to T_3$, $T_2 \\to T_3$, $T_3 \\to T_1$. That is 4.",
+      "$T_1 \\to T_3$ and $T_3 \\to T_1$ form a cycle. $S$ is not conflict serializable."
+     ],
+     "answer": "4 distinct edges; not conflict serializable."
+    },
+    {
+     "level": "twist",
+     "setup": "Schedule $S$: $r_1(x)\\ r_3(z)\\ w_3(x)\\ r_2(y)\\ w_1(y)\\ w_2(z)$. No pair of transactions has edges in both directions. Is $S$ conflict serializable?",
+     "steps": [
+      "Item $x$: $r_1(x)$ then $w_3(x)$. Edge $T_1 \\to T_3$.",
+      "Item $z$: $r_3(z)$ then $w_2(z)$. Edge $T_3 \\to T_2$.",
+      "Item $y$: $r_2(y)$ then $w_1(y)$. Edge $T_2 \\to T_1$.",
+      "The edges $T_1 \\to T_3 \\to T_2 \\to T_1$ form a cycle of length 3, although no two nodes have edges in both directions. $S$ is not conflict serializable."
+     ],
+     "answer": "Not conflict serializable, because of the three-way cycle."
+    }
+   ],
+   "why": "This is the most frequent transaction question. In GATE: is the schedule conflict serializable, how many edges, or which serial order is equivalent (2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44).",
+   "how": [
+    "List the transactions as nodes.",
+    "For each item, scan its operations in order and add an edge for every conflicting earlier-to-later pair.",
+    "Check for a cycle, including cycles through three or more nodes.",
+    "If acyclic, a topological order gives an equivalent serial schedule."
+   ],
+   "mistake": "Checking only pairs of transactions and missing a three-way cycle, or adding an edge for read-read pairs. Duplicate edges count once. Also, an edge goes from the transaction whose operation comes first.",
+   "edge_cases": [
+    "Several conflicts between the same two transactions in the same direction give one edge.",
+    "Aborted transactions are usually dropped from the graph.",
+    "A single transaction cannot form a cycle by itself.",
+    "The graph may have several valid topological orders; each is an equivalent serial schedule."
+   ],
+   "connections": [
+    "**Equivalent serial orders** (next card) counts the topological sorts.",
+    "**View serializability** is a weaker test that accepts some cyclic schedules.",
+    "Cycle detection is the same as in `ds.graphs` (DFS) or by repeatedly removing sources."
+   ],
+   "check": [
+    {
+     "q": "Schedule $r_1(x)\\ w_2(x)$: which edge?",
+     "a": "$T_1 \\to T_2$."
+    },
+    {
+     "q": "A graph has edges $T_1 \\to T_2$ and $T_2 \\to T_1$. Conflict serializable?",
+     "a": "No. It has a cycle."
+    },
+    {
+     "q": "Do read-read pairs add edges?",
+     "a": "No."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44",
+   "try": {
+    "id": "gen.db.txn.006",
+    "label": "Try: conflict serializable iff the precedence graph is acyclic (L1)"
+   },
+   "scene": "db.txn.t4.precedence",
+   "example": {
+    "setup": "Schedule $S$: $r_1(x)\\ r_2(y)\\ w_2(x)\\ w_3(y)\\ w_1(z)\\ r_3(z)$. Build the precedence graph and decide whether $S$ is conflict serializable.",
+    "steps": [
+     "Create one node per transaction: $T_1, T_2, T_3$. For every conflicting pair, draw an edge from the earlier transaction to the later one.",
+     "Item $x$: $r_1(x)$ comes before $w_2(x)$, a read-write conflict. Edge $T_1 \\to T_2$.",
+     "Item $y$: $r_2(y)$ comes before $w_3(y)$. Edge $T_2 \\to T_3$.",
+     "Item $z$: $w_1(z)$ comes before $r_3(z)$, a write-read conflict. Edge $T_1 \\to T_3$.",
+     "The graph has edges $T_1 \\to T_2$, $T_2 \\to T_3$, $T_1 \\to T_3$ and no cycle. $S$ is conflict serializable, equivalent to the serial order $T_1, T_2, T_3$."
+    ],
+    "answer": "Conflict serializable; equivalent serial order $T_1\\,T_2\\,T_3$."
+   },
+   "what": "The **precedence graph** has one node per transaction and an edge $T_i \\to T_j$ whenever an operation of $T_i$ conflicts with and comes before an operation of $T_j$. A schedule is **conflict serializable** exactly when this graph has **no cycle**.",
+   "what_full": "The **precedence graph** has one node per transaction and an edge $T_i \\to T_j$ whenever an operation of $T_i$ conflicts with and comes before an operation of $T_j$. A schedule is **conflict serializable** exactly when this graph has **no cycle**.\n\nFor schedule $S$: nodes are the transactions; edge $T_i \\to T_j$ if some $o_i$ in $T_i$ conflicts with some $o_j$ in $T_j$ and $o_i$ precedes $o_j$ in $S$.\n\n$S$ is conflict serializable $\\iff$ the graph is acyclic. Any topological order of the graph is an equivalent serial schedule.\n\n**Worked example.** Schedule $S$: $r_1(x)\\ r_2(y)\\ w_2(x)\\ w_3(y)\\ w_1(z)\\ r_3(z)$. Build the precedence graph and decide whether $S$ is conflict serializable.\n\n1. Create one node per transaction: $T_1, T_2, T_3$. For every conflicting pair, draw an edge from the earlier transaction to the later one.\n2. Item $x$: $r_1(x)$ comes before $w_2(x)$, a read-write conflict. Edge $T_1 \\to T_2$.\n3. Item $y$: $r_2(y)$ comes before $w_3(y)$. Edge $T_2 \\to T_3$.\n4. Item $z$: $w_1(z)$ comes before $r_3(z)$, a write-read conflict. Edge $T_1 \\to T_3$.\n5. The graph has edges $T_1 \\to T_2$, $T_2 \\to T_3$, $T_1 \\to T_3$ and no cycle. $S$ is conflict serializable, equivalent to the serial order $T_1, T_2, T_3$.\n\n**Answer:** Conflict serializable; equivalent serial order $T_1\\,T_2\\,T_3$.",
+   "why_full": "This is the most frequent transaction question. In GATE: is the schedule conflict serializable, how many edges, or which serial order is equivalent (2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44).\n\nAsked: 2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44",
+   "trap": "Checking only pairs of transactions and missing a three-way cycle, or adding an edge for read-read pairs. Duplicate edges count once. Also, an edge goes from the transaction whose operation comes first."
+  },
+  {
+   "atom_id": "t5",
+   "title": "Equivalent serial orders and counting",
+   "simple": "If a group of friends must queue so that certain people stand before others, the number of fair queues is the number of ways to line them up while keeping those 'before' rules. With no rules, any order works, which gives $n!$ queues. Each rule cuts the number down. A schedule that can be rearranged into a one-after-another schedule is conflict serializable, and each fair one-after-another order is an equivalent serial schedule. In exam words: the equivalent serial schedules are the topological orders of the precedence graph.",
+   "idea": "A conflict serializable schedule is equivalent to every serial order that respects its precedence graph. These are the **topological orders** of the graph. With no edges there are $n!$ of them, and each edge removes some.",
+   "definition": "Equivalent serial schedules of $S$ $=$ topological orders of the precedence graph of $S$. A chain graph has exactly 1. A graph with no edges has $n!$. The number of serial schedules of $n$ transactions in total is $n!$.\n\nTo count conflict serializable interleavings of given transactions, count interleavings that are equivalent to some serial order.",
+   "intuition_full": "Each edge is a forced 'before'. A serial schedule satisfies it iff the first transaction comes earlier in the order. So listing equivalent serial schedules is listing all linear orders that satisfy the 'before' rules. The standard way is to repeat: choose any node with no incoming edge among the remaining nodes, place it next, delete it, and continue. For counting interleavings, remember that every serializable interleaving is equivalent to at least one serial order. Counting by hand: for two transactions with two operations each there are 6 interleavings, and only the 2 serial-like ones are serializable when all operations conflict.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A conflict serializable schedule has the precedence graph with edges $T_1 \\to T_2$, $T_1 \\to T_3$ and $T_3 \\to T_4$. How many serial schedules are conflict equivalent to it?",
+     "steps": [
+      "Each serial order must respect every edge, so we need the number of topological orders of the graph.",
+      "$T_1$ is the only node with no incoming edge, so it goes first.",
+      "Next, $T_2$ and $T_3$ are both free ($T_4$ must wait for $T_3$). Pick $T_2$: then $T_3$, then $T_4$. Order $T_1\\,T_2\\,T_3\\,T_4$.",
+      "Pick $T_3$ first: now $T_2$ and $T_4$ are free, in either order. Orders $T_1\\,T_3\\,T_2\\,T_4$ and $T_1\\,T_3\\,T_4\\,T_2$.",
+      "That is 3 orders. All three are conflict equivalent to the schedule."
+     ],
+     "answer": "3 serial schedules."
+    },
+    {
+     "level": "gate",
+     "setup": "$T_1$: $r_1(x)\\ w_1(x)$ and $T_2$: $r_2(x)\\ w_2(x)$. Of the interleavings that keep each transaction's own order, how many are conflict serializable?",
+     "steps": [
+      "Interleavings: choose which 2 of 4 positions belong to $T_1$: $\\binom42 = 6$.",
+      "$T_1T_2$ serial: $r_1\\,w_1\\,r_2\\,w_2$. Conflict serializable.",
+      "$T_2T_1$ serial: $r_2\\,w_2\\,r_1\\,w_1$. Conflict serializable.",
+      "The other four ($r_1\\,r_2\\,w_1\\,w_2$, $r_1\\,r_2\\,w_2\\,w_1$, $r_2\\,r_1\\,w_1\\,w_2$, $r_2\\,r_1\\,w_2\\,w_1$) have both $r_1 \\to w_2$ and $r_2 \\to w_1$ conflicts, giving edges in both directions. Not serializable."
+     ],
+     "answer": "2 of the 6 interleavings are conflict serializable."
+    },
+    {
+     "level": "twist",
+     "setup": "Three transactions touch completely different items, so the precedence graph has no edges. How many serial schedules are conflict equivalent to a schedule of them?",
+     "steps": [
+      "With no conflicts, no ordering is forced.",
+      "Any permutation of $T_1, T_2, T_3$ respects the empty set of edges.",
+      "That is $3! = 6$ orders. With $n$ independent transactions: $n!$."
+     ],
+     "answer": "6 serial schedules."
+    }
+   ],
+   "why": "Counting questions test whether you understand what the graph means. In GATE: how many serial schedules are equivalent, or how many interleavings are conflict serializable (2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44).",
+   "how": [
+    "Build the precedence graph.",
+    "Repeatedly pick a node with no incoming edge, write it next, and delete it.",
+    "Count the distinct complete orders (use a tree of choices).",
+    "For interleavings, count all interleavings, then the ones whose graph is acyclic."
+   ],
+   "mistake": "Counting all $n!$ serial schedules instead of only those that respect the edges, or counting a serial order that violates an edge. Also, forgetting that isolated nodes (no edges) can go anywhere.",
+   "edge_cases": [
+    "Isolated transactions multiply the count of orders.",
+    "A chain $T_1 \\to T_2 \\to T_3$ has exactly one order.",
+    "The number of interleavings of $k$ transactions with $n_i$ operations is the multinomial $(\\sum n_i)!/\\prod n_i!$.",
+    "A cyclic graph has no equivalent serial schedule."
+   ],
+   "connections": [
+    "**Precedence graph** (previous card) builds the graph that this card counts on.",
+    "Counting topological orders appears in `ds.graphs` too.",
+    "**Locking** protocols restrict which interleavings are allowed."
+   ],
+   "check": [
+    {
+     "q": "Edges $T_1 \\to T_2$ and $T_2 \\to T_3$. How many equivalent serial schedules?",
+     "a": "1: $T_1\\,T_2\\,T_3$."
+    },
+    {
+     "q": "Four transactions with no edges. How many equivalent serial schedules?",
+     "a": "$4! = 24$."
+    },
+    {
+     "q": "Edges $T_1 \\to T_2$ and $T_1 \\to T_3$. How many serial orders?",
+     "a": "2: $T_1\\,T_2\\,T_3$ and $T_1\\,T_3\\,T_2$."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44",
+   "try": {
+    "id": "gen.db.txn.004",
+    "label": "Try: how many serial schedules for 4 transactions (L1)"
+   },
+   "scene": "db.txn.t5.orders",
+   "example": {
+    "setup": "A conflict serializable schedule has the precedence graph with edges $T_1 \\to T_2$, $T_1 \\to T_3$ and $T_3 \\to T_4$. How many serial schedules are conflict equivalent to it?",
+    "steps": [
+     "Each serial order must respect every edge, so we need the number of topological orders of the graph.",
+     "$T_1$ is the only node with no incoming edge, so it goes first.",
+     "Next, $T_2$ and $T_3$ are both free ($T_4$ must wait for $T_3$). Pick $T_2$: then $T_3$, then $T_4$. Order $T_1\\,T_2\\,T_3\\,T_4$.",
+     "Pick $T_3$ first: now $T_2$ and $T_4$ are free, in either order. Orders $T_1\\,T_3\\,T_2\\,T_4$ and $T_1\\,T_3\\,T_4\\,T_2$.",
+     "That is 3 orders. All three are conflict equivalent to the schedule."
+    ],
+    "answer": "3 serial schedules."
+   },
+   "what": "A conflict serializable schedule is equivalent to every serial order that respects its precedence graph. These are the **topological orders** of the graph. With no edges there are $n!$ of them, and each edge removes some.",
+   "what_full": "A conflict serializable schedule is equivalent to every serial order that respects its precedence graph. These are the **topological orders** of the graph. With no edges there are $n!$ of them, and each edge removes some.\n\nEquivalent serial schedules of $S$ $=$ topological orders of the precedence graph of $S$. A chain graph has exactly 1. A graph with no edges has $n!$. The number of serial schedules of $n$ transactions in total is $n!$.\n\nTo count conflict serializable interleavings of given transactions, count interleavings that are equivalent to some serial order.\n\n**Worked example.** A conflict serializable schedule has the precedence graph with edges $T_1 \\to T_2$, $T_1 \\to T_3$ and $T_3 \\to T_4$. How many serial schedules are conflict equivalent to it?\n\n1. Each serial order must respect every edge, so we need the number of topological orders of the graph.\n2. $T_1$ is the only node with no incoming edge, so it goes first.\n3. Next, $T_2$ and $T_3$ are both free ($T_4$ must wait for $T_3$). Pick $T_2$: then $T_3$, then $T_4$. Order $T_1\\,T_2\\,T_3\\,T_4$.\n4. Pick $T_3$ first: now $T_2$ and $T_4$ are free, in either order. Orders $T_1\\,T_3\\,T_2\\,T_4$ and $T_1\\,T_3\\,T_4\\,T_2$.\n5. That is 3 orders. All three are conflict equivalent to the schedule.\n\n**Answer:** 3 serial schedules.",
+   "why_full": "Counting questions test whether you understand what the graph means. In GATE: how many serial schedules are equivalent, or how many interleavings are conflict serializable (2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44).\n\nAsked: 2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44",
+   "trap": "Counting all $n!$ serial schedules instead of only those that respect the edges, or counting a serial order that violates an edge. Also, forgetting that isolated nodes (no edges) can go anywhere."
+  },
+  {
+   "atom_id": "t6",
+   "title": "View serializability",
+   "simple": "Conflict serializability is a strict referee: it blocks any change in the order of conflicting actions. View serializability is a more relaxed referee: it only asks that every reader sees the same values and that the final stored values are the same as in some one-after-another run. This lets through some schedules where a write is overwritten before anybody reads it (a 'blind' write). Every schedule the strict referee accepts, the relaxed one accepts too. In exam words: $S$ is view serializable if it is view equivalent to a serial schedule (same initial reads, same reads-from, same final writes).",
+   "idea": "A schedule is **view serializable** if some serial schedule gives every transaction the same reads and leaves the same final values. It accepts every conflict serializable schedule and a few more, which need **blind writes**.",
+   "definition": "Schedules $S$ and $S'$ are **view equivalent** if: (1) each transaction reads the initial value of $x$ in $S$ iff it does in $S'$; (2) each read $r_j(x)$ reads from the same writer $w_i(x)$ in both; (3) the last write of each item is by the same transaction in both.\n\nConflict serializable $\\subset$ view serializable $\\subset$ all schedules. Testing view serializability is NP-complete.",
+   "intuition_full": "Conflict serializability treats every write-write pair as important, even if the first write is overwritten before anyone reads it. View serializability recognises such dead writes. A write that is later overwritten and never read does not change what any transaction sees, so reordering it is harmless as long as the final values and read results agree. That is why blind writes are the only source of schedules that are view but not conflict serializable. With no blind writes, the two notions coincide. In an exam, test conflict serializability first (it is fast and cheap); if it fails and the schedule has blind writes, then try each serial order against the three conditions.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Schedule $S$: $w_1(x)\\ w_2(x)\\ w_2(y)\\ w_1(y)\\ w_3(x)\\ w_3(y)$ (all blind writes). Is it conflict serializable? Is it view serializable?",
+     "steps": [
+      "All six operations are writes and no transaction reads anything.",
+      "Conflicts: $w_1(x)$ before $w_2(x)$ gives $T_1 \\to T_2$; $w_2(y)$ before $w_1(y)$ gives $T_2 \\to T_1$. That is a cycle, so $S$ is **not conflict serializable**.",
+      "View equivalence needs three things to match a serial schedule: the same initial reads, the same reads-from pairs, and the same final writes. There are no reads, so the first two match any order.",
+      "Final writes: $T_3$ writes both $x$ and $y$ last. Any serial order that ends with $T_3$ gives the same final writes.",
+      "$T_1\\,T_2\\,T_3$ (or $T_2\\,T_1\\,T_3$) is view equivalent to $S$. $S$ is view serializable but not conflict serializable."
+     ],
+     "answer": "View serializable, not conflict serializable."
+    },
+    {
+     "level": "gate",
+     "setup": "Schedule $S$: $r_1(x)\\ w_2(x)\\ w_1(x)$. Is it view serializable?",
+     "steps": [
+      "Reads: $T_1$ reads the initial value of $x$. Final write: $T_1$ writes $x$ last.",
+      "Try $T_1\\,T_2$: $T_1$ reads the initial value (matches), but the final write is $T_2$'s (does not match).",
+      "Try $T_2\\,T_1$: the final write is $T_1$'s (matches), but $T_1$ now reads from $T_2$ instead of the initial value (does not match).",
+      "No serial order matches both conditions."
+     ],
+     "answer": "Not view serializable."
+    },
+    {
+     "level": "twist",
+     "setup": "Schedule $S$: $r_1(x)\\ r_2(x)\\ w_1(x)\\ w_2(x)$ has no blind writes. Can it be view serializable although it is not conflict serializable?",
+     "steps": [
+      "Conflicts: $r_1 \\to w_2$ gives $T_1 \\to T_2$, and $r_2 \\to w_1$ gives $T_2 \\to T_1$. Cycle, so not conflict serializable.",
+      "View check: both transactions read the initial value. Final write by $T_2$.",
+      "In $T_1\\,T_2$, $T_2$ would read $T_1$'s write, not the initial value. In $T_2\\,T_1$ the final write would be $T_1$'s. Neither matches.",
+      "When every write is preceded by a read of the same item by the same transaction (no blind writes), view and conflict serializability agree."
+     ],
+     "answer": "No. Without blind writes, it is view serializable only if it is conflict serializable."
+    }
+   ],
+   "why": "View serializability is a standard 'is it still serializable?' follow-up. In GATE: decide whether a schedule with blind writes is view serializable, or check the relation between the classes (2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44).",
+   "how": [
+    "Test conflict serializability first; if it passes, view serializability holds too.",
+    "If it fails, look for blind writes. Without them, the schedule is not view serializable.",
+    "With blind writes, try each serial order against: initial reads, reads-from, final writes.",
+    "State the result and the relation: CSR is a subset of VSR."
+   ],
+   "mistake": "Concluding a schedule is not serializable because its precedence graph has a cycle. A cycle only rules out conflict serializability. If there are blind writes, check view serializability too.",
+   "edge_cases": [
+    "A schedule with no writes (only reads) is trivially both.",
+    "A transaction that reads nothing and whose writes are all overwritten is irrelevant for view equivalence.",
+    "View serializability cannot be enforced efficiently, so databases use conflict-based protocols.",
+    "Final write is per item: each item has one final writer."
+   ],
+   "connections": [
+    "**Precedence graph** tests the stricter conflict class.",
+    "**2PL and timestamps** (`db.cc`) guarantee conflict serializability only.",
+    "**Recoverability** is independent of both."
+   ],
+   "check": [
+    {
+     "q": "Is every conflict serializable schedule view serializable?",
+     "a": "Yes."
+    },
+    {
+     "q": "Which kind of write makes a view serializable but non-conflict serializable schedule possible?",
+     "a": "A blind write (a write without a prior read of the item)."
+    },
+    {
+     "q": "What are the three conditions of view equivalence?",
+     "a": "Same initial reads, same reads-from pairs, same final writes."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44",
+   "try": {
+    "id": "gen.db.txn.011",
+    "label": "Try: which condition is not required for view equivalence (L2)"
+   },
+   "scene": "db.txn.t6.view",
+   "example": {
+    "setup": "Schedule $S$: $w_1(x)\\ w_2(x)\\ w_2(y)\\ w_1(y)\\ w_3(x)\\ w_3(y)$ (all blind writes). Is it conflict serializable? Is it view serializable?",
+    "steps": [
+     "All six operations are writes and no transaction reads anything.",
+     "Conflicts: $w_1(x)$ before $w_2(x)$ gives $T_1 \\to T_2$; $w_2(y)$ before $w_1(y)$ gives $T_2 \\to T_1$. That is a cycle, so $S$ is **not conflict serializable**.",
+     "View equivalence needs three things to match a serial schedule: the same initial reads, the same reads-from pairs, and the same final writes. There are no reads, so the first two match any order.",
+     "Final writes: $T_3$ writes both $x$ and $y$ last. Any serial order that ends with $T_3$ gives the same final writes.",
+     "$T_1\\,T_2\\,T_3$ (or $T_2\\,T_1\\,T_3$) is view equivalent to $S$. $S$ is view serializable but not conflict serializable."
+    ],
+    "answer": "View serializable, not conflict serializable."
+   },
+   "what": "A schedule is **view serializable** if some serial schedule gives every transaction the same reads and leaves the same final values. It accepts every conflict serializable schedule and a few more, which need **blind writes**.",
+   "what_full": "A schedule is **view serializable** if some serial schedule gives every transaction the same reads and leaves the same final values. It accepts every conflict serializable schedule and a few more, which need **blind writes**.\n\nSchedules $S$ and $S'$ are **view equivalent** if: (1) each transaction reads the initial value of $x$ in $S$ iff it does in $S'$; (2) each read $r_j(x)$ reads from the same writer $w_i(x)$ in both; (3) the last write of each item is by the same transaction in both.\n\nConflict serializable $\\subset$ view serializable $\\subset$ all schedules. Testing view serializability is NP-complete.\n\n**Worked example.** Schedule $S$: $w_1(x)\\ w_2(x)\\ w_2(y)\\ w_1(y)\\ w_3(x)\\ w_3(y)$ (all blind writes). Is it conflict serializable? Is it view serializable?\n\n1. All six operations are writes and no transaction reads anything.\n2. Conflicts: $w_1(x)$ before $w_2(x)$ gives $T_1 \\to T_2$; $w_2(y)$ before $w_1(y)$ gives $T_2 \\to T_1$. That is a cycle, so $S$ is **not conflict serializable**.\n3. View equivalence needs three things to match a serial schedule: the same initial reads, the same reads-from pairs, and the same final writes. There are no reads, so the first two match any order.\n4. Final writes: $T_3$ writes both $x$ and $y$ last. Any serial order that ends with $T_3$ gives the same final writes.\n5. $T_1\\,T_2\\,T_3$ (or $T_2\\,T_1\\,T_3$) is view equivalent to $S$. $S$ is view serializable but not conflict serializable.\n\n**Answer:** View serializable, not conflict serializable.",
+   "why_full": "View serializability is a standard 'is it still serializable?' follow-up. In GATE: decide whether a schedule with blind writes is view serializable, or check the relation between the classes (2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44).\n\nAsked: 2021 CS2 Q42, 2020 CS Q47, 2017 CS2 Q44",
+   "trap": "Concluding a schedule is not serializable because its precedence graph has a cycle. A cycle only rules out conflict serializability. If there are blind writes, check view serializability too."
+  },
+  {
+   "atom_id": "t7",
+   "title": "Recoverability",
+   "simple": "Suppose your friend tells you a score, you tell it to the teacher as final, and then your friend says 'sorry, I made a mistake and cancel that score'. Now the teacher has a wrong value that you cannot take back. To avoid this, you should only pass on a number after your friend has confirmed it. In a database, a transaction that read another's uncommitted value must not commit before that other one does. Stricter rules say: do not even read, or overwrite, uncommitted values. In exam words: recoverable, cascadeless (avoids cascading aborts) and strict schedules, from weakest to strongest.",
+   "idea": "A schedule is **recoverable** if no transaction commits before the transaction it read from. It is **cascadeless** if transactions read only committed data. It is **strict** if nobody reads or overwrites a value until its writer has ended. Strict implies cascadeless implies recoverable.",
+   "definition": "$T_j$ **reads from** $T_i$ if $T_i$ wrote $x$ last before $T_j$ reads it. **Recoverable:** whenever $T_j$ reads from $T_i$, $c_i$ precedes $c_j$. **Cascadeless (ACA):** $T_j$ reads $x$ only after the last writer of $x$ has committed. **Strict:** no read or write of $x$ until the last transaction that wrote $x$ commits or aborts.\n\nStrict $\\subset$ ACA $\\subset$ recoverable.",
+   "intuition_full": "Recoverability is about what happens when a transaction aborts after others have used its data. If the dependent transaction has already committed, the database cannot undo it, so the system would be stuck with a wrong value. Requiring writers to commit first prevents this. Cascadeless goes further: it forbids the dirty read itself, so an abort never forces other transactions to abort too. Strict also forbids overwriting an uncommitted value, which makes rollback simple: restore the old value. Serializability and recoverability are independent properties: a schedule can be serializable but unrecoverable, or recoverable but not serializable. A real system needs both.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Classify these four schedules as recoverable, cascadeless or strict: $S_a$: $w_1(x)\\ w_1(y)\\ r_2(y)\\ c_2\\ c_1$; $S_b$: $w_1(x)\\ r_2(x)\\ w_2(y)\\ c_1\\ c_2$; $S_c$: $w_1(x)\\ w_2(x)\\ c_1\\ c_2$; $S_d$: $w_1(x)\\ c_1\\ r_2(x)\\ w_2(x)\\ c_2$.",
+     "steps": [
+      "**Recoverable:** if $T_j$ reads from $T_i$, then $T_i$ commits before $T_j$. **Cascadeless:** transactions read only committed data. **Strict:** no read or overwrite of a value until its writer ends. Strict $\\subset$ cascadeless $\\subset$ recoverable.",
+      "$S_a$: $T_2$ reads $y$ from $T_1$ and commits first ($c_2$ before $c_1$). Not recoverable.",
+      "$S_b$: $T_2$ reads $x$ before $T_1$ commits, but $T_1$ commits first. Recoverable, but the read is dirty, so it is not cascadeless.",
+      "$S_c$: no transaction reads uncommitted data, so it is cascadeless. But $T_2$ overwrites $x$ before $T_1$ commits, so it is not strict.",
+      "$S_d$: $T_2$ touches $x$ only after $c_1$. Strict."
+     ],
+     "answer": "$S_a$ none; $S_b$ recoverable only; $S_c$ cascadeless, not strict; $S_d$ strict."
+    },
+    {
+     "level": "gate",
+     "setup": "Schedule $S$: $w_2(y)\\ r_1(y)\\ w_1(x)\\ r_3(x)\\ c_2\\ c_3\\ c_1$. Is it recoverable? If not, which pair breaks the rule?",
+     "steps": [
+      "List the reads-from pairs. $T_1$ reads $y$ from $T_2$. $T_3$ reads $x$ from $T_1$.",
+      "Rule: the writer must commit before the reader. $T_1$ reads from $T_2$, and $c_2$ comes before $c_1$. OK.",
+      "$T_3$ reads from $T_1$, so $c_1$ must come before $c_3$. But the order is $c_3$ then $c_1$. Violated."
+     ],
+     "answer": "Not recoverable. $T_3$ reads from $T_1$ yet commits first."
+    },
+    {
+     "level": "twist",
+     "setup": "Schedule $S$: $w_1(x)\\ r_2(x)\\ w_2(y)\\ c_2\\ c_1$. Is it conflict serializable? Is it recoverable?",
+     "steps": [
+      "Conflicts: $w_1(x)$ before $r_2(x)$ gives $T_1 \\to T_2$ and nothing else. The graph has no cycle, so $S$ is conflict serializable (order $T_1\\,T_2$).",
+      "Recoverability: $T_2$ reads $x$ from $T_1$, so $c_1$ should come before $c_2$. Here $c_2$ comes first. Not recoverable.",
+      "If $T_1$ now aborts, $T_2$ has already committed a value built on a rolled-back write, and $T_2$ cannot be undone."
+     ],
+     "answer": "Conflict serializable but not recoverable."
+    }
+   ],
+   "why": "Recoverability checks are mechanical once you list the reads-from pairs. In GATE: is a schedule recoverable, which is the strongest class it belongs to, or which statements about the classes are true (2021 CS2 Q42, 2024 CS2 Q19).",
+   "how": [
+    "List the reads-from pairs: for each read, find the last write of the item by another transaction.",
+    "Recoverable: for each pair, writer's commit comes before reader's commit.",
+    "Cascadeless: each read happens after the writer's commit.",
+    "Strict: also no write of $x$ until the previous writer of $x$ has committed."
+   ],
+   "mistake": "Assuming a serializable schedule is recoverable. The two properties are independent. Also, judging recoverability only from the order of operations and not from the commit order.",
+   "edge_cases": [
+    "A transaction that reads only its own writes creates no dependency.",
+    "If a transaction never commits (aborts), the reads-from rule applies only to committed readers.",
+    "Strict 2PL schedules are strict.",
+    "A schedule with no reads-from pairs is trivially recoverable."
+   ],
+   "connections": [
+    "**Conflicts and anomalies**: the dirty read is the problem cascadeless schedules avoid.",
+    "**Strict 2PL** (`db.cc`) produces strict schedules.",
+    "**Log-based recovery** assumes recoverable schedules so rollbacks are possible."
+   ],
+   "check": [
+    {
+     "q": "Does cascadeless imply recoverable?",
+     "a": "Yes."
+    },
+    {
+     "q": "$w_1(x)\\ r_2(x)\\ c_2\\ c_1$: recoverable?",
+     "a": "No. $T_2$ read from $T_1$ and committed first."
+    },
+    {
+     "q": "Which class forbids overwriting an uncommitted value?",
+     "a": "Strict."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q42, 2024 CS2 Q19",
+   "try": {
+    "id": "gen.db.txn.010",
+    "label": "Try: is w1(x) r2(x) c2 c1 recoverable (L2)"
+   },
+   "scene": "db.txn.t7.classes",
+   "example": {
+    "setup": "Classify these four schedules as recoverable, cascadeless or strict: $S_a$: $w_1(x)\\ w_1(y)\\ r_2(y)\\ c_2\\ c_1$; $S_b$: $w_1(x)\\ r_2(x)\\ w_2(y)\\ c_1\\ c_2$; $S_c$: $w_1(x)\\ w_2(x)\\ c_1\\ c_2$; $S_d$: $w_1(x)\\ c_1\\ r_2(x)\\ w_2(x)\\ c_2$.",
+    "steps": [
+     "**Recoverable:** if $T_j$ reads from $T_i$, then $T_i$ commits before $T_j$. **Cascadeless:** transactions read only committed data. **Strict:** no read or overwrite of a value until its writer ends. Strict $\\subset$ cascadeless $\\subset$ recoverable.",
+     "$S_a$: $T_2$ reads $y$ from $T_1$ and commits first ($c_2$ before $c_1$). Not recoverable.",
+     "$S_b$: $T_2$ reads $x$ before $T_1$ commits, but $T_1$ commits first. Recoverable, but the read is dirty, so it is not cascadeless.",
+     "$S_c$: no transaction reads uncommitted data, so it is cascadeless. But $T_2$ overwrites $x$ before $T_1$ commits, so it is not strict.",
+     "$S_d$: $T_2$ touches $x$ only after $c_1$. Strict."
+    ],
+    "answer": "$S_a$ none; $S_b$ recoverable only; $S_c$ cascadeless, not strict; $S_d$ strict."
+   },
+   "what": "A schedule is **recoverable** if no transaction commits before the transaction it read from. It is **cascadeless** if transactions read only committed data. It is **strict** if nobody reads or overwrites a value until its writer has ended. Strict implies cascadeless implies recoverable.",
+   "what_full": "A schedule is **recoverable** if no transaction commits before the transaction it read from. It is **cascadeless** if transactions read only committed data. It is **strict** if nobody reads or overwrites a value until its writer has ended. Strict implies cascadeless implies recoverable.\n\n$T_j$ **reads from** $T_i$ if $T_i$ wrote $x$ last before $T_j$ reads it. **Recoverable:** whenever $T_j$ reads from $T_i$, $c_i$ precedes $c_j$. **Cascadeless (ACA):** $T_j$ reads $x$ only after the last writer of $x$ has committed. **Strict:** no read or write of $x$ until the last transaction that wrote $x$ commits or aborts.\n\nStrict $\\subset$ ACA $\\subset$ recoverable.\n\n**Worked example.** Classify these four schedules as recoverable, cascadeless or strict: $S_a$: $w_1(x)\\ w_1(y)\\ r_2(y)\\ c_2\\ c_1$; $S_b$: $w_1(x)\\ r_2(x)\\ w_2(y)\\ c_1\\ c_2$; $S_c$: $w_1(x)\\ w_2(x)\\ c_1\\ c_2$; $S_d$: $w_1(x)\\ c_1\\ r_2(x)\\ w_2(x)\\ c_2$.\n\n1. **Recoverable:** if $T_j$ reads from $T_i$, then $T_i$ commits before $T_j$. **Cascadeless:** transactions read only committed data. **Strict:** no read or overwrite of a value until its writer ends. Strict $\\subset$ cascadeless $\\subset$ recoverable.\n2. $S_a$: $T_2$ reads $y$ from $T_1$ and commits first ($c_2$ before $c_1$). Not recoverable.\n3. $S_b$: $T_2$ reads $x$ before $T_1$ commits, but $T_1$ commits first. Recoverable, but the read is dirty, so it is not cascadeless.\n4. $S_c$: no transaction reads uncommitted data, so it is cascadeless. But $T_2$ overwrites $x$ before $T_1$ commits, so it is not strict.\n5. $S_d$: $T_2$ touches $x$ only after $c_1$. Strict.\n\n**Answer:** $S_a$ none; $S_b$ recoverable only; $S_c$ cascadeless, not strict; $S_d$ strict.",
+   "why_full": "Recoverability checks are mechanical once you list the reads-from pairs. In GATE: is a schedule recoverable, which is the strongest class it belongs to, or which statements about the classes are true (2021 CS2 Q42, 2024 CS2 Q19).\n\nAsked: 2021 CS2 Q42, 2024 CS2 Q19",
+   "trap": "Assuming a serializable schedule is recoverable. The two properties are independent. Also, judging recoverability only from the order of operations and not from the commit order."
+  },
+  {
+   "atom_id": "t8",
+   "title": "Log-based recovery",
+   "simple": "A shopkeeper writes every sale in a diary before touching the cash box. After a power cut, the shopkeeper reads the diary. A sale marked 'paid' must be shown in the cash box, even if it was not yet put there, so they redo it. A sale never marked 'paid' must be cancelled, so they undo it. Redoing or undoing twice does no harm. A bookmark in the diary, the checkpoint, says everything before it is already in the cash box. In exam words: recovery redoes committed transactions and undoes uncommitted ones, using the log and the last checkpoint.",
+   "idea": "The **log** records every change before it reaches the database. After a crash, recovery reads the log. Transactions with a commit record are **redone**, because their effects may be missing. Transactions without one are **undone**, because their effects must disappear. A **checkpoint** limits how far back to look.",
+   "definition": "Log records: $\\langle T\\ \\text{start}\\rangle$, $\\langle T, X, \\text{old}, \\text{new}\\rangle$, $\\langle T\\ \\text{commit}\\rangle$, $\\langle \\text{checkpoint}\\rangle$.\n\n**Redo list:** transactions with a commit record that is not before the last checkpoint. **Undo list:** transactions that started but did not commit. Redo scans forward, undo scans backward. Both are idempotent.\n\nWith a simple checkpoint, transactions that committed before it are already on disk.",
+   "intuition_full": "Writing the log first (write-ahead logging) is what makes recovery possible: the old values allow undo, and the new values allow redo. A committed transaction is promised to the user, so if its changes did not reach the database before the crash, they are replayed from the log. An uncommitted transaction was never promised, so its changes are rolled back using the old values. A checkpoint writes all buffered changes to disk, so recovery need not look at records before it, except for transactions that were active at the checkpoint. Recovery is idempotent, so a crash during recovery is harmless: you run it again from the same log. Order matters inside each list: redo forward, undo backward.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The log is: $\\langle T_1\\ \\text{start}\\rangle$, $\\langle T_1,a,1,2\\rangle$, $\\langle T_2\\ \\text{start}\\rangle$, $\\langle T_2,b,3,4\\rangle$, $\\langle T_2\\ \\text{commit}\\rangle$, $\\langle T_3\\ \\text{start}\\rangle$, $\\langle T_3,c,5,6\\rangle$, $\\langle \\text{checkpoint}\\rangle$, $\\langle T_1\\ \\text{commit}\\rangle$, $\\langle T_4\\ \\text{start}\\rangle$, $\\langle T_4,d,7,8\\rangle$, $\\langle T_3\\ \\text{commit}\\rangle$, then a crash. (A write record is $\\langle T, \\text{item}, \\text{old}, \\text{new}\\rangle$.) With a simple checkpoint, what are the redo and undo lists?",
+     "steps": [
+      "The log has 12 records. The crash comes after the last one. We read the log to decide what to redo and what to undo.",
+      "The checkpoint forced all earlier changes to disk. $T_2$ committed before it, so $T_2$ needs no action.",
+      "Transactions that committed after the checkpoint have commit records but their changes may not be on disk: $T_1$ and $T_3$. These go in the **redo** list.",
+      "$T_4$ started and wrote $d$ but has no commit record. It goes in the **undo** list.",
+      "Recovery: redo $T_1$ and $T_3$ going forward (set $a = 2$, $c = 6$), then undo $T_4$ going backward (restore $d = 7$)."
+     ],
+     "answer": "Redo $\\{T_1, T_3\\}$; undo $\\{T_4\\}$."
+    },
+    {
+     "level": "gate",
+     "setup": "No checkpoints. Log: $\\langle T_1\\ \\text{start}\\rangle\\ \\langle T_1,p,3,4\\rangle\\ \\langle T_2\\ \\text{start}\\rangle\\ \\langle T_2,q,7,9\\rangle\\ \\langle T_1\\ \\text{commit}\\rangle\\ \\langle T_2\\ \\text{commit}\\rangle\\ \\langle T_3\\ \\text{start}\\rangle\\ \\langle T_3,r,2,5\\rangle$, then a crash, and then a second crash during recovery. What is the final state?",
+     "steps": [
+      "Committed transactions: $T_1$ and $T_2$. Redo list $\\{T_1, T_2\\}$. $T_3$ started but did not commit: undo list $\\{T_3\\}$.",
+      "Redo forward: $p = 4$, $q = 9$. Undo backward: $r = 2$.",
+      "If recovery crashes halfway and is run again, it simply starts from the log again. Redo and undo are **idempotent**: repeating them gives the same result."
+     ],
+     "answer": "$p = 4$, $q = 9$, $r = 2$ however many times recovery is repeated."
+    },
+    {
+     "level": "twist",
+     "setup": "$T_1$ sets $x$ from 0 to 5 and commits. Later $T_2$ sets $x$ from 5 to 8 and commits. Both commits are in the log, and a crash happens. In what order must redo be applied, and what is $x$ after recovery?",
+     "steps": [
+      "Both $T_1$ and $T_2$ are committed, so both are redone.",
+      "Redo goes forward in log order: $x = 5$ first, then $x = 8$.",
+      "If redo ran in the wrong order, $x$ would end at 5. Redo forward (oldest first); undo backward (newest first)."
+     ],
+     "answer": "$x = 8$. Redo in log order; undo in reverse."
+    }
+   ],
+   "why": "Log recovery questions are mechanical list-building. In GATE: write the redo and undo lists, or say what happens if recovery itself crashes (2021 CS1 Q23).",
+   "how": [
+    "Find the last checkpoint. Ignore transactions that committed before it.",
+    "Redo list: transactions with a commit record after the checkpoint (or active at it).",
+    "Undo list: transactions that started but have no commit record.",
+    "Apply: redo forward in log order, then undo backward."
+   ],
+   "mistake": "Redoing transactions that committed before the checkpoint, or undoing a committed transaction. Another slip is forgetting that recovery must be repeatable: running it twice gives the same state.",
+   "edge_cases": [
+    "A transaction active at the checkpoint and committed after it is redone.",
+    "Without a checkpoint, scan the whole log.",
+    "Aborted transactions with an abort record are already undone.",
+    "A crash during recovery is handled by repeating recovery."
+   ],
+   "connections": [
+    "**Transaction states** (earlier card): commit is when the log record is durable.",
+    "**ACID**: atomicity and durability are exactly what this procedure provides.",
+    "**Operating systems** journaling file systems use the same write-ahead idea (`os.fs`)."
+   ],
+   "check": [
+    {
+     "q": "A transaction has a start record, a write record and no commit. Redo or undo?",
+     "a": "Undo."
+    },
+    {
+     "q": "A transaction committed before the last checkpoint. Does it need redo?",
+     "a": "No."
+    },
+    {
+     "q": "Why is it safe if the system crashes during recovery?",
+     "a": "Redo and undo are idempotent, so recovery can simply be rerun."
+    }
+   ],
+   "asked": "Asked: 2021 CS1 Q23",
+   "try": {
+    "id": "gen.db.txn.012",
+    "label": "Try: log with commit and crash: redo and undo lists (L2)"
+   },
+   "scene": "db.txn.t8.recovery",
+   "example": {
+    "setup": "The log is: $\\langle T_1\\ \\text{start}\\rangle$, $\\langle T_1,a,1,2\\rangle$, $\\langle T_2\\ \\text{start}\\rangle$, $\\langle T_2,b,3,4\\rangle$, $\\langle T_2\\ \\text{commit}\\rangle$, $\\langle T_3\\ \\text{start}\\rangle$, $\\langle T_3,c,5,6\\rangle$, $\\langle \\text{checkpoint}\\rangle$, $\\langle T_1\\ \\text{commit}\\rangle$, $\\langle T_4\\ \\text{start}\\rangle$, $\\langle T_4,d,7,8\\rangle$, $\\langle T_3\\ \\text{commit}\\rangle$, then a crash. (A write record is $\\langle T, \\text{item}, \\text{old}, \\text{new}\\rangle$.) With a simple checkpoint, what are the redo and undo lists?",
+    "steps": [
+     "The log has 12 records. The crash comes after the last one. We read the log to decide what to redo and what to undo.",
+     "The checkpoint forced all earlier changes to disk. $T_2$ committed before it, so $T_2$ needs no action.",
+     "Transactions that committed after the checkpoint have commit records but their changes may not be on disk: $T_1$ and $T_3$. These go in the **redo** list.",
+     "$T_4$ started and wrote $d$ but has no commit record. It goes in the **undo** list.",
+     "Recovery: redo $T_1$ and $T_3$ going forward (set $a = 2$, $c = 6$), then undo $T_4$ going backward (restore $d = 7$)."
+    ],
+    "answer": "Redo $\\{T_1, T_3\\}$; undo $\\{T_4\\}$."
+   },
+   "what": "The **log** records every change before it reaches the database. After a crash, recovery reads the log. Transactions with a commit record are **redone**, because their effects may be missing. Transactions without one are **undone**, because their effects must disappear. A **checkpoint** limits how far back to look.",
+   "what_full": "The **log** records every change before it reaches the database. After a crash, recovery reads the log. Transactions with a commit record are **redone**, because their effects may be missing. Transactions without one are **undone**, because their effects must disappear. A **checkpoint** limits how far back to look.\n\nLog records: $\\langle T\\ \\text{start}\\rangle$, $\\langle T, X, \\text{old}, \\text{new}\\rangle$, $\\langle T\\ \\text{commit}\\rangle$, $\\langle \\text{checkpoint}\\rangle$.\n\n**Redo list:** transactions with a commit record that is not before the last checkpoint. **Undo list:** transactions that started but did not commit. Redo scans forward, undo scans backward. Both are idempotent.\n\nWith a simple checkpoint, transactions that committed before it are already on disk.\n\n**Worked example.** The log is: $\\langle T_1\\ \\text{start}\\rangle$, $\\langle T_1,a,1,2\\rangle$, $\\langle T_2\\ \\text{start}\\rangle$, $\\langle T_2,b,3,4\\rangle$, $\\langle T_2\\ \\text{commit}\\rangle$, $\\langle T_3\\ \\text{start}\\rangle$, $\\langle T_3,c,5,6\\rangle$, $\\langle \\text{checkpoint}\\rangle$, $\\langle T_1\\ \\text{commit}\\rangle$, $\\langle T_4\\ \\text{start}\\rangle$, $\\langle T_4,d,7,8\\rangle$, $\\langle T_3\\ \\text{commit}\\rangle$, then a crash. (A write record is $\\langle T, \\text{item}, \\text{old}, \\text{new}\\rangle$.) With a simple checkpoint, what are the redo and undo lists?\n\n1. The log has 12 records. The crash comes after the last one. We read the log to decide what to redo and what to undo.\n2. The checkpoint forced all earlier changes to disk. $T_2$ committed before it, so $T_2$ needs no action.\n3. Transactions that committed after the checkpoint have commit records but their changes may not be on disk: $T_1$ and $T_3$. These go in the **redo** list.\n4. $T_4$ started and wrote $d$ but has no commit record. It goes in the **undo** list.\n5. Recovery: redo $T_1$ and $T_3$ going forward (set $a = 2$, $c = 6$), then undo $T_4$ going backward (restore $d = 7$).\n\n**Answer:** Redo $\\{T_1, T_3\\}$; undo $\\{T_4\\}$.",
+   "why_full": "Log recovery questions are mechanical list-building. In GATE: write the redo and undo lists, or say what happens if recovery itself crashes (2021 CS1 Q23).\n\nAsked: 2021 CS1 Q23",
+   "trap": "Redoing transactions that committed before the checkpoint, or undoing a committed transaction. Another slip is forgetting that recovery must be repeatable: running it twice gives the same state."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "db.txn.t1.acid",
+   "title": "A transfer, a crash and recovery",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "A",
+     "kind": "box",
+     "x": 40,
+     "y": 30,
+     "w": 110,
+     "h": 34,
+     "label": "A = 500"
+    },
+    {
+     "id": "B",
+     "kind": "box",
+     "x": 210,
+     "y": 30,
+     "w": 110,
+     "h": 34,
+     "label": "B = 300"
+    },
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 94,
+     "text": "total = 800",
+     "size": 15,
+     "bold": true
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 124,
+     "text": "before the transfer",
+     "size": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "pa",
+     "kind": "box",
+     "x": 8,
+     "y": 158,
+     "w": 82,
+     "h": 30,
+     "label": "Atomic"
+    },
+    {
+     "id": "pc",
+     "kind": "box",
+     "x": 94,
+     "y": 158,
+     "w": 82,
+     "h": 30,
+     "label": "Consistent"
+    },
+    {
+     "id": "pi",
+     "kind": "box",
+     "x": 180,
+     "y": 158,
+     "w": 82,
+     "h": 30,
+     "label": "Isolated"
+    },
+    {
+     "id": "pd",
+     "kind": "box",
+     "x": 266,
+     "y": 158,
+     "w": 82,
+     "h": 30,
+     "label": "Durable"
+    },
+    {
+     "id": "who",
+     "kind": "text",
+     "x": 180,
+     "y": 216,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Before the transfer: $A = 500$, $B = 300$, total $800$. The database is **consistent**.",
+     "highlight": [
+      {
+       "id": "pc",
+       "tone": "good"
+      },
+      "tot"
+     ]
+    },
+    {
+     "caption": "The transaction debits $A$: $A = 400$. The total is $700$ for now. That is allowed inside a running transaction.",
+     "set": [
+      {
+       "id": "A",
+       "label": "A = 400"
+      },
+      {
+       "id": "tot",
+       "text": "total = 700",
+       "tone": "bad"
+      },
+      {
+       "id": "ev",
+       "text": "debit done, credit not yet"
+      }
+     ],
+     "highlight": [
+      "A"
+     ]
+    },
+    {
+     "caption": "The power fails before the credit. The disk shows $A = 400$, $B = 300$, total $700$. Money has vanished, so **atomicity** (all or nothing) has been violated.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "crash! half done",
+       "tone": "bad"
+      },
+      {
+       "id": "who",
+       "text": "atomicity violated",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pa",
+       "tone": "bad"
+      },
+      {
+       "id": "A",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "On restart the recovery manager undoes the debit: $A = 500$, $B = 300$, total $800$. This is how atomicity is restored.",
+     "set": [
+      {
+       "id": "A",
+       "label": "A = 500"
+      },
+      {
+       "id": "tot",
+       "text": "total = 800",
+       "tone": "good"
+      },
+      {
+       "id": "ev",
+       "text": "recovery undoes the debit"
+      },
+      {
+       "id": "who",
+       "text": "recovery manager gives A and D",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pa",
+       "tone": "good"
+      },
+      {
+       "id": "A",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The transaction runs again and commits: $A = 400$, $B = 400$, total $800$. **Durability** now promises that a later crash cannot undo it.",
+     "set": [
+      {
+       "id": "A",
+       "label": "A = 400"
+      },
+      {
+       "id": "B",
+       "label": "B = 400"
+      },
+      {
+       "id": "tot",
+       "text": "total = 800",
+       "tone": "good"
+      },
+      {
+       "id": "ev",
+       "text": "rerun and commit"
+      },
+      {
+       "id": "who",
+       "text": "committed: a crash cannot undo it",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pd",
+       "tone": "good"
+      },
+      {
+       "id": "pc",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.txn.t2.states",
+   "title": "Transaction states: commit path and failure path",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "act",
+     "kind": "box",
+     "x": 8,
+     "y": 96,
+     "w": 70,
+     "h": 30,
+     "label": "Active"
+    },
+    {
+     "id": "pc",
+     "kind": "box",
+     "x": 100,
+     "y": 40,
+     "w": 150,
+     "h": 30,
+     "label": "Partially committed"
+    },
+    {
+     "id": "com",
+     "kind": "box",
+     "x": 270,
+     "y": 40,
+     "w": 82,
+     "h": 30,
+     "label": "Committed"
+    },
+    {
+     "id": "fail",
+     "kind": "box",
+     "x": 104,
+     "y": 152,
+     "w": 70,
+     "h": 30,
+     "label": "Failed"
+    },
+    {
+     "id": "ab",
+     "kind": "box",
+     "x": 270,
+     "y": 152,
+     "w": 82,
+     "h": 30,
+     "label": "Aborted"
+    },
+    {
+     "id": "a1",
+     "kind": "arrow",
+     "from": "act",
+     "to": "pc"
+    },
+    {
+     "id": "a2",
+     "kind": "arrow",
+     "from": "pc",
+     "to": "com"
+    },
+    {
+     "id": "a3",
+     "kind": "arrow",
+     "from": "act",
+     "to": "fail"
+    },
+    {
+     "id": "a4",
+     "kind": "arrow",
+     "from": "pc",
+     "to": "fail"
+    },
+    {
+     "id": "a5",
+     "kind": "arrow",
+     "from": "fail",
+     "to": "ab"
+    },
+    {
+     "id": "tag",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "$T_1$ starts and runs its statements. State: **active**.",
+     "set": [
+      {
+       "id": "tag",
+       "text": "T1 starts"
+      },
+      {
+       "id": "ev",
+       "text": "executing statements"
+      }
+     ],
+     "highlight": [
+      "act"
+     ]
+    },
+    {
+     "caption": "$T_1$ executes its last statement, but its changes are not yet safely on disk. State: **partially committed**.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "last statement done, not yet safe on disk"
+      }
+     ],
+     "highlight": [
+      "pc",
+      "a1"
+     ]
+    },
+    {
+     "caption": "The commit record reaches the log on disk. State: **committed**. The transaction can no longer be rolled back.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "commit record reaches the log",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "com",
+       "tone": "good"
+      },
+      "a2"
+     ]
+    },
+    {
+     "caption": "$T_2$ hits an error while active (a failed constraint, a crash, a deadlock). State: **failed**.",
+     "set": [
+      {
+       "id": "tag",
+       "text": "T2: error while active"
+      },
+      {
+       "id": "ev",
+       "text": "failed: cannot continue normally",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "fail",
+       "tone": "bad"
+      },
+      {
+       "id": "a3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "The system rolls $T_2$'s changes back. State: **aborted**. From here it can be restarted or killed.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "rolled back: aborted, restart or kill",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ab",
+       "tone": "bad"
+      },
+      {
+       "id": "a5",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.txn.t3.lostupdate",
+   "title": "A lost update: two reads, two writes",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "l1",
+     "kind": "box",
+     "x": 8,
+     "y": 60,
+     "w": 104,
+     "h": 34,
+     "label": "T1 holds: –"
+    },
+    {
+     "id": "x",
+     "kind": "box",
+     "x": 128,
+     "y": 60,
+     "w": 104,
+     "h": 34,
+     "label": "x = 100"
+    },
+    {
+     "id": "l2",
+     "kind": "box",
+     "x": 248,
+     "y": 60,
+     "w": 104,
+     "h": 34,
+     "label": "T2 holds: –"
+    },
+    {
+     "id": "r1",
+     "kind": "arrow",
+     "x1": 128,
+     "y1": 70,
+     "x2": 112,
+     "y2": 70
+    },
+    {
+     "id": "w1",
+     "kind": "arrow",
+     "x1": 112,
+     "y1": 84,
+     "x2": 128,
+     "y2": 84
+    },
+    {
+     "id": "r2",
+     "kind": "arrow",
+     "x1": 232,
+     "y1": 70,
+     "x2": 248,
+     "y2": 70
+    },
+    {
+     "id": "w2",
+     "kind": "arrow",
+     "x1": 248,
+     "y1": 84,
+     "x2": 232,
+     "y2": 84
+    },
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 60,
+     "y": 40,
+     "text": "T1: x + 10",
+     "size": 13
+    },
+    {
+     "id": "h2",
+     "kind": "text",
+     "x": 300,
+     "y": 40,
+     "text": "T2: x + 20",
+     "size": 13
+    },
+    {
+     "id": "want",
+     "kind": "text",
+     "x": 180,
+     "y": 150,
+     "text": "serial result would be 130",
+     "size": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 184,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start with $x = 100$. A serial run would give $100 + 10 + 20 = 130$.",
+     "highlight": [
+      "x",
+      "want"
+     ]
+    },
+    {
+     "caption": "$r_1(x)$: $T_1$ reads 100.",
+     "show": [
+      "r1"
+     ],
+     "set": [
+      {
+       "id": "l1",
+       "label": "T1 holds: 100"
+      },
+      {
+       "id": "ev",
+       "text": "r1(x): T1 reads 100"
+      }
+     ],
+     "highlight": [
+      "l1"
+     ]
+    },
+    {
+     "caption": "$r_2(x)$: $T_2$ also reads 100, before $T_1$ has written.",
+     "show": [
+      "r2"
+     ],
+     "set": [
+      {
+       "id": "l2",
+       "label": "T2 holds: 100"
+      },
+      {
+       "id": "ev",
+       "text": "r2(x): T2 reads 100"
+      }
+     ],
+     "highlight": [
+      "l2"
+     ]
+    },
+    {
+     "caption": "$w_2(x)$: $T_2$ writes $100 + 20 = 120$. Now $x = 120$.",
+     "show": [
+      "w2"
+     ],
+     "set": [
+      {
+       "id": "x",
+       "label": "x = 120"
+      },
+      {
+       "id": "ev",
+       "text": "w2(x): T2 writes 120"
+      }
+     ],
+     "highlight": [
+      "x"
+     ]
+    },
+    {
+     "caption": "$w_1(x)$: $T_1$ writes $100 + 10 = 110$, using its stale read. This overwrites $T_2$'s result.",
+     "show": [
+      "w1"
+     ],
+     "set": [
+      {
+       "id": "x",
+       "label": "x = 110",
+       "tone": "bad"
+      },
+      {
+       "id": "ev",
+       "text": "w1(x): T1 writes 110",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "x",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Final $x = 110$, not 130. $T_2$'s update is lost (a **lost update**). The conflicting pairs are $r_1$ with $w_2$, $r_2$ with $w_1$ and $w_2$ with $w_1$.",
+     "set": [
+      {
+       "id": "res",
+       "text": "x = 110, T2 update lost",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "x",
+       "tone": "bad"
+      },
+      {
+       "id": "res",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.txn.t4.precedence",
+   "title": "Building the precedence graph",
+   "viewBox": [
+    0,
+    0,
+    360,
+    276
+   ],
+   "objects": [
+    {
+     "id": "ops",
+     "kind": "array",
+     "x": 12,
+     "y": 38,
+     "cells": [
+      "r1(x)",
+      "r2(y)",
+      "w2(x)",
+      "w3(y)",
+      "w1(z)",
+      "r3(z)"
+     ],
+     "cw": 56,
+     "ch": 32,
+     "indices": true,
+     "label": "schedule S"
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 118,
+     "text": "",
+     "size": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "n1",
+     "kind": "node",
+     "x": 60,
+     "y": 176,
+     "label": "T1",
+     "r": 18
+    },
+    {
+     "id": "n3",
+     "kind": "node",
+     "x": 300,
+     "y": 176,
+     "label": "T3",
+     "r": 18
+    },
+    {
+     "id": "n2",
+     "kind": "node",
+     "x": 180,
+     "y": 240,
+     "label": "T2",
+     "r": 18
+    },
+    {
+     "id": "e12",
+     "kind": "arrow",
+     "from": "n1",
+     "to": "n2"
+    },
+    {
+     "id": "e23",
+     "kind": "arrow",
+     "from": "n2",
+     "to": "n3"
+    },
+    {
+     "id": "e13",
+     "kind": "arrow",
+     "from": "n1",
+     "to": "n3"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Create one node per transaction: $T_1, T_2, T_3$. For every conflicting pair, draw an edge from the earlier transaction to the later one.",
+     "highlight": [
+      "ops"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "one node per transaction"
+      }
+     ]
+    },
+    {
+     "caption": "Item $x$: $r_1(x)$ comes before $w_2(x)$, a read-write conflict. Edge $T_1 \\to T_2$.",
+     "draw": [
+      "e12"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "x: r1 before w2  →  T1 → T2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        0,
+        2
+       ],
+       "tone": "accent"
+      },
+      "e12"
+     ]
+    },
+    {
+     "caption": "Item $y$: $r_2(y)$ comes before $w_3(y)$. Edge $T_2 \\to T_3$.",
+     "draw": [
+      "e23"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "y: r2 before w3  →  T2 → T3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        1,
+        3
+       ],
+       "tone": "accent"
+      },
+      "e23"
+     ]
+    },
+    {
+     "caption": "Item $z$: $w_1(z)$ comes before $r_3(z)$, a write-read conflict. Edge $T_1 \\to T_3$.",
+     "draw": [
+      "e13"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "z: w1 before r3  →  T1 → T3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        4,
+        5
+       ],
+       "tone": "accent"
+      },
+      "e13"
+     ]
+    },
+    {
+     "caption": "The graph has edges $T_1 \\to T_2$, $T_2 \\to T_3$, $T_1 \\to T_3$ and no cycle. $S$ is conflict serializable, equivalent to the serial order $T_1, T_2, T_3$.",
+     "set": [
+      {
+       "id": "note",
+       "text": "no cycle: serial order T1, T2, T3",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "n1",
+       "tone": "good"
+      },
+      {
+       "id": "n2",
+       "tone": "good"
+      },
+      {
+       "id": "n3",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.txn.t5.orders",
+   "title": "Counting the serial orders of a precedence graph",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "n1",
+     "kind": "node",
+     "x": 50,
+     "y": 70,
+     "label": "T1",
+     "r": 18
+    },
+    {
+     "id": "n2",
+     "kind": "node",
+     "x": 180,
+     "y": 40,
+     "label": "T2",
+     "r": 18
+    },
+    {
+     "id": "n3",
+     "kind": "node",
+     "x": 180,
+     "y": 104,
+     "label": "T3",
+     "r": 18
+    },
+    {
+     "id": "n4",
+     "kind": "node",
+     "x": 310,
+     "y": 104,
+     "label": "T4",
+     "r": 18
+    },
+    {
+     "id": "e12",
+     "kind": "arrow",
+     "from": "n1",
+     "to": "n2"
+    },
+    {
+     "id": "e13",
+     "kind": "arrow",
+     "from": "n1",
+     "to": "n3"
+    },
+    {
+     "id": "e34",
+     "kind": "arrow",
+     "from": "n3",
+     "to": "n4"
+    },
+    {
+     "id": "o1",
+     "kind": "text",
+     "x": 180,
+     "y": 170,
+     "text": "T1  T2  T3  T4",
+     "size": 14,
+     "mono": true
+    },
+    {
+     "id": "o2",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "T1  T3  T2  T4",
+     "size": 14,
+     "mono": true
+    },
+    {
+     "id": "o3",
+     "kind": "text",
+     "x": 180,
+     "y": 222,
+     "text": "T1  T3  T4  T2",
+     "size": 14,
+     "mono": true
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 300,
+     "y": 190,
+     "text": "3 orders",
+     "size": 14,
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Each serial order must respect every edge, so we need the number of topological orders of the graph.",
+     "highlight": [
+      "e12",
+      "e13",
+      "e34"
+     ]
+    },
+    {
+     "caption": "$T_1$ is the only node with no incoming edge, so it goes first.",
+     "highlight": [
+      {
+       "id": "n1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Next, $T_2$ and $T_3$ are both free ($T_4$ must wait for $T_3$). Pick $T_2$: then $T_3$, then $T_4$. Order $T_1\\,T_2\\,T_3\\,T_4$.",
+     "show": [
+      "o1"
+     ],
+     "highlight": [
+      {
+       "id": "n2",
+       "tone": "accent"
+      },
+      "o1"
+     ]
+    },
+    {
+     "caption": "Pick $T_3$ first: now $T_2$ and $T_4$ are free, in either order. Orders $T_1\\,T_3\\,T_2\\,T_4$ and $T_1\\,T_3\\,T_4\\,T_2$.",
+     "show": [
+      "o2",
+      "o3"
+     ],
+     "highlight": [
+      {
+       "id": "n3",
+       "tone": "accent"
+      },
+      "o2",
+      "o3"
+     ]
+    },
+    {
+     "caption": "That is 3 orders. All three are conflict equivalent to the schedule.",
+     "show": [
+      "cnt"
+     ],
+     "highlight": [
+      "o1",
+      "o2",
+      "o3",
+      "cnt"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.txn.t6.view",
+   "title": "Blind writes: cyclic but view serializable",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "ops",
+     "kind": "array",
+     "x": 12,
+     "y": 36,
+     "cells": [
+      "w1(x)",
+      "w2(x)",
+      "w2(y)",
+      "w1(y)",
+      "w3(x)",
+      "w3(y)"
+     ],
+     "cw": 56,
+     "ch": 32,
+     "indices": true,
+     "label": "schedule S: only writes"
+    },
+    {
+     "id": "n1",
+     "kind": "node",
+     "x": 90,
+     "y": 150,
+     "label": "T1",
+     "r": 18
+    },
+    {
+     "id": "n2",
+     "kind": "node",
+     "x": 200,
+     "y": 150,
+     "label": "T2",
+     "r": 18
+    },
+    {
+     "id": "a12",
+     "kind": "arrow",
+     "x1": 110,
+     "y1": 142,
+     "x2": 180,
+     "y2": 142
+    },
+    {
+     "id": "a21",
+     "kind": "arrow",
+     "x1": 180,
+     "y1": 158,
+     "x2": 110,
+     "y2": 158
+    },
+    {
+     "id": "cyc",
+     "kind": "text",
+     "x": 290,
+     "y": 150,
+     "text": "cycle",
+     "size": 14,
+     "bold": true,
+     "tone": "bad"
+    },
+    {
+     "id": "c1",
+     "kind": "box",
+     "x": 6,
+     "y": 198,
+     "w": 112,
+     "h": 28,
+     "label": "no reads"
+    },
+    {
+     "id": "c2",
+     "kind": "box",
+     "x": 124,
+     "y": 198,
+     "w": 112,
+     "h": 28,
+     "label": "no reads-from"
+    },
+    {
+     "id": "c3",
+     "kind": "box",
+     "x": 242,
+     "y": 198,
+     "w": 112,
+     "h": 28,
+     "label": "final: T3"
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 248,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "All six operations are writes and no transaction reads anything.",
+     "highlight": [
+      "ops"
+     ]
+    },
+    {
+     "caption": "Conflicts: $w_1(x)$ before $w_2(x)$ gives $T_1 \\to T_2$; $w_2(y)$ before $w_1(y)$ gives $T_2 \\to T_1$. That is a cycle, so $S$ is **not conflict serializable**.",
+     "show": [
+      "a12",
+      "a21",
+      "cyc"
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "cyc",
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "res",
+       "text": "not conflict serializable",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "View equivalence needs three things to match a serial schedule: the same initial reads, the same reads-from pairs, and the same final writes. There are no reads, so the first two match any order.",
+     "show": [
+      "c1",
+      "c2"
+     ],
+     "highlight": [
+      {
+       "id": "c1",
+       "tone": "good"
+      },
+      {
+       "id": "c2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Final writes: $T_3$ writes both $x$ and $y$ last. Any serial order that ends with $T_3$ gives the same final writes.",
+     "show": [
+      "c3"
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        4,
+        5
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "c3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "$T_1\\,T_2\\,T_3$ (or $T_2\\,T_1\\,T_3$) is view equivalent to $S$. $S$ is view serializable but not conflict serializable.",
+     "set": [
+      {
+       "id": "res",
+       "text": "view equal to T1 T2 T3",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "c1",
+       "tone": "good"
+      },
+      {
+       "id": "c2",
+       "tone": "good"
+      },
+      {
+       "id": "c3",
+       "tone": "good"
+      },
+      "res"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.txn.t7.classes",
+   "title": "Strict, cascadeless and recoverable schedules",
+   "viewBox": [
+    0,
+    0,
+    360,
+    270
+   ],
+   "objects": [
+    {
+     "id": "cR",
+     "kind": "circle",
+     "cx": 95,
+     "cy": 135,
+     "r": 88,
+     "tone": "muted",
+     "fillOpacity": 0.16
+    },
+    {
+     "id": "cA",
+     "kind": "circle",
+     "cx": 95,
+     "cy": 135,
+     "r": 60,
+     "tone": "mid",
+     "fillOpacity": 0.22
+    },
+    {
+     "id": "cS",
+     "kind": "circle",
+     "cx": 95,
+     "cy": 135,
+     "r": 32,
+     "tone": "good",
+     "fillOpacity": 0.3
+    },
+    {
+     "id": "lg1",
+     "kind": "text",
+     "x": 196,
+     "y": 18,
+     "text": "outer: recoverable",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "lg2",
+     "kind": "text",
+     "x": 196,
+     "y": 44,
+     "text": "middle: cascadeless",
+     "size": 13,
+     "anchor": "start",
+     "tone": "mid"
+    },
+    {
+     "id": "lg3",
+     "kind": "text",
+     "x": 196,
+     "y": 70,
+     "text": "inner: strict",
+     "size": 13,
+     "anchor": "start",
+     "tone": "good"
+    },
+    {
+     "id": "dSa",
+     "kind": "text",
+     "x": 95,
+     "y": 248,
+     "text": "Sa",
+     "size": 14,
+     "bold": true,
+     "tone": "bad"
+    },
+    {
+     "id": "dSb",
+     "kind": "text",
+     "x": 95,
+     "y": 62,
+     "text": "Sb",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "dSc",
+     "kind": "text",
+     "x": 95,
+     "y": 91,
+     "text": "Sc",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "dSd",
+     "kind": "text",
+     "x": 95,
+     "y": 135,
+     "text": "Sd",
+     "size": 14,
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "ta",
+     "kind": "text",
+     "x": 196,
+     "y": 108,
+     "text": "Sa: w1(x) w1(y) r2(y)\n    c2 c1",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "tb",
+     "kind": "text",
+     "x": 196,
+     "y": 152,
+     "text": "Sb: w1(x) r2(x) w2(y)\n    c1 c2",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "tc",
+     "kind": "text",
+     "x": 196,
+     "y": 196,
+     "text": "Sc: w1(x) w2(x)\n    c1 c2",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "td",
+     "kind": "text",
+     "x": 196,
+     "y": 240,
+     "text": "Sd: w1(x) c1 r2(x)\n    w2(x) c2",
+     "size": 13,
+     "anchor": "start"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "**Recoverable:** if $T_j$ reads from $T_i$, then $T_i$ commits before $T_j$. **Cascadeless:** transactions read only committed data. **Strict:** no read or overwrite of a value until its writer ends. Strict $\\subset$ cascadeless $\\subset$ recoverable.",
+     "highlight": [
+      "cR",
+      "cA",
+      "cS"
+     ]
+    },
+    {
+     "caption": "$S_a$: $T_2$ reads $y$ from $T_1$ and commits first ($c_2$ before $c_1$). Not recoverable.",
+     "show": [
+      "ta",
+      "dSa"
+     ],
+     "highlight": [
+      {
+       "id": "ta",
+       "tone": "bad"
+      },
+      {
+       "id": "dSa",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "$S_b$: $T_2$ reads $x$ before $T_1$ commits, but $T_1$ commits first. Recoverable, but the read is dirty, so it is not cascadeless.",
+     "show": [
+      "tb",
+      "dSb"
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "accent"
+      },
+      "dSb"
+     ]
+    },
+    {
+     "caption": "$S_c$: no transaction reads uncommitted data, so it is cascadeless. But $T_2$ overwrites $x$ before $T_1$ commits, so it is not strict.",
+     "show": [
+      "tc",
+      "dSc"
+     ],
+     "highlight": [
+      {
+       "id": "tc",
+       "tone": "mid"
+      },
+      "dSc"
+     ]
+    },
+    {
+     "caption": "$S_d$: $T_2$ touches $x$ only after $c_1$. Strict.",
+     "show": [
+      "td",
+      "dSd"
+     ],
+     "highlight": [
+      {
+       "id": "td",
+       "tone": "good"
+      },
+      "dSd"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.txn.t8.recovery",
+   "title": "Reading a log after a crash",
+   "viewBox": [
+    0,
+    0,
+    360,
+    280
+   ],
+   "objects": [
+    {
+     "id": "log",
+     "kind": "array",
+     "x": 12,
+     "y": 24,
+     "dir": "down",
+     "cells": [
+      "T1 start",
+      "T1: a 1→2",
+      "T2 start",
+      "T2: b 3→4",
+      "T2 commit",
+      "T3 start",
+      "T3: c 5→6",
+      "CHECKPOINT",
+      "T1 commit",
+      "T4 start",
+      "T4: d 7→8",
+      "T3 commit"
+     ],
+     "cw": 124,
+     "ch": 19,
+     "indices": false,
+     "label": "log"
+    },
+    {
+     "id": "crash",
+     "kind": "text",
+     "x": 74,
+     "y": 268,
+     "text": "crash",
+     "size": 13,
+     "bold": true,
+     "tone": "bad"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 170,
+     "y": 62,
+     "text": "",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 170,
+     "y": 140,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "anchor": "start",
+     "tone": "good"
+    },
+    {
+     "id": "ud",
+     "kind": "text",
+     "x": 170,
+     "y": 176,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "anchor": "start",
+     "tone": "bad"
+    },
+    {
+     "id": "fin",
+     "kind": "text",
+     "x": 170,
+     "y": 220,
+     "text": "",
+     "size": 13,
+     "anchor": "start"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The log has 12 records. The crash comes after the last one. We read the log to decide what to redo and what to undo.",
+     "highlight": [
+      "log"
+     ],
+     "show": [
+      "crash"
+     ]
+    },
+    {
+     "caption": "The checkpoint forced all earlier changes to disk. $T_2$ committed before it, so $T_2$ needs no action.",
+     "highlight": [
+      {
+       "id": "log",
+       "cells": [
+        4,
+        7
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "nt",
+       "text": "T2 committed before the\ncheckpoint: on disk,\nnothing to do"
+      }
+     ]
+    },
+    {
+     "caption": "Transactions that committed after the checkpoint have commit records but their changes may not be on disk: $T_1$ and $T_3$. These go in the **redo** list.",
+     "highlight": [
+      {
+       "id": "log",
+       "cells": [
+        8,
+        11
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "nt",
+       "text": "commit after checkpoint:\nT1 and T3 may not be\non disk yet"
+      },
+      {
+       "id": "rd",
+       "text": "redo: T1, T3"
+      }
+     ]
+    },
+    {
+     "caption": "$T_4$ started and wrote $d$ but has no commit record. It goes in the **undo** list.",
+     "highlight": [
+      {
+       "id": "log",
+       "cells": [
+        9,
+        10
+       ],
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "nt",
+       "text": "T4 never committed"
+      },
+      {
+       "id": "ud",
+       "text": "undo: T4"
+      }
+     ]
+    },
+    {
+     "caption": "Recovery: redo $T_1$ and $T_3$ going forward (set $a = 2$, $c = 6$), then undo $T_4$ going backward (restore $d = 7$).",
+     "set": [
+      {
+       "id": "fin",
+       "text": "redo forward: a=2, c=6\nundo backward: d=7"
+      }
+     ],
+     "highlight": [
+      "fin"
+     ]
+    }
+   ]
+  }
+ ]
+}

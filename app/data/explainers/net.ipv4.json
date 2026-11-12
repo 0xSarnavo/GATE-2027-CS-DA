@@ -1,0 +1,4113 @@
+{
+ "topic_id": "net.ipv4",
+ "title": "IPv4 addressing and forwarding",
+ "chapter_note": {
+  "about": "IPv4 is how packets find their way across many networks. This chapter starts with what an address is: 32 bits split into a network part and a host part, with classes and CIDR masks. From there we find the network address of a host, split a block into subnets, and merge blocks into one route. A router then picks a table entry by the longest matching prefix. The header carries the fields the router edits, and fragmentation cuts a big datagram to fit a small MTU, once or again on a second link. The last cards cover NAT and the difference between IP and MAC addresses on each hop. Nearly everything is binary or block arithmetic, so it is easy to check.",
+  "simple": "Every device on the Internet needs an address, and the address has two parts: which street (the network) and which house (the host). A mask tells you where the street ends. Using the mask you can tell whether two machines are on the same street, cut a street into smaller ones, or glue streets together. A router sends each packet using the most specific road sign it has. Big packets are cut into pieces when a road is narrow, and glued back only at the end. In exam words: classes, CIDR, subnetting, aggregation, longest-prefix match, fragmentation, NAT.",
+  "concept_map": [
+   {
+    "atom_id": "a1",
+    "title": "Addresses, classes, reserved",
+    "one_line": "Class from the first octet; hosts = 2^h - 2."
+   },
+   {
+    "atom_id": "a2",
+    "title": "CIDR prefix and mask",
+    "one_line": "/n is n leading ones; block size is 256 minus the mask value."
+   },
+   {
+    "atom_id": "a3",
+    "title": "Network address and same subnet",
+    "one_line": "AND with the mask; equal results mean the same subnet."
+   },
+   {
+    "atom_id": "a4",
+    "title": "Subnetting and VLSM",
+    "one_line": "Biggest subnet first; every LAN and router link is a subnet."
+   },
+   {
+    "atom_id": "a5",
+    "title": "Supernetting and aggregation",
+    "one_line": "A block starts at a multiple of its size; merge aligned blocks."
+   },
+   {
+    "atom_id": "a6",
+    "title": "Longest-prefix match",
+    "one_line": "Collect all matches, take the longest; default is /0."
+   },
+   {
+    "atom_id": "a7",
+    "title": "Header fields",
+    "one_line": "HLEN in 4-byte words; routers change TTL and the checksum."
+   },
+   {
+    "atom_id": "a8",
+    "title": "Fragmentation",
+    "one_line": "Data per fragment = (MTU - header) rounded down to 8; offset is start / 8."
+   },
+   {
+    "atom_id": "a9",
+    "title": "Multi-MTU fragmentation and reassembly",
+    "one_line": "Each router re-splits; only the destination reassembles."
+   },
+   {
+    "atom_id": "a10",
+    "title": "NAT basics",
+    "one_line": "Rewrite source IP and port out, destination in; recompute checksums."
+   },
+   {
+    "atom_id": "a11",
+    "title": "IP versus MAC per hop",
+    "one_line": "IP is end to end; MAC changes on every link."
+   }
+  ],
+  "gate_patterns": [
+   "Same subnet, masks and host counts: find the network address, compare hosts, count hosts per mask or subnets in a topology (2003 CS Q82, 2006 CS Q45, 2008 CS Q57, 2010 CS Q47, 2022 CS Q22; 11 questions).",
+   "Fragmentation arithmetic: fragments, offset, last total length, with one or two links (2013 CS Q37, 2014 CS3 Q28, 2018 CS Q64, 2024 CS1 Q65, 2025 CS1 Q57; 10 questions). Header fields add 8 more (2015 CS1 Q22, 2020 CS Q25, 2024 CS2 Q32).",
+   "Longest-prefix match and CIDR aggregation: pick the next hop with bait entries (2023 CS Q65, 2024 CS1 Q58, 2025 CS1 Q40), or test which blocks are valid and aligned (2020 CS Q48, 2022 CS Q55, 2026 CS1 Q56). Weightage: about 2.3 marks per CS paper; 23 questions in 10 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "a1",
+   "title": "Addresses, classes, reserved",
+   "simple": "An IP address is like a phone number with an area code and a local number. It has four numbers, each from 0 to 255, so it is 32 bits long. The first bits tell you how much is the 'area code' (the network) and how much is the 'local number' (the host). In the old class system, the first number tells you the split. Two addresses in each network are special: the one with the host part all zeros names the network, and the one with the host part all ones is the shout-to-everyone address. Nobody can use those two for a computer. In exam words: class from the first octet, host bits h, usable hosts $2^h - 2$.",
+   "idea": "An IPv4 address is 32 bits, split into a **network part** and a **host part**. In the old classful scheme the first few bits give the class. The network address (host bits 0) and the broadcast address (host bits 1) are reserved, so a network of h host bits holds $2^h - 2$ hosts.",
+   "definition": "32 bits written as four octets (0-255). Class by the leading bits:\n\n**A:** 0xxxxxxx, first octet 0-127, mask /8, 24 host bits.\n\n**B:** 10xxxxxx, 128-191, mask /16, 16 host bits.\n\n**C:** 110xxxxx, 192-223, mask /24, 8 host bits.\n\n**D:** 1110xxxx, 224-239, multicast. **E:** 1111xxxx, 240-255, reserved.\n\n**Network address:** host bits all 0. **Broadcast address:** host bits all 1. Neither can be given to a host.\n\n**Hosts per network** $= 2^h - 2$, with h host bits.\n\n**Number of networks** in a class $= 2^{(\\text{network bits}) - (\\text{class prefix bits})}$.\n\n127.x.x.x is loopback. Private ranges are in card a10. Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses.",
+   "intuition_full": "The class system was a quick way to read the size of a network from the address alone. A big organisation took a class A (16 million hosts), a medium one a class B (65,534), a small one a class C (254). The system wasted addresses, so CIDR (next card) replaced it with prefixes of any length. But GATE still asks the class questions, and the two reserved addresses matter in all of them. The network address is the label of the whole block, like the name of a street. The broadcast address is the loudspeaker for the whole block. Since both use up one address each, a block of $2^h$ addresses has only $2^h - 2$ usable hosts. The class prefix bits are fixed, which is why the number of networks is $2^{\\text{network bits} - \\text{prefix bits}}$.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The address 197.84.17.6 is given with no mask. Find its class, its default mask, its network address, its broadcast address, and how many hosts the network can have.",
+     "steps": [
+      "Look at the first octet, 197.",
+      "In binary 197 = 11000101. The address starts with the bits 110.",
+      "Leading bits 110 mean **class C** (first octet 192 to 223). Class C has 24 network bits and 8 host bits, so the default mask is 255.255.255.0, or /24.",
+      "The **network address** has all host bits 0: 197.84.17.0. It names the network and is not assignable to a host.",
+      "The **broadcast address** has all host bits 1: 197.84.17.255. It reaches every host and is not assignable either.",
+      "Hosts = $2^8 - 2$ = 254 (addresses .1 to .254). 197.84.17.6 is one of them."
+     ],
+     "answer": "Class C, mask 255.255.255.0, network 197.84.17.0, broadcast 197.84.17.255, 254 hosts."
+    },
+    {
+     "level": "gate",
+     "setup": "How many class B networks exist, and how many hosts can one class B network have? What is the first and last address of class B?",
+     "steps": [
+      "Class B addresses start with the bits 10. The first two bits are fixed, so of the 16 network bits only 14 are free: $2^{14}$ = 16,384 networks.",
+      "A class B network has 16 host bits: $2^{16} - 2$ = 65,534 hosts (minus the network and broadcast addresses).",
+      "The first octet runs from 10000000 = 128 to 10111111 = 191. So class B spans 128.0.0.0 to 191.255.255.255.",
+      "Compare class C: 21 free network bits give $2^{21}$ = 2,097,152 networks of 254 hosts."
+     ],
+     "answer": "16,384 networks, 65,534 hosts each, range 128.0.0.0 to 191.255.255.255."
+    },
+    {
+     "level": "twist",
+     "setup": "Can 192.168.1.255 be given to a host? Answer for the mask 255.255.255.0 and for the mask 255.255.252.0.",
+     "steps": [
+      "Under 255.255.255.0 (/24) the network is 192.168.1.0 and the host part is the last octet. 255 is all ones, so 192.168.1.255 is the **broadcast** address. It cannot be assigned.",
+      "Under 255.255.252.0 (/22) the network is 192.168.0.0 and the host part is the last 10 bits: the third octet's low 2 bits and the last octet. For 192.168.1.255 these are 01 and 11111111, not all ones.",
+      "The broadcast address of that /22 is 192.168.3.255. So 192.168.1.255 is an ordinary host address there.",
+      "The same string of numbers can be a broadcast or a host. Always check the host bits against the mask, not the last octet alone."
+     ],
+     "answer": "No under /24 (it is the broadcast). Yes under /22 (an ordinary host)."
+    }
+   ],
+   "why": "Every addressing question starts with host bits and the two reserved addresses. In GATE: hosts per network from a mask, the number of networks in a class, or the class of an address.",
+   "how": [
+    "Write the first octet in binary and read the leading bits to get the class.",
+    "Network bits come from the mask, host bits h = 32 - network bits.",
+    "Hosts = $2^h - 2$. Network address: host bits 0. Broadcast: host bits 1.",
+    "Number of networks in a class: $2^{\\text{free network bits}}$ (class B: 14, class C: 21)."
+   ],
+   "mistake": "Giving $2^h$ hosts and forgetting the minus two, or applying the minus two to the number of subnets (which has no such subtraction under CIDR). A second slip is reading the broadcast address from the last octet alone: 255 in the last octet is a broadcast only if all the host bits are ones.",
+   "edge_cases": [
+    "A class A network has 126 usable network numbers (0 and 127 are reserved).",
+    "A /30 has 4 addresses and 2 hosts: the usual size for a link between two routers. /31 is a special case and not used in GATE.",
+    "Low priority: ARP, DHCP and ICMP are not named in the 2027 syllabus. Know only that DHCP gives hosts addresses and ICMP reports errors."
+   ],
+   "connections": [
+    "CIDR masks (a2) replace the class split with any prefix length.",
+    "Subnetting (a4) borrows host bits to make smaller networks.",
+    "Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses."
+   ],
+   "check": [
+    {
+     "q": "Which class is 130.5.9.1, and what is the default mask?",
+     "a": "130 = 10000010 starts with 10: class B, mask 255.255.0.0."
+    },
+    {
+     "q": "How many hosts does a network with 12 host bits have?",
+     "a": "$2^{12} - 2$ = 4094."
+    },
+    {
+     "q": "What is the broadcast address of 172.20.5.9 with mask 255.255.255.0?",
+     "a": "172.20.5.255."
+    }
+   ],
+   "asked": "Asked: 2012 CS Q23, 2008 CS Q57, 2026 CS2 Q33, 2007 CS Q67",
+   "try": {
+    "id": "gen.net.ipv4.001",
+    "label": "Try: which class is 150.20.4.1? (L1)"
+   },
+   "scene": "net.ipv4.a1.class",
+   "example": {
+    "setup": "The address 197.84.17.6 is given with no mask. Find its class, its default mask, its network address, its broadcast address, and how many hosts the network can have.",
+    "steps": [
+     "Look at the first octet, 197.",
+     "In binary 197 = 11000101. The address starts with the bits 110.",
+     "Leading bits 110 mean **class C** (first octet 192 to 223). Class C has 24 network bits and 8 host bits, so the default mask is 255.255.255.0, or /24.",
+     "The **network address** has all host bits 0: 197.84.17.0. It names the network and is not assignable to a host.",
+     "The **broadcast address** has all host bits 1: 197.84.17.255. It reaches every host and is not assignable either.",
+     "Hosts = $2^8 - 2$ = 254 (addresses .1 to .254). 197.84.17.6 is one of them."
+    ],
+    "answer": "Class C, mask 255.255.255.0, network 197.84.17.0, broadcast 197.84.17.255, 254 hosts."
+   },
+   "what": "An IPv4 address is 32 bits, split into a **network part** and a **host part**. In the old classful scheme the first few bits give the class. The network address (host bits 0) and the broadcast address (host bits 1) are reserved, so a network of h host bits holds $2^h - 2$ hosts.",
+   "what_full": "An IPv4 address is 32 bits, split into a **network part** and a **host part**. In the old classful scheme the first few bits give the class. The network address (host bits 0) and the broadcast address (host bits 1) are reserved, so a network of h host bits holds $2^h - 2$ hosts.\n\n32 bits written as four octets (0-255). Class by the leading bits:\n\n**A:** 0xxxxxxx, first octet 0-127, mask /8, 24 host bits.\n\n**B:** 10xxxxxx, 128-191, mask /16, 16 host bits.\n\n**C:** 110xxxxx, 192-223, mask /24, 8 host bits.\n\n**D:** 1110xxxx, 224-239, multicast. **E:** 1111xxxx, 240-255, reserved.\n\n**Network address:** host bits all 0. **Broadcast address:** host bits all 1. Neither can be given to a host.\n\n**Hosts per network** $= 2^h - 2$, with h host bits.\n\n**Number of networks** in a class $= 2^{(\\text{network bits}) - (\\text{class prefix bits})}$.\n\n127.x.x.x is loopback. Private ranges are in card a10. Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses.\n\n**Worked example.** The address 197.84.17.6 is given with no mask. Find its class, its default mask, its network address, its broadcast address, and how many hosts the network can have.\n\n1. Look at the first octet, 197.\n2. In binary 197 = 11000101. The address starts with the bits 110.\n3. Leading bits 110 mean **class C** (first octet 192 to 223). Class C has 24 network bits and 8 host bits, so the default mask is 255.255.255.0, or /24.\n4. The **network address** has all host bits 0: 197.84.17.0. It names the network and is not assignable to a host.\n5. The **broadcast address** has all host bits 1: 197.84.17.255. It reaches every host and is not assignable either.\n6. Hosts = $2^8 - 2$ = 254 (addresses .1 to .254). 197.84.17.6 is one of them.\n\n**Answer:** Class C, mask 255.255.255.0, network 197.84.17.0, broadcast 197.84.17.255, 254 hosts.",
+   "why_full": "Every addressing question starts with host bits and the two reserved addresses. In GATE: hosts per network from a mask, the number of networks in a class, or the class of an address.\n\nAsked: 2012 CS Q23, 2008 CS Q57, 2026 CS2 Q33, 2007 CS Q67",
+   "trap": "Giving $2^h$ hosts and forgetting the minus two, or applying the minus two to the number of subnets (which has no such subtraction under CIDR). A second slip is reading the broadcast address from the last octet alone: 255 in the last octet is a broadcast only if all the host bits are ones."
+  },
+  {
+   "atom_id": "a2",
+   "title": "CIDR prefix and mask",
+   "simple": "A mask is a stencil laid over an address. Where the stencil has a 1, the bit belongs to the network; where it has a 0, the bit belongs to the host. A '/27' simply says 'the first 27 bits are the network'. It is shorthand for the dotted mask: three full 255s and then a number for the leftover bits. Only a few numbers can appear in the partly-filled octet: 128, 192, 224, 240, 248, 252, 254. The size of a block is 256 minus that number. In exam words: /n = n leading ones; the block size in the partial octet is 256 - mask value.",
+   "idea": "**CIDR** writes a network as an address and a prefix length /n: the first n bits are the network, the rest are the host. The same thing in dotted form is the mask, a 32-bit number with n ones followed by zeros.",
+   "definition": "**/n** = n leading ones, then 32 - n zeros. Host bits h = 32 - n.\n\nConvert: each full octet of ones is 255. The partial octet with k ones has the value 256 - $2^{8-k}$:\n\nk = 1: 128, 2: 192, 3: 224, 4: 240, 5: 248, 6: 252, 7: 254.\n\n**Block size** in the partial octet = 256 - mask value = $2^{8-k}$. Blocks start at multiples of it.\n\nAddresses in a block $= 2^h$, usable hosts $2^h - 2$.\n\nA valid mask is contiguous: ones then zeros. Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses.",
+   "intuition_full": "The old classes allowed only three sizes of network. CIDR (classless inter-domain routing) lets a network have any size, by letting the split between network and host fall at any bit. The mask makes this concrete. AND it with an address and the host bits vanish, leaving the network address. In the octet where the split falls, the mask value is $256 - 2^{8-k}$, so the block size there is exactly $2^{8-k}$. This is why all subnets of that mask start at multiples of the block size. Bits further to the right then multiply the size by 256 per octet. A /22 has block size 4 in the third octet, which means 1024 addresses. Keep this: block size counts in the units of the partial octet.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Convert the prefix /27 to a dotted-decimal mask, and give the block size and the number of usable hosts.",
+     "steps": [
+      "/27 means the first 27 bits are 1. Three whole octets are 24 ones: 255.255.255.",
+      "27 - 24 = 3 more ones fall in the last octet: 11100000.",
+      "11100000 = 128 + 64 + 32 = 224. The mask is **255.255.255.224**.",
+      "The block size in that octet is 256 - 224 = 32. Subnets start at 0, 32, 64, 96, ...",
+      "Host bits = 32 - 27 = 5, so $2^5$ = 32 addresses and 32 - 2 = 30 usable hosts."
+     ],
+     "answer": "255.255.255.224, block size 32, 30 hosts."
+    },
+    {
+     "level": "gate",
+     "setup": "A network uses the mask 255.255.254.0. Give the prefix length and the number of usable hosts. Which of these masks is invalid: 255.255.248.0, 255.255.240.255, 255.255.255.252?",
+     "steps": [
+      "Count the ones. 255.255 gives 16. The third octet 254 = 11111110 gives 7 more. Total /23.",
+      "Host bits = 32 - 23 = 9, so usable hosts = $2^9 - 2$ = 510.",
+      "A valid mask is a run of ones followed by only zeros. 255.255.248.0 = 16 + 5 ones then zeros: valid (/21). 255.255.255.252 = /30: valid.",
+      "255.255.240.255 is 16 ones, then 11110000, then 11111111. The zeros of 240 are followed by ones again, so the ones are not contiguous. It is **invalid**."
+     ],
+     "answer": "/23 with 510 hosts. 255.255.240.255 is invalid."
+    },
+    {
+     "level": "twist",
+     "setup": "The mask octet is 252 (255.255.252.0). What is the block size in the third octet, and how many addresses does the subnet hold?",
+     "steps": [
+      "252 = 11111100, which has 6 ones in that octet. So the prefix is 16 + 6 = /22.",
+      "The block size is 256 - 252 = 4, but it is measured in the **third** octet. Each block covers 4 third-octet values.",
+      "Addresses per block = 4 x 256 = 1024 = $2^{10}$, which matches 32 - 22 = 10 host bits.",
+      "A common slip is to take 4 as the number of addresses. Block size counts in the partial octet's units; multiply by 256 for each octet to its right."
+     ],
+     "answer": "Block size 4 in the third octet, which is 1024 addresses."
+    }
+   ],
+   "why": "Mask conversion is the first step of almost every IP question. In GATE: find the host count from a mask, or the mask for a number of subnets.",
+   "how": [
+    "Count the ones in the mask to get n. For a dotted mask, add 8 per 255 and count the ones in the partial octet.",
+    "For the partial octet, use the table 128, 192, 224, 240, 248, 252, 254 for 1 to 7 ones.",
+    "Block size in that octet = 256 - mask value.",
+    "Host bits h = 32 - n. Hosts = $2^h - 2$."
+   ],
+   "mistake": "Taking the block size as the number of addresses when the partial octet is not the last. A /22 has block size 4 in the third octet but 1024 addresses. Another slip is treating 255.255.240.255 as a mask: masks must be contiguous ones.",
+   "edge_cases": [
+    "/32 is one host, /0 is the whole Internet (default route).",
+    "/30 holds 2 usable hosts and is used for router-to-router links.",
+    "The wildcard (inverse) mask is used in some router commands; GATE does not need it."
+   ],
+   "connections": [
+    "Network address and same-subnet tests (a3) AND the mask with addresses.",
+    "Subnetting (a4) lengthens the prefix; aggregation (a5) shortens it.",
+    "Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses."
+   ],
+   "check": [
+    {
+     "q": "What is /26 as a dotted mask?",
+     "a": "26 = 24 + 2 ones: 255.255.255.192."
+    },
+    {
+     "q": "How many hosts in a /29?",
+     "a": "$2^3 - 2$ = 6."
+    },
+    {
+     "q": "Mask 255.255.255.248. What is the block size?",
+     "a": "256 - 248 = 8."
+    }
+   ],
+   "asked": "Asked: 2005 CS Q27, 2008 CS Q57, 2026 CS2 Q33, 2007 CS Q67",
+   "try": {
+    "id": "gen.net.ipv4.002",
+    "label": "Try: the dotted mask for /20 (L1)"
+   },
+   "scene": "net.ipv4.a2.mask",
+   "example": {
+    "setup": "Convert the prefix /27 to a dotted-decimal mask, and give the block size and the number of usable hosts.",
+    "steps": [
+     "/27 means the first 27 bits are 1. Three whole octets are 24 ones: 255.255.255.",
+     "27 - 24 = 3 more ones fall in the last octet: 11100000.",
+     "11100000 = 128 + 64 + 32 = 224. The mask is **255.255.255.224**.",
+     "The block size in that octet is 256 - 224 = 32. Subnets start at 0, 32, 64, 96, ...",
+     "Host bits = 32 - 27 = 5, so $2^5$ = 32 addresses and 32 - 2 = 30 usable hosts."
+    ],
+    "answer": "255.255.255.224, block size 32, 30 hosts."
+   },
+   "what": "**CIDR** writes a network as an address and a prefix length /n: the first n bits are the network, the rest are the host. The same thing in dotted form is the mask, a 32-bit number with n ones followed by zeros.",
+   "what_full": "**CIDR** writes a network as an address and a prefix length /n: the first n bits are the network, the rest are the host. The same thing in dotted form is the mask, a 32-bit number with n ones followed by zeros.\n\n**/n** = n leading ones, then 32 - n zeros. Host bits h = 32 - n.\n\nConvert: each full octet of ones is 255. The partial octet with k ones has the value 256 - $2^{8-k}$:\n\nk = 1: 128, 2: 192, 3: 224, 4: 240, 5: 248, 6: 252, 7: 254.\n\n**Block size** in the partial octet = 256 - mask value = $2^{8-k}$. Blocks start at multiples of it.\n\nAddresses in a block $= 2^h$, usable hosts $2^h - 2$.\n\nA valid mask is contiguous: ones then zeros. Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses.\n\n**Worked example.** Convert the prefix /27 to a dotted-decimal mask, and give the block size and the number of usable hosts.\n\n1. /27 means the first 27 bits are 1. Three whole octets are 24 ones: 255.255.255.\n2. 27 - 24 = 3 more ones fall in the last octet: 11100000.\n3. 11100000 = 128 + 64 + 32 = 224. The mask is **255.255.255.224**.\n4. The block size in that octet is 256 - 224 = 32. Subnets start at 0, 32, 64, 96, ...\n5. Host bits = 32 - 27 = 5, so $2^5$ = 32 addresses and 32 - 2 = 30 usable hosts.\n\n**Answer:** 255.255.255.224, block size 32, 30 hosts.",
+   "why_full": "Mask conversion is the first step of almost every IP question. In GATE: find the host count from a mask, or the mask for a number of subnets.\n\nAsked: 2005 CS Q27, 2008 CS Q57, 2026 CS2 Q33, 2007 CS Q67",
+   "trap": "Taking the block size as the number of addresses when the partial octet is not the last. A /22 has block size 4 in the third octet but 1024 addresses. Another slip is treating 255.255.240.255 as a mask: masks must be contiguous ones."
+  },
+  {
+   "atom_id": "a3",
+   "title": "Network address and same subnet",
+   "simple": "To find which street an address is on, you hide the house number. The mask is the thing that hides it: wherever the mask has a 1, you keep the bit, and wherever it has a 0, you blank it. What is left is the address of the whole network. Two computers are on the same network exactly when they leave the same thing after hiding. The shortcut is to work out the block size: the network of an address is the multiple of the block size just below it. In exam words: network address = IP AND mask; same subnet means equal network addresses.",
+   "idea": "The **network address** of a host is its address with the host bits set to 0, found by AND-ing with the mask. Two hosts are on the same subnet when their network addresses are equal.",
+   "definition": "**Network address** $= \\text{IP} \\;\\text{AND}\\; \\text{mask}$. Only the partial octet needs work: full-ones octets are copied, full-zero octets become 0.\n\n**Shortcut:** in the partial octet, the network value is the largest multiple of the block size (256 - mask value) that is $\\leq$ the address value.\n\n**Broadcast address** = network address with all host bits 1 = network + block size - 1 in the partial octet, then 255s.\n\n**Same subnet:** equal network addresses. Each host uses its **own** mask.\n\n**Last usable host:** broadcast - 1. **First usable host:** network + 1. Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses.",
+   "intuition_full": "AND with a mask is the machine version of 'ignore the host part'. In the octet that holds the split, you can do it in binary (as the animation shows) or with block arithmetic: blocks are sized $2^{8-k}$ and tile the octet from 0, so the network is where your block begins, and the broadcast is where it ends. The block method is faster in the exam: 153 in blocks of 8 lies in 152 to 159. Questions about 'same subnet' only ask whether two values lie in the same block. One trap is that hosts compare using their own masks, so mismatched configurations give one-way connectivity. The last and first usable hosts follow from the network and broadcast addresses: the first host is network + 1, the last is broadcast - 1.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Host 10.77.153.200 has the prefix /21. Find its network address and broadcast address, and decide which of 10.77.158.17 and 10.77.160.5 are on the same subnet.",
+     "steps": [
+      "A /21 mask has 21 ones: 255.255.248.0. Only the third octet is partial, so only the third octet needs work.",
+      "Third octet of the address: 153 = 10011001.",
+      "Third octet of the mask: 248 = 11111000.",
+      "AND them bit by bit: 10011001 AND 11111000 = 10011000 = 152. Octets 1 and 2 are kept (255 AND x = x), octet 4 becomes 0 (mask 0).",
+      "Network address = 10.77.152.0. Broadcast = host bits all 1: third octet 152 + 7 = 159, last octet 255, so 10.77.159.255. The block size is 8, so this subnet covers third octets 152 to 159.",
+      "10.77.158.17 has third octet 158, inside 152-159: **same subnet**. 10.77.160.5 has 160, outside: a **different** subnet."
+     ],
+     "answer": "Network 10.77.152.0, broadcast 10.77.159.255. 10.77.158.17 is on the same subnet; 10.77.160.5 is not."
+    },
+    {
+     "level": "gate",
+     "setup": "Host H1 is 200.12.61.70 and host H2 is 200.12.61.130. Both use mask 255.255.255.192. Can they talk directly without a router?",
+     "steps": [
+      "Mask 192 = 11000000 gives block size 256 - 192 = 64 in the last octet. Blocks start at 0, 64, 128, 192.",
+      "H1: 70 is in 64-127, so its network is 200.12.61.64.",
+      "H2: 130 is in 128-191, so its network is 200.12.61.128.",
+      "The networks differ, so H1 and H2 are on different subnets. They need a router between them."
+     ],
+     "answer": "No. They are on 200.12.61.64/26 and 200.12.61.128/26."
+    },
+    {
+     "level": "twist",
+     "setup": "Host H1 = 192.168.4.37 is configured with mask 255.255.255.192 (/26). Host H2 = 192.168.4.90 is configured with mask 255.255.255.128 (/25). Does each host think the other is on its own subnet?",
+     "steps": [
+      "Each host decides using **its own mask**. H1 applies /26 to both addresses: its own network is 192.168.4.0 (0-63). H2's address .90 is in 64-127, outside it.",
+      "So H1 thinks H2 is remote and would send the packet to its default gateway.",
+      "H2 applies /25: its own network is 192.168.4.0 (0-127). H1's address .37 is inside it. H2 thinks H1 is local and sends the reply directly.",
+      "Mismatched masks give one-way communication. Apply each host's own mask to both addresses."
+     ],
+     "answer": "H1 thinks H2 is remote; H2 thinks H1 is local."
+    }
+   ],
+   "why": "The 'same subnet' test is the most repeated IP question (11 in the blueprint). In GATE: pick the pairs of hosts on the same subnet, or give the network, broadcast or last host address.",
+   "how": [
+    "Find the mask's partial octet and the block size 256 - value.",
+    "Network value in that octet = address value rounded down to a multiple of the block size.",
+    "Broadcast = network + block size - 1 in that octet, then 255 in later octets.",
+    "Two hosts are on the same subnet if their network values match (using each host's own mask)."
+   ],
+   "mistake": "Comparing only the last octet, or ignoring the octets to the left of the partial one. Hosts 10.1.5.200 and 10.1.6.20 under a /23 mask are on different subnets: their third octets 5 and 6 fall in different blocks (4-5 and 6-7), whatever the last octet says.",
+   "edge_cases": [
+    "If the mask is a whole number of octets (/8, /16, /24), the network is just the octets copied.",
+    "The last usable host is broadcast - 1 (e.g. 158 for a /27 block 128-159 in the last octet).",
+    "A host sends to a remote destination through the default gateway, found by this test."
+   ],
+   "connections": [
+    "The mask comes from a2; subnetting (a4) creates the blocks.",
+    "A host's decision local-or-remote leads to a11 (which MAC the frame carries).",
+    "Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses."
+   ],
+   "check": [
+    {
+     "q": "Network address of 192.168.9.77/27?",
+     "a": "Block size 32; 77 is in 64-95. Network 192.168.9.64."
+    },
+    {
+     "q": "Last usable host in the block 192.168.9.64/27?",
+     "a": "Broadcast is .95, so the last host is .94."
+    },
+    {
+     "q": "Are 10.0.5.9 and 10.0.7.9 on the same /22?",
+     "a": "Block size 4 in the third octet: 5 is in 4-7 and 7 is in 4-7. Yes."
+    }
+   ],
+   "asked": "Asked: 2003 CS Q82, 2006 CS Q45, 2010 CS Q47, 2015 CS3 Q38",
+   "try": {
+    "id": "gen.net.ipv4.007",
+    "label": "Try: network address of 172.16.37.200/20 (L2)"
+   },
+   "scene": "net.ipv4.a3.and",
+   "example": {
+    "setup": "Host 10.77.153.200 has the prefix /21. Find its network address and broadcast address, and decide which of 10.77.158.17 and 10.77.160.5 are on the same subnet.",
+    "steps": [
+     "A /21 mask has 21 ones: 255.255.248.0. Only the third octet is partial, so only the third octet needs work.",
+     "Third octet of the address: 153 = 10011001.",
+     "Third octet of the mask: 248 = 11111000.",
+     "AND them bit by bit: 10011001 AND 11111000 = 10011000 = 152. Octets 1 and 2 are kept (255 AND x = x), octet 4 becomes 0 (mask 0).",
+     "Network address = 10.77.152.0. Broadcast = host bits all 1: third octet 152 + 7 = 159, last octet 255, so 10.77.159.255. The block size is 8, so this subnet covers third octets 152 to 159.",
+     "10.77.158.17 has third octet 158, inside 152-159: **same subnet**. 10.77.160.5 has 160, outside: a **different** subnet."
+    ],
+    "answer": "Network 10.77.152.0, broadcast 10.77.159.255. 10.77.158.17 is on the same subnet; 10.77.160.5 is not."
+   },
+   "what": "The **network address** of a host is its address with the host bits set to 0, found by AND-ing with the mask. Two hosts are on the same subnet when their network addresses are equal.",
+   "what_full": "The **network address** of a host is its address with the host bits set to 0, found by AND-ing with the mask. Two hosts are on the same subnet when their network addresses are equal.\n\n**Network address** $= \\text{IP} \\;\\text{AND}\\; \\text{mask}$. Only the partial octet needs work: full-ones octets are copied, full-zero octets become 0.\n\n**Shortcut:** in the partial octet, the network value is the largest multiple of the block size (256 - mask value) that is $\\leq$ the address value.\n\n**Broadcast address** = network address with all host bits 1 = network + block size - 1 in the partial octet, then 255s.\n\n**Same subnet:** equal network addresses. Each host uses its **own** mask.\n\n**Last usable host:** broadcast - 1. **First usable host:** network + 1. Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses.\n\n**Worked example.** Host 10.77.153.200 has the prefix /21. Find its network address and broadcast address, and decide which of 10.77.158.17 and 10.77.160.5 are on the same subnet.\n\n1. A /21 mask has 21 ones: 255.255.248.0. Only the third octet is partial, so only the third octet needs work.\n2. Third octet of the address: 153 = 10011001.\n3. Third octet of the mask: 248 = 11111000.\n4. AND them bit by bit: 10011001 AND 11111000 = 10011000 = 152. Octets 1 and 2 are kept (255 AND x = x), octet 4 becomes 0 (mask 0).\n5. Network address = 10.77.152.0. Broadcast = host bits all 1: third octet 152 + 7 = 159, last octet 255, so 10.77.159.255. The block size is 8, so this subnet covers third octets 152 to 159.\n6. 10.77.158.17 has third octet 158, inside 152-159: **same subnet**. 10.77.160.5 has 160, outside: a **different** subnet.\n\n**Answer:** Network 10.77.152.0, broadcast 10.77.159.255. 10.77.158.17 is on the same subnet; 10.77.160.5 is not.",
+   "why_full": "The 'same subnet' test is the most repeated IP question (11 in the blueprint). In GATE: pick the pairs of hosts on the same subnet, or give the network, broadcast or last host address.\n\nAsked: 2003 CS Q82, 2006 CS Q45, 2010 CS Q47, 2015 CS3 Q38",
+   "trap": "Comparing only the last octet, or ignoring the octets to the left of the partial one. Hosts 10.1.5.200 and 10.1.6.20 under a /23 mask are on different subnets: their third octets 5 and 6 fall in different blocks (4-5 and 6-7), whatever the last octet says."
+  },
+  {
+   "atom_id": "a4",
+   "title": "Subnetting and VLSM",
+   "simple": "A big plot of land can be cut into smaller plots, but each plot must be a nice size (a power of two), and each must start at a multiple of its own size. If every plot has to hold at least a certain number of houses, you work out how many house numbers each plot needs, round up to a power of two, and place the biggest plots first so that everything lines up. Each LAN is a plot, and so is each link between two routers. In exam words: borrow bits to make subnets, hosts per subnet are $2^h - 2$, and every LAN and every router link is a subnet.",
+   "idea": "**Subnetting** splits one network into smaller ones by moving the prefix to the right. **VLSM** (variable-length subnet masks) lets each subnet have a different size. Each LAN, and each link between routers, needs its own subnet.",
+   "definition": "For a subnet that must hold H hosts: choose the smallest h with $2^h - 2 \\geq H$. Prefix = 32 - h.\n\n**Equal subnets:** if the original block has prefix p and the new prefix is p', the number of subnets is $2^{p' - p}$.\n\n**VLSM:** sort the subnets by size, biggest first. Give each the next free address that is a multiple of its block size.\n\n**Counting subnets:** one per Ethernet LAN plus one per router-to-router link.\n\nCheck: the sum of block sizes must fit in the original block. Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses.",
+   "intuition_full": "A subnet is a block of $2^h$ consecutive addresses that starts at a multiple of $2^h$. This alignment makes the network address obtainable by masking and routing tables compact. If you place small blocks first, the larger ones that follow may no longer land on a multiple of their size, and you have to skip addresses, wasting space. Placing the biggest first avoids this: each block begins where the previous ended, and the next smaller block is automatically aligned because its size divides the size of everything before it. The minus two for hosts applies to each subnet separately, and the router interface also needs an address, so a link between two routers needs 2 hosts (a /30) and a LAN with H hosts and one router interface needs H + 1.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Split 10.20.30.0/24 into subnets for three LANs of 120, 55 and 28 hosts and one router-to-router link (2 hosts). Give each subnet. Use the biggest first.",
+     "steps": [
+      "The /24 has 256 addresses (offsets 0 to 255). We need four subnets, and each must be a power of two, aligned to its own size.",
+      "120 hosts needs 7 host bits ($2^7 - 2$ = 126 >= 120), so a **/25**. First free address 0: 10.20.30.0/25 (offsets 0-127).",
+      "55 hosts needs 6 host bits (62 >= 55): a **/26**. Next free offset 128: 10.20.30.128/26 (128-191).",
+      "28 hosts needs 5 host bits (30 >= 28): a **/27**. Next free offset 192: 10.20.30.192/27 (192-223).",
+      "The router link needs 2 hosts: 2 host bits (2 >= 2): a **/30**. Next free offset 224: 10.20.30.224/30 (224-227).",
+      "Used 128 + 64 + 32 + 4 = 228 addresses. Offsets 228-255 stay free for later. Placing the biggest first keeps every block aligned."
+     ],
+     "answer": "10.20.30.0/25, 10.20.30.128/26, 10.20.30.192/27, 10.20.30.224/30."
+    },
+    {
+     "level": "gate",
+     "setup": "Class B network 140.25.0.0 is divided into equal-sized subnets, each able to hold at least 1000 hosts. Find the subnet mask and the maximum number of subnets.",
+     "steps": [
+      "1000 hosts needs h host bits with $2^h - 2 \\geq 1000$. h = 9 gives 510, h = 10 gives 1022. So h = 10.",
+      "Prefix = 32 - 10 = /22, mask 255.255.252.0.",
+      "The class B network has 16 network bits. The subnet bits are 22 - 16 = 6.",
+      "Number of subnets = $2^6$ = 64. Each holds 1022 hosts."
+     ],
+     "answer": "Mask 255.255.252.0 and 64 subnets."
+    },
+    {
+     "level": "twist",
+     "setup": "An enterprise has routers R1, R2, R3 in a chain (links R1-R2 and R2-R3). R1 has 2 Ethernet LANs, R2 has 1, R3 has 3. All links are inside the enterprise. How many IP subnets are there?",
+     "steps": [
+      "Every Ethernet LAN is one subnet: 2 + 1 + 3 = 6.",
+      "Every router-to-router link is also a subnet of its own: 2 links.",
+      "Total = 6 + 2 = 8 subnets. A common slip is to count only the host LANs and answer 6."
+     ],
+     "answer": "8 subnets."
+    }
+   ],
+   "why": "Subnetting and VLSM are the main constructive questions in the IP chapter. In GATE: the mask for a given number of subnets or hosts, the number of subnets, or the number of subnets in a topology.",
+   "how": [
+    "For each requirement find the smallest h with $2^h - 2 \\geq H$ and the prefix 32 - h.",
+    "Sort by size, biggest first. Allocate consecutively from the start of the block.",
+    "Number of equal subnets = $2^{(\\text{new prefix}) - (\\text{old prefix})}$.",
+    "To count subnets in a topology, count LANs and router links."
+   ],
+   "mistake": "Counting only host LANs when asked for subnets, forgetting that each router link is a subnet. Another slip is applying 'minus two' to the number of subnets: under CIDR all-zero and all-one subnets are usable. Only hosts lose two addresses.",
+   "edge_cases": [
+    "A /30 link subnet has exactly 2 hosts, one for each router.",
+    "If the requirement is exactly $2^h - 2$, that fits; if it is one more, you need the next size up.",
+    "Old classful rules excluded the all-zeros and all-ones subnets. GATE questions say when to apply this."
+   ],
+   "connections": [
+    "The masks and block sizes come from a2 and a3.",
+    "Aggregation (a5) is the reverse: merging blocks into a shorter prefix.",
+    "Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses."
+   ],
+   "check": [
+    {
+     "q": "A LAN needs 200 hosts. What prefix?",
+     "a": "h = 8 (254 >= 200), so /24."
+    },
+    {
+     "q": "A /20 is split into /24 subnets. How many?",
+     "a": "$2^{24-20}$ = 16."
+    },
+    {
+     "q": "Why place the biggest subnet first?",
+     "a": "So that every following smaller block stays aligned, with no wasted gaps."
+    }
+   ],
+   "asked": "Asked: 2005 CS Q27, 2007 CS Q67, 2022 CS Q22, 2012 CS Q34",
+   "try": {
+    "id": "gen.net.ipv4.008",
+    "label": "Try: hosts in a /22 block (L2)"
+   },
+   "scene": "net.ipv4.a4.vlsm",
+   "example": {
+    "setup": "Split 10.20.30.0/24 into subnets for three LANs of 120, 55 and 28 hosts and one router-to-router link (2 hosts). Give each subnet. Use the biggest first.",
+    "steps": [
+     "The /24 has 256 addresses (offsets 0 to 255). We need four subnets, and each must be a power of two, aligned to its own size.",
+     "120 hosts needs 7 host bits ($2^7 - 2$ = 126 >= 120), so a **/25**. First free address 0: 10.20.30.0/25 (offsets 0-127).",
+     "55 hosts needs 6 host bits (62 >= 55): a **/26**. Next free offset 128: 10.20.30.128/26 (128-191).",
+     "28 hosts needs 5 host bits (30 >= 28): a **/27**. Next free offset 192: 10.20.30.192/27 (192-223).",
+     "The router link needs 2 hosts: 2 host bits (2 >= 2): a **/30**. Next free offset 224: 10.20.30.224/30 (224-227).",
+     "Used 128 + 64 + 32 + 4 = 228 addresses. Offsets 228-255 stay free for later. Placing the biggest first keeps every block aligned."
+    ],
+    "answer": "10.20.30.0/25, 10.20.30.128/26, 10.20.30.192/27, 10.20.30.224/30."
+   },
+   "what": "**Subnetting** splits one network into smaller ones by moving the prefix to the right. **VLSM** (variable-length subnet masks) lets each subnet have a different size. Each LAN, and each link between routers, needs its own subnet.",
+   "what_full": "**Subnetting** splits one network into smaller ones by moving the prefix to the right. **VLSM** (variable-length subnet masks) lets each subnet have a different size. Each LAN, and each link between routers, needs its own subnet.\n\nFor a subnet that must hold H hosts: choose the smallest h with $2^h - 2 \\geq H$. Prefix = 32 - h.\n\n**Equal subnets:** if the original block has prefix p and the new prefix is p', the number of subnets is $2^{p' - p}$.\n\n**VLSM:** sort the subnets by size, biggest first. Give each the next free address that is a multiple of its block size.\n\n**Counting subnets:** one per Ethernet LAN plus one per router-to-router link.\n\nCheck: the sum of block sizes must fit in the original block. Foundations: **Binary** (found.binary) covers converting octets to binary and back, which every question here uses.\n\n**Worked example.** Split 10.20.30.0/24 into subnets for three LANs of 120, 55 and 28 hosts and one router-to-router link (2 hosts). Give each subnet. Use the biggest first.\n\n1. The /24 has 256 addresses (offsets 0 to 255). We need four subnets, and each must be a power of two, aligned to its own size.\n2. 120 hosts needs 7 host bits ($2^7 - 2$ = 126 >= 120), so a **/25**. First free address 0: 10.20.30.0/25 (offsets 0-127).\n3. 55 hosts needs 6 host bits (62 >= 55): a **/26**. Next free offset 128: 10.20.30.128/26 (128-191).\n4. 28 hosts needs 5 host bits (30 >= 28): a **/27**. Next free offset 192: 10.20.30.192/27 (192-223).\n5. The router link needs 2 hosts: 2 host bits (2 >= 2): a **/30**. Next free offset 224: 10.20.30.224/30 (224-227).\n6. Used 128 + 64 + 32 + 4 = 228 addresses. Offsets 228-255 stay free for later. Placing the biggest first keeps every block aligned.\n\n**Answer:** 10.20.30.0/25, 10.20.30.128/26, 10.20.30.192/27, 10.20.30.224/30.",
+   "why_full": "Subnetting and VLSM are the main constructive questions in the IP chapter. In GATE: the mask for a given number of subnets or hosts, the number of subnets, or the number of subnets in a topology.\n\nAsked: 2005 CS Q27, 2007 CS Q67, 2022 CS Q22, 2012 CS Q34",
+   "trap": "Counting only host LANs when asked for subnets, forgetting that each router link is a subnet. Another slip is applying 'minus two' to the number of subnets: under CIDR all-zero and all-one subnets are usable. Only hosts lose two addresses."
+  },
+  {
+   "atom_id": "a5",
+   "title": "Supernetting and aggregation",
+   "simple": "If you own four neighbouring plots in a row, you can tell people about all four with one sign: 'plots 52 to 55'. That works only when the group starts at the right place. Groups of four must start at a multiple of four, groups of eight at a multiple of eight, and so on. If your four plots start at 53, there is no neat sign for exactly those four, and the smallest neat sign that covers them is bigger and includes plots that are not yours. In exam words: a CIDR block of size $2^h$ must start at a multiple of $2^h$; aggregation merges aligned blocks into a shorter prefix.",
+   "idea": "**Aggregation** (supernetting) replaces several routing entries by one shorter prefix. A block of $2^h$ addresses must start at an address that is a multiple of $2^h$. Only aligned, contiguous blocks merge exactly.",
+   "definition": "A CIDR block with h host bits has $2^h$ addresses and its first address is a multiple of $2^h$.\n\n**To size a block** for N addresses: smallest h with $2^h \\geq N$ (add 2 if hosts are counted: $2^h - 2 \\geq H$), prefix 32 - h.\n\n**To aggregate** k contiguous blocks of equal size: k must be a power of two, and the first block must be aligned to k times its size.\n\n**Smallest covering prefix** of a set of blocks: the longest prefix whose block contains both the lowest and the highest address.\n\n**Valid block in an ISP allocation:** aligned, and inside the ISP's own block. Foundations: **Binary** (found.binary) covers powers of two and binary blocks, which explain alignment.",
+   "intuition_full": "An aligned block is one whose address bits above the host bits are fixed and whose host bits are free. This is why you can write it with a prefix. A block that starts at the wrong place, such as four /24s from 53 to 56, has different values in the network bits, so no single prefix describes it exactly. The test is simple arithmetic: divide the start value (in the partial octet) by the block size, and the quotient must be a whole number. Aggregation helps routers: instead of four entries a core router keeps one, so the tables stay small. When the blocks are not aligned, the covering prefix over-claims and an ISP must not advertise it, because traffic for the extra addresses would be sent to the wrong place.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A router must advertise the four blocks 100.64.52.0/24, 100.64.53.0/24, 100.64.54.0/24 and 100.64.55.0/24 as one route. Find the single aggregate prefix.",
+     "steps": [
+      "The four blocks are contiguous: third octets 52, 53, 54, 55. Each /24 is 256 addresses.",
+      "Together they hold 4 x 256 = 1024 = $2^{10}$ addresses, so the merged block has 10 host bits: prefix 32 - 10 = **/22**.",
+      "A /22 block must **start at a multiple of its size**. In the third octet a /22 has block size 4, so the start must be a multiple of 4. 52 / 4 = 13, so 52 is valid.",
+      "The aggregate is **100.64.52.0/22**, covering 100.64.52.0 to 100.64.55.255. One routing entry now replaces four.",
+      "If the four blocks started at 53 instead, 53 is not a multiple of 4, so 53-56 would not form a /22."
+     ],
+     "answer": "100.64.52.0/22."
+    },
+    {
+     "level": "gate",
+     "setup": "An ISP owns 10.64.0.0/17. A client needs about 3000 addresses, assigned as one CIDR block from the ISP's block. Which of these are valid blocks: 10.64.16.0/20, 10.64.24.0/20, 10.64.96.0/20, 10.64.128.0/20?",
+     "steps": [
+      "3000 addresses need a power of two at least that large: $2^{12}$ = 4096, so 12 host bits and a **/20**. A /20 spans 16 values of the third octet.",
+      "The ISP block 10.64.0.0/17 covers third octets 0 to 127.",
+      "A valid /20 block starts at a multiple of 16 in the third octet and lies inside 0-127.",
+      "10.64.16.0/20: 16 = 1 x 16 and 16-31 is inside 0-127. **Valid.** 10.64.24.0/20: 24 is not a multiple of 16. **Invalid.**",
+      "10.64.96.0/20: 96 = 6 x 16 and 96-111 is inside. **Valid.** 10.64.128.0/20: 128 is a multiple of 16 but is outside 0-127. **Invalid.**"
+     ],
+     "answer": "10.64.16.0/20 and 10.64.96.0/20 are valid."
+    },
+    {
+     "level": "twist",
+     "setup": "The blocks are 172.18.53.0/24, 172.18.54.0/24, 172.18.55.0/24 and 172.18.56.0/24. What is the smallest single prefix covering all four?",
+     "steps": [
+      "The four blocks span third octets 53 to 56, which is 1024 addresses. But they cannot form a /22, because 53 is not a multiple of 4.",
+      "The covering prefix must contain both ends: 172.18.53.0 and 172.18.56.255. Try /21 (block size 8): 53 is in 48-55 but 56 is in 56-63. They are in different /21 blocks, so a /21 fails.",
+      "Try /20 (block size 16): 48-63 contains 53 and 56. So the smallest covering prefix is **172.18.48.0/20**.",
+      "This covers 4096 addresses, including 172.18.48.0-172.18.52.255 and 172.18.57.0-172.18.63.255, which are not part of the original four. Aggregation here over-claims addresses."
+     ],
+     "answer": "172.18.48.0/20 (it also covers addresses that are not in the four blocks)."
+    }
+   ],
+   "why": "Aggregation and block validity appear in 5 blueprint questions. In GATE: check which blocks are valid CIDR allocations, find the aggregate of a list of blocks, or find the smallest covering prefix.",
+   "how": [
+    "Find the size of each block and the number of host bits.",
+    "Check that the start address is a multiple of the block size (in the partial octet).",
+    "For aggregation: total size must be a power of two, contiguous, and aligned.",
+    "For a covering prefix: take the lowest and highest address and find the longest prefix that contains both.",
+    "For an ISP allocation: also check the block lies inside the ISP's prefix."
+   ],
+   "mistake": "Accepting a block whose start is not a multiple of its size, such as 10.64.24.0/20. Another slip is merging blocks that are adjacent but do not align, like 53-56. Also check the block lies inside the allocation given to the ISP.",
+   "edge_cases": [
+    "Two adjacent blocks of the same size merge only if the first is even in the units of its size.",
+    "The smallest covering prefix can be much larger than the total of the blocks.",
+    "A single address range that is not a power of two in size needs several prefixes."
+   ],
+   "connections": [
+    "Longest-prefix match (a6) is how routers use aggregated entries together with more specific ones.",
+    "Subnetting (a4) is the reverse operation: splitting a block.",
+    "Foundations: **Binary** (found.binary) covers powers of two and binary blocks, which explain alignment."
+   ],
+   "check": [
+    {
+     "q": "Aggregate 192.168.8.0/24 and 192.168.9.0/24.",
+     "a": "Third octets 8 and 9; 8 is a multiple of 2. Result 192.168.8.0/23."
+    },
+    {
+     "q": "Is 10.2.6.0/22 a valid block?",
+     "a": "A /22 needs the third octet to be a multiple of 4. 6 is not, so it is invalid."
+    },
+    {
+     "q": "How large a prefix is needed for 6000 addresses?",
+     "a": "8192 = $2^{13}$, so 13 host bits and a /19."
+    }
+   ],
+   "asked": "Asked: 2012 CS Q34, 2020 CS Q48, 2022 CS Q55, 2024 CS2 Q38, 2026 CS1 Q56",
+   "try": {
+    "id": "gen.net.ipv4.009",
+    "label": "Try: which block is a valid /21? (L2)"
+   },
+   "scene": "net.ipv4.a5.aggregate",
+   "example": {
+    "setup": "A router must advertise the four blocks 100.64.52.0/24, 100.64.53.0/24, 100.64.54.0/24 and 100.64.55.0/24 as one route. Find the single aggregate prefix.",
+    "steps": [
+     "The four blocks are contiguous: third octets 52, 53, 54, 55. Each /24 is 256 addresses.",
+     "Together they hold 4 x 256 = 1024 = $2^{10}$ addresses, so the merged block has 10 host bits: prefix 32 - 10 = **/22**.",
+     "A /22 block must **start at a multiple of its size**. In the third octet a /22 has block size 4, so the start must be a multiple of 4. 52 / 4 = 13, so 52 is valid.",
+     "The aggregate is **100.64.52.0/22**, covering 100.64.52.0 to 100.64.55.255. One routing entry now replaces four.",
+     "If the four blocks started at 53 instead, 53 is not a multiple of 4, so 53-56 would not form a /22."
+    ],
+    "answer": "100.64.52.0/22."
+   },
+   "what": "**Aggregation** (supernetting) replaces several routing entries by one shorter prefix. A block of $2^h$ addresses must start at an address that is a multiple of $2^h$. Only aligned, contiguous blocks merge exactly.",
+   "what_full": "**Aggregation** (supernetting) replaces several routing entries by one shorter prefix. A block of $2^h$ addresses must start at an address that is a multiple of $2^h$. Only aligned, contiguous blocks merge exactly.\n\nA CIDR block with h host bits has $2^h$ addresses and its first address is a multiple of $2^h$.\n\n**To size a block** for N addresses: smallest h with $2^h \\geq N$ (add 2 if hosts are counted: $2^h - 2 \\geq H$), prefix 32 - h.\n\n**To aggregate** k contiguous blocks of equal size: k must be a power of two, and the first block must be aligned to k times its size.\n\n**Smallest covering prefix** of a set of blocks: the longest prefix whose block contains both the lowest and the highest address.\n\n**Valid block in an ISP allocation:** aligned, and inside the ISP's own block. Foundations: **Binary** (found.binary) covers powers of two and binary blocks, which explain alignment.\n\n**Worked example.** A router must advertise the four blocks 100.64.52.0/24, 100.64.53.0/24, 100.64.54.0/24 and 100.64.55.0/24 as one route. Find the single aggregate prefix.\n\n1. The four blocks are contiguous: third octets 52, 53, 54, 55. Each /24 is 256 addresses.\n2. Together they hold 4 x 256 = 1024 = $2^{10}$ addresses, so the merged block has 10 host bits: prefix 32 - 10 = **/22**.\n3. A /22 block must **start at a multiple of its size**. In the third octet a /22 has block size 4, so the start must be a multiple of 4. 52 / 4 = 13, so 52 is valid.\n4. The aggregate is **100.64.52.0/22**, covering 100.64.52.0 to 100.64.55.255. One routing entry now replaces four.\n5. If the four blocks started at 53 instead, 53 is not a multiple of 4, so 53-56 would not form a /22.\n\n**Answer:** 100.64.52.0/22.",
+   "why_full": "Aggregation and block validity appear in 5 blueprint questions. In GATE: check which blocks are valid CIDR allocations, find the aggregate of a list of blocks, or find the smallest covering prefix.\n\nAsked: 2012 CS Q34, 2020 CS Q48, 2022 CS Q55, 2024 CS2 Q38, 2026 CS1 Q56",
+   "trap": "Accepting a block whose start is not a multiple of its size, such as 10.64.24.0/20. Another slip is merging blocks that are adjacent but do not align, like 53-56. Also check the block lies inside the allocation given to the ISP."
+  },
+  {
+   "atom_id": "a6",
+   "title": "Longest-prefix match",
+   "simple": "Suppose you ask for directions and get several answers: 'it is in Asia', 'it is in India', 'it is in Kolkata', 'it is on this street'. All are true, but the most specific one is the most useful. A router does the same with a destination address: it finds every table entry that contains the address, and obeys the most specific one, which is the one with the longest prefix. If none matches, it uses the default route, which matches everything but is the least specific. In exam words: longest-prefix match, default 0.0.0.0/0 has length 0, and the order of rows does not matter.",
+   "idea": "A forwarding table can have several entries that contain the same destination address. The router picks the **longest prefix** among those that match. The default route 0.0.0.0/0 matches everything and has length 0, so it wins only when nothing else matches.",
+   "definition": "For a destination D and table entries (prefix/n, next hop):\n\n1. An entry **matches** if D lies inside the block of the prefix (the first n bits agree).\n\n2. Among the matching entries, choose the one with the **largest n**.\n\n3. If no entry matches and there is a default route, use it. If not, drop the packet.\n\nThe order of the rows does not matter. Bait entries have a long prefix that does not contain D.\n\nTo test a match, convert the prefix to a range: start = network address, end = start + block size - 1. Foundations: **Binary** (found.binary) covers powers of two and binary blocks, which explain alignment.",
+   "intuition_full": "More specific entries carve exceptions out of broader ones. A /8 covering a company, a /16 for one site and a /24 for one office are all true for an office host; the /24 knows best. Longest-prefix match makes aggregation safe: an ISP can advertise a big block and still let a specific customer inside it be routed elsewhere. The usual exam design is a table with nested prefixes plus bait entries whose prefix is long but does not contain the address. Always test containment with a range, not by comparing the length. In the partial octet, containment is a quick range check: is the address value between the block's start and end? Work through each row, mark match or miss, and take the longest of the matches.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A router has these entries (in this order): 172.22.128.0/17 to E, 172.16.0.0/12 to A, 172.22.80.0/20 to D, 0.0.0.0/0 to F, 172.20.0.0/14 to B, 172.22.64.0/18 to C. Which next hop is used for a packet to 172.22.85.7?",
+     "steps": [
+      "Test every row, in any order. Row 1, 172.22.128.0/17, covers 172.22.128 to 172.22.255. The address 172.22.85.7 has third octet 85, so it is **outside**: no match.",
+      "Row 2, 172.16.0.0/12, covers 172.16.0.0 to 172.31.255.255. 172.22.85.7 is inside: **match**, length 12.",
+      "Row 3, 172.22.80.0/20, covers 172.22.80.0 to 172.22.95.255. Third octet 85 is inside 80-95: **match**, length 20.",
+      "Row 4, the default 0.0.0.0/0, covers every address: **match**, length 0.",
+      "Row 5, 172.20.0.0/14, covers 172.20.0.0 to 172.23.255.255. The second octet 22 is inside 20-23: **match**, length 14.",
+      "Row 6, 172.22.64.0/18, covers 172.22.64.0 to 172.22.127.255. 85 is inside 64-127: **match**, length 18.",
+      "Matching lengths are 12, 20, 0, 14, 18. The longest is **/20**, so the packet goes to **D**. The row order did not matter."
+     ],
+     "answer": "Next hop D (the /20 entry)."
+    },
+    {
+     "level": "gate",
+     "setup": "A router table: 10.8.0.0/13 to I1, 10.8.64.0/18 to I2, 10.9.0.0/16 to I3, 10.8.96.0/20 to I4, default to I0. It sends 25 packets to each of the hosts 10.8.70.9, 10.8.100.4, 10.9.2.2, 10.12.1.1 and 10.8.20.20. How many packets leave on I1?",
+     "steps": [
+      "Ranges: /13 covers 10.8.0.0 to 10.15.255.255. /18 covers 10.8.64.0 to 10.8.127.255. /16 covers 10.9.0.0 to 10.9.255.255. /20 covers 10.8.96.0 to 10.8.111.255.",
+      "10.8.70.9: matches /13 and /18 (70 is in 64-127). Not /20 (70 < 96). Longest /18, so I2.",
+      "10.8.100.4: matches /13, /18 and /20 (100 is in 96-111). Longest /20, so I4.",
+      "10.9.2.2: matches /13 and /16. Longest /16, so I3.",
+      "10.12.1.1: matches only /13 (second octet 12 is in 8-15), so I1. 10.8.20.20: matches /13 only (20 < 64), so I1.",
+      "Two hosts use I1: 2 x 25 = 50 packets."
+     ],
+     "answer": "50 packets."
+    },
+    {
+     "level": "twist",
+     "setup": "The same table has no default route (the I0 entry is deleted). What happens to a packet for 11.0.0.5?",
+     "steps": [
+      "Check each prefix. 10.8.0.0/13 covers 10.8.0.0 to 10.15.255.255; 11.0.0.5 is outside. The other three entries are inside 10.8.0.0/13 or 10.9.0.0/16, so they miss too.",
+      "No entry matches. Without a default route the router has nowhere to send the packet.",
+      "It drops the packet. (Routers normally send an ICMP unreachable message back; ICMP is not named in the 2027 syllabus, so know only that the packet is lost.)"
+     ],
+     "answer": "The packet is dropped."
+    }
+   ],
+   "why": "Longest-prefix match is how real routers forward, and 6 blueprint questions use it. In GATE: the next hop for a destination, or the number of packets leaving an interface.",
+   "how": [
+    "For each row, convert the prefix to an address range in the partial octet.",
+    "Mark the rows whose range contains the destination.",
+    "Choose the matching row with the largest prefix length. No match means the default route.",
+    "For counting questions, find the next hop of each destination and add the packets."
+   ],
+   "mistake": "Taking the first matching row, or the longest-looking prefix that does not actually contain the address. Test the range for every row. The row order and the numeric size of the network address do not matter.",
+   "edge_cases": [
+    "A /32 entry is a host route and beats everything for that one address.",
+    "Two entries with the same length cannot both match the same address in a correct table.",
+    "No default and no match: the packet is dropped."
+   ],
+   "connections": [
+    "Aggregation (a5) is why overlapping prefixes exist.",
+    "Subnet range arithmetic (a3) gives the start and end of each prefix.",
+    "Virtual-circuit forwarding by label (net.layering l3) is the alternative to prefix lookup."
+   ],
+   "check": [
+    {
+     "q": "Entries 10.0.0.0/8 to A and 10.1.0.0/16 to B. Destination 10.1.2.3?",
+     "a": "Both match. The /16 is longer: B."
+    },
+    {
+     "q": "Entries 10.1.0.0/16 to B and default to C. Destination 10.2.0.1?",
+     "a": "The /16 misses (10.2 is not 10.1). Default: C."
+    },
+    {
+     "q": "Does the order of the rows change the result?",
+     "a": "No. The longest matching prefix wins whatever the order."
+    }
+   ],
+   "asked": "Asked: 2004 CS Q55, 2014 CS3 Q26, 2015 CS2 Q41, 2023 CS Q65, 2024 CS1 Q58, 2025 CS1 Q40",
+   "try": {
+    "id": "gen.net.ipv4.010",
+    "label": "Try: next hop for 10.4.5.9 among three entries (L2)"
+   },
+   "scene": "net.ipv4.a6.lpm",
+   "example": {
+    "setup": "A router has these entries (in this order): 172.22.128.0/17 to E, 172.16.0.0/12 to A, 172.22.80.0/20 to D, 0.0.0.0/0 to F, 172.20.0.0/14 to B, 172.22.64.0/18 to C. Which next hop is used for a packet to 172.22.85.7?",
+    "steps": [
+     "Test every row, in any order. Row 1, 172.22.128.0/17, covers 172.22.128 to 172.22.255. The address 172.22.85.7 has third octet 85, so it is **outside**: no match.",
+     "Row 2, 172.16.0.0/12, covers 172.16.0.0 to 172.31.255.255. 172.22.85.7 is inside: **match**, length 12.",
+     "Row 3, 172.22.80.0/20, covers 172.22.80.0 to 172.22.95.255. Third octet 85 is inside 80-95: **match**, length 20.",
+     "Row 4, the default 0.0.0.0/0, covers every address: **match**, length 0.",
+     "Row 5, 172.20.0.0/14, covers 172.20.0.0 to 172.23.255.255. The second octet 22 is inside 20-23: **match**, length 14.",
+     "Row 6, 172.22.64.0/18, covers 172.22.64.0 to 172.22.127.255. 85 is inside 64-127: **match**, length 18.",
+     "Matching lengths are 12, 20, 0, 14, 18. The longest is **/20**, so the packet goes to **D**. The row order did not matter."
+    ],
+    "answer": "Next hop D (the /20 entry)."
+   },
+   "what": "A forwarding table can have several entries that contain the same destination address. The router picks the **longest prefix** among those that match. The default route 0.0.0.0/0 matches everything and has length 0, so it wins only when nothing else matches.",
+   "what_full": "A forwarding table can have several entries that contain the same destination address. The router picks the **longest prefix** among those that match. The default route 0.0.0.0/0 matches everything and has length 0, so it wins only when nothing else matches.\n\nFor a destination D and table entries (prefix/n, next hop):\n\n1. An entry **matches** if D lies inside the block of the prefix (the first n bits agree).\n\n2. Among the matching entries, choose the one with the **largest n**.\n\n3. If no entry matches and there is a default route, use it. If not, drop the packet.\n\nThe order of the rows does not matter. Bait entries have a long prefix that does not contain D.\n\nTo test a match, convert the prefix to a range: start = network address, end = start + block size - 1. Foundations: **Binary** (found.binary) covers powers of two and binary blocks, which explain alignment.\n\n**Worked example.** A router has these entries (in this order): 172.22.128.0/17 to E, 172.16.0.0/12 to A, 172.22.80.0/20 to D, 0.0.0.0/0 to F, 172.20.0.0/14 to B, 172.22.64.0/18 to C. Which next hop is used for a packet to 172.22.85.7?\n\n1. Test every row, in any order. Row 1, 172.22.128.0/17, covers 172.22.128 to 172.22.255. The address 172.22.85.7 has third octet 85, so it is **outside**: no match.\n2. Row 2, 172.16.0.0/12, covers 172.16.0.0 to 172.31.255.255. 172.22.85.7 is inside: **match**, length 12.\n3. Row 3, 172.22.80.0/20, covers 172.22.80.0 to 172.22.95.255. Third octet 85 is inside 80-95: **match**, length 20.\n4. Row 4, the default 0.0.0.0/0, covers every address: **match**, length 0.\n5. Row 5, 172.20.0.0/14, covers 172.20.0.0 to 172.23.255.255. The second octet 22 is inside 20-23: **match**, length 14.\n6. Row 6, 172.22.64.0/18, covers 172.22.64.0 to 172.22.127.255. 85 is inside 64-127: **match**, length 18.\n7. Matching lengths are 12, 20, 0, 14, 18. The longest is **/20**, so the packet goes to **D**. The row order did not matter.\n\n**Answer:** Next hop D (the /20 entry).",
+   "why_full": "Longest-prefix match is how real routers forward, and 6 blueprint questions use it. In GATE: the next hop for a destination, or the number of packets leaving an interface.\n\nAsked: 2004 CS Q55, 2014 CS3 Q26, 2015 CS2 Q41, 2023 CS Q65, 2024 CS1 Q58, 2025 CS1 Q40",
+   "trap": "Taking the first matching row, or the longest-looking prefix that does not actually contain the address. Test the range for every row. The row order and the numeric size of the network address do not matter."
+  },
+  {
+   "atom_id": "a7",
+   "title": "Header fields",
+   "simple": "The header on an IP packet is like the label on a parcel. It says how long the label is, how long the whole parcel is, how many more times the parcel may be passed on before it is thrown away, who sent it and who should get it. Every depot (router) that passes the parcel on crosses one off the 'passes left' counter, which means the label's check number must be redone. The sender and receiver names never change on the way. In exam words: HLEN counts 4-byte words, TTL drops by 1 at each router, the header checksum is recomputed, and the addresses stay the same.",
+   "idea": "The IPv4 header carries the fields a router needs: header length, total length, TTL, protocol, checksum and the two addresses. A forwarding router changes only **TTL** and, as a result, the **header checksum**.",
+   "definition": "**Version** (4 bits) = 4. **HLEN** (4 bits): header length in **4-byte words**, 5 to 15 (20 to 60 bytes).\n\n**Total length** (16 bits): header + payload in bytes. Payload = total length - HLEN x 4.\n\n**Identification, flags (DF, MF), fragment offset:** used for fragmentation (a8).\n\n**TTL:** hop limit. Each router subtracts 1; at 0 the packet is dropped. It stops loops.\n\n**Protocol:** the upper-layer protocol (6 = TCP).\n\n**Header checksum:** covers the header only. It changes at each hop because TTL changes.\n\n**Source and destination addresses:** 32 bits each. Unchanged by routers (NAT is the exception).\n\n**Options:** up to 40 bytes, padded so the header is a multiple of 4 bytes.",
+   "intuition_full": "Think of the header as a contract between a packet and the routers it passes through. A router must be able to find the destination, know whether the packet has outlived its budget (TTL), and verify the header was not damaged (checksum). Because the checksum covers the header and the header holds the TTL, any change of TTL changes the checksum. This is why 'TTL and checksum' always go together as the fields a router modifies. Fragmentation adds more: total length, flags and offset change when a router fragments. The addresses never change, so the destination can recognise the packet's origin. HLEN is the one that causes unit errors: it counts words of 4 bytes, not bytes, so a value of 5 means 20 bytes. The total length field is in bytes, and the fragment offset is in 8-byte units.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A packet's header starts with the byte 0x45, total length 0x05DC, TTL 64, source 172.16.10.99, destination 172.16.10.12. Decode the header size and payload, then show what the first router changes.",
+     "steps": [
+      "Byte 0 is 0x45. The high nibble 4 is the version. The low nibble 5 is **HLEN**, counted in 4-byte words: 5 x 4 = 20 bytes of header.",
+      "Total length 0x05DC = 1500 bytes. Payload = total length - header = 1500 - 20 = 1480 bytes.",
+      "TTL is 64 and the header checksum is 0xAC46. The checksum covers the header only, and adding all its 16-bit words gives 0xFFFF.",
+      "The first router forwards the packet, so it subtracts 1 from TTL: 64 becomes 63. The header changed, so the checksum is recomputed: 0xAC46 becomes 0xAD46.",
+      "The source and destination addresses (172.16.10.99 and 172.16.10.12) do not change at a router. Only TTL and the checksum differ."
+     ],
+     "answer": "Header 20 bytes, payload 1480. The router changes TTL (64 to 63) and the checksum (0xAC46 to 0xAD46)."
+    },
+    {
+     "level": "gate",
+     "setup": "An IPv4 packet has HLEN = 13 and total length 2100 bytes. Find the header size, the options size and the payload size. What is the largest options area possible? Which fields must a router change when it forwards the packet without fragmenting it?",
+     "steps": [
+      "Header = HLEN x 4 = 13 x 4 = 52 bytes.",
+      "Options = header - 20 (the fixed part) = 52 - 20 = 32 bytes.",
+      "Payload = total length - header = 2100 - 52 = 2048 bytes.",
+      "HLEN is a 4-bit field, so the largest value is 15: a header of 60 bytes, and at most 60 - 20 = 40 bytes of options.",
+      "A forwarding router changes TTL (minus 1) and therefore the header checksum. Addresses, protocol, identification and total length stay the same."
+     ],
+     "answer": "Header 52 B, options 32 B, payload 2048 B. At most 40 option bytes. TTL and checksum change."
+    },
+    {
+     "level": "twist",
+     "setup": "A host adds 7 bytes of options to the 20-byte header. What is HLEN, and what is the header size?",
+     "steps": [
+      "The header must be a multiple of 4 bytes, because HLEN counts 4-byte words. 20 + 7 = 27 is not a multiple of 4.",
+      "The options are padded with 1 byte of zeros to 8 bytes. Header = 20 + 8 = 28 bytes.",
+      "HLEN = 28 / 4 = 7."
+     ],
+     "answer": "HLEN = 7, header 28 bytes (1 byte of padding)."
+    }
+   ],
+   "why": "Header questions are quick marks. In GATE: header or payload size from HLEN and total length, which fields a router modifies, or what TTL is for.",
+   "how": [
+    "Header bytes = HLEN x 4. Options bytes = header - 20.",
+    "Payload = total length - header bytes.",
+    "A forwarding router changes TTL and the checksum only. A fragmenting router also changes length, flags and offset.",
+    "TTL prevents packets from looping forever. It is not a priority or delay field."
+   ],
+   "mistake": "Reading HLEN as a number of bytes (HLEN = 9 means 36 bytes, not 9). Another slip is saying that routers change the source address, or that the checksum covers the payload; it covers only the header.",
+   "edge_cases": [
+    "The minimum HLEN is 5, since the fixed header is 20 bytes.",
+    "Options are padded with zeros to a 4-byte multiple.",
+    "Low priority: ICMP reports TTL expiry and UDP uses protocol 17. Neither is named in the 2027 syllabus."
+   ],
+   "connections": [
+    "Fragmentation (a8) uses the identification, flags and offset fields.",
+    "NAT (a10) is the case where the source address and the checksum do change.",
+    "The TCP header sits above this one (net.transport)."
+   ],
+   "check": [
+    {
+     "q": "HLEN = 8 and total length 600. Payload?",
+     "a": "Header 32 bytes. Payload 600 - 32 = 568."
+    },
+    {
+     "q": "Which two header fields must a router update on every forwarded packet?",
+     "a": "TTL and the header checksum."
+    },
+    {
+     "q": "What is the largest options area?",
+     "a": "40 bytes (header 60 - fixed 20)."
+    }
+   ],
+   "asked": "Asked: 2003 CS Q27, 2006 CS Q5, 2010 CS Q15, 2015 CS1 Q22, 2017 CS2 Q20, 2020 CS Q25, 2024 CS2 Q32",
+   "try": {
+    "id": "gen.net.ipv4.003",
+    "label": "Try: what a router does to TTL (L1)"
+   },
+   "scene": "net.ipv4.a7.header",
+   "example": {
+    "setup": "A packet's header starts with the byte 0x45, total length 0x05DC, TTL 64, source 172.16.10.99, destination 172.16.10.12. Decode the header size and payload, then show what the first router changes.",
+    "steps": [
+     "Byte 0 is 0x45. The high nibble 4 is the version. The low nibble 5 is **HLEN**, counted in 4-byte words: 5 x 4 = 20 bytes of header.",
+     "Total length 0x05DC = 1500 bytes. Payload = total length - header = 1500 - 20 = 1480 bytes.",
+     "TTL is 64 and the header checksum is 0xAC46. The checksum covers the header only, and adding all its 16-bit words gives 0xFFFF.",
+     "The first router forwards the packet, so it subtracts 1 from TTL: 64 becomes 63. The header changed, so the checksum is recomputed: 0xAC46 becomes 0xAD46.",
+     "The source and destination addresses (172.16.10.99 and 172.16.10.12) do not change at a router. Only TTL and the checksum differ."
+    ],
+    "answer": "Header 20 bytes, payload 1480. The router changes TTL (64 to 63) and the checksum (0xAC46 to 0xAD46)."
+   },
+   "what": "The IPv4 header carries the fields a router needs: header length, total length, TTL, protocol, checksum and the two addresses. A forwarding router changes only **TTL** and, as a result, the **header checksum**.",
+   "what_full": "The IPv4 header carries the fields a router needs: header length, total length, TTL, protocol, checksum and the two addresses. A forwarding router changes only **TTL** and, as a result, the **header checksum**.\n\n**Version** (4 bits) = 4. **HLEN** (4 bits): header length in **4-byte words**, 5 to 15 (20 to 60 bytes).\n\n**Total length** (16 bits): header + payload in bytes. Payload = total length - HLEN x 4.\n\n**Identification, flags (DF, MF), fragment offset:** used for fragmentation (a8).\n\n**TTL:** hop limit. Each router subtracts 1; at 0 the packet is dropped. It stops loops.\n\n**Protocol:** the upper-layer protocol (6 = TCP).\n\n**Header checksum:** covers the header only. It changes at each hop because TTL changes.\n\n**Source and destination addresses:** 32 bits each. Unchanged by routers (NAT is the exception).\n\n**Options:** up to 40 bytes, padded so the header is a multiple of 4 bytes.\n\n**Worked example.** A packet's header starts with the byte 0x45, total length 0x05DC, TTL 64, source 172.16.10.99, destination 172.16.10.12. Decode the header size and payload, then show what the first router changes.\n\n1. Byte 0 is 0x45. The high nibble 4 is the version. The low nibble 5 is **HLEN**, counted in 4-byte words: 5 x 4 = 20 bytes of header.\n2. Total length 0x05DC = 1500 bytes. Payload = total length - header = 1500 - 20 = 1480 bytes.\n3. TTL is 64 and the header checksum is 0xAC46. The checksum covers the header only, and adding all its 16-bit words gives 0xFFFF.\n4. The first router forwards the packet, so it subtracts 1 from TTL: 64 becomes 63. The header changed, so the checksum is recomputed: 0xAC46 becomes 0xAD46.\n5. The source and destination addresses (172.16.10.99 and 172.16.10.12) do not change at a router. Only TTL and the checksum differ.\n\n**Answer:** Header 20 bytes, payload 1480. The router changes TTL (64 to 63) and the checksum (0xAC46 to 0xAD46).",
+   "why_full": "Header questions are quick marks. In GATE: header or payload size from HLEN and total length, which fields a router modifies, or what TTL is for.\n\nAsked: 2003 CS Q27, 2006 CS Q5, 2010 CS Q15, 2015 CS1 Q22, 2017 CS2 Q20, 2020 CS Q25, 2024 CS2 Q32",
+   "trap": "Reading HLEN as a number of bytes (HLEN = 9 means 36 bytes, not 9). Another slip is saying that routers change the source address, or that the checksum covers the payload; it covers only the header."
+  },
+  {
+   "atom_id": "a8",
+   "title": "Fragmentation",
+   "simple": "Imagine posting a long banner through a letterbox that is narrow. You must cut the banner into strips, and each strip must go in its own envelope with its own label. The strips must be cut so that each one starts at a place that is a multiple of 8 on the ruler, because the 'position' on the envelope is written in units of 8. Each envelope says where its strip belongs and whether more strips follow. At the far end, the strips are glued back together. In exam words: data per fragment is (MTU - header) rounded down to a multiple of 8, the offset is the start byte over 8, and MF is 0 only on the last.",
+   "idea": "When a datagram is larger than the link's **MTU**, a router splits it into **fragments**. Each fragment carries its own header and a piece of the payload. Every piece except the last must carry a multiple of 8 bytes, because the offset field counts 8-byte units.",
+   "definition": "For a datagram with payload P bytes, header size H, and MTU M:\n\n**Data per fragment** $d = \\lfloor (M - H)/8 \\rfloor \\times 8$.\n\n**Number of fragments** $= \\lceil P / d \\rceil$.\n\nFragment k (starting at 0) has data bytes from $kd$. **Offset** $= kd / 8$ (in 8-byte units). **MF** = 1 except on the last fragment.\n\n**Last fragment:** data $= P - (n-1) d$, total length = data + H.\n\nCheck: last offset x 8 + last data $= P$.\n\nThe **identification** field is the same on all fragments of one datagram. The **DF** flag forbids fragmentation (the packet is dropped if too big).",
+   "intuition_full": "The offset field is 13 bits wide and the maximum datagram is 65,535 bytes, so the offset counts in units of 8 bytes: 8191 x 8 = 65,528 covers the whole range. That is why a fragment's data must start on a multiple of 8, and so every fragment except the last must carry a multiple of 8 bytes. A fragment's header is a copy of the original header, with its own total length, offset and MF. When the data capacity M - H is not a multiple of 8, you lose a few bytes per fragment. That is the step where students make mistakes, because dividing the datagram size by the MTU directly gives the wrong count. The method is always: payload, then per-fragment data (rounded down to 8), then the count, then the last piece. Reassembly happens only at the destination, using the identification, the offsets and the MF flag.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A datagram has a 20-byte header and 3800 bytes of payload. It must cross a link with MTU 1200 bytes. Find each fragment's data size, offset, MF flag and total length.",
+     "steps": [
+      "The datagram is 20 + 3800 = 3820 bytes, which is more than the MTU of 1200, so the router fragments it.",
+      "Each fragment needs its own 20-byte header, so at most 1200 - 20 = 1180 data bytes fit. The offset counts in 8-byte units, so every fragment except the last must carry a **multiple of 8** bytes: 1176 (= 147 x 8).",
+      "Fragment 1: payload bytes 0 to 1175. Offset 0, MF = 1, total length 1176 + 20 = 1196.",
+      "Fragment 2: bytes 1176 to 2351. Offset = 1176 / 8 = 147, MF = 1, total length 1196.",
+      "Fragment 3: bytes 2352 to 3527. Offset = 2352 / 8 = 294, MF = 1, total length 1196.",
+      "Fragment 4: the remaining 3800 - 3528 = 272 bytes. Offset = 3528 / 8 = 441, MF = 0 (last), total length 272 + 20 = 292.",
+      "Check: last offset x 8 + last data = 441 x 8 + 272 = 3528 + 272 = 3800, the original payload. There are 4 fragments."
+     ],
+     "answer": "4 fragments. Offsets 0, 147, 294, 441. MF 1, 1, 1, 0. Total lengths 1196, 1196, 1196, 292."
+    },
+    {
+     "level": "gate",
+     "setup": "A datagram has a 24-byte header (HLEN = 6) and 5000 bytes of payload. The link MTU is 1100 bytes, and every fragment keeps a 24-byte header. Find the number of fragments, and the offset and total length of the last fragment.",
+     "steps": [
+      "Space for data in one fragment: 1100 - 24 = 1076 bytes. Round **down** to a multiple of 8: 1076 / 8 = 134.5, so 134 x 8 = 1072 bytes.",
+      "Number of fragments = ceil(5000 / 1072) = ceil(4.66) = 5. Four fragments carry 1072 bytes each: 4 x 1072 = 4288 bytes.",
+      "The last fragment carries 5000 - 4288 = 712 bytes. Its total length is 712 + 24 = 736 bytes.",
+      "Its offset is 4288 / 8 = 536. The earlier offsets are 0, 134, 268, 402.",
+      "MF = 1 on the first four and 0 on the last."
+     ],
+     "answer": "5 fragments. The last has offset 536 and total length 736."
+    },
+    {
+     "level": "twist",
+     "setup": "A 1500-byte datagram (20-byte header) has the DF (don't fragment) flag set and meets a link with MTU 1400. What happens, and what payload size would pass?",
+     "steps": [
+      "DF = 1 forbids fragmentation. The router cannot split the datagram, and 1500 > 1400, so it **discards** it.",
+      "A router would normally send an ICMP error back (ICMP is not named in the 2027 syllabus; know only that the packet is lost and the sender is told).",
+      "The sender must make the datagrams smaller: 1400 - 20 = 1380 bytes of payload fits. This is how path MTU discovery works."
+     ],
+     "answer": "The datagram is dropped. A payload of up to 1380 bytes passes."
+    }
+   ],
+   "why": "Fragmentation arithmetic is one of the most repeated questions (10 in the blueprint) and always the same method. In GATE: the number of fragments, the offset or total length of a given fragment, or the payload of the last one.",
+   "how": [
+    "Find the payload P (total length - header).",
+    "Per-fragment data d = floor((MTU - header) / 8) x 8.",
+    "Fragments = ceil(P / d). Offset of fragment k = k x d / 8.",
+    "Last fragment data = P - (n - 1) d; total length = data + header; MF = 0.",
+    "Verify: last offset x 8 + last data = P."
+   ],
+   "mistake": "Dividing the datagram size by the MTU without subtracting the header or rounding to 8. A second slip is to read the offset field as bytes instead of 8-byte units.",
+   "edge_cases": [
+    "If M - H is already a multiple of 8 (e.g. 1480), no data is lost to rounding.",
+    "A datagram with DF = 1 that is too large is dropped, not fragmented.",
+    "Fragments can arrive out of order; the offsets let the destination reassemble."
+   ],
+   "connections": [
+    "The header fields used here are in a7.",
+    "Multi-MTU paths (a9) fragment the fragments again.",
+    "TCP avoids fragmentation by using a segment size that fits the path MTU (net.transport)."
+   ],
+   "check": [
+    {
+     "q": "MTU 1500, header 20. How much data per fragment?",
+     "a": "1480, which is already a multiple of 8."
+    },
+    {
+     "q": "A fragment starts at payload byte 4080. What is its offset?",
+     "a": "4080 / 8 = 510."
+    },
+    {
+     "q": "Payload 2500, MTU 900, header 20. How many fragments?",
+     "a": "d = 880 (already a multiple of 8). 2500 / 880 = 2.84, so 3 fragments."
+    }
+   ],
+   "asked": "Asked: 2013 CS Q37, 2014 CS3 Q28, 2015 CS2 Q52, 2016 CS1 Q53, 2018 CS Q64, 2021 CS1 Q55",
+   "try": {
+    "id": "gen.net.ipv4.004",
+    "label": "Try: units of the fragment offset field (L1)"
+   },
+   "scene": "net.ipv4.a8.frag",
+   "example": {
+    "setup": "A datagram has a 20-byte header and 3800 bytes of payload. It must cross a link with MTU 1200 bytes. Find each fragment's data size, offset, MF flag and total length.",
+    "steps": [
+     "The datagram is 20 + 3800 = 3820 bytes, which is more than the MTU of 1200, so the router fragments it.",
+     "Each fragment needs its own 20-byte header, so at most 1200 - 20 = 1180 data bytes fit. The offset counts in 8-byte units, so every fragment except the last must carry a **multiple of 8** bytes: 1176 (= 147 x 8).",
+     "Fragment 1: payload bytes 0 to 1175. Offset 0, MF = 1, total length 1176 + 20 = 1196.",
+     "Fragment 2: bytes 1176 to 2351. Offset = 1176 / 8 = 147, MF = 1, total length 1196.",
+     "Fragment 3: bytes 2352 to 3527. Offset = 2352 / 8 = 294, MF = 1, total length 1196.",
+     "Fragment 4: the remaining 3800 - 3528 = 272 bytes. Offset = 3528 / 8 = 441, MF = 0 (last), total length 272 + 20 = 292.",
+     "Check: last offset x 8 + last data = 441 x 8 + 272 = 3528 + 272 = 3800, the original payload. There are 4 fragments."
+    ],
+    "answer": "4 fragments. Offsets 0, 147, 294, 441. MF 1, 1, 1, 0. Total lengths 1196, 1196, 1196, 292."
+   },
+   "what": "When a datagram is larger than the link's **MTU**, a router splits it into **fragments**. Each fragment carries its own header and a piece of the payload. Every piece except the last must carry a multiple of 8 bytes, because the offset field counts 8-byte units.",
+   "what_full": "When a datagram is larger than the link's **MTU**, a router splits it into **fragments**. Each fragment carries its own header and a piece of the payload. Every piece except the last must carry a multiple of 8 bytes, because the offset field counts 8-byte units.\n\nFor a datagram with payload P bytes, header size H, and MTU M:\n\n**Data per fragment** $d = \\lfloor (M - H)/8 \\rfloor \\times 8$.\n\n**Number of fragments** $= \\lceil P / d \\rceil$.\n\nFragment k (starting at 0) has data bytes from $kd$. **Offset** $= kd / 8$ (in 8-byte units). **MF** = 1 except on the last fragment.\n\n**Last fragment:** data $= P - (n-1) d$, total length = data + H.\n\nCheck: last offset x 8 + last data $= P$.\n\nThe **identification** field is the same on all fragments of one datagram. The **DF** flag forbids fragmentation (the packet is dropped if too big).\n\n**Worked example.** A datagram has a 20-byte header and 3800 bytes of payload. It must cross a link with MTU 1200 bytes. Find each fragment's data size, offset, MF flag and total length.\n\n1. The datagram is 20 + 3800 = 3820 bytes, which is more than the MTU of 1200, so the router fragments it.\n2. Each fragment needs its own 20-byte header, so at most 1200 - 20 = 1180 data bytes fit. The offset counts in 8-byte units, so every fragment except the last must carry a **multiple of 8** bytes: 1176 (= 147 x 8).\n3. Fragment 1: payload bytes 0 to 1175. Offset 0, MF = 1, total length 1176 + 20 = 1196.\n4. Fragment 2: bytes 1176 to 2351. Offset = 1176 / 8 = 147, MF = 1, total length 1196.\n5. Fragment 3: bytes 2352 to 3527. Offset = 2352 / 8 = 294, MF = 1, total length 1196.\n6. Fragment 4: the remaining 3800 - 3528 = 272 bytes. Offset = 3528 / 8 = 441, MF = 0 (last), total length 272 + 20 = 292.\n7. Check: last offset x 8 + last data = 441 x 8 + 272 = 3528 + 272 = 3800, the original payload. There are 4 fragments.\n\n**Answer:** 4 fragments. Offsets 0, 147, 294, 441. MF 1, 1, 1, 0. Total lengths 1196, 1196, 1196, 292.",
+   "why_full": "Fragmentation arithmetic is one of the most repeated questions (10 in the blueprint) and always the same method. In GATE: the number of fragments, the offset or total length of a given fragment, or the payload of the last one.\n\nAsked: 2013 CS Q37, 2014 CS3 Q28, 2015 CS2 Q52, 2016 CS1 Q53, 2018 CS Q64, 2021 CS1 Q55",
+   "trap": "Dividing the datagram size by the MTU without subtracting the header or rounding to 8. A second slip is to read the offset field as bytes instead of 8-byte units."
+  },
+  {
+   "atom_id": "a9",
+   "title": "Multi-MTU fragmentation and reassembly",
+   "simple": "Suppose the banner from the last card has already been cut into strips, and now the strips must go through an even narrower letterbox. The new letterbox does not know about the old cut. It cuts each strip again, as many times as it needs. No one glues anything together on the way. Only the person at the final address glues all the small strips back, using the position written on each one. So the number of strips at the end is the sum of the pieces from each strip. In exam words: each router fragments what it receives, routers never reassemble, and only the destination does.",
+   "idea": "If a path has several links with different MTUs, **every router re-fragments** whatever it receives that is too big. Fragments themselves can be fragmented. **Only the destination reassembles**, using offset, identification and MF.",
+   "definition": "Work **link by link**: apply the single-link rule (a8) to the datagram, then apply it again to each resulting fragment for the next smaller MTU.\n\nA piece that already fits is left alone. The offset of a sub-piece is the fragment's offset plus its start / 8.\n\n**MF:** every piece keeps MF = 1 unless it is the last piece of the last fragment of the datagram.\n\n**Reassembly:** only at the destination host. It needs all pieces: total payload $= \\text{last offset} \\times 8 + \\text{last data}$. If any piece is missing, the whole datagram is discarded when a timer expires, and the upper layer must retransmit.\n\nSplitting the original once for the smallest MTU gives a different (smaller) count than re-splitting the pieces. ",
+   "intuition_full": "The router at the second link sees only a stream of IP datagrams. It does not know that some of them are fragments. It just compares each datagram size with its outgoing MTU and cuts those that are too big. So the second cut starts from each fragment separately, not from the whole payload. Rounding to a multiple of 8 happens in each cut, which is why re-splitting produces more pieces than one big split for the smaller MTU. Reassembly at intermediate routers would be a bad idea: fragments may take different routes, and the router would need to buffer them. Doing it at the destination keeps routers simple. The price is that a lost fragment destroys the whole datagram, so fragmentation hurts reliability, and TCP tries to avoid it.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A datagram with 3000 bytes of payload (20-byte header) crosses a link with MTU 1500 and then a link with MTU 700. How many fragments reach the destination, and what are their offsets?",
+     "steps": [
+      "Start: 3000 bytes of payload in one datagram.",
+      "Link 1 (MTU 1500): data per fragment = floor(1480 / 8) x 8 = 1480. The payload splits into 1480, 1480 and 40 bytes with offsets 0, 185 and 370. The last has MF = 0.",
+      "Link 2 (MTU 700): data per fragment = floor(680 / 8) x 8 = 680. The first fragment (1480 bytes, offset 0) splits into 680, 680, 120 with offsets 0, 85, 170.",
+      "The second fragment (1480 bytes, offset 185) splits into 680, 680, 120 with offsets 185, 270, 355. All six pieces keep MF = 1, because they come from fragments that were not the last.",
+      "The third fragment has 40 + 20 = 60 bytes, which fits in 700. It is not split again: offset 370, MF = 0.",
+      "The destination receives 3 + 3 + 1 = **7** fragments. Only now are they reassembled: last offset x 8 + last data = 370 x 8 + 40 = 3000. Routers never reassemble."
+     ],
+     "answer": "7 fragments, with offsets 0, 85, 170, 185, 270, 355, 370."
+    },
+    {
+     "level": "gate",
+     "setup": "A datagram with 6000 bytes of payload (20-byte header) goes over a link with MTU 2500 and then a link with MTU 1000. How many fragments reach the destination?",
+     "steps": [
+      "Link 1: data per fragment = floor(2480 / 8) x 8 = 2480. Fragments: 2480, 2480, 1040 bytes (offsets 0, 310, 620).",
+      "Link 2: data per fragment = floor(980 / 8) x 8 = 976 (not 980, because of the multiple of 8).",
+      "2480 bytes -> 976 + 976 + 528: 3 pieces (each of the two big fragments).",
+      "1040 bytes -> 976 + 64: 2 pieces.",
+      "Total = 3 + 3 + 2 = 8 fragments. The last has offset 742 and 64 data bytes: 742 x 8 + 64 = 6000.",
+      "Splitting the original 6000 at MTU 1000 in one step would give 7 fragments. Re-splitting the pieces gives 8, because each piece rounds separately."
+     ],
+     "answer": "8 fragments."
+    },
+    {
+     "level": "twist",
+     "setup": "The destination has received three fragments of one datagram: offset 0 with 1000 data bytes (MF = 1), offset 125 with 1000 bytes (MF = 1), and offset 375 with 640 bytes (MF = 0). The fragment in between never arrived. What does IP do, and how large was the datagram?",
+     "steps": [
+      "The last fragment gives the total payload: 375 x 8 + 640 = 3000 + 640 = 3640 bytes.",
+      "The received data cover bytes 0-999, 1000-1999 and 3000-3639. Bytes 2000-2999 (offset 250, 1000 bytes) are missing.",
+      "The destination keeps the pieces for a reassembly timeout. If the missing fragment does not arrive, it discards all of them.",
+      "IP does not ask for a resend. The upper layer (TCP) times out and resends the whole segment, which is then fragmented again."
+     ],
+     "answer": "The datagram (3640 bytes of payload) is discarded. TCP must resend all of it."
+    }
+   ],
+   "why": "The two-link version is the harder fragmentation question, asked a few times with high difficulty. In GATE: the number of fragments reaching the destination, or statements about where fragmentation and reassembly happen.",
+   "how": [
+    "Fragment the datagram for link 1 using a8. Write the list of data sizes.",
+    "For link 2, take each fragment separately: if data + header <= MTU keep it, else split with d = floor((MTU - header) / 8) x 8.",
+    "Add up all the pieces at the destination.",
+    "Check with last offset x 8 + last data = total payload.",
+    "Remember: reassembly only at the destination."
+   ],
+   "mistake": "Splitting the original datagram once for the smaller MTU (which ignores the first cut), or believing a router reassembles fragments. Another slip is to give the sub-pieces of a middle fragment MF = 0.",
+   "edge_cases": [
+    "If the second MTU is larger than the first, nothing changes: fragments are never merged on the way.",
+    "The identification field stays the same in all pieces.",
+    "Timer expiry at the destination discards the partial datagram (2021 CS1 Q55: TCP resends)."
+   ],
+   "connections": [
+    "The single-link method is a8.",
+    "Routers and layering: reassembly only at the destination reflects the end-to-end design (net.layering l2).",
+    "TCP segment size choice (net.transport) is the way to avoid fragmentation."
+   ],
+   "check": [
+    {
+     "q": "Where is a fragmented datagram reassembled?",
+     "a": "Only at the destination host."
+    },
+    {
+     "q": "A fragment of 1480 data bytes meets MTU 700 (header 20). Pieces?",
+     "a": "d = 680. Pieces 680, 680, 120: three."
+    },
+    {
+     "q": "Does a router that has fragments merge them into a bigger datagram when the next link has a larger MTU?",
+     "a": "No. Fragments stay as they are until the destination."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q65, 2025 CS1 Q57, 2021 CS1 Q55, 2024 CS2 Q28, 2020 CS Q25",
+   "try": {
+    "id": "gen.net.ipv4.012",
+    "label": "Try: where fragments are reassembled (L2)"
+   },
+   "scene": "net.ipv4.a9.refrag",
+   "example": {
+    "setup": "A datagram with 3000 bytes of payload (20-byte header) crosses a link with MTU 1500 and then a link with MTU 700. How many fragments reach the destination, and what are their offsets?",
+    "steps": [
+     "Start: 3000 bytes of payload in one datagram.",
+     "Link 1 (MTU 1500): data per fragment = floor(1480 / 8) x 8 = 1480. The payload splits into 1480, 1480 and 40 bytes with offsets 0, 185 and 370. The last has MF = 0.",
+     "Link 2 (MTU 700): data per fragment = floor(680 / 8) x 8 = 680. The first fragment (1480 bytes, offset 0) splits into 680, 680, 120 with offsets 0, 85, 170.",
+     "The second fragment (1480 bytes, offset 185) splits into 680, 680, 120 with offsets 185, 270, 355. All six pieces keep MF = 1, because they come from fragments that were not the last.",
+     "The third fragment has 40 + 20 = 60 bytes, which fits in 700. It is not split again: offset 370, MF = 0.",
+     "The destination receives 3 + 3 + 1 = **7** fragments. Only now are they reassembled: last offset x 8 + last data = 370 x 8 + 40 = 3000. Routers never reassemble."
+    ],
+    "answer": "7 fragments, with offsets 0, 85, 170, 185, 270, 355, 370."
+   },
+   "what": "If a path has several links with different MTUs, **every router re-fragments** whatever it receives that is too big. Fragments themselves can be fragmented. **Only the destination reassembles**, using offset, identification and MF.",
+   "what_full": "If a path has several links with different MTUs, **every router re-fragments** whatever it receives that is too big. Fragments themselves can be fragmented. **Only the destination reassembles**, using offset, identification and MF.\n\nWork **link by link**: apply the single-link rule (a8) to the datagram, then apply it again to each resulting fragment for the next smaller MTU.\n\nA piece that already fits is left alone. The offset of a sub-piece is the fragment's offset plus its start / 8.\n\n**MF:** every piece keeps MF = 1 unless it is the last piece of the last fragment of the datagram.\n\n**Reassembly:** only at the destination host. It needs all pieces: total payload $= \\text{last offset} \\times 8 + \\text{last data}$. If any piece is missing, the whole datagram is discarded when a timer expires, and the upper layer must retransmit.\n\nSplitting the original once for the smallest MTU gives a different (smaller) count than re-splitting the pieces. \n\n**Worked example.** A datagram with 3000 bytes of payload (20-byte header) crosses a link with MTU 1500 and then a link with MTU 700. How many fragments reach the destination, and what are their offsets?\n\n1. Start: 3000 bytes of payload in one datagram.\n2. Link 1 (MTU 1500): data per fragment = floor(1480 / 8) x 8 = 1480. The payload splits into 1480, 1480 and 40 bytes with offsets 0, 185 and 370. The last has MF = 0.\n3. Link 2 (MTU 700): data per fragment = floor(680 / 8) x 8 = 680. The first fragment (1480 bytes, offset 0) splits into 680, 680, 120 with offsets 0, 85, 170.\n4. The second fragment (1480 bytes, offset 185) splits into 680, 680, 120 with offsets 185, 270, 355. All six pieces keep MF = 1, because they come from fragments that were not the last.\n5. The third fragment has 40 + 20 = 60 bytes, which fits in 700. It is not split again: offset 370, MF = 0.\n6. The destination receives 3 + 3 + 1 = **7** fragments. Only now are they reassembled: last offset x 8 + last data = 370 x 8 + 40 = 3000. Routers never reassemble.\n\n**Answer:** 7 fragments, with offsets 0, 85, 170, 185, 270, 355, 370.",
+   "why_full": "The two-link version is the harder fragmentation question, asked a few times with high difficulty. In GATE: the number of fragments reaching the destination, or statements about where fragmentation and reassembly happen.\n\nAsked: 2024 CS1 Q65, 2025 CS1 Q57, 2021 CS1 Q55, 2024 CS2 Q28, 2020 CS Q25",
+   "trap": "Splitting the original datagram once for the smaller MTU (which ignores the first cut), or believing a router reassembles fragments. Another slip is to give the sub-pieces of a middle fragment MF = 0."
+  },
+  {
+   "atom_id": "a10",
+   "title": "NAT basics",
+   "simple": "Imagine a big office where everyone has an internal phone extension, but the office has only one public phone number. When someone inside calls out, the receptionist notes who made the call, and the outside world sees only the office number plus a line number. When the reply comes in on that line number, the receptionist looks up who was calling and connects the call. People outside can't ring an extension directly, because the receptionist has no record of it. In exam words: NAT rewrites the source IP and port on the way out, the destination on the way back, and recomputes the checksums; private ranges are 10/8, 172.16/12, 192.168/16.",
+   "idea": "**NAT** (network address translation) lets many hosts with **private** addresses share one public address. The NAT router rewrites the source address and port on outgoing packets, remembers the mapping, and rewrites the destination on the replies.",
+   "definition": "**Private ranges (not routed on the Internet):** 10.0.0.0/8, 172.16.0.0/12 (172.16 to 172.31), 192.168.0.0/16.\n\n**Outbound:** rewrite source IP (and source port with PAT/port translation) to the public address and a fresh port. Store the mapping. Recompute the IP header checksum and the TCP checksum.\n\n**Inbound:** look up the destination port in the table and rewrite the destination IP and port back. No entry means the packet is dropped.\n\nThe destination address of an outbound packet and the total length are unchanged. TTL falls by 1 at the NAT router as at any router.\n\nThe mapping is created by the first outbound packet. Inside servers need a static mapping (port forwarding).",
+   "intuition_full": "The IPv4 address space is too small to give every device a public address, so most networks use private addresses inside and a few public addresses outside. A packet cannot leave with a private source, because the reply would have nowhere to go. The NAT router fixes this by lending its own address, and by using the port number to remember which inside host a reply belongs to. Because the mapping depends on the port, one public address can serve thousands of connections. The cost is that NAT rewrites headers that the end hosts think are theirs, which breaks the end-to-end principle: the server sees the NAT router's address, and an outside host cannot start a connection to an inside host. The checksums have to be fixed because the addresses and ports are part of what they cover.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A NAT router has the public address 203.0.113.9. Host H1 (192.168.0.12) opens a connection from source port 5555 to the server 198.51.100.20 port 80. Follow the outbound packet and the reply, and then host H2 (192.168.0.20), which also uses source port 5555.",
+     "steps": [
+      "The LAN uses private addresses (here 192.168.0.0/16, also 10.0.0.0/8 and 172.16.0.0/12), which are not routed on the Internet. The NAT router has one public address, 203.0.113.9.",
+      "H1 sends a packet from 192.168.0.12:5555 to 198.51.100.20:80.",
+      "The NAT router rewrites the source to 203.0.113.9:40001, saves the mapping 192.168.0.12:5555 <-> 203.0.113.9:40001, and recomputes the IP and TCP checksums. The destination is unchanged.",
+      "The server replies to 203.0.113.9:40001, which is the only address it knows.",
+      "The NAT router looks up port 40001 in its table and rewrites the destination to 192.168.0.12:5555 (and fixes the checksums). The reply reaches H1.",
+      "H2 also uses source port 5555. The NAT router assigns it a different outside port, 40002, so that replies can be told apart. The **port number** is the key that distinguishes the inside hosts."
+     ],
+     "answer": "H1 maps to 203.0.113.9:40001 and H2 to 203.0.113.9:40002."
+    },
+    {
+     "level": "gate",
+     "setup": "A NAT router forwards a TCP packet from an inside host to an outside server. Compare the packet leaving the NAT router with the one that entered it. Which of these change: source IP, source port, destination IP, TTL, IP header checksum, total length?",
+     "steps": [
+      "Source IP: **changes** (private address replaced by the NAT router's public address).",
+      "Source port: **changes** if the NAT uses port translation (the example gives a new port 40001).",
+      "Destination IP: unchanged. The server's address is not touched on the outbound path.",
+      "TTL: **changes** (every router subtracts 1). IP header checksum: **changes**, because the source address and TTL changed. The TCP checksum is also recomputed.",
+      "Total length: unchanged. NAT swaps fields of the same size."
+     ],
+     "answer": "Source IP, source port, TTL and the checksums change. Destination IP and total length do not."
+    },
+    {
+     "level": "twist",
+     "setup": "An outside client sends a packet to 203.0.113.9:8080. The NAT table has no entry for outside port 8080. What does the NAT router do, and how could an inside web server become reachable?",
+     "steps": [
+      "A NAT router creates mappings only when an inside host sends the first packet. For an unsolicited packet it has no mapping.",
+      "It cannot tell which inside host is meant, so it **drops** the packet.",
+      "To publish an inside server, an operator adds a static mapping (port forwarding): 203.0.113.9:8080 <-> 192.168.0.30:80. Then inbound packets to port 8080 are rewritten to that host.",
+      "This is why NAT breaks end-to-end addressing: hosts behind NAT cannot be reached from outside by default."
+     ],
+     "answer": "The packet is dropped. A static port-forwarding entry makes the server reachable."
+    }
+   ],
+   "why": "NAT is part of the addressing story in the exam. In GATE: which header fields NAT changes, or what happens to a packet in each direction.",
+   "how": [
+    "Recall the three private ranges.",
+    "Outbound: source IP and port change; destination IP does not.",
+    "Inbound: destination IP and port change; source does not.",
+    "Both directions: checksums are recomputed.",
+    "An inbound packet with no table entry is dropped."
+   ],
+   "mistake": "Saying NAT changes the destination of an outbound packet, or that it leaves the checksum alone. The checksums include the addresses and ports, so they change. Another slip is to think that a private address is routable on the Internet.",
+   "edge_cases": [
+    "Without port translation, NAT needs one public address per inside host at a time.",
+    "172.15.x.x and 172.32.x.x are public. Private is only 172.16 to 172.31.",
+    "Low priority: DHCP, which hands out the private addresses, is not named in the 2027 syllabus."
+   ],
+   "connections": [
+    "The header fields changed are those of a7.",
+    "The per-hop MAC change is a11.",
+    "TCP ports and checksums (net.transport) explain why NAT must rewrite them."
+   ],
+   "check": [
+    {
+     "q": "Which of 172.15.1.1, 172.20.1.1, 192.169.1.1 is private?",
+     "a": "Only 172.20.1.1 (172.16.0.0/12 covers 172.16 to 172.31)."
+    },
+    {
+     "q": "What does NAT change on an inbound reply?",
+     "a": "The destination IP and port (back to the inside host's), plus checksums."
+    },
+    {
+     "q": "Why does NAT need the port number?",
+     "a": "Many inside hosts share one public address; the port tells their connections apart."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q31, 2025 CS2 Q16",
+   "try": {
+    "id": "gen.net.ipv4.005",
+    "label": "Try: which address is private (L1)"
+   },
+   "scene": "net.ipv4.a10.nat",
+   "example": {
+    "setup": "A NAT router has the public address 203.0.113.9. Host H1 (192.168.0.12) opens a connection from source port 5555 to the server 198.51.100.20 port 80. Follow the outbound packet and the reply, and then host H2 (192.168.0.20), which also uses source port 5555.",
+    "steps": [
+     "The LAN uses private addresses (here 192.168.0.0/16, also 10.0.0.0/8 and 172.16.0.0/12), which are not routed on the Internet. The NAT router has one public address, 203.0.113.9.",
+     "H1 sends a packet from 192.168.0.12:5555 to 198.51.100.20:80.",
+     "The NAT router rewrites the source to 203.0.113.9:40001, saves the mapping 192.168.0.12:5555 <-> 203.0.113.9:40001, and recomputes the IP and TCP checksums. The destination is unchanged.",
+     "The server replies to 203.0.113.9:40001, which is the only address it knows.",
+     "The NAT router looks up port 40001 in its table and rewrites the destination to 192.168.0.12:5555 (and fixes the checksums). The reply reaches H1.",
+     "H2 also uses source port 5555. The NAT router assigns it a different outside port, 40002, so that replies can be told apart. The **port number** is the key that distinguishes the inside hosts."
+    ],
+    "answer": "H1 maps to 203.0.113.9:40001 and H2 to 203.0.113.9:40002."
+   },
+   "what": "**NAT** (network address translation) lets many hosts with **private** addresses share one public address. The NAT router rewrites the source address and port on outgoing packets, remembers the mapping, and rewrites the destination on the replies.",
+   "what_full": "**NAT** (network address translation) lets many hosts with **private** addresses share one public address. The NAT router rewrites the source address and port on outgoing packets, remembers the mapping, and rewrites the destination on the replies.\n\n**Private ranges (not routed on the Internet):** 10.0.0.0/8, 172.16.0.0/12 (172.16 to 172.31), 192.168.0.0/16.\n\n**Outbound:** rewrite source IP (and source port with PAT/port translation) to the public address and a fresh port. Store the mapping. Recompute the IP header checksum and the TCP checksum.\n\n**Inbound:** look up the destination port in the table and rewrite the destination IP and port back. No entry means the packet is dropped.\n\nThe destination address of an outbound packet and the total length are unchanged. TTL falls by 1 at the NAT router as at any router.\n\nThe mapping is created by the first outbound packet. Inside servers need a static mapping (port forwarding).\n\n**Worked example.** A NAT router has the public address 203.0.113.9. Host H1 (192.168.0.12) opens a connection from source port 5555 to the server 198.51.100.20 port 80. Follow the outbound packet and the reply, and then host H2 (192.168.0.20), which also uses source port 5555.\n\n1. The LAN uses private addresses (here 192.168.0.0/16, also 10.0.0.0/8 and 172.16.0.0/12), which are not routed on the Internet. The NAT router has one public address, 203.0.113.9.\n2. H1 sends a packet from 192.168.0.12:5555 to 198.51.100.20:80.\n3. The NAT router rewrites the source to 203.0.113.9:40001, saves the mapping 192.168.0.12:5555 <-> 203.0.113.9:40001, and recomputes the IP and TCP checksums. The destination is unchanged.\n4. The server replies to 203.0.113.9:40001, which is the only address it knows.\n5. The NAT router looks up port 40001 in its table and rewrites the destination to 192.168.0.12:5555 (and fixes the checksums). The reply reaches H1.\n6. H2 also uses source port 5555. The NAT router assigns it a different outside port, 40002, so that replies can be told apart. The **port number** is the key that distinguishes the inside hosts.\n\n**Answer:** H1 maps to 203.0.113.9:40001 and H2 to 203.0.113.9:40002.",
+   "why_full": "NAT is part of the addressing story in the exam. In GATE: which header fields NAT changes, or what happens to a packet in each direction.\n\nAsked: 2024 CS1 Q31, 2025 CS2 Q16",
+   "trap": "Saying NAT changes the destination of an outbound packet, or that it leaves the checksum alone. The checksums include the addresses and ports, so they change. Another slip is to think that a private address is routable on the Internet."
+  },
+  {
+   "atom_id": "a11",
+   "title": "IP versus MAC per hop",
+   "simple": "A parcel has two addresses on it. The big address says who the parcel is finally for, and it stays the same all the way. The small label says which van driver should take it on this stretch of road, and it is swapped at every depot. To decide who to give the parcel to first, the sender checks whether the receiver lives on the same street. If so, it goes straight there. If not, it hands the parcel to the local depot (the gateway). In exam words: the destination IP is end to end, the MAC addresses are rewritten at every link, and the first destination MAC is the gateway's if the destination is remote.",
+   "idea": "The **IP** address names the final host and stays the same along the path. The **MAC** address names the next device on the current link and is rewritten at every hop. A host decides between delivering directly and using the gateway by testing whether the destination is on its own subnet.",
+   "definition": "For a packet crossing k links, k frames carry it. In frame j:\n\n**Source IP / destination IP:** the original ones, unchanged (except NAT rewrites the source).\n\n**Source MAC:** the sender's interface on link j. **Destination MAC:** the receiver's interface on link j (the next hop).\n\n**Local or remote test:** the sender applies its own mask to the destination. Same network: destination MAC = the destination host. Different: destination MAC = the default gateway.\n\n**TTL** falls by 1 at each router (k - 1 times in all).\n\nFinding a MAC from an IP is done by ARP, which asks the whole LAN by broadcast. ARP is not named in the 2027 syllabus; know only its purpose.",
+   "intuition_full": "The two kinds of address answer different questions. IP: where is this packet ultimately going? It is a property of the packet. MAC: who on this wire should pick it up right now? It is a property of the link. A router sits between two links, so it has one MAC per interface, and a frame arriving on one interface is stripped and replaced by a frame on the next, with the router's outgoing MAC as source. The packet inside is the same, only TTL and checksum differ. A host's first step is the subnet test (card a3), which tells it whether Y is a neighbour on the wire (use Y's MAC) or must be reached through the gateway (use the gateway's MAC while keeping Y's IP). Mixing up these two addresses is the main trap in this topic.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Host X = 192.168.10.37/26 wants to send a packet to Y = 192.168.10.90. The path is X, R1, R2, Y (three links, two routers). Decide whether X sends the frame to Y directly, and give the addresses in the frame on each link.",
+     "steps": [
+      "X applies its mask: /26 gives block size 64, so X's network is 192.168.10.0/26 (addresses 0-63). Y's .90 is outside, so Y is on another subnet and X must use its default gateway, R1.",
+      "Frame on link 1: destination MAC = R1's interface on X's LAN (R1a), not Y's MAC. Source MAC = X. The IP packet says source X, destination Y.",
+      "R1 strips the frame, looks up Y, subtracts 1 from TTL, and builds a **new frame** for link 2: MACs R1b to R2a. The IP addresses are unchanged.",
+      "R2 does the same on link 3: MACs R2b to Y. Here the destination MAC is Y itself, because Y is directly connected to R2.",
+      "Summary: across 3 links the MAC addresses changed 3 times and the IP addresses 0 times. TTL fell by 2, once for each router."
+     ],
+     "answer": "Frames: X to R1a, R1b to R2a, R2b to Y. IP source X and destination Y in all three."
+    },
+    {
+     "level": "gate",
+     "setup": "Host X (private address 192.168.1.5) reaches Y (198.51.100.20) through a NAT router N (public address 203.0.113.9) and then a router R. The path is X, N, R, Y. Give the IP and MAC addresses on each of the 3 links, and say how many times the IP addresses change.",
+     "steps": [
+      "Link 1 (X to N): MAC X to Na. IP source 192.168.1.5, destination Y.",
+      "Link 2 (N to R): MAC Nb to Ra. NAT has rewritten the source: IP source 203.0.113.9, destination Y.",
+      "Link 3 (R to Y): MAC Rb to Y. IP source 203.0.113.9, destination Y (R only forwards).",
+      "MAC addresses change on every link (3 times). The IP source changes once, at the NAT router; the destination IP never changes."
+     ],
+     "answer": "Link 1: IP 192.168.1.5 to Y. Links 2 and 3: IP 203.0.113.9 to Y. MACs change on all 3 links."
+    },
+    {
+     "level": "twist",
+     "setup": "X = 192.168.10.37/26 sends to Z = 192.168.10.50. Which MAC is in the destination field, and is TTL decremented?",
+     "steps": [
+      "Z's .50 is in 0-63, the same /26 as X. Z is on the same subnet, so X sends the frame directly to Z.",
+      "The destination MAC is Z's own MAC. There is no router, so no new frame and no change of addresses.",
+      "TTL is not decremented, because no router handles the packet."
+     ],
+     "answer": "The destination MAC is Z's own, and TTL is unchanged."
+    }
+   ],
+   "why": "The frame-versus-packet addressing question is asked almost every year in some form. In GATE: the addresses in the frame at a given hop, or which fields change along the path.",
+   "how": [
+    "Apply the sender's mask to the destination IP: local or remote?",
+    "Local: destination MAC = the destination host. Remote: destination MAC = default gateway.",
+    "On each link, source and destination MAC are the two interfaces on that link.",
+    "IP source and destination stay the same, unless NAT rewrites the source.",
+    "TTL falls by 1 per router."
+   ],
+   "mistake": "Putting the final host's MAC in the first frame, or believing that IP addresses change at each router. The destination IP is the final host's, and the destination MAC is the next hop's.",
+   "edge_cases": [
+    "Two hosts on the same switch need no router: the destination MAC is the other host's.",
+    "A switch in between does not change the MAC addresses.",
+    "With NAT in the path, the source IP changes once, at the NAT router."
+   ],
+   "connections": [
+    "The subnet test is a3; the router lookup is a6.",
+    "MAC learning in switches is in net.datalink (d11).",
+    "Layer visits (net.layering l2) count the same frames."
+   ],
+   "check": [
+    {
+     "q": "A packet crosses 3 routers. How many different destination MACs does it use?",
+     "a": "4, one per link, each the next hop on that link."
+    },
+    {
+     "q": "X sends to a host on its own subnet. Which MAC is the destination?",
+     "a": "The host's own MAC."
+    },
+    {
+     "q": "Does the destination IP change at a router?",
+     "a": "No. It names the final host."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q23, 2025 CS2 Q16",
+   "try": {
+    "id": "gen.net.ipv4.013",
+    "label": "Try: IP and MAC in the frame leaving host X (L2)"
+   },
+   "scene": "net.ipv4.a11.hops",
+   "example": {
+    "setup": "Host X = 192.168.10.37/26 wants to send a packet to Y = 192.168.10.90. The path is X, R1, R2, Y (three links, two routers). Decide whether X sends the frame to Y directly, and give the addresses in the frame on each link.",
+    "steps": [
+     "X applies its mask: /26 gives block size 64, so X's network is 192.168.10.0/26 (addresses 0-63). Y's .90 is outside, so Y is on another subnet and X must use its default gateway, R1.",
+     "Frame on link 1: destination MAC = R1's interface on X's LAN (R1a), not Y's MAC. Source MAC = X. The IP packet says source X, destination Y.",
+     "R1 strips the frame, looks up Y, subtracts 1 from TTL, and builds a **new frame** for link 2: MACs R1b to R2a. The IP addresses are unchanged.",
+     "R2 does the same on link 3: MACs R2b to Y. Here the destination MAC is Y itself, because Y is directly connected to R2.",
+     "Summary: across 3 links the MAC addresses changed 3 times and the IP addresses 0 times. TTL fell by 2, once for each router."
+    ],
+    "answer": "Frames: X to R1a, R1b to R2a, R2b to Y. IP source X and destination Y in all three."
+   },
+   "what": "The **IP** address names the final host and stays the same along the path. The **MAC** address names the next device on the current link and is rewritten at every hop. A host decides between delivering directly and using the gateway by testing whether the destination is on its own subnet.",
+   "what_full": "The **IP** address names the final host and stays the same along the path. The **MAC** address names the next device on the current link and is rewritten at every hop. A host decides between delivering directly and using the gateway by testing whether the destination is on its own subnet.\n\nFor a packet crossing k links, k frames carry it. In frame j:\n\n**Source IP / destination IP:** the original ones, unchanged (except NAT rewrites the source).\n\n**Source MAC:** the sender's interface on link j. **Destination MAC:** the receiver's interface on link j (the next hop).\n\n**Local or remote test:** the sender applies its own mask to the destination. Same network: destination MAC = the destination host. Different: destination MAC = the default gateway.\n\n**TTL** falls by 1 at each router (k - 1 times in all).\n\nFinding a MAC from an IP is done by ARP, which asks the whole LAN by broadcast. ARP is not named in the 2027 syllabus; know only its purpose.\n\n**Worked example.** Host X = 192.168.10.37/26 wants to send a packet to Y = 192.168.10.90. The path is X, R1, R2, Y (three links, two routers). Decide whether X sends the frame to Y directly, and give the addresses in the frame on each link.\n\n1. X applies its mask: /26 gives block size 64, so X's network is 192.168.10.0/26 (addresses 0-63). Y's .90 is outside, so Y is on another subnet and X must use its default gateway, R1.\n2. Frame on link 1: destination MAC = R1's interface on X's LAN (R1a), not Y's MAC. Source MAC = X. The IP packet says source X, destination Y.\n3. R1 strips the frame, looks up Y, subtracts 1 from TTL, and builds a **new frame** for link 2: MACs R1b to R2a. The IP addresses are unchanged.\n4. R2 does the same on link 3: MACs R2b to Y. Here the destination MAC is Y itself, because Y is directly connected to R2.\n5. Summary: across 3 links the MAC addresses changed 3 times and the IP addresses 0 times. TTL fell by 2, once for each router.\n\n**Answer:** Frames: X to R1a, R1b to R2a, R2b to Y. IP source X and destination Y in all three.",
+   "why_full": "The frame-versus-packet addressing question is asked almost every year in some form. In GATE: the addresses in the frame at a given hop, or which fields change along the path.\n\nAsked: 2024 CS2 Q23, 2025 CS2 Q16",
+   "trap": "Putting the final host's MAC in the first frame, or believing that IP addresses change at each router. The destination IP is the final host's, and the destination MAC is the next hop's."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "net.ipv4.a1.class",
+   "title": "Reading class, network and broadcast from 197.84.17.6",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "o1",
+     "kind": "box",
+     "x": 14,
+     "y": 48,
+     "w": 76,
+     "h": 36,
+     "label": "197"
+    },
+    {
+     "id": "o2",
+     "kind": "box",
+     "x": 98,
+     "y": 48,
+     "w": 76,
+     "h": 36,
+     "label": "84"
+    },
+    {
+     "id": "o3",
+     "kind": "box",
+     "x": 182,
+     "y": 48,
+     "w": 76,
+     "h": 36,
+     "label": "17"
+    },
+    {
+     "id": "o4",
+     "kind": "box",
+     "x": 266,
+     "y": 48,
+     "w": 76,
+     "h": 36,
+     "label": "6"
+    },
+    {
+     "id": "netb",
+     "kind": "box",
+     "x": 14,
+     "y": 92,
+     "w": 244,
+     "h": 24,
+     "label": "network: 24 bits",
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "hostb",
+     "kind": "box",
+     "x": 266,
+     "y": 92,
+     "w": 76,
+     "h": 24,
+     "label": "host: 8",
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "bits",
+     "kind": "array",
+     "x": 60,
+     "y": 146,
+     "cells": [
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1
+     ],
+     "cw": 30,
+     "ch": 28,
+     "indices": false,
+     "label": "197 in binary"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Look at the first octet, 197.",
+     "show": [
+      "o1",
+      "o2",
+      "o3",
+      "o4"
+     ],
+     "highlight": [
+      {
+       "id": "o1",
+       "tone": "accent"
+      }
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "197.84.17.6"
+      }
+     ]
+    },
+    {
+     "caption": "In binary 197 = 11000101. The address starts with the bits 110.",
+     "show": [
+      "bits"
+     ],
+     "highlight": [
+      {
+       "id": "bits",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Leading bits 110 mean **class C** (first octet 192 to 223). Class C has 24 network bits and 8 host bits, so the default mask is 255.255.255.0, or /24.",
+     "show": [
+      "netb",
+      "hostb"
+     ],
+     "highlight": [
+      {
+       "id": "bits",
+       "tone": "good",
+       "cells": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "110 = class C, mask /24"
+      }
+     ]
+    },
+    {
+     "caption": "The **network address** has all host bits 0: 197.84.17.0. It names the network and is not assignable to a host.",
+     "set": [
+      {
+       "id": "o4",
+       "label": "0"
+      },
+      {
+       "id": "rd",
+       "text": "network: 197.84.17.0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "o4",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The **broadcast address** has all host bits 1: 197.84.17.255. It reaches every host and is not assignable either.",
+     "set": [
+      {
+       "id": "o4",
+       "label": "255"
+      },
+      {
+       "id": "rd",
+       "text": "broadcast: 197.84.17.255"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "o4",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Hosts = $2^8 - 2$ = 254 (addresses .1 to .254). 197.84.17.6 is one of them.",
+     "set": [
+      {
+       "id": "o4",
+       "label": "6"
+      },
+      {
+       "id": "rd",
+       "text": "254 hosts, e.g. 197.84.17.6",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "o4",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a2.mask",
+   "title": "Building the mask for /27",
+   "viewBox": [
+    0,
+    0,
+    360,
+    204
+   ],
+   "objects": [
+    {
+     "id": "m1",
+     "kind": "box",
+     "x": 14,
+     "y": 34,
+     "w": 76,
+     "h": 34,
+     "label": "255"
+    },
+    {
+     "id": "m2",
+     "kind": "box",
+     "x": 98,
+     "y": 34,
+     "w": 76,
+     "h": 34,
+     "label": "255"
+    },
+    {
+     "id": "m3",
+     "kind": "box",
+     "x": 182,
+     "y": 34,
+     "w": 76,
+     "h": 34,
+     "label": "255"
+    },
+    {
+     "id": "m4",
+     "kind": "box",
+     "x": 266,
+     "y": 34,
+     "w": 76,
+     "h": 34,
+     "label": "?"
+    },
+    {
+     "id": "bits",
+     "kind": "array",
+     "x": 60,
+     "y": 112,
+     "cells": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "cw": 30,
+     "ch": 28,
+     "indices": false,
+     "label": "last octet"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 186,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "/27 means the first 27 bits are 1. Three whole octets are 24 ones: 255.255.255.",
+     "show": [
+      "m1",
+      "m2",
+      "m3",
+      "m4"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "24 ones = 255.255.255.x"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "m1",
+       "tone": "good"
+      },
+      {
+       "id": "m2",
+       "tone": "good"
+      },
+      {
+       "id": "m3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "27 - 24 = 3 more ones fall in the last octet: 11100000.",
+     "show": [
+      "bits"
+     ],
+     "set": [
+      {
+       "id": "bits",
+       "cells": [
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "27 - 24 = 3 ones left"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bits",
+       "tone": "good",
+       "cells": [
+        0,
+        1,
+        2
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "11100000 = 128 + 64 + 32 = 224. The mask is **255.255.255.224**.",
+     "set": [
+      {
+       "id": "m4",
+       "label": "224"
+      },
+      {
+       "id": "rd",
+       "text": "128 + 64 + 32 = 224"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "m4",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The block size in that octet is 256 - 224 = 32. Subnets start at 0, 32, 64, 96, ...",
+     "set": [
+      {
+       "id": "rd",
+       "text": "block size = 256 - 224 = 32"
+      }
+     ]
+    },
+    {
+     "caption": "Host bits = 32 - 27 = 5, so $2^5$ = 32 addresses and 32 - 2 = 30 usable hosts.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "2^5 = 32 addresses, 30 hosts",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bits",
+       "tone": "mid",
+       "cells": [
+        3,
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a3.and",
+   "title": "ANDing the third octet with the mask",
+   "viewBox": [
+    0,
+    0,
+    360,
+    248
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "10.77.153.200 / 21",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 44,
+     "y": 52,
+     "cells": [
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1
+     ],
+     "cw": 34,
+     "ch": 28,
+     "indices": false,
+     "label": "third octet of address (153)"
+    },
+    {
+     "id": "m",
+     "kind": "array",
+     "x": 44,
+     "y": 112,
+     "cells": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+     ],
+     "cw": 34,
+     "ch": 28,
+     "indices": false,
+     "label": "third octet of mask (248)"
+    },
+    {
+     "id": "r",
+     "kind": "array",
+     "x": 44,
+     "y": 172,
+     "cells": [
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0
+     ],
+     "cw": 34,
+     "ch": 28,
+     "indices": false,
+     "label": "AND = network octet (152)"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 230,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A /21 mask has 21 ones: 255.255.248.0. Only the third octet is partial, so only the third octet needs work.",
+     "show": [
+      "hd"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "mask 255.255.248.0"
+      }
+     ]
+    },
+    {
+     "caption": "Third octet of the address: 153 = 10011001.",
+     "show": [
+      "a"
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Third octet of the mask: 248 = 11111000.",
+     "show": [
+      "m"
+     ],
+     "highlight": [
+      {
+       "id": "m",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "AND them bit by bit: 10011001 AND 11111000 = 10011000 = 152. Octets 1 and 2 are kept (255 AND x = x), octet 4 becomes 0 (mask 0).",
+     "show": [
+      "r"
+     ],
+     "highlight": [
+      {
+       "id": "r",
+       "tone": "good",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "network octet = 152"
+      }
+     ]
+    },
+    {
+     "caption": "Network address = 10.77.152.0. Broadcast = host bits all 1: third octet 152 + 7 = 159, last octet 255, so 10.77.159.255. The block size is 8, so this subnet covers third octets 152 to 159.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "net 10.77.152.0, bcast 10.77.159.255"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "r",
+       "tone": "mid",
+       "cells": [
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "10.77.158.17 has third octet 158, inside 152-159: **same subnet**. 10.77.160.5 has 160, outside: a **different** subnet.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "158 same (152-159); 160 differs",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a4.vlsm",
+   "title": "Carving a /24 into unequal subnets",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "10.20.30.0/24 = 256 addresses",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "whole",
+     "kind": "box",
+     "x": 52,
+     "y": 48,
+     "w": 256,
+     "h": 34,
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "b1",
+     "kind": "box",
+     "x": 52,
+     "y": 48,
+     "w": 128,
+     "h": 34,
+     "label": "/25",
+     "tone": "accent"
+    },
+    {
+     "id": "b2",
+     "kind": "box",
+     "x": 180,
+     "y": 48,
+     "w": 64,
+     "h": 34,
+     "label": "/26",
+     "tone": "accent"
+    },
+    {
+     "id": "b3",
+     "kind": "box",
+     "x": 244,
+     "y": 48,
+     "w": 32,
+     "h": 34,
+     "label": "/27",
+     "tone": "accent"
+    },
+    {
+     "id": "b4",
+     "kind": "box",
+     "x": 276,
+     "y": 48,
+     "w": 4,
+     "h": 34,
+     "tone": "accent"
+    },
+    {
+     "id": "t1",
+     "kind": "text",
+     "x": 20,
+     "y": 104,
+     "text": "10.20.30.0/25      120 hosts",
+     "size": 12.7,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "t2",
+     "kind": "text",
+     "x": 20,
+     "y": 128,
+     "text": "10.20.30.128/26    55 hosts",
+     "size": 12.7,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "t3",
+     "kind": "text",
+     "x": 20,
+     "y": 152,
+     "text": "10.20.30.192/27    28 hosts",
+     "size": 12.7,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "t4",
+     "kind": "text",
+     "x": 20,
+     "y": 176,
+     "text": "10.20.30.224/30    link",
+     "size": 12.7,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 208,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The /24 has 256 addresses (offsets 0 to 255). We need four subnets, and each must be a power of two, aligned to its own size.",
+     "show": [
+      "hd",
+      "whole"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "offsets 0 to 255"
+      }
+     ]
+    },
+    {
+     "caption": "120 hosts needs 7 host bits ($2^7 - 2$ = 126 >= 120), so a **/25**. First free address 0: 10.20.30.0/25 (offsets 0-127).",
+     "show": [
+      "b1",
+      "t1"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "120 hosts: 7 host bits = /25"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "55 hosts needs 6 host bits (62 >= 55): a **/26**. Next free offset 128: 10.20.30.128/26 (128-191).",
+     "show": [
+      "b2",
+      "t2"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "55 hosts: 6 host bits = /26"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "28 hosts needs 5 host bits (30 >= 28): a **/27**. Next free offset 192: 10.20.30.192/27 (192-223).",
+     "show": [
+      "b3",
+      "t3"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "28 hosts: 5 host bits = /27"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The router link needs 2 hosts: 2 host bits (2 >= 2): a **/30**. Next free offset 224: 10.20.30.224/30 (224-227).",
+     "show": [
+      "b4",
+      "t4"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "link: 2 host bits = /30"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b4",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Used 128 + 64 + 32 + 4 = 228 addresses. Offsets 228-255 stay free for later. Placing the biggest first keeps every block aligned.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "used 228 of 256; 228-255 free",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a5.aggregate",
+   "title": "Four aligned /24 blocks merge into a /22",
+   "viewBox": [
+    0,
+    0,
+    360,
+    194
+   ],
+   "objects": [
+    {
+     "id": "ar",
+     "kind": "array",
+     "x": 12,
+     "y": 100,
+     "cells": [
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59
+     ],
+     "cw": 28,
+     "ch": 30,
+     "indices": false
+    },
+    {
+     "id": "lb",
+     "kind": "text",
+     "x": 180,
+     "y": 64,
+     "text": "third octet of 100.64.x.0",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "g1",
+     "kind": "box",
+     "x": 12,
+     "y": 92,
+     "w": 112,
+     "h": 46,
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "g2",
+     "kind": "box",
+     "x": 124,
+     "y": 92,
+     "w": 112,
+     "h": 46,
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "g3",
+     "kind": "box",
+     "x": 236,
+     "y": 92,
+     "w": 112,
+     "h": 46,
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 172,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 28,
+     "text": "100.64.x.0/24 blocks",
+     "size": 13,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The four blocks are contiguous: third octets 52, 53, 54, 55. Each /24 is 256 addresses.",
+     "highlight": [
+      {
+       "id": "ar",
+       "tone": "accent",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "52, 53, 54, 55"
+      }
+     ]
+    },
+    {
+     "caption": "Together they hold 4 x 256 = 1024 = $2^{10}$ addresses, so the merged block has 10 host bits: prefix 32 - 10 = **/22**.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "4 x 256 = 2^10: host bits 10, /22"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ar",
+       "tone": "good",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "A /22 block must **start at a multiple of its size**. In the third octet a /22 has block size 4, so the start must be a multiple of 4. 52 / 4 = 13, so 52 is valid.",
+     "show": [
+      "g1",
+      "g2",
+      "g3"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "/22 starts at multiples of 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The aggregate is **100.64.52.0/22**, covering 100.64.52.0 to 100.64.55.255. One routing entry now replaces four.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "100.64.52.0/22  (52.0 - 55.255)",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g2",
+       "tone": "good"
+      },
+      {
+       "id": "ar",
+       "tone": "good",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "If the four blocks started at 53 instead, 53 is not a multiple of 4, so 53-56 would not form a /22.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "53..56 crosses a boundary",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ar",
+       "tone": "bad",
+       "cells": [
+        5,
+        6,
+        7,
+        8
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a6.lpm",
+   "title": "Testing every row and keeping the longest match",
+   "viewBox": [
+    0,
+    0,
+    360,
+    254
+   ],
+   "objects": [
+    {
+     "id": "pk",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "packet for 172.22.85.7",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "p0",
+     "kind": "box",
+     "x": 10,
+     "y": 44,
+     "w": 122,
+     "h": 26,
+     "label": "172.22.128.0/17"
+    },
+    {
+     "id": "r0",
+     "kind": "box",
+     "x": 136,
+     "y": 44,
+     "w": 150,
+     "h": 26,
+     "label": "172.22.128-255.x"
+    },
+    {
+     "id": "h0",
+     "kind": "box",
+     "x": 290,
+     "y": 44,
+     "w": 60,
+     "h": 26,
+     "label": "to E"
+    },
+    {
+     "id": "p1",
+     "kind": "box",
+     "x": 10,
+     "y": 74,
+     "w": 122,
+     "h": 26,
+     "label": "172.16.0.0/12"
+    },
+    {
+     "id": "r1",
+     "kind": "box",
+     "x": 136,
+     "y": 74,
+     "w": 150,
+     "h": 26,
+     "label": "172.16-31.x.x"
+    },
+    {
+     "id": "h1",
+     "kind": "box",
+     "x": 290,
+     "y": 74,
+     "w": 60,
+     "h": 26,
+     "label": "to A"
+    },
+    {
+     "id": "p2",
+     "kind": "box",
+     "x": 10,
+     "y": 104,
+     "w": 122,
+     "h": 26,
+     "label": "172.22.80.0/20"
+    },
+    {
+     "id": "r2",
+     "kind": "box",
+     "x": 136,
+     "y": 104,
+     "w": 150,
+     "h": 26,
+     "label": "172.22.80-95.x"
+    },
+    {
+     "id": "h2",
+     "kind": "box",
+     "x": 290,
+     "y": 104,
+     "w": 60,
+     "h": 26,
+     "label": "to D"
+    },
+    {
+     "id": "p3",
+     "kind": "box",
+     "x": 10,
+     "y": 134,
+     "w": 122,
+     "h": 26,
+     "label": "0.0.0.0/0"
+    },
+    {
+     "id": "r3",
+     "kind": "box",
+     "x": 136,
+     "y": 134,
+     "w": 150,
+     "h": 26,
+     "label": "every address"
+    },
+    {
+     "id": "h3",
+     "kind": "box",
+     "x": 290,
+     "y": 134,
+     "w": 60,
+     "h": 26,
+     "label": "to F"
+    },
+    {
+     "id": "p4",
+     "kind": "box",
+     "x": 10,
+     "y": 164,
+     "w": 122,
+     "h": 26,
+     "label": "172.20.0.0/14"
+    },
+    {
+     "id": "r4",
+     "kind": "box",
+     "x": 136,
+     "y": 164,
+     "w": 150,
+     "h": 26,
+     "label": "172.20-23.x.x"
+    },
+    {
+     "id": "h4",
+     "kind": "box",
+     "x": 290,
+     "y": 164,
+     "w": 60,
+     "h": 26,
+     "label": "to B"
+    },
+    {
+     "id": "p5",
+     "kind": "box",
+     "x": 10,
+     "y": 194,
+     "w": 122,
+     "h": 26,
+     "label": "172.22.64.0/18"
+    },
+    {
+     "id": "r5",
+     "kind": "box",
+     "x": 136,
+     "y": 194,
+     "w": 150,
+     "h": 26,
+     "label": "172.22.64-127.x"
+    },
+    {
+     "id": "h5",
+     "kind": "box",
+     "x": 290,
+     "y": 194,
+     "w": 60,
+     "h": 26,
+     "label": "to C"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Test every row, in any order. Row 1, 172.22.128.0/17, covers 172.22.128 to 172.22.255. The address 172.22.85.7 has third octet 85, so it is **outside**: no match.",
+     "set": [
+      {
+       "id": "p0",
+       "tone": "bad"
+      },
+      {
+       "id": "r0",
+       "tone": "bad"
+      },
+      {
+       "id": "rd",
+       "text": "/17 misses"
+      }
+     ]
+    },
+    {
+     "caption": "Row 2, 172.16.0.0/12, covers 172.16.0.0 to 172.31.255.255. 172.22.85.7 is inside: **match**, length 12.",
+     "set": [
+      {
+       "id": "p1",
+       "tone": "good"
+      },
+      {
+       "id": "r1",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "/12 matches"
+      }
+     ]
+    },
+    {
+     "caption": "Row 3, 172.22.80.0/20, covers 172.22.80.0 to 172.22.95.255. Third octet 85 is inside 80-95: **match**, length 20.",
+     "set": [
+      {
+       "id": "p2",
+       "tone": "good"
+      },
+      {
+       "id": "r2",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "/20 matches"
+      }
+     ]
+    },
+    {
+     "caption": "Row 4, the default 0.0.0.0/0, covers every address: **match**, length 0.",
+     "set": [
+      {
+       "id": "p3",
+       "tone": "good"
+      },
+      {
+       "id": "r3",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "/0 matches"
+      }
+     ]
+    },
+    {
+     "caption": "Row 5, 172.20.0.0/14, covers 172.20.0.0 to 172.23.255.255. The second octet 22 is inside 20-23: **match**, length 14.",
+     "set": [
+      {
+       "id": "p4",
+       "tone": "good"
+      },
+      {
+       "id": "r4",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "/14 matches"
+      }
+     ]
+    },
+    {
+     "caption": "Row 6, 172.22.64.0/18, covers 172.22.64.0 to 172.22.127.255. 85 is inside 64-127: **match**, length 18.",
+     "set": [
+      {
+       "id": "p5",
+       "tone": "good"
+      },
+      {
+       "id": "r5",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "/18 matches"
+      }
+     ]
+    },
+    {
+     "caption": "Matching lengths are 12, 20, 0, 14, 18. The longest is **/20**, so the packet goes to **D**. The row order did not matter.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "longest = /20: send to D",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "p2",
+       "tone": "accent"
+      },
+      {
+       "id": "r2",
+       "tone": "accent"
+      },
+      {
+       "id": "h2",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a7.header",
+   "title": "Reading an IPv4 header and what a router edits",
+   "viewBox": [
+    0,
+    0,
+    360,
+    232
+   ],
+   "objects": [
+    {
+     "id": "ver",
+     "kind": "box",
+     "x": 20,
+     "y": 30,
+     "w": 40,
+     "h": 28,
+     "label": "Ver"
+    },
+    {
+     "id": "hl",
+     "kind": "box",
+     "x": 60,
+     "y": 30,
+     "w": 40,
+     "h": 28,
+     "label": "HLEN"
+    },
+    {
+     "id": "tos",
+     "kind": "box",
+     "x": 100,
+     "y": 30,
+     "w": 80,
+     "h": 28,
+     "label": "TOS"
+    },
+    {
+     "id": "tl",
+     "kind": "box",
+     "x": 180,
+     "y": 30,
+     "w": 160,
+     "h": 28,
+     "label": "Total length"
+    },
+    {
+     "id": "idn",
+     "kind": "box",
+     "x": 20,
+     "y": 62,
+     "w": 160,
+     "h": 28,
+     "label": "Identification"
+    },
+    {
+     "id": "fl",
+     "kind": "box",
+     "x": 180,
+     "y": 62,
+     "w": 30,
+     "h": 28,
+     "label": "F"
+    },
+    {
+     "id": "fo",
+     "kind": "box",
+     "x": 210,
+     "y": 62,
+     "w": 130,
+     "h": 28,
+     "label": "Frag offset"
+    },
+    {
+     "id": "ttl",
+     "kind": "box",
+     "x": 20,
+     "y": 94,
+     "w": 80,
+     "h": 28,
+     "label": "TTL"
+    },
+    {
+     "id": "pro",
+     "kind": "box",
+     "x": 100,
+     "y": 94,
+     "w": 80,
+     "h": 28,
+     "label": "Protocol"
+    },
+    {
+     "id": "ck",
+     "kind": "box",
+     "x": 180,
+     "y": 94,
+     "w": 160,
+     "h": 28,
+     "label": "Header checksum"
+    },
+    {
+     "id": "src",
+     "kind": "box",
+     "x": 20,
+     "y": 126,
+     "w": 320,
+     "h": 28,
+     "label": "Source IP address"
+    },
+    {
+     "id": "dst",
+     "kind": "box",
+     "x": 20,
+     "y": 158,
+     "w": 320,
+     "h": 28,
+     "label": "Destination IP address"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Byte 0 is 0x45. The high nibble 4 is the version. The low nibble 5 is **HLEN**, counted in 4-byte words: 5 x 4 = 20 bytes of header.",
+     "set": [
+      {
+       "id": "ver",
+       "label": "V=4"
+      },
+      {
+       "id": "hl",
+       "label": "HL=5"
+      },
+      {
+       "id": "rd",
+       "text": "HLEN 5 x 4 = 20 bytes"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ver",
+       "tone": "accent"
+      },
+      {
+       "id": "hl",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Total length 0x05DC = 1500 bytes. Payload = total length - header = 1500 - 20 = 1480 bytes.",
+     "set": [
+      {
+       "id": "tl",
+       "label": "Len 1500"
+      },
+      {
+       "id": "rd",
+       "text": "payload = 1500 - 20 = 1480"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tl",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "TTL is 64 and the header checksum is 0xAC46. The checksum covers the header only, and adding all its 16-bit words gives 0xFFFF.",
+     "set": [
+      {
+       "id": "ttl",
+       "label": "TTL 64"
+      },
+      {
+       "id": "ck",
+       "label": "Sum 0xAC46"
+      },
+      {
+       "id": "rd",
+       "text": "TTL 64, checksum 0xAC46"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ttl",
+       "tone": "accent"
+      },
+      {
+       "id": "ck",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The first router forwards the packet, so it subtracts 1 from TTL: 64 becomes 63. The header changed, so the checksum is recomputed: 0xAC46 becomes 0xAD46.",
+     "set": [
+      {
+       "id": "ttl",
+       "label": "TTL 63"
+      },
+      {
+       "id": "ck",
+       "label": "Sum 0xAD46"
+      },
+      {
+       "id": "rd",
+       "text": "router: TTL - 1, new checksum",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ttl",
+       "tone": "bad"
+      },
+      {
+       "id": "ck",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "The source and destination addresses (172.16.10.99 and 172.16.10.12) do not change at a router. Only TTL and the checksum differ.",
+     "set": [
+      {
+       "id": "src",
+       "label": "Src 172.16.10.99"
+      },
+      {
+       "id": "dst",
+       "label": "Dst 172.16.10.12"
+      },
+      {
+       "id": "rd",
+       "text": "addresses unchanged",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "src",
+       "tone": "good"
+      },
+      {
+       "id": "dst",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a8.frag",
+   "title": "Cutting 3800 bytes into four fragments",
+   "viewBox": [
+    0,
+    0,
+    360,
+    270
+   ],
+   "objects": [
+    {
+     "id": "pl",
+     "kind": "box",
+     "x": 20,
+     "y": 40,
+     "w": 304,
+     "h": 28,
+     "label": "3800 bytes of payload",
+     "fill": false,
+     "dash": true
+    },
+    {
+     "id": "f1",
+     "kind": "box",
+     "x": 20,
+     "y": 78,
+     "w": 94,
+     "h": 28,
+     "label": "F1",
+     "tone": "accent"
+    },
+    {
+     "id": "f2",
+     "kind": "box",
+     "x": 114,
+     "y": 78,
+     "w": 94,
+     "h": 28,
+     "label": "F2",
+     "tone": "accent"
+    },
+    {
+     "id": "f3",
+     "kind": "box",
+     "x": 208,
+     "y": 78,
+     "w": 94,
+     "h": 28,
+     "label": "F3",
+     "tone": "accent"
+    },
+    {
+     "id": "f4",
+     "kind": "box",
+     "x": 302,
+     "y": 78,
+     "w": 22,
+     "h": 28,
+     "label": "F4",
+     "tone": "accent"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 126,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 100,
+     "y": 160,
+     "rows": 4,
+     "cols": 3,
+     "cells": [
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 70,
+     "ch": 24,
+     "rowLabels": [
+      "F1",
+      "F2",
+      "F3",
+      "F4"
+     ],
+     "colLabels": [
+      "offset",
+      "MF",
+      "length"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The datagram is 20 + 3800 = 3820 bytes, which is more than the MTU of 1200, so the router fragments it.",
+     "show": [
+      "pl"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "3820 > MTU 1200"
+      }
+     ]
+    },
+    {
+     "caption": "Each fragment needs its own 20-byte header, so at most 1200 - 20 = 1180 data bytes fit. The offset counts in 8-byte units, so every fragment except the last must carry a **multiple of 8** bytes: 1176 (= 147 x 8).",
+     "set": [
+      {
+       "id": "rd",
+       "text": "1180 -> 1176 data per fragment"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pl",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Fragment 1: payload bytes 0 to 1175. Offset 0, MF = 1, total length 1176 + 20 = 1196.",
+     "show": [
+      "f1"
+     ],
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "1",
+         "1196"
+        ],
+        [
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "bytes 0-1175"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Fragment 2: bytes 1176 to 2351. Offset = 1176 / 8 = 147, MF = 1, total length 1196.",
+     "show": [
+      "f2"
+     ],
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "1",
+         "1196"
+        ],
+        [
+         "147",
+         "1",
+         "1196"
+        ],
+        [
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "bytes 1176-2351"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Fragment 3: bytes 2352 to 3527. Offset = 2352 / 8 = 294, MF = 1, total length 1196.",
+     "show": [
+      "f3"
+     ],
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "1",
+         "1196"
+        ],
+        [
+         "147",
+         "1",
+         "1196"
+        ],
+        [
+         "294",
+         "1",
+         "1196"
+        ],
+        [
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "bytes 2352-3527"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Fragment 4: the remaining 3800 - 3528 = 272 bytes. Offset = 3528 / 8 = 441, MF = 0 (last), total length 272 + 20 = 292.",
+     "show": [
+      "f4"
+     ],
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "0",
+         "1",
+         "1196"
+        ],
+        [
+         "147",
+         "1",
+         "1196"
+        ],
+        [
+         "294",
+         "1",
+         "1196"
+        ],
+        [
+         "441",
+         "0",
+         "292"
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "last: 272 bytes, MF = 0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f4",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Check: last offset x 8 + last data = 441 x 8 + 272 = 3528 + 272 = 3800, the original payload. There are 4 fragments.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "441 x 8 + 272 = 3800",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         2
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a9.refrag",
+   "title": "Fragments split again on the narrower link",
+   "viewBox": [
+    0,
+    0,
+    360,
+    244
+   ],
+   "objects": [
+    {
+     "id": "r",
+     "kind": "node",
+     "x": 192,
+     "y": 28,
+     "label": "3000",
+     "r": 17
+    },
+    {
+     "id": "f1",
+     "kind": "node",
+     "x": 72,
+     "y": 98,
+     "label": "1480",
+     "r": 17
+    },
+    {
+     "id": "f2",
+     "kind": "node",
+     "x": 216,
+     "y": 98,
+     "label": "1480",
+     "r": 17
+    },
+    {
+     "id": "f3",
+     "kind": "node",
+     "x": 312,
+     "y": 98,
+     "label": "40",
+     "r": 17
+    },
+    {
+     "id": "er1",
+     "kind": "edge",
+     "from": "r",
+     "to": "f1"
+    },
+    {
+     "id": "er2",
+     "kind": "edge",
+     "from": "r",
+     "to": "f2"
+    },
+    {
+     "id": "er3",
+     "kind": "edge",
+     "from": "r",
+     "to": "f3"
+    },
+    {
+     "id": "p1",
+     "kind": "node",
+     "x": 24,
+     "y": 168,
+     "label": "680",
+     "r": 17
+    },
+    {
+     "id": "ep1",
+     "kind": "edge",
+     "from": "f1",
+     "to": "p1"
+    },
+    {
+     "id": "o1",
+     "kind": "text",
+     "x": 24,
+     "y": 198,
+     "text": "0",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "p2",
+     "kind": "node",
+     "x": 72,
+     "y": 168,
+     "label": "680",
+     "r": 17
+    },
+    {
+     "id": "ep2",
+     "kind": "edge",
+     "from": "f1",
+     "to": "p2"
+    },
+    {
+     "id": "o2",
+     "kind": "text",
+     "x": 72,
+     "y": 198,
+     "text": "85",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "p3",
+     "kind": "node",
+     "x": 120,
+     "y": 168,
+     "label": "120",
+     "r": 17
+    },
+    {
+     "id": "ep3",
+     "kind": "edge",
+     "from": "f1",
+     "to": "p3"
+    },
+    {
+     "id": "o3",
+     "kind": "text",
+     "x": 120,
+     "y": 198,
+     "text": "170",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "p4",
+     "kind": "node",
+     "x": 168,
+     "y": 168,
+     "label": "680",
+     "r": 17
+    },
+    {
+     "id": "ep4",
+     "kind": "edge",
+     "from": "f2",
+     "to": "p4"
+    },
+    {
+     "id": "o4",
+     "kind": "text",
+     "x": 168,
+     "y": 198,
+     "text": "185",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "p5",
+     "kind": "node",
+     "x": 216,
+     "y": 168,
+     "label": "680",
+     "r": 17
+    },
+    {
+     "id": "ep5",
+     "kind": "edge",
+     "from": "f2",
+     "to": "p5"
+    },
+    {
+     "id": "o5",
+     "kind": "text",
+     "x": 216,
+     "y": 198,
+     "text": "270",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "p6",
+     "kind": "node",
+     "x": 264,
+     "y": 168,
+     "label": "120",
+     "r": 17
+    },
+    {
+     "id": "ep6",
+     "kind": "edge",
+     "from": "f2",
+     "to": "p6"
+    },
+    {
+     "id": "o6",
+     "kind": "text",
+     "x": 264,
+     "y": 198,
+     "text": "355",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "o7",
+     "kind": "text",
+     "x": 312,
+     "y": 128,
+     "text": "370",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start: 3000 bytes of payload in one datagram.",
+     "show": [
+      "r"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "3000 bytes of payload"
+      }
+     ]
+    },
+    {
+     "caption": "Link 1 (MTU 1500): data per fragment = floor(1480 / 8) x 8 = 1480. The payload splits into 1480, 1480 and 40 bytes with offsets 0, 185 and 370. The last has MF = 0.",
+     "show": [
+      "f1",
+      "f2",
+      "f3",
+      "er1",
+      "er2",
+      "er3"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "MTU 1500: 1480, 1480, 40"
+      }
+     ]
+    },
+    {
+     "caption": "Link 2 (MTU 700): data per fragment = floor(680 / 8) x 8 = 680. The first fragment (1480 bytes, offset 0) splits into 680, 680, 120 with offsets 0, 85, 170.",
+     "show": [
+      "p1",
+      "p2",
+      "p3",
+      "ep1",
+      "ep2",
+      "ep3",
+      "o1",
+      "o2",
+      "o3"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "MTU 700: 1480 = 680+680+120"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The second fragment (1480 bytes, offset 185) splits into 680, 680, 120 with offsets 185, 270, 355. All six pieces keep MF = 1, because they come from fragments that were not the last.",
+     "show": [
+      "p4",
+      "p5",
+      "p6",
+      "ep4",
+      "ep5",
+      "ep6",
+      "o4",
+      "o5",
+      "o6"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "second 1480 splits the same way"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The third fragment has 40 + 20 = 60 bytes, which fits in 700. It is not split again: offset 370, MF = 0.",
+     "show": [
+      "o7"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "40 + 20 fits in 700: unchanged"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "f3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The destination receives 3 + 3 + 1 = **7** fragments. Only now are they reassembled: last offset x 8 + last data = 370 x 8 + 40 = 3000. Routers never reassemble.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "3 + 3 + 1 = 7 fragments",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "p1",
+       "tone": "good"
+      },
+      {
+       "id": "p2",
+       "tone": "good"
+      },
+      {
+       "id": "p3",
+       "tone": "good"
+      },
+      {
+       "id": "p4",
+       "tone": "good"
+      },
+      {
+       "id": "p5",
+       "tone": "good"
+      },
+      {
+       "id": "p6",
+       "tone": "good"
+      },
+      {
+       "id": "f3",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a10.nat",
+   "title": "A NAT table keeps one entry per connection",
+   "viewBox": [
+    0,
+    0,
+    360,
+    290
+   ],
+   "objects": [
+    {
+     "id": "h1",
+     "kind": "node",
+     "x": 30,
+     "y": 48,
+     "label": "H1",
+     "r": 20
+    },
+    {
+     "id": "h2",
+     "kind": "node",
+     "x": 30,
+     "y": 128,
+     "label": "H2",
+     "r": 20
+    },
+    {
+     "id": "nat",
+     "kind": "box",
+     "x": 140,
+     "y": 68,
+     "w": 70,
+     "h": 50,
+     "label": "NAT"
+    },
+    {
+     "id": "sv",
+     "kind": "node",
+     "x": 320,
+     "y": 92,
+     "label": "Srv",
+     "r": 22
+    },
+    {
+     "id": "eh1",
+     "kind": "edge",
+     "from": "h1",
+     "to": "nat"
+    },
+    {
+     "id": "eh2",
+     "kind": "edge",
+     "from": "h2",
+     "to": "nat"
+    },
+    {
+     "id": "esv",
+     "kind": "edge",
+     "from": "nat",
+     "to": "sv"
+    },
+    {
+     "id": "ps",
+     "kind": "text",
+     "x": 20,
+     "y": 160,
+     "text": "",
+     "size": 13,
+     "tone": "accent",
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "pd",
+     "kind": "text",
+     "x": 20,
+     "y": 184,
+     "text": "",
+     "size": 13,
+     "tone": "accent",
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 26,
+     "y": 222,
+     "rows": 2,
+     "cols": 2,
+     "cells": [
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ]
+     ],
+     "cw": 154,
+     "ch": 26,
+     "colLabels": [
+      "inside",
+      "outside"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The LAN uses private addresses (here 192.168.0.0/16, also 10.0.0.0/8 and 172.16.0.0/12), which are not routed on the Internet. The NAT router has one public address, 203.0.113.9.",
+     "set": [
+      {
+       "id": "ps",
+       "text": "private: 192.168.0.0/16"
+      },
+      {
+       "id": "pd",
+       "text": "NAT public: 203.0.113.9"
+      }
+     ]
+    },
+    {
+     "caption": "H1 sends a packet from 192.168.0.12:5555 to 198.51.100.20:80.",
+     "set": [
+      {
+       "id": "ps",
+       "text": "src 192.168.0.12:5555"
+      },
+      {
+       "id": "pd",
+       "text": "dst 198.51.100.20:80"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eh1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The NAT router rewrites the source to 203.0.113.9:40001, saves the mapping 192.168.0.12:5555 <-> 203.0.113.9:40001, and recomputes the IP and TCP checksums. The destination is unchanged.",
+     "set": [
+      {
+       "id": "ps",
+       "text": "src 203.0.113.9:40001"
+      },
+      {
+       "id": "pd",
+       "text": "dst 198.51.100.20:80"
+      },
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "192.168.0.12:5555",
+         "203.0.113.9:40001"
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "esv",
+       "tone": "accent"
+      },
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The server replies to 203.0.113.9:40001, which is the only address it knows.",
+     "set": [
+      {
+       "id": "ps",
+       "text": "src 198.51.100.20:80"
+      },
+      {
+       "id": "pd",
+       "text": "dst 203.0.113.9:40001"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "esv",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "The NAT router looks up port 40001 in its table and rewrites the destination to 192.168.0.12:5555 (and fixes the checksums). The reply reaches H1.",
+     "set": [
+      {
+       "id": "ps",
+       "text": "src 198.51.100.20:80"
+      },
+      {
+       "id": "pd",
+       "text": "dst 192.168.0.12:5555"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eh1",
+       "tone": "good"
+      },
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "H2 also uses source port 5555. The NAT router assigns it a different outside port, 40002, so that replies can be told apart. The **port number** is the key that distinguishes the inside hosts.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "192.168.0.12:5555",
+         "203.0.113.9:40001"
+        ],
+        [
+         "192.168.0.20:5555",
+         "203.0.113.9:40002"
+        ]
+       ]
+      },
+      {
+       "id": "ps",
+       "text": "H2 port 5555 -> outside 40002"
+      },
+      {
+       "id": "pd",
+       "text": "the port is the key"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "eh2",
+       "tone": "accent"
+      },
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.ipv4.a11.hops",
+   "title": "MAC pairs change on every link, IP pairs do not",
+   "viewBox": [
+    0,
+    0,
+    360,
+    244
+   ],
+   "objects": [
+    {
+     "id": "nx",
+     "kind": "node",
+     "x": 40,
+     "y": 38,
+     "label": "X",
+     "r": 18
+    },
+    {
+     "id": "n1",
+     "kind": "node",
+     "x": 130,
+     "y": 38,
+     "label": "R1",
+     "r": 18
+    },
+    {
+     "id": "n2",
+     "kind": "node",
+     "x": 230,
+     "y": 38,
+     "label": "R2",
+     "r": 18
+    },
+    {
+     "id": "ny",
+     "kind": "node",
+     "x": 320,
+     "y": 38,
+     "label": "Y",
+     "r": 18
+    },
+    {
+     "id": "l1",
+     "kind": "edge",
+     "from": "nx",
+     "to": "n1"
+    },
+    {
+     "id": "l2",
+     "kind": "edge",
+     "from": "n1",
+     "to": "n2"
+    },
+    {
+     "id": "l3",
+     "kind": "edge",
+     "from": "n2",
+     "to": "ny"
+    },
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 76,
+     "y": 130,
+     "rows": 3,
+     "cols": 4,
+     "cells": [
+      [
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 64,
+     "ch": 26,
+     "rowLabels": [
+      "link 1",
+      "link 2",
+      "link 3"
+     ],
+     "colLabels": [
+      "src MAC",
+      "dst MAC",
+      "src IP",
+      "dst IP"
+     ]
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 84,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "rd2",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "",
+     "size": 13,
+     "tone": "muted",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "X applies its mask: /26 gives block size 64, so X's network is 192.168.10.0/26 (addresses 0-63). Y's .90 is outside, so Y is on another subnet and X must use its default gateway, R1.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "Y = .90 is outside 0-63: remote"
+      }
+     ]
+    },
+    {
+     "caption": "Frame on link 1: destination MAC = R1's interface on X's LAN (R1a), not Y's MAC. Source MAC = X. The IP packet says source X, destination Y.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "X",
+         "R1a",
+         "X",
+         "Y"
+        ],
+        [
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "link 1: to the gateway R1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "l1",
+       "tone": "accent"
+      },
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "R1 strips the frame, looks up Y, subtracts 1 from TTL, and builds a **new frame** for link 2: MACs R1b to R2a. The IP addresses are unchanged.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "X",
+         "R1a",
+         "X",
+         "Y"
+        ],
+        [
+         "R1b",
+         "R2a",
+         "X",
+         "Y"
+        ],
+        [
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "link 2: new frame, same IPs"
+      },
+      {
+       "id": "rd2",
+       "text": "TTL - 1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "l2",
+       "tone": "accent"
+      },
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "R2 does the same on link 3: MACs R2b to Y. Here the destination MAC is Y itself, because Y is directly connected to R2.",
+     "set": [
+      {
+       "id": "tb",
+       "cells": [
+        [
+         "X",
+         "R1a",
+         "X",
+         "Y"
+        ],
+        [
+         "R1b",
+         "R2a",
+         "X",
+         "Y"
+        ],
+        [
+         "R2b",
+         "Y",
+         "X",
+         "Y"
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "link 3: dst MAC is Y itself"
+      },
+      {
+       "id": "rd2",
+       "text": "TTL - 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "l3",
+       "tone": "accent"
+      },
+      {
+       "id": "tb",
+       "tone": "accent",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Summary: across 3 links the MAC addresses changed 3 times and the IP addresses 0 times. TTL fell by 2, once for each router.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "MAC changed 3 times, IP 0 times",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

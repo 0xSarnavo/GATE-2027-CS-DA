@@ -1,0 +1,3599 @@
+{
+ "topic_id": "os.deadlock",
+ "title": "Deadlock",
+ "chapter_note": {
+  "about": "A deadlock is a group of processes that wait for each other forever. This chapter starts with the four conditions that must hold together, then draws them as a resource allocation graph. After that come the three ways to handle the problem: prevention, avoidance and detection. Most of the arithmetic is in the banker's algorithm and in the formula for the smallest pool of resources that never deadlocks. The chapter ends with deadlock in code, where locks taken in the wrong order are the resources that jam.",
+  "simple": "A deadlock is a traffic jam that never clears. Every car is waiting for a spot that another waiting car is sitting in. It needs four things at once: spots that only one car can use, cars that keep their spot while asking for another, no towing, and a circle of waiting. You can stop a jam from forming by removing one of those, you can check each car's plans before letting it in, or you can let jams happen and tow one car out. The exam uses small tables of numbers to ask whether a state is safe, how many resources are enough, and who is stuck. In exam words: Coffman conditions, resource allocation graph, prevention, avoidance (banker's algorithm), detection and recovery.",
+  "concept_map": [
+   {
+    "atom_id": "d1",
+    "title": "Coffman conditions",
+    "one_line": "Four conditions that must all hold for a deadlock."
+   },
+   {
+    "atom_id": "d2",
+    "title": "Resource allocation graph",
+    "one_line": "Draw holds and waits; a cycle is a deadlock only with one unit per resource."
+   },
+   {
+    "atom_id": "d3",
+    "title": "Prevention, avoidance, detection",
+    "one_line": "Break a condition, stay safe, or find and fix after the fact."
+   },
+   {
+    "atom_id": "d4",
+    "title": "Safe and unsafe states",
+    "one_line": "Safe: some order lets everyone finish. Deadlocked states are always unsafe."
+   },
+   {
+    "atom_id": "d5",
+    "title": "Banker's algorithm",
+    "one_line": "Need = Max - Allocation, then repeatedly let a process whose Need fits in Work finish."
+   },
+   {
+    "atom_id": "d6",
+    "title": "Deadlock detection and recovery",
+    "one_line": "The same loop with current Requests; unfinished processes are deadlocked."
+   },
+   {
+    "atom_id": "d7",
+    "title": "Minimum resources to avoid deadlock",
+    "one_line": "Worst case everyone holds max - 1, so R = sum of (max - 1) plus 1."
+   },
+   {
+    "atom_id": "d8",
+    "title": "Lock ordering in code",
+    "one_line": "One global lock order removes circular wait; a non-reentrant lock can deadlock one thread."
+   }
+  ],
+  "gate_patterns": [
+   "Banker's algorithm: compute Need, find a safe sequence, or test whether a request is granted (2017 CS2 Q33, 2018 CS Q49, 2019 CS Q49, 2014 CS1 Q31, 2007 CS Q57, 2006 CS Q66; 6 questions).",
+   "Minimum resources: the smallest pool, or the largest maximum claim, that never deadlocks (2018 CS Q34, 2026 CS1 Q35, 2014 CS3 Q31, 2005 CS Q71, 2015 CS2 Q23; 5 questions).",
+   "Concepts and graphs: which Coffman condition a scheme breaks, safe versus deadlocked, cycles in a resource graph, and lock ordering (2022 CS Q26, 2026 CS1 Q29, 2025 CS2 Q48, 2017 CS1 Q27). Weightage: about 0.9 marks per CS paper; 9 questions in 7 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "d1",
+   "title": "Coffman conditions",
+   "simple": "Imagine two kids in a corridor. Each one holds a toy and wants the other kid's toy. Neither will give theirs up, and nobody is allowed to snatch a toy. So they both stand there forever. That standoff is a deadlock (a group of programs stuck waiting for each other). It needs four things at once: a toy can be used by one kid at a time, each kid holds one while asking for another, toys cannot be snatched, and the wanting forms a circle. Remove any one of the four and the standoff breaks. In exam words: mutual exclusion, hold and wait, no preemption and circular wait are the four Coffman conditions, and all four are needed.",
+   "idea": "A **deadlock** is a standoff. Every process in a group waits for a resource that another process in the group holds, so none of them can ever move. It can happen only when four conditions hold at the same time, called the **Coffman conditions**. Remove any one and a deadlock cannot form.",
+   "definition": "The four Coffman conditions:\n\n1. **Mutual exclusion:** at least one resource can be used by only one process at a time.\n\n2. **Hold and wait:** a process holds one resource while it waits for another.\n\n3. **No preemption:** a resource is released only by the process holding it, never taken away.\n\n4. **Circular wait:** there is a chain P1 → P2 → … → Pn → P1, where each process waits for a resource held by the next.\n\nAll four are necessary for a deadlock. With resources that have several units, all four can hold without a deadlock (see the resource allocation graph card).",
+   "intuition_full": "Each condition closes one escape route. If resources could be shared, nobody would wait (mutual exclusion). If a process asked for everything at once, it would never sit on one resource while waiting for another (hold and wait). If the OS could take a resource back, a stuck process could be forced to let go (no preemption). If requests followed a fixed order, waits could never loop back (circular wait). That is why the four conditions are the checklist for every prevention scheme: a scheme works exactly when it removes one of them. A second picture is a crossroads where four cars arrive together, each blocked by the car on its right. Every car holds its own spot and wants the next one, and nobody can reverse. The circle is complete. Remove one car, or let one car back up, and traffic flows.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "P1 holds the printer and wants the scanner. P2 holds the scanner and wants the printer. Neither device can be shared, and the OS cannot take a device away. Check each Coffman condition.",
+     "steps": [
+      "Two processes, two devices with one unit each. P1 holds the printer. P2 holds the scanner.",
+      "Mutual exclusion: a device serves one process at a time. P2 cannot use the printer while P1 holds it. This condition holds.",
+      "Hold and wait: P1 holds the printer and asks for the scanner. P2 holds the scanner and asks for the printer. This holds for both.",
+      "No preemption: only P1 can give the printer back, and only P2 can give the scanner back. The OS may not take them. This holds.",
+      "Circular wait: P1 waits for P2 (scanner), and P2 waits for P1 (printer). The wait closes into a loop. All four hold, so this is a deadlock.",
+      "Break one condition and it ends. If the OS may take the printer from P1, P2 gets it, finishes, and then P1 gets the scanner."
+     ],
+     "answer": "All four conditions hold, so P1 and P2 are deadlocked. Taking the printer away from P1 (breaking no preemption) ends the deadlock."
+    },
+    {
+     "level": "gate",
+     "setup": "Three systems use these rules. (i) A process may hold at most one resource at a time. (ii) The OS may abort any waiting process and take its resources. (iii) A printer is accessed only through a spooler, so processes never lock it. Name the Coffman condition each rule breaks.",
+     "steps": [
+      "Rule (i): a process holding one resource must release it before asking for another. So it never waits while holding something. This breaks hold and wait.",
+      "Rule (ii): the OS can take resources from a waiting process. A resource is no longer kept until its holder lets go. This breaks no preemption.",
+      "Rule (iii): only the spooler uses the printer, so processes never wait for it. The device itself is still used by one program at a time, but no process holds it. This breaks mutual exclusion for the printer.",
+      "Each rule removes one of the four conditions, so each one prevents deadlock on its own. The rest of the conditions can stay true."
+     ],
+     "answer": "(i) hold and wait, (ii) no preemption, (iii) mutual exclusion. Any one broken condition is enough."
+    },
+    {
+     "level": "twist",
+     "setup": "P1 holds resource R and waits for S. S is held by P2, and P2 is running, not waiting. Mutual exclusion, hold and wait and no preemption all hold. Is P1 deadlocked?",
+     "steps": [
+      "P1 waits for P2. P2 is not waiting for anyone, so the chain of waits ends at a running process.",
+      "There is no loop back to P1, so circular wait is false.",
+      "P2 will finish and release S. P1 then gets S and continues.",
+      "Three conditions are not enough. The fourth one, the closed loop, is what makes waiting permanent."
+     ],
+     "answer": "No. P1 is only waiting. Without circular wait there is no deadlock."
+    }
+   ],
+   "why": "Every deadlock question starts here: a scheme is judged by the one condition it removes. In GATE: name the condition a prevention rule breaks, or spot the false statement in a list of conditions (2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53).",
+   "how": [
+    "Recite the four in order: mutual exclusion, hold and wait, no preemption, circular wait.",
+    "For a rule in an option, find what it changes: how resources are requested, held or released.",
+    "Match that change to exactly one condition. One broken condition is enough to prevent deadlock.",
+    "For a 'which must hold' question, remember all four are required together. Three are not enough."
+   ],
+   "mistake": "Listing 'preemption' as a condition. The condition is **no** preemption: resources cannot be taken away. Options often give three true conditions and swap in a false one. A second slip is to call a long chain of waiting a deadlock; the chain must close into a loop.",
+   "edge_cases": [
+    "Mutual exclusion cannot be removed for resources like a printer or a write lock, so prevention schemes aim at the other three.",
+    "A process waiting for a running process is waiting, not deadlocked. The chain must close into a cycle.",
+    "With a resource that has several units, all four conditions can hold in a state that is not deadlocked."
+   ],
+   "connections": [
+    "The resource allocation graph (next card) draws circular wait as a cycle.",
+    "Prevention removes one condition. Avoidance and detection allow the conditions and manage the risk (see Prevention, avoidance, detection).",
+    "Locks and semaphores from the synchronisation chapter are the resources that deadlock in real code."
+   ],
+   "check": [
+    {
+     "q": "Which condition does the rule 'release everything you hold before asking for a new resource' break?",
+     "a": "Hold and wait. The process never waits while holding something."
+    },
+    {
+     "q": "True or false: a deadlock needs at least three of the four conditions.",
+     "a": "False. It needs all four at once."
+    },
+    {
+     "q": "P1 waits for a resource held by P2. P2 is running and is not waiting. Deadlock?",
+     "a": "No. The chain ends at a running process, so circular wait fails."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53, 2008 CS Q65, 2000 CS Q2.23",
+   "try": {
+    "id": "gen.deadlock.001",
+    "label": "Try: which option is not a deadlock condition (L1)"
+   },
+   "scene": "os.deadlock.coffman",
+   "example": {
+    "setup": "P1 holds the printer and wants the scanner. P2 holds the scanner and wants the printer. Neither device can be shared, and the OS cannot take a device away. Check each Coffman condition.",
+    "steps": [
+     "Two processes, two devices with one unit each. P1 holds the printer. P2 holds the scanner.",
+     "Mutual exclusion: a device serves one process at a time. P2 cannot use the printer while P1 holds it. This condition holds.",
+     "Hold and wait: P1 holds the printer and asks for the scanner. P2 holds the scanner and asks for the printer. This holds for both.",
+     "No preemption: only P1 can give the printer back, and only P2 can give the scanner back. The OS may not take them. This holds.",
+     "Circular wait: P1 waits for P2 (scanner), and P2 waits for P1 (printer). The wait closes into a loop. All four hold, so this is a deadlock.",
+     "Break one condition and it ends. If the OS may take the printer from P1, P2 gets it, finishes, and then P1 gets the scanner."
+    ],
+    "answer": "All four conditions hold, so P1 and P2 are deadlocked. Taking the printer away from P1 (breaking no preemption) ends the deadlock."
+   },
+   "what": "A **deadlock** is a standoff. Every process in a group waits for a resource that another process in the group holds, so none of them can ever move. It can happen only when four conditions hold at the same time, called the **Coffman conditions**. Remove any one and a deadlock cannot form.",
+   "what_full": "A **deadlock** is a standoff. Every process in a group waits for a resource that another process in the group holds, so none of them can ever move. It can happen only when four conditions hold at the same time, called the **Coffman conditions**. Remove any one and a deadlock cannot form.\n\nThe four Coffman conditions:\n\n1. **Mutual exclusion:** at least one resource can be used by only one process at a time.\n\n2. **Hold and wait:** a process holds one resource while it waits for another.\n\n3. **No preemption:** a resource is released only by the process holding it, never taken away.\n\n4. **Circular wait:** there is a chain P1 → P2 → … → Pn → P1, where each process waits for a resource held by the next.\n\nAll four are necessary for a deadlock. With resources that have several units, all four can hold without a deadlock (see the resource allocation graph card).\n\n**Worked example.** P1 holds the printer and wants the scanner. P2 holds the scanner and wants the printer. Neither device can be shared, and the OS cannot take a device away. Check each Coffman condition.\n\n1. Two processes, two devices with one unit each. P1 holds the printer. P2 holds the scanner.\n2. Mutual exclusion: a device serves one process at a time. P2 cannot use the printer while P1 holds it. This condition holds.\n3. Hold and wait: P1 holds the printer and asks for the scanner. P2 holds the scanner and asks for the printer. This holds for both.\n4. No preemption: only P1 can give the printer back, and only P2 can give the scanner back. The OS may not take them. This holds.\n5. Circular wait: P1 waits for P2 (scanner), and P2 waits for P1 (printer). The wait closes into a loop. All four hold, so this is a deadlock.\n6. Break one condition and it ends. If the OS may take the printer from P1, P2 gets it, finishes, and then P1 gets the scanner.\n\n**Answer:** All four conditions hold, so P1 and P2 are deadlocked. Taking the printer away from P1 (breaking no preemption) ends the deadlock.",
+   "why_full": "Every deadlock question starts here: a scheme is judged by the one condition it removes. In GATE: name the condition a prevention rule breaks, or spot the false statement in a list of conditions (2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53).\n\nAsked: 2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53, 2008 CS Q65, 2000 CS Q2.23",
+   "trap": "Listing 'preemption' as a condition. The condition is **no** preemption: resources cannot be taken away. Options often give three true conditions and swap in a false one. A second slip is to call a long chain of waiting a deadlock; the chain must close into a loop."
+  },
+  {
+   "atom_id": "d2",
+   "title": "Resource allocation graph",
+   "simple": "Draw the people as circles and the things they need as boxes. An arrow from a box to a person means that person is holding it. An arrow from a person to a box means the person is waiting for it. If you can follow the arrows round in a loop, people are waiting on each other. When every box has just one item, that loop means everyone is stuck for good. When a box has several items, someone outside the loop might hand one back, so the loop is only a warning. In exam words: in a resource allocation graph a cycle is necessary for deadlock, and sufficient only when each resource has a single instance.",
+   "idea": "A **resource allocation graph** shows who holds what and who waits for what. An arrow from a resource to a process means the process holds it. An arrow from a process to a resource means the process is waiting for it. A loop of waits is a **cycle**, and it decides the question only when each resource has one unit.",
+   "definition": "Nodes: processes (circles) and resources (boxes, with one dot per unit).\n\n**Assignment edge** R → P: a unit of R is held by P.\n\n**Request edge** P → R: P is waiting for a unit of R.\n\n**No cycle:** no deadlock, always.\n\n**Cycle, one unit per resource:** deadlock.\n\n**Cycle, several units for some resource:** possible deadlock. It is a deadlock only if no process outside the cycle can finish and free a unit.\n\nA **wait-for graph** drops the resources and draws Pi → Pj when Pi waits for something Pj holds. It works when every resource has one unit.",
+   "intuition_full": "A cycle says: A waits for B, B waits for C, and C waits for A. With one unit per resource, each wait can only be satisfied by the holder letting go, and every holder is itself waiting. So no one moves, and the cycle is permanent. If a resource has two units, a different process might hold the second unit and may not be part of the loop. When that process finishes, it frees a unit, and the loop can unwind. So for multi-unit resources you must ask: can any process that is not stuck return a unit into the cycle? This is the same question the detection algorithm asks with its Work vector. The graph is just a picture of the matrices. A process with only incoming edges is a holder that is running. A process with outgoing edges is waiting.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "R1 and R2 have one unit each. P1 holds R1 and P2 holds R2. Then P1 requests R2 and P2 requests R1. Draw the resource allocation graph and decide whether there is a deadlock. Then give R1 a second unit, held by P3, and decide again.",
+     "steps": [
+      "Draw the graph. An assignment edge points from a resource to the process holding it: R1 → P1 and R2 → P2.",
+      "P1 requests R2. A request edge points from the process to the resource: P1 → R2. P1 now waits.",
+      "P2 requests R1: P2 → R1. Follow the edges: P1 → R2 → P2 → R1 → P1. That is a cycle. With one unit per resource, no one can ever release, so this is a deadlock.",
+      "Change one thing. R1 now has two units, and P3 holds the second. The cycle is still drawn.",
+      "P3 is not waiting for anything, so it finishes and returns its unit. P2's request for R1 is granted, P2 finishes and releases R2, and P1 gets R2. There is no deadlock."
+     ],
+     "answer": "With one unit per resource, the cycle is a deadlock. With a two-unit R1 and a holder outside the cycle, the same cycle is not a deadlock."
+    },
+    {
+     "level": "gate",
+     "setup": "Five processes P1 to P5. Process Pi holds resource Ri, with one unit each. Requests: P1 waits for R2. P2 waits for R1 and R3. P3 waits for R4. P4 waits for R2. Which single process, if aborted, leaves the system deadlock-free?",
+     "steps": [
+      "Convert to a wait-for graph. P1 → P2 (R2 is held by P2). P2 → P1 and P2 → P3. P3 → P4. P4 → P2. P5 has no requests.",
+      "Find the cycles. P1 → P2 → P1 is one. P2 → P3 → P4 → P2 is another.",
+      "P2 sits on both cycles. P1 sits only on the first. P3 and P4 sit only on the second.",
+      "Abort P2. Its edges disappear, and no cycle is left: P1 is free to get R2, and P3 waits for P4 who can now get R2."
+     ],
+     "answer": "P2. Aborting any other process leaves one of the two cycles intact."
+    },
+    {
+     "level": "twist",
+     "setup": "R1 has two units, held by P1 and P3. R2 has one unit, held by P2. P1 requests R2, P3 requests R2, and P2 requests R1. The graph has a cycle through a two-unit resource. Is it a deadlock?",
+     "steps": [
+      "The cycle P1 → R2 → P2 → R1 → P1 exists. Because R1 has two units, a cycle alone is not enough to decide.",
+      "Ask whether any holder of an R1 unit can finish and free it. P1 holds a unit but waits for R2. P3 holds the other unit but also waits for R2.",
+      "Both holders are stuck behind P2, and P2 waits for R1. No unit of R1 will ever be freed.",
+      "No process can finish, so it is a deadlock."
+     ],
+     "answer": "Deadlock. For multi-unit resources a cycle only warns. Check whether a holder outside the cycle can finish; here none can."
+    }
+   ],
+   "why": "The graph turns a verbal description into a quick visual test. In GATE: read a graph or a list of waits, find cycles, and decide whether a cycle means deadlock or which process to abort (2025 CS2 Q48, 2010 CS Q46, 2000 CS Q1.21).",
+   "how": [
+    "Mark each resource with its number of units and draw assignment edges from the holdings.",
+    "Draw a request edge for every waiting process.",
+    "Look for cycles. No cycle means no deadlock.",
+    "If every resource in the cycle has one unit, it is a deadlock. Otherwise check whether any holder outside the cycle can finish.",
+    "To break the deadlock, abort a process that lies on every cycle."
+   ],
+   "mistake": "Calling every cycle a deadlock. That is true only when each resource in it has a single unit. Another slip is drawing the edges backwards: a held resource points to the process, and a request points to the resource.",
+   "edge_cases": [
+    "No cycle always means no deadlock, for any number of units.",
+    "A process that only holds resources and waits for nothing is running, and it will eventually release them.",
+    "Two cycles can share a process. Aborting that one process breaks both, while aborting any other process leaves one cycle intact."
+   ],
+   "connections": [
+    "The detection algorithm (see Deadlock detection and recovery) is the matrix form of this graph test.",
+    "A wait-for graph is the same picture with the resource boxes removed.",
+    "Circular wait (see Coffman conditions) is exactly a cycle in this graph."
+   ],
+   "check": [
+    {
+     "q": "Each resource has one unit, and the graph has no cycle. Is the system deadlocked?",
+     "a": "No. Without a cycle there is no deadlock."
+    },
+    {
+     "q": "Which way does the edge point when P holds a unit of R, and which way when P waits for R?",
+     "a": "Holding: R → P (assignment). Waiting: P → R (request)."
+    },
+    {
+     "q": "A cycle passes through a resource with 3 units, and two of those units are held by processes outside the cycle that are not waiting. Deadlock?",
+     "a": "Not necessarily. Those two holders can finish and free units, so the cycle may unwind."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q48, 2010 CS Q46, 2000 CS Q1.21",
+   "try": {
+    "id": "gen.deadlock.003",
+    "label": "Try: what a cycle means when each resource has one instance (L1)"
+   },
+   "scene": "os.deadlock.rag",
+   "example": {
+    "setup": "R1 and R2 have one unit each. P1 holds R1 and P2 holds R2. Then P1 requests R2 and P2 requests R1. Draw the resource allocation graph and decide whether there is a deadlock. Then give R1 a second unit, held by P3, and decide again.",
+    "steps": [
+     "Draw the graph. An assignment edge points from a resource to the process holding it: R1 → P1 and R2 → P2.",
+     "P1 requests R2. A request edge points from the process to the resource: P1 → R2. P1 now waits.",
+     "P2 requests R1: P2 → R1. Follow the edges: P1 → R2 → P2 → R1 → P1. That is a cycle. With one unit per resource, no one can ever release, so this is a deadlock.",
+     "Change one thing. R1 now has two units, and P3 holds the second. The cycle is still drawn.",
+     "P3 is not waiting for anything, so it finishes and returns its unit. P2's request for R1 is granted, P2 finishes and releases R2, and P1 gets R2. There is no deadlock."
+    ],
+    "answer": "With one unit per resource, the cycle is a deadlock. With a two-unit R1 and a holder outside the cycle, the same cycle is not a deadlock."
+   },
+   "what": "A **resource allocation graph** shows who holds what and who waits for what. An arrow from a resource to a process means the process holds it. An arrow from a process to a resource means the process is waiting for it. A loop of waits is a **cycle**, and it decides the question only when each resource has one unit.",
+   "what_full": "A **resource allocation graph** shows who holds what and who waits for what. An arrow from a resource to a process means the process holds it. An arrow from a process to a resource means the process is waiting for it. A loop of waits is a **cycle**, and it decides the question only when each resource has one unit.\n\nNodes: processes (circles) and resources (boxes, with one dot per unit).\n\n**Assignment edge** R → P: a unit of R is held by P.\n\n**Request edge** P → R: P is waiting for a unit of R.\n\n**No cycle:** no deadlock, always.\n\n**Cycle, one unit per resource:** deadlock.\n\n**Cycle, several units for some resource:** possible deadlock. It is a deadlock only if no process outside the cycle can finish and free a unit.\n\nA **wait-for graph** drops the resources and draws Pi → Pj when Pi waits for something Pj holds. It works when every resource has one unit.\n\n**Worked example.** R1 and R2 have one unit each. P1 holds R1 and P2 holds R2. Then P1 requests R2 and P2 requests R1. Draw the resource allocation graph and decide whether there is a deadlock. Then give R1 a second unit, held by P3, and decide again.\n\n1. Draw the graph. An assignment edge points from a resource to the process holding it: R1 → P1 and R2 → P2.\n2. P1 requests R2. A request edge points from the process to the resource: P1 → R2. P1 now waits.\n3. P2 requests R1: P2 → R1. Follow the edges: P1 → R2 → P2 → R1 → P1. That is a cycle. With one unit per resource, no one can ever release, so this is a deadlock.\n4. Change one thing. R1 now has two units, and P3 holds the second. The cycle is still drawn.\n5. P3 is not waiting for anything, so it finishes and returns its unit. P2's request for R1 is granted, P2 finishes and releases R2, and P1 gets R2. There is no deadlock.\n\n**Answer:** With one unit per resource, the cycle is a deadlock. With a two-unit R1 and a holder outside the cycle, the same cycle is not a deadlock.",
+   "why_full": "The graph turns a verbal description into a quick visual test. In GATE: read a graph or a list of waits, find cycles, and decide whether a cycle means deadlock or which process to abort (2025 CS2 Q48, 2010 CS Q46, 2000 CS Q1.21).\n\nAsked: 2025 CS2 Q48, 2010 CS Q46, 2000 CS Q1.21",
+   "trap": "Calling every cycle a deadlock. That is true only when each resource in it has a single unit. Another slip is drawing the edges backwards: a held resource points to the process, and a request points to the resource."
+  },
+  {
+   "atom_id": "d3",
+   "title": "Prevention, avoidance, detection",
+   "simple": "There are three ways to deal with traffic jams at a crossroads. You can build the roads so a jam is impossible. You can let a guard check every car and only allow a car in if there will still be room to get out. Or you can let jams happen, notice them, and tow a car away. Operating systems have the same three choices for deadlock. The first is the strictest and wastes road, the second needs to know every driver's plans, and the third is cheap until a jam hits. In exam words: deadlock prevention breaks one Coffman condition, avoidance (the banker's algorithm) keeps the state safe, and detection with recovery finds a deadlock after it happens.",
+   "idea": "There are three ways to handle deadlock. **Prevention** designs the rules so one Coffman condition can never hold. **Avoidance** grants a request only if the system stays in a safe state. **Detection and recovery** lets deadlock happen, finds it, and breaks it by killing or preempting.",
+   "definition": "**Prevention** breaks one condition:\n\n- Mutual exclusion: make the resource shareable (spooling).\n\n- Hold and wait: request everything at once, or release everything before asking again.\n\n- No preemption: let the OS take resources from a waiting process.\n\n- Circular wait: number the resources and request in increasing order only.\n\n**Avoidance** needs each process to declare its maximum demand. The OS grants a request only if the new state is safe (the banker's algorithm).\n\n**Detection and recovery** places no restriction. The OS periodically builds the allocation and request matrices, finds the stuck processes, and recovers by terminating processes or preempting resources.",
+   "intuition_full": "The three strategies trade safety against cost. Prevention is strict and needs no knowledge of the future, but it can waste resources: a process holds a printer from the start even if it uses it at the end, and ordering forces awkward programs. Avoidance is smarter. It lets processes use resources freely but refuses a grant that could trap the system, and for that it must know the maximum claims. It may refuse a request even though no deadlock would have happened. Detection is the optimist's option. Resources are used at full speed, and the OS pays only when a deadlock really occurs, by running the check and recovering. Real operating systems mostly use detection or simply ignore the problem, because deadlock is rare and prevention is costly. The exam question is usually: which condition does this scheme break, or which scheme needs advance knowledge.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A system makes every process request all the resources it needs in one go, before it starts running. P1 needs the printer and the scanner. P2 needs the scanner and the printer. Both devices are free at first. Show that this rule prevents deadlock.",
+     "steps": [
+      "The rule: ask for everything at once, before running. The printer and scanner are both free.",
+      "P1 asks for the printer and the scanner together.",
+      "Both are free, so both are granted at once. The two requests become two assignment edges.",
+      "P2 asks for both together. They are taken, so P2 gets nothing and waits while holding nothing.",
+      "P1 finishes and releases both devices.",
+      "P2 is now granted both and runs. P2 never held one device while waiting for another, so hold and wait is broken. Numbering resources (breaks circular wait) and preempting them (breaks no preemption) are the other two classic schemes."
+     ],
+     "answer": "All-at-once requests break hold and wait, so deadlock cannot occur. The cost is that devices sit idle while a process holds them early."
+    },
+    {
+     "level": "gate",
+     "setup": "Match each system to a strategy (prevention, avoidance, detection and recovery). (a) The OS grants a request only if the resulting state is safe. (b) Processes may deadlock; the OS runs a check every few minutes and kills a process on a cycle. (c) Resources are numbered and requests must go in increasing order. Which strategy needs each process to declare its maximum demand in advance?",
+     "steps": [
+      "(c) Numbering resources makes a loop of waits impossible: every wait goes to a higher number. That removes circular wait by design, so it is prevention.",
+      "(a) Granting only when the state stays safe needs to know the future worst case. That is avoidance (the banker's algorithm).",
+      "(b) Letting deadlock happen, checking for it, and killing a process is detection and recovery. Nothing is restricted in advance.",
+      "Only avoidance has to know each process's maximum claim in advance. Prevention needs no such information. Detection needs only the current allocation and requests."
+     ],
+     "answer": "(a) avoidance, (b) detection and recovery, (c) prevention. Only avoidance needs declared maximum demands."
+    },
+    {
+     "level": "twist",
+     "setup": "A designer wants to prevent deadlock by removing mutual exclusion. Does this work for a read-only file? For a printer? For a write lock on a bank record?",
+     "steps": [
+      "A read-only file can be opened by many readers at once. Nobody has to wait, so mutual exclusion is already absent. Deadlock cannot involve this resource.",
+      "A printer cannot print two jobs at once. Spooling lets processes write to a queue instead, and only the spooler uses the device. Processes never wait for it, so it works for a printer only because of the spooler.",
+      "A write lock must exclude other writers to keep the record correct. Removing exclusion breaks the data.",
+      "So mutual exclusion can be removed only for shareable resources. For the rest, prevention must break hold and wait, no preemption or circular wait."
+     ],
+     "answer": "Works for the read-only file, works for the printer only via spooling, and fails for the write lock."
+    }
+   ],
+   "why": "This card ties the Coffman conditions to the three strategies. In GATE: name the condition a scheme breaks, or choose the true statement among 'prevention', 'avoidance' and 'detection' (2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53).",
+   "how": [
+    "Read the scheme and ask: does it forbid a condition up front (prevention), check safety before granting (avoidance), or check after the fact (detection)?",
+    "For prevention, name the exact condition: all-at-once is hold and wait, numbering is circular wait, preempting is no preemption, spooling is mutual exclusion.",
+    "If the option mentions 'maximum demand' or 'safe state', it is avoidance.",
+    "If the option mentions killing a process or rolling back, it is recovery."
+   ],
+   "mistake": "Calling the banker's algorithm a prevention scheme. It is avoidance: it allows all four conditions and refuses a grant only when the state would become unsafe. Another slip is believing that avoiding deadlock needs no advance information.",
+   "edge_cases": [
+    "Resource ordering works only if every process follows it. One program that requests out of order can break the guarantee.",
+    "Preemption suits resources whose state can be saved, like CPU registers and memory pages. It does not suit a half-printed page.",
+    "Requesting everything at once can starve a process that needs a popular resource, and it lowers utilisation."
+   ],
+   "connections": [
+    "Avoidance is the banker's algorithm (see Banker's algorithm).",
+    "Detection and recovery has its own card (see Deadlock detection and recovery).",
+    "Lock ordering in code is resource ordering applied to mutexes (see Lock ordering in code)."
+   ],
+   "check": [
+    {
+     "q": "Which strategy needs each process to state its maximum resource need in advance?",
+     "a": "Avoidance (the banker's algorithm)."
+    },
+    {
+     "q": "Requiring every process to request resources in increasing numerical order breaks which condition?",
+     "a": "Circular wait."
+    },
+    {
+     "q": "Name the recovery options after a deadlock is detected.",
+     "a": "Terminate processes (all, or one at a time) or preempt resources from them."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53, 2008 CS Q65, 2000 CS Q2.23",
+   "try": {
+    "id": "gen.deadlock.006",
+    "label": "Try: which condition resource numbering breaks (L1)"
+   },
+   "scene": "os.deadlock.allatonce",
+   "example": {
+    "setup": "A system makes every process request all the resources it needs in one go, before it starts running. P1 needs the printer and the scanner. P2 needs the scanner and the printer. Both devices are free at first. Show that this rule prevents deadlock.",
+    "steps": [
+     "The rule: ask for everything at once, before running. The printer and scanner are both free.",
+     "P1 asks for the printer and the scanner together.",
+     "Both are free, so both are granted at once. The two requests become two assignment edges.",
+     "P2 asks for both together. They are taken, so P2 gets nothing and waits while holding nothing.",
+     "P1 finishes and releases both devices.",
+     "P2 is now granted both and runs. P2 never held one device while waiting for another, so hold and wait is broken. Numbering resources (breaks circular wait) and preempting them (breaks no preemption) are the other two classic schemes."
+    ],
+    "answer": "All-at-once requests break hold and wait, so deadlock cannot occur. The cost is that devices sit idle while a process holds them early."
+   },
+   "what": "There are three ways to handle deadlock. **Prevention** designs the rules so one Coffman condition can never hold. **Avoidance** grants a request only if the system stays in a safe state. **Detection and recovery** lets deadlock happen, finds it, and breaks it by killing or preempting.",
+   "what_full": "There are three ways to handle deadlock. **Prevention** designs the rules so one Coffman condition can never hold. **Avoidance** grants a request only if the system stays in a safe state. **Detection and recovery** lets deadlock happen, finds it, and breaks it by killing or preempting.\n\n**Prevention** breaks one condition:\n\n- Mutual exclusion: make the resource shareable (spooling).\n\n- Hold and wait: request everything at once, or release everything before asking again.\n\n- No preemption: let the OS take resources from a waiting process.\n\n- Circular wait: number the resources and request in increasing order only.\n\n**Avoidance** needs each process to declare its maximum demand. The OS grants a request only if the new state is safe (the banker's algorithm).\n\n**Detection and recovery** places no restriction. The OS periodically builds the allocation and request matrices, finds the stuck processes, and recovers by terminating processes or preempting resources.\n\n**Worked example.** A system makes every process request all the resources it needs in one go, before it starts running. P1 needs the printer and the scanner. P2 needs the scanner and the printer. Both devices are free at first. Show that this rule prevents deadlock.\n\n1. The rule: ask for everything at once, before running. The printer and scanner are both free.\n2. P1 asks for the printer and the scanner together.\n3. Both are free, so both are granted at once. The two requests become two assignment edges.\n4. P2 asks for both together. They are taken, so P2 gets nothing and waits while holding nothing.\n5. P1 finishes and releases both devices.\n6. P2 is now granted both and runs. P2 never held one device while waiting for another, so hold and wait is broken. Numbering resources (breaks circular wait) and preempting them (breaks no preemption) are the other two classic schemes.\n\n**Answer:** All-at-once requests break hold and wait, so deadlock cannot occur. The cost is that devices sit idle while a process holds them early.",
+   "why_full": "This card ties the Coffman conditions to the three strategies. In GATE: name the condition a scheme breaks, or choose the true statement among 'prevention', 'avoidance' and 'detection' (2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53).\n\nAsked: 2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53, 2008 CS Q65, 2000 CS Q2.23",
+   "trap": "Calling the banker's algorithm a prevention scheme. It is avoidance: it allows all four conditions and refuses a grant only when the state would become unsafe. Another slip is believing that avoiding deadlock needs no advance information."
+  },
+  {
+   "atom_id": "d4",
+   "title": "Safe and unsafe states",
+   "simple": "Think of a group of friends who borrowed money from you, each with a promised limit. You are safe if you can find some order of asking them to pay you back so that everyone ends up able to finish. With the cash you have left, one friend can finish their purchase and give you everything back, which lets the next friend finish, and so on. If you cannot find such an order, you are in an unsafe spot. It does not mean you are broke yet. It means you are relying on luck that nobody asks for their full limit. In exam words: a state is safe if a safe sequence exists; unsafe states may or may not deadlock; every deadlocked state is unsafe.",
+   "idea": "A state is **safe** if the processes can be put in some order so that each one can get its remaining need, finish, and return everything it holds. That order is a **safe sequence**. An **unsafe** state has no such order. It is not a deadlock yet, but the OS can no longer promise to avoid one.",
+   "definition": "For each process: Need = Max - Allocation (what it may still ask for).\n\nAvailable is the number of free units. Start with Work = Available.\n\nSafe sequence ⟨P1, …, Pn⟩: for each Pi, Need(Pi) ≤ Work + the allocations of the processes before it in the sequence.\n\n**Safe** means at least one safe sequence exists. **Unsafe** means none exists.\n\nSafe ⇒ no deadlock can happen. Deadlocked ⇒ unsafe. Unsafe ⇏ deadlock.",
+   "intuition_full": "Safety is a promise about the worst case. Imagine every process suddenly asks for its entire remaining need. In a safe state there is still an order in which the requests can be met one at a time, because each finished process returns resources for the next. In an unsafe state the worst case leaves everyone waiting. That does not mean it will happen: processes often finish without using their full maximum. This is why unsafe is not the same as deadlocked. The OS, however, must stay safe because it cannot predict behaviour. Picture three cups of water poured into three people: if no one can be filled to their line from what is left, and nobody gives water back, you are stuck. The nested picture to remember: safe states sit outside, unsafe states are a bigger region, and the deadlocked states live inside the unsafe region.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A system has 10 units of one resource. Processes P1, P2, P3 hold 3, 2, 2 units and have maximum claims 9, 4, 7. Is the state safe? Then suppose the OS had given P1 two more units instead. Is that state safe?",
+     "steps": [
+      "Allocated: 3 + 2 + 2 = 7. Available = 10 - 7 = 3 units.",
+      "Need = Max - Allocation: P1 needs 9 - 3 = 6, P2 needs 4 - 2 = 2, P3 needs 7 - 2 = 5.",
+      "Work = 3. P2 needs 2, which is at most 3, so P2 can run to completion. P1 needs 6 and P3 needs 5, which are too big.",
+      "P2 finishes and returns its 2 units: Work = 3 + 2 = 5. Now P3 needs 5, at most 5. P1 still needs 6.",
+      "P3 finishes and returns its 2 units: Work = 5 + 2 = 7.",
+      "P1 needs 6, at most 7, so P1 finishes and returns 3: Work = 7 + 3 = 10. The order P2, P3, P1 lets everyone finish, so the state is safe.",
+      "Now the other case: P1 holds 5, so Available = 1 and the Needs are 4, 2, 5. No Need is at most Work = 1, so no process is guaranteed to finish. The state is unsafe."
+     ],
+     "answer": "The first state is safe, with safe sequence P2, P3, P1. The second state is unsafe, even though one unit is still free."
+    },
+    {
+     "level": "gate",
+     "setup": "A single resource has 12 units. P1, P2, P3 hold 4, 3, 2 units, with maximum claims 8, 9, 6. So 3 units are free. Is the state safe? Is it deadlocked?",
+     "steps": [
+      "Needs: P1 8 - 4 = 4, P2 9 - 3 = 6, P3 6 - 2 = 4. Available = 3.",
+      "Work = 3. Every Need (4, 6, 4) is larger than 3, so no process can be guaranteed to finish. The state is unsafe.",
+      "Is it deadlocked? Deadlock means processes are actually waiting and cannot proceed. Nobody has made a request that cannot be met right now, so there is no deadlock yet.",
+      "If P1 happens to want only 3 more units, it takes the 3 free units, finishes and returns 7, and then P2 and P3 can finish. The system survived by luck.",
+      "But the OS cannot count on luck. If all three ask for their full maximum, they deadlock."
+     ],
+     "answer": "Unsafe but not deadlocked. Unsafe means a deadlock is possible, not certain."
+    },
+    {
+     "level": "twist",
+     "setup": "A single resource has 9 units. P1 holds 4 with maximum 4, P2 holds 3 with maximum 6, P3 holds 2 with maximum 7. Zero units are available. A student says: nothing is free, so the state is unsafe. Is that right?",
+     "steps": [
+      "Needs: P1 4 - 4 = 0, P2 6 - 3 = 3, P3 7 - 2 = 5. Available = 0.",
+      "P1 needs nothing more (0 is at most 0), so it can finish at once and return its 4 units: Work = 0 + 4 = 4.",
+      "P2 needs 3, at most 4. P2 finishes and returns 3: Work = 4 + 3 = 7.",
+      "P3 needs 5, at most 7, so it finishes too. The order P1, P2, P3 works."
+     ],
+     "answer": "The student is wrong. The state is safe: a process with Need 0 can finish even when nothing is free."
+    }
+   ],
+   "why": "Safe and unsafe are the vocabulary of the banker's algorithm. A request is granted only if the state after it stays safe. In GATE: decide whether a state is safe, or judge statements such as 'an unsafe state always leads to deadlock' (2017 CS2 Q33, 2022 CS Q26).",
+   "how": [
+    "Compute Need = Max - Allocation for every process, and Available = Total - sum of Allocations.",
+    "Set Work = Available. Look for any process with Need at most Work.",
+    "Let it finish: add its Allocation to Work. Repeat with the remaining processes.",
+    "If all finish, the state is safe and the order is a safe sequence. If you get stuck, it is unsafe.",
+    "For statements: safe means no deadlock; unsafe means deadlock is possible, not certain."
+   ],
+   "mistake": "Saying 'unsafe means deadlock'. A deadlock needs processes that are actually blocked, and an unsafe state only means the OS cannot guarantee a way out. A second slip is declaring a state unsafe because Available is 0. A process with Need 0 can still finish and free resources.",
+   "edge_cases": [
+    "A process with Need 0 can finish immediately, even if Available is 0.",
+    "There can be several safe sequences. Any one proves the state safe.",
+    "A state where everyone has finished or holds nothing is trivially safe."
+   ],
+   "connections": [
+    "The banker's algorithm (next but one card) runs exactly this test for several resource types and checks every request with it.",
+    "Deadlock detection runs the same loop with current Requests in place of Need.",
+    "The Coffman conditions say when a deadlock can occur; safety says when the OS can still guarantee to avoid one."
+   ],
+   "check": [
+    {
+     "q": "Is every deadlocked state unsafe? Is every unsafe state deadlocked?",
+     "a": "Every deadlocked state is unsafe. Not every unsafe state is deadlocked."
+    },
+    {
+     "q": "8 units. P1 holds 3 (max 5), P2 holds 3 (max 7), 2 are free. Safe?",
+     "a": "Needs: P1 2, P2 4. Work 2: P1 fits, finishes, Work = 5. P2 needs 4 at most 5. Safe, order P1, P2."
+    },
+    {
+     "q": "Does a safe sequence have to be unique?",
+     "a": "No. Any order that works proves safety."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q33, 2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53",
+   "try": {
+    "id": "gen.deadlock.004",
+    "label": "Try: what makes a system state safe (L1)"
+   },
+   "scene": "os.deadlock.safe",
+   "example": {
+    "setup": "A system has 10 units of one resource. Processes P1, P2, P3 hold 3, 2, 2 units and have maximum claims 9, 4, 7. Is the state safe? Then suppose the OS had given P1 two more units instead. Is that state safe?",
+    "steps": [
+     "Allocated: 3 + 2 + 2 = 7. Available = 10 - 7 = 3 units.",
+     "Need = Max - Allocation: P1 needs 9 - 3 = 6, P2 needs 4 - 2 = 2, P3 needs 7 - 2 = 5.",
+     "Work = 3. P2 needs 2, which is at most 3, so P2 can run to completion. P1 needs 6 and P3 needs 5, which are too big.",
+     "P2 finishes and returns its 2 units: Work = 3 + 2 = 5. Now P3 needs 5, at most 5. P1 still needs 6.",
+     "P3 finishes and returns its 2 units: Work = 5 + 2 = 7.",
+     "P1 needs 6, at most 7, so P1 finishes and returns 3: Work = 7 + 3 = 10. The order P2, P3, P1 lets everyone finish, so the state is safe.",
+     "Now the other case: P1 holds 5, so Available = 1 and the Needs are 4, 2, 5. No Need is at most Work = 1, so no process is guaranteed to finish. The state is unsafe."
+    ],
+    "answer": "The first state is safe, with safe sequence P2, P3, P1. The second state is unsafe, even though one unit is still free."
+   },
+   "what": "A state is **safe** if the processes can be put in some order so that each one can get its remaining need, finish, and return everything it holds. That order is a **safe sequence**. An **unsafe** state has no such order. It is not a deadlock yet, but the OS can no longer promise to avoid one.",
+   "what_full": "A state is **safe** if the processes can be put in some order so that each one can get its remaining need, finish, and return everything it holds. That order is a **safe sequence**. An **unsafe** state has no such order. It is not a deadlock yet, but the OS can no longer promise to avoid one.\n\nFor each process: Need = Max - Allocation (what it may still ask for).\n\nAvailable is the number of free units. Start with Work = Available.\n\nSafe sequence ⟨P1, …, Pn⟩: for each Pi, Need(Pi) ≤ Work + the allocations of the processes before it in the sequence.\n\n**Safe** means at least one safe sequence exists. **Unsafe** means none exists.\n\nSafe ⇒ no deadlock can happen. Deadlocked ⇒ unsafe. Unsafe ⇏ deadlock.\n\n**Worked example.** A system has 10 units of one resource. Processes P1, P2, P3 hold 3, 2, 2 units and have maximum claims 9, 4, 7. Is the state safe? Then suppose the OS had given P1 two more units instead. Is that state safe?\n\n1. Allocated: 3 + 2 + 2 = 7. Available = 10 - 7 = 3 units.\n2. Need = Max - Allocation: P1 needs 9 - 3 = 6, P2 needs 4 - 2 = 2, P3 needs 7 - 2 = 5.\n3. Work = 3. P2 needs 2, which is at most 3, so P2 can run to completion. P1 needs 6 and P3 needs 5, which are too big.\n4. P2 finishes and returns its 2 units: Work = 3 + 2 = 5. Now P3 needs 5, at most 5. P1 still needs 6.\n5. P3 finishes and returns its 2 units: Work = 5 + 2 = 7.\n6. P1 needs 6, at most 7, so P1 finishes and returns 3: Work = 7 + 3 = 10. The order P2, P3, P1 lets everyone finish, so the state is safe.\n7. Now the other case: P1 holds 5, so Available = 1 and the Needs are 4, 2, 5. No Need is at most Work = 1, so no process is guaranteed to finish. The state is unsafe.\n\n**Answer:** The first state is safe, with safe sequence P2, P3, P1. The second state is unsafe, even though one unit is still free.",
+   "why_full": "Safe and unsafe are the vocabulary of the banker's algorithm. A request is granted only if the state after it stays safe. In GATE: decide whether a state is safe, or judge statements such as 'an unsafe state always leads to deadlock' (2017 CS2 Q33, 2022 CS Q26).\n\nAsked: 2017 CS2 Q33, 2022 CS Q26, 2026 CS1 Q29, 2021 CS2 Q53",
+   "trap": "Saying 'unsafe means deadlock'. A deadlock needs processes that are actually blocked, and an unsafe state only means the OS cannot guarantee a way out. A second slip is declaring a state unsafe because Available is 0. A process with Need 0 can still finish and free resources."
+  },
+  {
+   "atom_id": "d5",
+   "title": "Banker's algorithm",
+   "simple": "A banker has some cash and has promised each customer a credit limit. Before lending more, the banker checks that, even if every customer suddenly used their whole limit, there is still some order in which the customers can borrow, finish what they are doing and pay everything back. The banker does this with a little loop. Find a customer whose remaining need fits in the cash on hand, let them finish, add their money back to the cash, and repeat. If every customer gets through, the loan is safe. Otherwise the banker says no, even if the cash is there. In exam words: Need = Max - Allocation, and a request is granted only if it stays within Need and Available and leaves the state safe.",
+   "idea": "The **banker's algorithm** keeps the system safe. For every process, work out what it may still ask for (Need). Then repeatedly pick a process whose Need fits in the free resources, let it finish, and take its resources back. If everyone finishes this way, the state is safe.",
+   "definition": "For n processes and m resource types:\n\n**Allocation** (n × m): what each process holds now.\n\n**Max** (n × m): the most each process may ever hold.\n\n**Need** = Max - Allocation, entry by entry.\n\n**Available** (length m): free units of each type.\n\n**Safety test:** set Work = Available. Find an unfinished process Pi with Need(Pi) ≤ Work (every type). Set Work = Work + Allocation(Pi) and mark Pi finished. Repeat. If all finish, the state is safe, and the order found is a safe sequence.\n\n**Request test** for process Pi asking for Request: (1) Request ≤ Need(Pi), else it is an error. (2) Request ≤ Available, else Pi waits. (3) Pretend to grant: Available -= Request, Allocation(Pi) += Request, Need(Pi) -= Request. Run the safety test. Grant only if safe; otherwise undo and make Pi wait.",
+   "intuition_full": "The safety test asks one question: can I finish all processes one after another? A process can finish when the free resources cover everything it might still ask for. When it finishes, it returns what it holds, so the free pool grows, and processes that did not fit before may fit now. That is why the order matters and why you restart the scan after each finish. Comparing vectors needs every type to fit at once: a Need of (0,3) does not fit into Work (6,2), even though 6 is large. The request test adds a safety belt. A request that fits in Available can still push the system into a state with no way out, so the banker simulates the grant first and tests it. If the simulated state is unsafe, the real state stays untouched and the process waits. The algorithm costs about m times n squared comparisons, which is why real systems seldom run it.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Two resource types A and B with totals (6, 5). Allocation: P0 (2,2), P1 (2,0), P2 (0,1), P3 (0,1). Max: P0 (5,4), P1 (2,2), P2 (1,2), P3 (0,4). Find the Need matrix and a safe sequence.",
+     "steps": [
+      "Add the Allocations: A = 2+2+0+0 = 4, B = 2+0+1+1 = 4. Available = Total - Allocated = (6-4, 5-4) = (2, 1).",
+      "Need = Max - Allocation. P0 (3,2), P1 (0,2), P2 (1,1), P3 (0,3).",
+      "Work = (2,1). P0 needs (3,2): too big. P1 needs (0,2): B is 2 but Work has 1. P2 needs (1,1): fits. Pick P2.",
+      "P2 finishes and returns (0,1): Work = (2,1) + (0,1) = (2,2).",
+      "Work = (2,2). P0 needs (3,2): A is too big. P1 needs (0,2): fits. P1 finishes and returns (2,0): Work = (4,2).",
+      "Work = (4,2). P0 needs (3,2): fits. P0 finishes and returns (2,2): Work = (6,4).",
+      "Work = (6,4). P3 needs (0,3): fits. P3 finishes and returns (0,1): Work = (6,5).",
+      "All four finished, and Work is back to the totals (6,5). The sequence P2, P1, P0, P3 is safe."
+     ],
+     "answer": "Need = (3,2), (0,2), (1,1), (0,3). Safe sequence P2, P1, P0, P3. It is the only safe sequence."
+    },
+    {
+     "level": "gate",
+     "setup": "Three processes, resource types A, B, C. Allocation: P0 (3,1,1), P1 (1,3,1), P2 (0,1,0). Max: P0 (3,4,1), P1 (3,3,1), P2 (3,2,0). Available (3,0,2). (a) Is the state safe? (b) P1 requests (1,0,0). Should it be granted?",
+     "steps": [
+      "Need = Max - Allocation: P0 (0,3,0), P1 (2,0,0), P2 (3,1,0).",
+      "Work = (3,0,2). P0 needs 3 of B but Work has 0. P1 needs (2,0,0): fits. P1 finishes: Work = (3,0,2) + (1,3,1) = (4,3,3).",
+      "P0 needs (0,3,0): fits. Work = (4,3,3) + (3,1,1) = (7,4,4). P2 needs (3,1,0): fits. The state is safe, with sequence P1, P0, P2.",
+      "Request (1,0,0) from P1. Check 1: (1,0,0) ≤ Need (2,0,0). Check 2: (1,0,0) ≤ Available (3,0,2). Both pass.",
+      "Pretend to grant. Available = (2,0,2). P1 Allocation = (2,3,1). P1 Need = (1,0,0).",
+      "Run the safety test on the new state. P1 needs (1,0,0) ≤ (2,0,2) and finishes: Work = (4,3,3). Then P0 and P2 fit as before. The new state is safe, so grant."
+     ],
+     "answer": "(a) Safe. (b) Grant the request, because the state after granting is still safe."
+    },
+    {
+     "level": "twist",
+     "setup": "Same state as before. Now P2 requests (2,0,0). It is within P2's Need and within Available. Should the banker grant it?",
+     "steps": [
+      "Check 1: (2,0,0) ≤ P2's Need (3,1,0). Check 2: (2,0,0) ≤ Available (3,0,2). Both pass.",
+      "Pretend to grant. Available = (1,0,2). P2 Allocation = (2,1,0). P2 Need = (1,1,0).",
+      "Safety test with Work = (1,0,2). P0 needs (0,3,0): B too big. P1 needs (2,0,0): A is 2 but Work has 1. P2 needs (1,1,0): B is 1 but Work has 0.",
+      "No process can finish, so the new state is unsafe. The banker refuses and P2 must wait, although the resources were free."
+     ],
+     "answer": "Do not grant. Passing both quick checks is not enough; the state after granting must also be safe."
+    }
+   ],
+   "why": "This is the main calculation of the deadlock chapter, and it uses the same loop as detection. In GATE: find a safe sequence, test whether a state is safe, or decide whether a request is granted (2017 CS2 Q33, 2018 CS Q49, 2019 CS Q49, 2014 CS1 Q31).",
+   "how": [
+    "Compute Need = Max - Allocation for every process. Compute Available = Total - sum of Allocations if it is not given.",
+    "Set Work = Available. Scan for an unfinished process whose whole Need row is at most Work.",
+    "Mark it finished and set Work = Work + its Allocation row. Restart the scan.",
+    "All finished means safe. If you get stuck with unfinished processes, the state is unsafe.",
+    "For a request: check Request ≤ Need, then Request ≤ Available, then simulate and run the safety test."
+   ],
+   "mistake": "Computing Need as Max minus Available. Need is per process: Max - Allocation. Another frequent slip is comparing only one resource column. Every type must fit, and a finished process returns its Allocation, not its Max.",
+   "edge_cases": [
+    "More than one safe sequence may exist. Any one proves the state safe.",
+    "A process whose Need row is all zeros can finish at once, even if Available is all zeros.",
+    "A request greater than Need is an error, since the process exceeded its declared maximum. A request greater than Available simply waits."
+   ],
+   "connections": [
+    "Safe and unsafe states (previous card) are what the algorithm decides.",
+    "Deadlock detection (next card) runs the same loop with the current Request matrix in place of Need.",
+    "With a single resource type the banker reduces to a one-number comparison, as in the minimum-resources card."
+   ],
+   "check": [
+    {
+     "q": "Allocation P0 (1,0), P1 (0,2). Max P0 (3,1), P1 (0,3). Available (2,1). Find Need and decide if the state is safe.",
+     "a": "Need: P0 (2,1), P1 (0,1). Work (2,1): P0 fits, Work = (3,1). P1 (0,1) fits. Safe, order P0, P1."
+    },
+    {
+     "q": "A request is within Need but larger than Available. Error, wait or deny?",
+     "a": "The process waits. It is not an error, because it is within its declared Need."
+    },
+    {
+     "q": "After the banker pretends to grant a request, the state is unsafe. What does it do?",
+     "a": "It undoes the pretend grant, leaves the real state unchanged and makes the process wait."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q33, 2018 CS Q49, 2014 CS1 Q31, 2007 CS Q57, 2019 CS Q49, 2006 CS Q66",
+   "try": {
+    "id": "gen.deadlock.005",
+    "label": "Try: how the Need matrix is computed (L1)"
+   },
+   "scene": "os.deadlock.banker",
+   "example": {
+    "setup": "Two resource types A and B with totals (6, 5). Allocation: P0 (2,2), P1 (2,0), P2 (0,1), P3 (0,1). Max: P0 (5,4), P1 (2,2), P2 (1,2), P3 (0,4). Find the Need matrix and a safe sequence.",
+    "steps": [
+     "Add the Allocations: A = 2+2+0+0 = 4, B = 2+0+1+1 = 4. Available = Total - Allocated = (6-4, 5-4) = (2, 1).",
+     "Need = Max - Allocation. P0 (3,2), P1 (0,2), P2 (1,1), P3 (0,3).",
+     "Work = (2,1). P0 needs (3,2): too big. P1 needs (0,2): B is 2 but Work has 1. P2 needs (1,1): fits. Pick P2.",
+     "P2 finishes and returns (0,1): Work = (2,1) + (0,1) = (2,2).",
+     "Work = (2,2). P0 needs (3,2): A is too big. P1 needs (0,2): fits. P1 finishes and returns (2,0): Work = (4,2).",
+     "Work = (4,2). P0 needs (3,2): fits. P0 finishes and returns (2,2): Work = (6,4).",
+     "Work = (6,4). P3 needs (0,3): fits. P3 finishes and returns (0,1): Work = (6,5).",
+     "All four finished, and Work is back to the totals (6,5). The sequence P2, P1, P0, P3 is safe."
+    ],
+    "answer": "Need = (3,2), (0,2), (1,1), (0,3). Safe sequence P2, P1, P0, P3. It is the only safe sequence."
+   },
+   "what": "The **banker's algorithm** keeps the system safe. For every process, work out what it may still ask for (Need). Then repeatedly pick a process whose Need fits in the free resources, let it finish, and take its resources back. If everyone finishes this way, the state is safe.",
+   "what_full": "The **banker's algorithm** keeps the system safe. For every process, work out what it may still ask for (Need). Then repeatedly pick a process whose Need fits in the free resources, let it finish, and take its resources back. If everyone finishes this way, the state is safe.\n\nFor n processes and m resource types:\n\n**Allocation** (n × m): what each process holds now.\n\n**Max** (n × m): the most each process may ever hold.\n\n**Need** = Max - Allocation, entry by entry.\n\n**Available** (length m): free units of each type.\n\n**Safety test:** set Work = Available. Find an unfinished process Pi with Need(Pi) ≤ Work (every type). Set Work = Work + Allocation(Pi) and mark Pi finished. Repeat. If all finish, the state is safe, and the order found is a safe sequence.\n\n**Request test** for process Pi asking for Request: (1) Request ≤ Need(Pi), else it is an error. (2) Request ≤ Available, else Pi waits. (3) Pretend to grant: Available -= Request, Allocation(Pi) += Request, Need(Pi) -= Request. Run the safety test. Grant only if safe; otherwise undo and make Pi wait.\n\n**Worked example.** Two resource types A and B with totals (6, 5). Allocation: P0 (2,2), P1 (2,0), P2 (0,1), P3 (0,1). Max: P0 (5,4), P1 (2,2), P2 (1,2), P3 (0,4). Find the Need matrix and a safe sequence.\n\n1. Add the Allocations: A = 2+2+0+0 = 4, B = 2+0+1+1 = 4. Available = Total - Allocated = (6-4, 5-4) = (2, 1).\n2. Need = Max - Allocation. P0 (3,2), P1 (0,2), P2 (1,1), P3 (0,3).\n3. Work = (2,1). P0 needs (3,2): too big. P1 needs (0,2): B is 2 but Work has 1. P2 needs (1,1): fits. Pick P2.\n4. P2 finishes and returns (0,1): Work = (2,1) + (0,1) = (2,2).\n5. Work = (2,2). P0 needs (3,2): A is too big. P1 needs (0,2): fits. P1 finishes and returns (2,0): Work = (4,2).\n6. Work = (4,2). P0 needs (3,2): fits. P0 finishes and returns (2,2): Work = (6,4).\n7. Work = (6,4). P3 needs (0,3): fits. P3 finishes and returns (0,1): Work = (6,5).\n8. All four finished, and Work is back to the totals (6,5). The sequence P2, P1, P0, P3 is safe.\n\n**Answer:** Need = (3,2), (0,2), (1,1), (0,3). Safe sequence P2, P1, P0, P3. It is the only safe sequence.",
+   "why_full": "This is the main calculation of the deadlock chapter, and it uses the same loop as detection. In GATE: find a safe sequence, test whether a state is safe, or decide whether a request is granted (2017 CS2 Q33, 2018 CS Q49, 2019 CS Q49, 2014 CS1 Q31).\n\nAsked: 2017 CS2 Q33, 2018 CS Q49, 2014 CS1 Q31, 2007 CS Q57, 2019 CS Q49, 2006 CS Q66",
+   "trap": "Computing Need as Max minus Available. Need is per process: Max - Allocation. Another frequent slip is comparing only one resource column. Every type must fit, and a finished process returns its Allocation, not its Max."
+  },
+  {
+   "atom_id": "d6",
+   "title": "Deadlock detection and recovery",
+   "simple": "Suppose a few friends are all waiting at a shop counter, each saying what they are waiting for. You look at what the shop has right now and check who can be served. Serve that friend, let them leave and hand back their things, and see who can be served next. At the end, whoever is still waiting is stuck for good, because nothing will ever arrive that satisfies them. That is how an OS finds a deadlock after it has happened. To fix it, the OS asks one friend to leave, or takes their things away. In exam words: run the banker's loop with the current Request matrix instead of Need; processes that never finish are deadlocked; recover by terminating or preempting.",
+   "idea": "**Detection** lets deadlock happen and then finds it. It runs the banker's loop, but compares each process's current **Request** (not Need) with Work. Any process that can never finish is deadlocked. **Recovery** then kills processes or takes resources away.",
+   "definition": "Input: Allocation, current Request (n × m), and Available.\n\nSet Work = Available. A process with Allocation = 0 counts as finished.\n\nRepeat: find an unfinished Pi with Request(Pi) ≤ Work. Assume it finishes: Work = Work + Allocation(Pi). Stop when no such process exists.\n\nEvery process still unfinished is **deadlocked**.\n\n**Recovery:** terminate all deadlocked processes, or terminate them one at a time until the loop succeeds, or preempt resources and roll a process back. Choose a victim by priority, work done and resources held.",
+   "intuition_full": "Detection is optimistic: it assumes a process that can get what it asks for right now will run to completion and give everything back. That is true because it asks for nothing more. A process whose current request cannot be met even after every other process has had a chance to finish is stuck forever, so it is truly deadlocked. This is the difference from the banker. The banker is pessimistic about the future (it uses Max), while detection looks only at what processes are waiting for now. A state can be unsafe but not deadlocked. Running detection costs about m times n squared, so the OS runs it every so often, or when CPU use drops. Recovery has costs of its own: terminating a process loses its work, and preempting needs a rollback.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Two resource types A and B. Allocation: P0 (0,2), P1 (0,1), P2 (2,1), P3 (2,0). Current Requests: P0 (1,0), P1 (1,0), P2 (3,1), P3 (3,2). Available (1,0). Which processes are deadlocked?",
+     "steps": [
+      "Work = Available = (1,0). Detection uses the current Requests, not a Max matrix. A process can finish if its Request is at most Work.",
+      "P0 requests (1,0) ≤ Work (1,0). Assume it gets it and finishes, returning (0,2): Work = (1,0) + (0,2) = (1,2).",
+      "P1 requests (1,0) ≤ (1,2). It finishes and returns (0,1): Work = (1,2) + (0,1) = (1,3).",
+      "P2 requests (3,1): A is 3 but Work has A = 1, so no. P3 requests (3,2): A is 3, so no.",
+      "No unfinished process fits, so the loop stops. P2 and P3 can never finish: they are deadlocked.",
+      "Recovery: abort P3. Its (2,0) returns: Work = (1,3) + (2,0) = (3,3). P2's request (3,1) now fits, so P2 finishes."
+     ],
+     "answer": "P2 and P3 are deadlocked. P0 and P1 are fine. Aborting P3 (or P2) frees the other."
+    },
+    {
+     "level": "gate",
+     "setup": "Four processes, resource types A, B, C. Allocation: P0 (1,2,1), P1 (0,0,2), P2 (0,1,0), P3 (0,2,0). Requests: P0 (2,0,2), P1 (1,0,0), P2 (0,2,2), P3 (0,2,1). Available (1,0,0). How many processes are deadlocked, and which single process should be aborted?",
+     "steps": [
+      "Work = (1,0,0). Check each Request against Work. P0 (2,0,2): A is 2 > 1, no. P1 (1,0,0): fits.",
+      "P1 finishes and returns (0,0,2): Work = (1,0,2).",
+      "Scan again. P0 (2,0,2): A is 2 > 1. P2 (0,2,2): B is 2 > 0. P3 (0,2,1): B is 2 > 0. Nothing fits, so the loop stops.",
+      "P0, P2 and P3 never finish: 3 processes are deadlocked. P1 is not.",
+      "Try aborting P0: Work = (1,0,2) + (1,2,1) = (2,2,3). P2 (0,2,2) fits and returns (0,1,0): Work = (2,3,3). P3 (0,2,1) fits. The deadlock is gone."
+     ],
+     "answer": "3 processes are deadlocked (P0, P2, P3). Aborting P0 alone resolves it."
+    },
+    {
+     "level": "twist",
+     "setup": "One resource type, 7 units. P1 holds 3 with maximum 6. P2 holds 3 with maximum 5. 1 unit is free. Neither process is waiting for anything right now. Does detection report a deadlock? Does the banker call the state safe?",
+     "steps": [
+      "Detection uses the current Requests. Both are 0, so each process 'fits' Work = 1 and can finish. Detection reports no deadlock.",
+      "The banker uses Need = Max - Allocation: P1 needs 6 - 3 = 3, P2 needs 5 - 3 = 2. Work = 1.",
+      "Neither Need (3 and 2) is at most 1, so no safe sequence exists. The state is unsafe.",
+      "The two tests answer different questions. Detection asks: is anyone stuck now? The banker asks: could the future get us stuck?"
+     ],
+     "answer": "Detection: no deadlock. Banker: unsafe. A state can be unsafe without being deadlocked."
+    }
+   ],
+   "why": "Detection is the 'no restriction' strategy, and it appears whenever a question gives a Request matrix. In GATE: find which processes are deadlocked, or choose a process to abort so that no cycle is left (2025 CS2 Q48, 2010 CS Q46, 2019 CS Q49).",
+   "how": [
+    "Write Work = Available. Mark any process with zero Allocation as finished.",
+    "Find an unfinished process with Request ≤ Work (all types). Add its Allocation to Work and mark it finished.",
+    "Repeat until nothing fits. The unfinished processes are the deadlocked ones.",
+    "To recover, pick a victim that breaks the most waiting, recompute Work, and run the loop again to confirm."
+   ],
+   "mistake": "Using Max - Allocation (Need) in a detection question. Detection uses the Request matrix that is given. A related slip is calling processes deadlocked just because the state is unsafe. If every process's current request can be met, there is no deadlock.",
+   "edge_cases": [
+    "A process with a Request of all zeros always finishes, even if it holds a lot.",
+    "If the Request matrix is all zeros, nothing is waiting and nothing is deadlocked.",
+    "More than one victim choice can work. The question usually asks for the minimum number of processes to abort."
+   ],
+   "connections": [
+    "It is the same loop as the banker's safety test, with Request in place of Need.",
+    "On single-unit resources the result equals finding a cycle in the wait-for graph.",
+    "Recovery by preempting resources breaks the no-preemption condition after the fact."
+   ],
+   "check": [
+    {
+     "q": "Allocation P0 (1,0), P1 (0,1). Requests P0 (0,1), P1 (1,0). Available (0,0). Deadlocked?",
+     "a": "Both. Work (0,0) satisfies neither request (each needs a unit the other holds)."
+    },
+    {
+     "q": "Which matrix does detection compare with Work?",
+     "a": "The current Request matrix."
+    },
+    {
+     "q": "A process holds resources but has Request = 0. Deadlocked?",
+     "a": "No. It can finish and return everything."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q48, 2010 CS Q46, 2000 CS Q1.21, 2019 CS Q49",
+   "try": {
+    "id": "gen.deadlock.012",
+    "label": "Try: which matrix detection compares with Work (L2)"
+   },
+   "scene": "os.deadlock.detect",
+   "example": {
+    "setup": "Two resource types A and B. Allocation: P0 (0,2), P1 (0,1), P2 (2,1), P3 (2,0). Current Requests: P0 (1,0), P1 (1,0), P2 (3,1), P3 (3,2). Available (1,0). Which processes are deadlocked?",
+    "steps": [
+     "Work = Available = (1,0). Detection uses the current Requests, not a Max matrix. A process can finish if its Request is at most Work.",
+     "P0 requests (1,0) ≤ Work (1,0). Assume it gets it and finishes, returning (0,2): Work = (1,0) + (0,2) = (1,2).",
+     "P1 requests (1,0) ≤ (1,2). It finishes and returns (0,1): Work = (1,2) + (0,1) = (1,3).",
+     "P2 requests (3,1): A is 3 but Work has A = 1, so no. P3 requests (3,2): A is 3, so no.",
+     "No unfinished process fits, so the loop stops. P2 and P3 can never finish: they are deadlocked.",
+     "Recovery: abort P3. Its (2,0) returns: Work = (1,3) + (2,0) = (3,3). P2's request (3,1) now fits, so P2 finishes."
+    ],
+    "answer": "P2 and P3 are deadlocked. P0 and P1 are fine. Aborting P3 (or P2) frees the other."
+   },
+   "what": "**Detection** lets deadlock happen and then finds it. It runs the banker's loop, but compares each process's current **Request** (not Need) with Work. Any process that can never finish is deadlocked. **Recovery** then kills processes or takes resources away.",
+   "what_full": "**Detection** lets deadlock happen and then finds it. It runs the banker's loop, but compares each process's current **Request** (not Need) with Work. Any process that can never finish is deadlocked. **Recovery** then kills processes or takes resources away.\n\nInput: Allocation, current Request (n × m), and Available.\n\nSet Work = Available. A process with Allocation = 0 counts as finished.\n\nRepeat: find an unfinished Pi with Request(Pi) ≤ Work. Assume it finishes: Work = Work + Allocation(Pi). Stop when no such process exists.\n\nEvery process still unfinished is **deadlocked**.\n\n**Recovery:** terminate all deadlocked processes, or terminate them one at a time until the loop succeeds, or preempt resources and roll a process back. Choose a victim by priority, work done and resources held.\n\n**Worked example.** Two resource types A and B. Allocation: P0 (0,2), P1 (0,1), P2 (2,1), P3 (2,0). Current Requests: P0 (1,0), P1 (1,0), P2 (3,1), P3 (3,2). Available (1,0). Which processes are deadlocked?\n\n1. Work = Available = (1,0). Detection uses the current Requests, not a Max matrix. A process can finish if its Request is at most Work.\n2. P0 requests (1,0) ≤ Work (1,0). Assume it gets it and finishes, returning (0,2): Work = (1,0) + (0,2) = (1,2).\n3. P1 requests (1,0) ≤ (1,2). It finishes and returns (0,1): Work = (1,2) + (0,1) = (1,3).\n4. P2 requests (3,1): A is 3 but Work has A = 1, so no. P3 requests (3,2): A is 3, so no.\n5. No unfinished process fits, so the loop stops. P2 and P3 can never finish: they are deadlocked.\n6. Recovery: abort P3. Its (2,0) returns: Work = (1,3) + (2,0) = (3,3). P2's request (3,1) now fits, so P2 finishes.\n\n**Answer:** P2 and P3 are deadlocked. P0 and P1 are fine. Aborting P3 (or P2) frees the other.",
+   "why_full": "Detection is the 'no restriction' strategy, and it appears whenever a question gives a Request matrix. In GATE: find which processes are deadlocked, or choose a process to abort so that no cycle is left (2025 CS2 Q48, 2010 CS Q46, 2019 CS Q49).\n\nAsked: 2025 CS2 Q48, 2010 CS Q46, 2000 CS Q1.21, 2019 CS Q49",
+   "trap": "Using Max - Allocation (Need) in a detection question. Detection uses the Request matrix that is given. A related slip is calling processes deadlocked just because the state is unsafe. If every process's current request can be met, there is no deadlock."
+  },
+  {
+   "atom_id": "d7",
+   "title": "Minimum resources to avoid deadlock",
+   "simple": "Imagine some friends sharing a pile of pencils for an exam. Each friend needs three pencils to finish, but they pick them up one at a time. The worst thing that can happen is that every friend grabs two and then waits for a third. If the pile has no pencil left over at that moment, everybody is stuck. But if there is even one spare pencil, one friend gets their third, finishes, and gives all three back. Then the others can finish too. So the safe pile size is the worst-case holdings plus one. In exam words: R is at least the sum of (max - 1) over all processes, plus 1.",
+   "idea": "To be sure no deadlock can happen, imagine the worst case: every process holds one unit **less** than its maximum and waits for the last unit. If at least one more unit exists, someone finishes. So you need one more than the worst case holds.",
+   "definition": "Let R be the number of identical units and process i need at most mi units, requested one at a time.\n\nWorst-case holdings: sum over i of (mi - 1).\n\n**Deadlock cannot occur if R ≥ sum of (mi - 1) + 1.**\n\nFor n processes with the same maximum K: R ≥ n(K - 1) + 1.\n\nLargest K that never deadlocks: K = floor((R - 1) / n) + 1.\n\nThis is a sufficient condition. With fewer units, deadlock is possible but not certain.",
+   "intuition_full": "Deadlock in this model needs every unfinished process to be waiting for just one more unit while all the units are held. A process finishes when it reaches its maximum. So the most damaging pattern is that every process stops one unit short of its maximum. That pattern holds sum of (mi - 1) units. If the pool is exactly that size, the pattern is reachable and deadlock is real. If the pool is one larger, the pattern leaves a spare unit. Hand it to any waiting process. That process reaches its maximum, finishes and returns at least mi units, so the pool grows, and the argument repeats for the remaining processes. The formula is the banker's algorithm in its simplest form: one resource type, and the worst case taken over all orders of requests.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Five processes share identical units of one resource. Each process needs at most 3 units, and asks for them one at a time. What is the smallest number of units that guarantees no deadlock?",
+     "steps": [
+      "Look at the worst case. Every process holds 3 - 1 = 2 units and asks for the 3rd. That uses 5 × 2 = 10 units.",
+      "If there are exactly 10 units, none is free. Every process is waiting, and nobody can finish. Deadlock is possible, so 10 is not enough.",
+      "Add one more unit: R = 11. Now in the worst case one unit is still free.",
+      "Give it to any process, say P1. P1 now holds 3, which is its maximum, so it finishes and returns 3 units.",
+      "With 3 units free, the others can each get their last unit in turn and finish. So R = 5 × (3 - 1) + 1 = 11 always avoids deadlock."
+     ],
+     "answer": "11 units. The formula is R = n(K - 1) + 1 = 5 × 2 + 1."
+    },
+    {
+     "level": "gate",
+     "setup": "Four processes share 14 identical units. Each asks for at most K units, one at a time. What is the largest K for which deadlock can never occur?",
+     "steps": [
+      "No deadlock is guaranteed when R ≥ n(K - 1) + 1. Here that means 14 ≥ 4(K - 1) + 1.",
+      "Solve: 4(K - 1) ≤ 13, so K - 1 ≤ 3.25. The largest whole K - 1 is 3, so K = 4.",
+      "Check K = 4: needs 4 × 3 + 1 = 13 units, and 14 ≥ 13. Safe.",
+      "Check K = 5: needs 4 × 4 + 1 = 17 units, and 14 < 17. Deadlock is possible."
+     ],
+     "answer": "K = 4. The general form is K = floor((R - 1) / n) + 1 = floor(13 / 4) + 1 = 4."
+    },
+    {
+     "level": "twist",
+     "setup": "Three processes have maximum needs 1, 4 and 4 units of one resource. What is the minimum number of units that guarantees no deadlock?",
+     "steps": [
+      "Use R = sum of (max - 1) + 1. For the first process, max - 1 = 0. A process that needs only 1 unit can never hold one and wait for another.",
+      "The other two contribute 4 - 1 = 3 each.",
+      "Sum = 0 + 3 + 3 = 6. Add 1: R = 7.",
+      "Check: with 6 units, the two big processes can each hold 3 and wait while the small one has to wait for its single unit. With 7, one unit is always spare."
+     ],
+     "answer": "7 units. Do not use n × (K - 1) + 1 blindly when the maxima differ."
+    }
+   ],
+   "why": "This is the quickest deadlock question in GATE: one formula and a division. In GATE: find the minimum pool for n processes, or the largest K for a given pool (2018 CS Q34, 2026 CS1 Q35, 2014 CS3 Q31, 2015 CS2 Q23).",
+   "how": [
+    "Check the wording: identical units, one at a time, and 'guarantee no deadlock'.",
+    "For each process write max - 1. Add them up and add 1.",
+    "For equal maxima use n(K - 1) + 1. For the largest K, rearrange: K = floor((R - 1) / n) + 1.",
+    "Test your answer: with one unit fewer, the worst case should deadlock."
+   ],
+   "mistake": "Using n × K, or n × (K - 1) without the extra +1. The +1 is the spare unit that lets one process finish. With unequal maxima, the slip is to apply the equal-maxima formula; add up (max - 1) per process instead.",
+   "edge_cases": [
+    "A process with maximum 1 adds 0 to the worst case, since it can never hold one unit and wait for another.",
+    "The largest pool that can still deadlock is the sum of (max - 1). One more unit makes it safe.",
+    "The formula assumes processes request units one at a time. If a process asks for several together, the worst case changes."
+   ],
+   "connections": [
+    "It is the banker's algorithm with one resource type and the worst case taken over all request orders.",
+    "The 'hold max - 1 and wait' picture is exactly hold and wait plus circular wait (see Coffman conditions).",
+    "The same pigeonhole idea shows up in semaphore counting problems in the synchronisation chapter."
+   ],
+   "check": [
+    {
+     "q": "Six processes, each needs at most 4 units. Minimum units to avoid deadlock?",
+     "a": "6 × (4 - 1) + 1 = 19."
+    },
+    {
+     "q": "R = 20 units, 6 processes. Largest K that never deadlocks?",
+     "a": "floor((20 - 1) / 6) + 1 = 3 + 1 = 4. Check: 6 × 3 + 1 = 19 ≤ 20, and K = 5 needs 25."
+    },
+    {
+     "q": "Maxima are 2, 3 and 5. What is the minimum safe pool?",
+     "a": "(2-1) + (3-1) + (5-1) + 1 = 1 + 2 + 4 + 1 = 8."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q34, 2026 CS1 Q35, 2014 CS3 Q31, 2005 CS Q71, 2015 CS2 Q23",
+   "try": {
+    "id": "gen.deadlock.007",
+    "label": "Try: smallest pool that never deadlocks (L2)"
+   },
+   "scene": "os.deadlock.minres",
+   "example": {
+    "setup": "Five processes share identical units of one resource. Each process needs at most 3 units, and asks for them one at a time. What is the smallest number of units that guarantees no deadlock?",
+    "steps": [
+     "Look at the worst case. Every process holds 3 - 1 = 2 units and asks for the 3rd. That uses 5 × 2 = 10 units.",
+     "If there are exactly 10 units, none is free. Every process is waiting, and nobody can finish. Deadlock is possible, so 10 is not enough.",
+     "Add one more unit: R = 11. Now in the worst case one unit is still free.",
+     "Give it to any process, say P1. P1 now holds 3, which is its maximum, so it finishes and returns 3 units.",
+     "With 3 units free, the others can each get their last unit in turn and finish. So R = 5 × (3 - 1) + 1 = 11 always avoids deadlock."
+    ],
+    "answer": "11 units. The formula is R = n(K - 1) + 1 = 5 × 2 + 1."
+   },
+   "what": "To be sure no deadlock can happen, imagine the worst case: every process holds one unit **less** than its maximum and waits for the last unit. If at least one more unit exists, someone finishes. So you need one more than the worst case holds.",
+   "what_full": "To be sure no deadlock can happen, imagine the worst case: every process holds one unit **less** than its maximum and waits for the last unit. If at least one more unit exists, someone finishes. So you need one more than the worst case holds.\n\nLet R be the number of identical units and process i need at most mi units, requested one at a time.\n\nWorst-case holdings: sum over i of (mi - 1).\n\n**Deadlock cannot occur if R ≥ sum of (mi - 1) + 1.**\n\nFor n processes with the same maximum K: R ≥ n(K - 1) + 1.\n\nLargest K that never deadlocks: K = floor((R - 1) / n) + 1.\n\nThis is a sufficient condition. With fewer units, deadlock is possible but not certain.\n\n**Worked example.** Five processes share identical units of one resource. Each process needs at most 3 units, and asks for them one at a time. What is the smallest number of units that guarantees no deadlock?\n\n1. Look at the worst case. Every process holds 3 - 1 = 2 units and asks for the 3rd. That uses 5 × 2 = 10 units.\n2. If there are exactly 10 units, none is free. Every process is waiting, and nobody can finish. Deadlock is possible, so 10 is not enough.\n3. Add one more unit: R = 11. Now in the worst case one unit is still free.\n4. Give it to any process, say P1. P1 now holds 3, which is its maximum, so it finishes and returns 3 units.\n5. With 3 units free, the others can each get their last unit in turn and finish. So R = 5 × (3 - 1) + 1 = 11 always avoids deadlock.\n\n**Answer:** 11 units. The formula is R = n(K - 1) + 1 = 5 × 2 + 1.",
+   "why_full": "This is the quickest deadlock question in GATE: one formula and a division. In GATE: find the minimum pool for n processes, or the largest K for a given pool (2018 CS Q34, 2026 CS1 Q35, 2014 CS3 Q31, 2015 CS2 Q23).\n\nAsked: 2018 CS Q34, 2026 CS1 Q35, 2014 CS3 Q31, 2005 CS Q71, 2015 CS2 Q23",
+   "trap": "Using n × K, or n × (K - 1) without the extra +1. The +1 is the spare unit that lets one process finish. With unequal maxima, the slip is to apply the equal-maxima formula; add up (max - 1) per process instead."
+  },
+  {
+   "atom_id": "d8",
+   "title": "Lock ordering in code",
+   "simple": "Two people are each trying to pass through two narrow doors in a row. One goes through door A and then door B, and the other goes through B and then A. If both step into their first door at the same time, each blocks the other's way out, and they stay stuck. The fix is simple: everyone must use the doors in the same order, A first and then B. Then nobody can ever be waiting for a door held by someone who is waiting for a door they hold. In exam words: threads that take locks in different orders can deadlock; one global lock order removes circular wait; a non-reentrant lock can deadlock a single thread.",
+   "idea": "In code, locks are the resources, and threads taking them in **different orders** can deadlock. If every thread takes locks in one agreed global order, a loop of waits is impossible. A thread can even deadlock alone if it takes a non-reentrant lock twice.",
+   "definition": "A lock-order deadlock needs thread A holding L1 and waiting for L2 while thread B holds L2 and waits for L1.\n\n**Fix 1:** impose a total order on locks and always acquire in increasing order. This breaks circular wait.\n\n**Fix 2:** acquire all locks at once or use try-lock with back-off. This breaks hold and wait.\n\nA **non-reentrant** (non-recursive) lock cannot be acquired again by the thread that holds it. A second lock(m) by the owner blocks forever. A **re-entrant** lock counts the acquisitions instead.",
+   "intuition_full": "Lock-order deadlock is the Coffman picture in miniature. The two locks are the resources (mutual exclusion). A thread keeps the first lock while asking for the second (hold and wait). Locks are not taken away (no preemption). The danger is the loop. A global order kills the loop with a simple argument: every wait goes from a lock you hold to a strictly larger lock. A cycle would need to come back to a smaller lock, which the rule forbids. That is the same argument as numbering resources. In real code the ordering key can be anything stable: an address, an account id, a lock level. The second danger is calling a function that locks the same mutex you already hold. With a non-reentrant lock the thread waits for itself, so the smallest possible deadlock is one thread and one lock.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A bank function transfer(from, to) runs lock(from); lock(to); ...; unlock both. Thread T1 calls transfer(7, 3) and thread T2 calls transfer(3, 7) at the same time. Show the deadlock and fix it with a lock order.",
+     "steps": [
+      "Two threads and two account locks. Each thread locks its from-account first and its to-account second.",
+      "T1 locks account 7. T2 locks account 3. Both succeed because the locks are free.",
+      "T1 now wants account 3, held by T2. T2 wants account 7, held by T1. Each holds one lock and waits for the other's: circular wait, so deadlock.",
+      "Fix: always lock the account with the smaller id first. Now T1's transfer(7, 3) locks 3 first and then 7. T2's transfer(3, 7) also locks 3 first and then 7.",
+      "T1 gets lock 3. T2 asks for lock 3 too, but it is taken. T2 waits while holding nothing.",
+      "T1 locks 7, finishes, and unlocks both. T2 then gets 3 and then 7. Every wait now goes toward a larger id, so a loop is impossible."
+     ],
+     "answer": "With opposite lock orders, the threads deadlock. With one global order (smaller id first), they cannot."
+    },
+    {
+     "level": "gate",
+     "setup": "Three threads and three locks L1, L2, L3. T1 locks L1 then L2. T2 locks L2 then L3. T3 locks L3 then L1. Can they deadlock? Which single change prevents it?",
+     "steps": [
+      "Look for a cycle in the lock-wait pattern. T1 holds L1 and wants L2 (held by T2). T2 holds L2 and wants L3 (held by T3). T3 holds L3 and wants L1 (held by T1).",
+      "That is a cycle of three waits, so the threads can deadlock if each takes its first lock before anyone takes a second.",
+      "Impose the order L1 < L2 < L3. T1 and T2 already follow it. T3 breaks it by taking L3 before L1.",
+      "Change T3 to lock L1 first and then L3. Now every thread takes locks in increasing order, and no wait can point back to a smaller lock."
+     ],
+     "answer": "Yes, they can deadlock. Making T3 lock L1 before L3 (a global order) prevents it."
+    },
+    {
+     "level": "twist",
+     "setup": "A single thread calls f(), which runs lock(m), then calls g(), which also runs lock(m) before unlock(m). The lock m is not re-entrant. How many threads and locks are needed to deadlock?",
+     "steps": [
+      "The thread locks m in f(), then calls g().",
+      "g() tries to lock m again. A non-reentrant lock cannot be taken twice, even by its owner, so the thread waits.",
+      "The thread waits for a lock only it can release, and it will never get there. That is a deadlock of size one.",
+      "So one thread and one lock are enough. A re-entrant (recursive) lock would let the thread pass."
+     ],
+     "answer": "One thread and one lock deadlock. Circular wait can have length one."
+    }
+   ],
+   "why": "It connects the theory to code, and GATE asks it as 'which interleaving deadlocks' or 'which change fixes it'. In GATE: trace the lock acquisitions, find the cycle, and choose the fix (2017 CS1 Q27, 2004 CS Q48, 2013 CS Q16, 2009 CS Q30).",
+   "how": [
+    "For each thread, list the locks in the order it takes them.",
+    "Look for two threads that take the same pair in opposite orders, or a ring of waits across more threads.",
+    "Check whether an interleaving lets each thread take its first lock before anyone takes a second. If so, a deadlock is possible.",
+    "Fix by making all threads follow one global order. Check calls inside locked regions for re-locking the same mutex."
+   ],
+   "mistake": "Believing deadlock always needs two threads. One thread locking a non-reentrant mutex twice deadlocks by itself. Another slip is thinking a deadlock is certain whenever the orders differ: it happens only for some interleavings.",
+   "edge_cases": [
+    "Differences in order matter only for locks that are held at the same time. Releasing the first lock before taking the second removes the problem.",
+    "With a re-entrant lock, the same thread can lock again, so the single-thread case does not deadlock.",
+    "A thread that takes only one lock at a time can never be part of a lock-order deadlock."
+   ],
+   "connections": [
+    "Resource numbering in the prevention card is the same idea applied to locks.",
+    "Mutexes and semaphores come from the synchronisation chapter; semaphore deadlocks follow the same pattern.",
+    "The lock-wait pattern is a wait-for graph; a cycle in it is the deadlock."
+   ],
+   "check": [
+    {
+     "q": "T1 locks A then B. T2 locks A then B. Can they deadlock?",
+     "a": "No. Both take A first, so the second thread waits for A while holding nothing."
+    },
+    {
+     "q": "T1 locks A then B. T2 locks B then C. T3 locks C then A. Deadlock possible?",
+     "a": "Yes. A ring of waits is possible: T1 holds A wants B, T2 holds B wants C, T3 holds C wants A."
+    },
+    {
+     "q": "What is the minimum number of threads that can deadlock, and with which lock type?",
+     "a": "One thread, with a non-reentrant lock acquired twice."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q27, 2004 CS Q48, 2013 CS Q16, 2009 CS Q30",
+   "try": {
+    "id": "gen.deadlock.013",
+    "label": "Try: which change removes a two-thread lock deadlock (L2)"
+   },
+   "scene": "os.deadlock.lockorder",
+   "example": {
+    "setup": "A bank function transfer(from, to) runs lock(from); lock(to); ...; unlock both. Thread T1 calls transfer(7, 3) and thread T2 calls transfer(3, 7) at the same time. Show the deadlock and fix it with a lock order.",
+    "steps": [
+     "Two threads and two account locks. Each thread locks its from-account first and its to-account second.",
+     "T1 locks account 7. T2 locks account 3. Both succeed because the locks are free.",
+     "T1 now wants account 3, held by T2. T2 wants account 7, held by T1. Each holds one lock and waits for the other's: circular wait, so deadlock.",
+     "Fix: always lock the account with the smaller id first. Now T1's transfer(7, 3) locks 3 first and then 7. T2's transfer(3, 7) also locks 3 first and then 7.",
+     "T1 gets lock 3. T2 asks for lock 3 too, but it is taken. T2 waits while holding nothing.",
+     "T1 locks 7, finishes, and unlocks both. T2 then gets 3 and then 7. Every wait now goes toward a larger id, so a loop is impossible."
+    ],
+    "answer": "With opposite lock orders, the threads deadlock. With one global order (smaller id first), they cannot."
+   },
+   "what": "In code, locks are the resources, and threads taking them in **different orders** can deadlock. If every thread takes locks in one agreed global order, a loop of waits is impossible. A thread can even deadlock alone if it takes a non-reentrant lock twice.",
+   "what_full": "In code, locks are the resources, and threads taking them in **different orders** can deadlock. If every thread takes locks in one agreed global order, a loop of waits is impossible. A thread can even deadlock alone if it takes a non-reentrant lock twice.\n\nA lock-order deadlock needs thread A holding L1 and waiting for L2 while thread B holds L2 and waits for L1.\n\n**Fix 1:** impose a total order on locks and always acquire in increasing order. This breaks circular wait.\n\n**Fix 2:** acquire all locks at once or use try-lock with back-off. This breaks hold and wait.\n\nA **non-reentrant** (non-recursive) lock cannot be acquired again by the thread that holds it. A second lock(m) by the owner blocks forever. A **re-entrant** lock counts the acquisitions instead.\n\n**Worked example.** A bank function transfer(from, to) runs lock(from); lock(to); ...; unlock both. Thread T1 calls transfer(7, 3) and thread T2 calls transfer(3, 7) at the same time. Show the deadlock and fix it with a lock order.\n\n1. Two threads and two account locks. Each thread locks its from-account first and its to-account second.\n2. T1 locks account 7. T2 locks account 3. Both succeed because the locks are free.\n3. T1 now wants account 3, held by T2. T2 wants account 7, held by T1. Each holds one lock and waits for the other's: circular wait, so deadlock.\n4. Fix: always lock the account with the smaller id first. Now T1's transfer(7, 3) locks 3 first and then 7. T2's transfer(3, 7) also locks 3 first and then 7.\n5. T1 gets lock 3. T2 asks for lock 3 too, but it is taken. T2 waits while holding nothing.\n6. T1 locks 7, finishes, and unlocks both. T2 then gets 3 and then 7. Every wait now goes toward a larger id, so a loop is impossible.\n\n**Answer:** With opposite lock orders, the threads deadlock. With one global order (smaller id first), they cannot.",
+   "why_full": "It connects the theory to code, and GATE asks it as 'which interleaving deadlocks' or 'which change fixes it'. In GATE: trace the lock acquisitions, find the cycle, and choose the fix (2017 CS1 Q27, 2004 CS Q48, 2013 CS Q16, 2009 CS Q30).\n\nAsked: 2017 CS1 Q27, 2004 CS Q48, 2013 CS Q16, 2009 CS Q30",
+   "trap": "Believing deadlock always needs two threads. One thread locking a non-reentrant mutex twice deadlocks by itself. Another slip is thinking a deadlock is certain whenever the orders differ: it happens only for some interleavings."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "os.deadlock.coffman",
+   "title": "The four Coffman conditions, one by one",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "P1",
+     "kind": "node",
+     "x": 60,
+     "y": 95,
+     "label": "P1",
+     "r": 22
+    },
+    {
+     "id": "P2",
+     "kind": "node",
+     "x": 300,
+     "y": 95,
+     "label": "P2",
+     "r": 22
+    },
+    {
+     "id": "Pr",
+     "kind": "box",
+     "x": 135,
+     "y": 30,
+     "w": 90,
+     "h": 34,
+     "label": "Printer"
+    },
+    {
+     "id": "Sc",
+     "kind": "box",
+     "x": 135,
+     "y": 126,
+     "w": 90,
+     "h": 34,
+     "label": "Scanner"
+    },
+    {
+     "id": "a1",
+     "kind": "arrow",
+     "from": "Pr",
+     "to": "P1"
+    },
+    {
+     "id": "a2",
+     "kind": "arrow",
+     "from": "Sc",
+     "to": "P2"
+    },
+    {
+     "id": "q1",
+     "kind": "arrow",
+     "from": "P1",
+     "to": "Sc",
+     "dash": true
+    },
+    {
+     "id": "q2",
+     "kind": "arrow",
+     "from": "P2",
+     "to": "Pr",
+     "dash": true
+    },
+    {
+     "id": "a3",
+     "kind": "arrow",
+     "from": "Pr",
+     "to": "P2"
+    },
+    {
+     "id": "c1",
+     "kind": "box",
+     "x": 8,
+     "y": 184,
+     "w": 82,
+     "h": 30,
+     "label": "mutex"
+    },
+    {
+     "id": "c2",
+     "kind": "box",
+     "x": 96,
+     "y": 184,
+     "w": 82,
+     "h": 30,
+     "label": "hold+wait"
+    },
+    {
+     "id": "c3",
+     "kind": "box",
+     "x": 184,
+     "y": 184,
+     "w": 82,
+     "h": 30,
+     "label": "no preempt"
+    },
+    {
+     "id": "c4",
+     "kind": "box",
+     "x": 272,
+     "y": 184,
+     "w": 82,
+     "h": 30,
+     "label": "cycle"
+    },
+    {
+     "id": "msg",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Two processes, two devices with one unit each. P1 holds the printer. P2 holds the scanner.",
+     "show": [
+      "P1",
+      "P2",
+      "Pr",
+      "Sc",
+      "a1",
+      "a2",
+      "c1",
+      "c2",
+      "c3",
+      "c4"
+     ],
+     "hide": [
+      "q1",
+      "q2",
+      "a3"
+     ],
+     "highlight": [
+      "a1",
+      "a2"
+     ],
+     "set": [
+      {
+       "id": "msg",
+       "text": "each device has one unit",
+       "tone": "muted"
+      }
+     ]
+    },
+    {
+     "caption": "Mutual exclusion: a device serves one process at a time. P2 cannot use the printer while P1 holds it. This condition holds.",
+     "set": [
+      {
+       "id": "c1",
+       "tone": "good"
+      },
+      {
+       "id": "msg",
+       "text": "1. mutual exclusion holds",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "Pr"
+     ]
+    },
+    {
+     "caption": "Hold and wait: P1 holds the printer and asks for the scanner. P2 holds the scanner and asks for the printer. This holds for both.",
+     "show": [
+      "q1",
+      "q2"
+     ],
+     "draw": [
+      "q1",
+      "q2"
+     ],
+     "set": [
+      {
+       "id": "c2",
+       "tone": "good"
+      },
+      {
+       "id": "msg",
+       "text": "2. hold and wait holds",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "q1",
+      "q2"
+     ]
+    },
+    {
+     "caption": "No preemption: only P1 can give the printer back, and only P2 can give the scanner back. The OS may not take them. This holds.",
+     "set": [
+      {
+       "id": "c3",
+       "tone": "good"
+      },
+      {
+       "id": "msg",
+       "text": "3. no preemption holds",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "a1",
+      "a2"
+     ]
+    },
+    {
+     "caption": "Circular wait: P1 waits for P2 (scanner), and P2 waits for P1 (printer). The wait closes into a loop. All four hold, so this is a deadlock.",
+     "set": [
+      {
+       "id": "c4",
+       "tone": "good"
+      },
+      {
+       "id": "msg",
+       "text": "4. circular wait: DEADLOCK",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a1",
+       "tone": "bad"
+      },
+      {
+       "id": "a2",
+       "tone": "bad"
+      },
+      {
+       "id": "q1",
+       "tone": "bad"
+      },
+      {
+       "id": "q2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Break one condition and it ends. If the OS may take the printer from P1, P2 gets it, finishes, and then P1 gets the scanner.",
+     "hide": [
+      "a1",
+      "q2"
+     ],
+     "show": [
+      "a3"
+     ],
+     "set": [
+      {
+       "id": "c3",
+       "tone": "bad"
+      },
+      {
+       "id": "msg",
+       "text": "preempt the printer: loop broken",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "a3"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.deadlock.rag",
+   "title": "Resource allocation graph: cycle and deadlock",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "P1",
+     "kind": "node",
+     "x": 80,
+     "y": 60,
+     "label": "P1",
+     "r": 22
+    },
+    {
+     "id": "P2",
+     "kind": "node",
+     "x": 280,
+     "y": 170,
+     "label": "P2",
+     "r": 22
+    },
+    {
+     "id": "R1",
+     "kind": "box",
+     "x": 40,
+     "y": 152,
+     "w": 80,
+     "h": 34,
+     "label": "R1"
+    },
+    {
+     "id": "R2",
+     "kind": "box",
+     "x": 240,
+     "y": 44,
+     "w": 80,
+     "h": 34,
+     "label": "R2"
+    },
+    {
+     "id": "P3",
+     "kind": "node",
+     "x": 80,
+     "y": 228,
+     "label": "P3",
+     "r": 20
+    },
+    {
+     "id": "a1",
+     "kind": "arrow",
+     "from": "R1",
+     "to": "P1"
+    },
+    {
+     "id": "a2",
+     "kind": "arrow",
+     "from": "R2",
+     "to": "P2"
+    },
+    {
+     "id": "q1",
+     "kind": "arrow",
+     "from": "P1",
+     "to": "R2",
+     "dash": true
+    },
+    {
+     "id": "q2",
+     "kind": "arrow",
+     "from": "P2",
+     "to": "R1",
+     "dash": true
+    },
+    {
+     "id": "a3",
+     "kind": "arrow",
+     "from": "R1",
+     "to": "P3"
+    },
+    {
+     "id": "a4",
+     "kind": "arrow",
+     "from": "R1",
+     "to": "P2"
+    },
+    {
+     "id": "msg",
+     "kind": "text",
+     "x": 182,
+     "y": 118,
+     "text": "",
+     "size": 13,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Draw the graph. An assignment edge points from a resource to the process holding it: R1 → P1 and R2 → P2.",
+     "show": [
+      "P1",
+      "P2",
+      "R1",
+      "R2",
+      "a1",
+      "a2"
+     ],
+     "hide": [
+      "q1",
+      "q2",
+      "P3",
+      "a3",
+      "a4"
+     ],
+     "highlight": [
+      "a1",
+      "a2"
+     ],
+     "set": [
+      {
+       "id": "msg",
+       "text": "one unit each",
+       "tone": "muted"
+      }
+     ]
+    },
+    {
+     "caption": "P1 requests R2. A request edge points from the process to the resource: P1 → R2. P1 now waits.",
+     "show": [
+      "q1"
+     ],
+     "draw": [
+      "q1"
+     ],
+     "highlight": [
+      "q1"
+     ],
+     "set": [
+      {
+       "id": "msg",
+       "text": "P1 waits for R2",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "P2 requests R1: P2 → R1. Follow the edges: P1 → R2 → P2 → R1 → P1. That is a cycle. With one unit per resource, no one can ever release, so this is a deadlock.",
+     "show": [
+      "q2"
+     ],
+     "draw": [
+      "q2"
+     ],
+     "highlight": [
+      {
+       "id": "a1",
+       "tone": "bad"
+      },
+      {
+       "id": "q1",
+       "tone": "bad"
+      },
+      {
+       "id": "a2",
+       "tone": "bad"
+      },
+      {
+       "id": "q2",
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "msg",
+       "text": "cycle: DEADLOCK",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Change one thing. R1 now has two units, and P3 holds the second. The cycle is still drawn.",
+     "show": [
+      "P3",
+      "a3"
+     ],
+     "draw": [
+      "a3"
+     ],
+     "set": [
+      {
+       "id": "R1",
+       "label": "R1 x2"
+      },
+      {
+       "id": "msg",
+       "text": "cycle, but P3 is free",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "a3",
+      "P3"
+     ]
+    },
+    {
+     "caption": "P3 is not waiting for anything, so it finishes and returns its unit. P2's request for R1 is granted, P2 finishes and releases R2, and P1 gets R2. There is no deadlock.",
+     "hide": [
+      "q2",
+      "P3",
+      "a3"
+     ],
+     "show": [
+      "a4"
+     ],
+     "set": [
+      {
+       "id": "msg",
+       "text": "no deadlock",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "a4"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.deadlock.allatonce",
+   "title": "Prevention by requesting everything at once",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "P1",
+     "kind": "node",
+     "x": 60,
+     "y": 73,
+     "label": "P1",
+     "r": 22
+    },
+    {
+     "id": "P2",
+     "kind": "node",
+     "x": 60,
+     "y": 173,
+     "label": "P2",
+     "r": 22
+    },
+    {
+     "id": "Pr",
+     "kind": "box",
+     "x": 230,
+     "y": 56,
+     "w": 90,
+     "h": 34,
+     "label": "Printer"
+    },
+    {
+     "id": "Sc",
+     "kind": "box",
+     "x": 230,
+     "y": 156,
+     "w": 90,
+     "h": 34,
+     "label": "Scanner"
+    },
+    {
+     "id": "rule",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "Rule: request all at once",
+     "size": 13,
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "r1a",
+     "kind": "arrow",
+     "from": "P1",
+     "to": "Pr",
+     "dash": true
+    },
+    {
+     "id": "r1b",
+     "kind": "arrow",
+     "from": "P1",
+     "to": "Sc",
+     "dash": true
+    },
+    {
+     "id": "s1a",
+     "kind": "arrow",
+     "from": "Pr",
+     "to": "P1"
+    },
+    {
+     "id": "s1b",
+     "kind": "arrow",
+     "from": "Sc",
+     "to": "P1"
+    },
+    {
+     "id": "r2a",
+     "kind": "arrow",
+     "from": "P2",
+     "to": "Pr",
+     "dash": true
+    },
+    {
+     "id": "r2b",
+     "kind": "arrow",
+     "from": "P2",
+     "to": "Sc",
+     "dash": true
+    },
+    {
+     "id": "s2a",
+     "kind": "arrow",
+     "from": "Pr",
+     "to": "P2"
+    },
+    {
+     "id": "s2b",
+     "kind": "arrow",
+     "from": "Sc",
+     "to": "P2"
+    },
+    {
+     "id": "sum",
+     "kind": "text",
+     "x": 20,
+     "y": 226,
+     "anchor": "start",
+     "text": "all at once: breaks hold and wait\nordering: breaks circular wait\npreemption: breaks no preemption",
+     "size": 12,
+     "mono": true,
+     "tone": "muted"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The rule: ask for everything at once, before running. The printer and scanner are both free.",
+     "show": [
+      "P1",
+      "P2",
+      "Pr",
+      "Sc",
+      "rule"
+     ],
+     "hide": [
+      "r1a",
+      "r1b",
+      "s1a",
+      "s1b",
+      "r2a",
+      "r2b",
+      "s2a",
+      "s2b",
+      "sum"
+     ]
+    },
+    {
+     "caption": "P1 asks for the printer and the scanner together.",
+     "show": [
+      "r1a",
+      "r1b"
+     ],
+     "draw": [
+      "r1a",
+      "r1b"
+     ],
+     "highlight": [
+      "P1"
+     ]
+    },
+    {
+     "caption": "Both are free, so both are granted at once. The two requests become two assignment edges.",
+     "hide": [
+      "r1a",
+      "r1b"
+     ],
+     "show": [
+      "s1a",
+      "s1b"
+     ],
+     "draw": [
+      "s1a",
+      "s1b"
+     ],
+     "highlight": [
+      {
+       "id": "s1a",
+       "tone": "good"
+      },
+      {
+       "id": "s1b",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P2 asks for both together. They are taken, so P2 gets nothing and waits while holding nothing.",
+     "show": [
+      "r2a",
+      "r2b"
+     ],
+     "draw": [
+      "r2a",
+      "r2b"
+     ],
+     "highlight": [
+      {
+       "id": "r2a",
+       "tone": "mid"
+      },
+      {
+       "id": "r2b",
+       "tone": "mid"
+      },
+      {
+       "id": "P2",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "P1 finishes and releases both devices.",
+     "hide": [
+      "s1a",
+      "s1b"
+     ],
+     "highlight": [
+      "P1"
+     ]
+    },
+    {
+     "caption": "P2 is now granted both and runs. P2 never held one device while waiting for another, so hold and wait is broken. Numbering resources (breaks circular wait) and preempting them (breaks no preemption) are the other two classic schemes.",
+     "hide": [
+      "r2a",
+      "r2b"
+     ],
+     "show": [
+      "s2a",
+      "s2b",
+      "sum"
+     ],
+     "draw": [
+      "s2a",
+      "s2b"
+     ],
+     "highlight": [
+      {
+       "id": "s2a",
+       "tone": "good"
+      },
+      {
+       "id": "s2b",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.deadlock.safe",
+   "title": "Safe sequence, then an unsafe grant",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "10 units in total",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 82,
+     "y": 84,
+     "rows": 3,
+     "cols": 4,
+     "cw": 56,
+     "ch": 30,
+     "cells": [
+      [
+       3,
+       9,
+       "",
+       ""
+      ],
+      [
+       2,
+       4,
+       "",
+       ""
+      ],
+      [
+       2,
+       7,
+       "",
+       ""
+      ]
+     ],
+     "colLabels": [
+      "Alloc",
+      "Max",
+      "Need",
+      "Done"
+     ],
+     "rowLabels": [
+      "P1",
+      "P2",
+      "P3"
+     ]
+    },
+    {
+     "id": "work",
+     "kind": "text",
+     "x": 180,
+     "y": 198,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "ord",
+     "kind": "text",
+     "x": 180,
+     "y": 224,
+     "text": "",
+     "size": 13,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Allocated: 3 + 2 + 2 = 7. Available = 10 - 7 = 3 units.",
+     "set": [
+      {
+       "id": "tot",
+       "text": "allocated 3+2+2 = 7, available 3"
+      },
+      {
+       "id": "work",
+       "text": "Available = 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         2,
+         0
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Need = Max - Allocation: P1 needs 9 - 3 = 6, P2 needs 4 - 2 = 2, P3 needs 7 - 2 = 5.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         3,
+         9,
+         6,
+         ""
+        ],
+        [
+         2,
+         4,
+         2,
+         ""
+        ],
+        [
+         2,
+         7,
+         5,
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         2
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Work = 3. P2 needs 2, which is at most 3, so P2 can run to completion. P1 needs 6 and P3 needs 5, which are too big.",
+     "set": [
+      {
+       "id": "work",
+       "text": "Work = 3"
+      },
+      {
+       "id": "ord",
+       "text": "P2 needs 2 <= 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         1,
+         2
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P2 finishes and returns its 2 units: Work = 3 + 2 = 5. Now P3 needs 5, at most 5. P1 still needs 6.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         3,
+         9,
+         6,
+         ""
+        ],
+        [
+         2,
+         4,
+         2,
+         "done"
+        ],
+        [
+         2,
+         7,
+         5,
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "work",
+       "text": "Work = 3 + 2 = 5"
+      },
+      {
+       "id": "ord",
+       "text": "order: P2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         2
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "P3 finishes and returns its 2 units: Work = 5 + 2 = 7.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         3,
+         9,
+         6,
+         ""
+        ],
+        [
+         2,
+         4,
+         2,
+         "done"
+        ],
+        [
+         2,
+         7,
+         5,
+         "done"
+        ]
+       ]
+      },
+      {
+       "id": "work",
+       "text": "Work = 5 + 2 = 7"
+      },
+      {
+       "id": "ord",
+       "text": "order: P2, P3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "P1 needs 6, at most 7, so P1 finishes and returns 3: Work = 7 + 3 = 10. The order P2, P3, P1 lets everyone finish, so the state is safe.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         3,
+         9,
+         6,
+         "done"
+        ],
+        [
+         2,
+         4,
+         2,
+         "done"
+        ],
+        [
+         2,
+         7,
+         5,
+         "done"
+        ]
+       ]
+      },
+      {
+       "id": "work",
+       "text": "Work = 7 + 3 = 10"
+      },
+      {
+       "id": "ord",
+       "text": "order: P2, P3, P1  SAFE",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Now the other case: P1 holds 5, so Available = 1 and the Needs are 4, 2, 5. No Need is at most Work = 1, so no process is guaranteed to finish. The state is unsafe.",
+     "set": [
+      {
+       "id": "tot",
+       "text": "give P1 two more: available 1"
+      },
+      {
+       "id": "g",
+       "cells": [
+        [
+         5,
+         9,
+         4,
+         ""
+        ],
+        [
+         2,
+         4,
+         2,
+         ""
+        ],
+        [
+         2,
+         7,
+         5,
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "work",
+       "text": "Work = 1: no Need fits",
+       "tone": "bad"
+      },
+      {
+       "id": "ord",
+       "text": "UNSAFE",
+       "tone": "bad"
+      }
+     ],
+     "undim": [
+      "g"
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         2
+        ]
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.deadlock.banker",
+   "title": "Banker's algorithm: Need and a safe sequence",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "totals A = 6, B = 5",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "gAl",
+     "kind": "text",
+     "x": 102,
+     "y": 52,
+     "text": "Alloc",
+     "size": 13,
+     "bold": true,
+     "tone": "muted"
+    },
+    {
+     "id": "gMx",
+     "kind": "text",
+     "x": 182,
+     "y": 52,
+     "text": "Max",
+     "size": 13,
+     "bold": true,
+     "tone": "muted"
+    },
+    {
+     "id": "gNd",
+     "kind": "text",
+     "x": 262,
+     "y": 52,
+     "text": "Need",
+     "size": 13,
+     "bold": true,
+     "tone": "muted"
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 62,
+     "y": 88,
+     "rows": 4,
+     "cols": 6,
+     "cw": 40,
+     "ch": 28,
+     "cells": [
+      [
+       2,
+       2,
+       5,
+       4,
+       "",
+       ""
+      ],
+      [
+       2,
+       0,
+       2,
+       2,
+       "",
+       ""
+      ],
+      [
+       0,
+       1,
+       1,
+       2,
+       "",
+       ""
+      ],
+      [
+       0,
+       1,
+       0,
+       4,
+       "",
+       ""
+      ]
+     ],
+     "colLabels": [
+      "A",
+      "B",
+      "A",
+      "B",
+      "A",
+      "B"
+     ],
+     "rowLabels": [
+      "P0",
+      "P1",
+      "P2",
+      "P3"
+     ]
+    },
+    {
+     "id": "work",
+     "kind": "text",
+     "x": 180,
+     "y": 212,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "ord",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Add the Allocations: A = 2+2+0+0 = 4, B = 2+0+1+1 = 4. Available = Total - Allocated = (6-4, 5-4) = (2, 1).",
+     "set": [
+      {
+       "id": "tot",
+       "text": "allocated (4,4), available (2,1)"
+      },
+      {
+       "id": "work",
+       "text": "Available = (2,1)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Need = Max - Allocation. P0 (3,2), P1 (0,2), P2 (1,1), P3 (0,3).",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         2,
+         5,
+         4,
+         3,
+         2
+        ],
+        [
+         2,
+         0,
+         2,
+         2,
+         0,
+         2
+        ],
+        [
+         0,
+         1,
+         1,
+         2,
+         1,
+         1
+        ],
+        [
+         0,
+         1,
+         0,
+         4,
+         0,
+         3
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         1,
+         5
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         2,
+         5
+        ],
+        [
+         3,
+         4
+        ],
+        [
+         3,
+         5
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Work = (2,1). P0 needs (3,2): too big. P1 needs (0,2): B is 2 but Work has 1. P2 needs (1,1): fits. Pick P2.",
+     "set": [
+      {
+       "id": "work",
+       "text": "Work = (2,1)"
+      },
+      {
+       "id": "ord",
+       "text": "P2 needs (1,1) <= (2,1)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         4
+        ],
+        [
+         2,
+         5
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P2 finishes and returns (0,1): Work = (2,1) + (0,1) = (2,2).",
+     "set": [
+      {
+       "id": "work",
+       "text": "Work = (2,1)+(0,1) = (2,2)"
+      },
+      {
+       "id": "ord",
+       "text": "order: P2"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         2,
+         5
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         1,
+         4
+        ],
+        [
+         1,
+         5
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Work = (2,2). P0 needs (3,2): A is too big. P1 needs (0,2): fits. P1 finishes and returns (2,0): Work = (4,2).",
+     "set": [
+      {
+       "id": "work",
+       "text": "Work = (2,2)+(2,0) = (4,2)"
+      },
+      {
+       "id": "ord",
+       "text": "order: P2, P1"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         1,
+         5
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Work = (4,2). P0 needs (3,2): fits. P0 finishes and returns (2,2): Work = (6,4).",
+     "set": [
+      {
+       "id": "work",
+       "text": "Work = (4,2)+(2,2) = (6,4)"
+      },
+      {
+       "id": "ord",
+       "text": "order: P2, P1, P0"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         3,
+         4
+        ],
+        [
+         3,
+         5
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Work = (6,4). P3 needs (0,3): fits. P3 finishes and returns (0,1): Work = (6,5).",
+     "set": [
+      {
+       "id": "work",
+       "text": "Work = (6,4)+(0,1) = (6,5)"
+      },
+      {
+       "id": "ord",
+       "text": "order: P2, P1, P0, P3"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ],
+        [
+         3,
+         3
+        ],
+        [
+         3,
+         4
+        ],
+        [
+         3,
+         5
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "All four finished, and Work is back to the totals (6,5). The sequence P2, P1, P0, P3 is safe.",
+     "set": [
+      {
+       "id": "tot",
+       "text": "Work = totals: everyone finished"
+      },
+      {
+       "id": "ord",
+       "text": "SAFE: P2, P1, P0, P3",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.deadlock.detect",
+   "title": "Deadlock detection with the Request matrix",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "Available = (1,0)",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "gAl",
+     "kind": "text",
+     "x": 124,
+     "y": 52,
+     "text": "Allocation",
+     "size": 13,
+     "bold": true,
+     "tone": "muted"
+    },
+    {
+     "id": "gRq",
+     "kind": "text",
+     "x": 212,
+     "y": 52,
+     "text": "Request",
+     "size": 13,
+     "bold": true,
+     "tone": "muted"
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 80,
+     "y": 88,
+     "rows": 4,
+     "cols": 5,
+     "cw": 44,
+     "ch": 28,
+     "cells": [
+      [
+       0,
+       2,
+       1,
+       0,
+       ""
+      ],
+      [
+       0,
+       1,
+       1,
+       0,
+       ""
+      ],
+      [
+       2,
+       1,
+       3,
+       1,
+       ""
+      ],
+      [
+       2,
+       0,
+       3,
+       2,
+       ""
+      ]
+     ],
+     "colLabels": [
+      "A",
+      "B",
+      "A",
+      "B",
+      "Fin"
+     ],
+     "rowLabels": [
+      "P0",
+      "P1",
+      "P2",
+      "P3"
+     ]
+    },
+    {
+     "id": "work",
+     "kind": "text",
+     "x": 180,
+     "y": 212,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "ord",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Work = Available = (1,0). Detection uses the current Requests, not a Max matrix. A process can finish if its Request is at most Work.",
+     "set": [
+      {
+       "id": "work",
+       "text": "Work = (1,0)"
+      },
+      {
+       "id": "ord",
+       "text": "compare Request with Work"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ],
+        [
+         3,
+         2
+        ],
+        [
+         3,
+         3
+        ]
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "P0 requests (1,0) ≤ Work (1,0). Assume it gets it and finishes, returning (0,2): Work = (1,0) + (0,2) = (1,2).",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2,
+         1,
+         0,
+         "yes"
+        ],
+        [
+         0,
+         1,
+         1,
+         0,
+         ""
+        ],
+        [
+         2,
+         1,
+         3,
+         1,
+         ""
+        ],
+        [
+         2,
+         0,
+         3,
+         2,
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "work",
+       "text": "Work = (1,0)+(0,2) = (1,2)"
+      },
+      {
+       "id": "ord",
+       "text": "P0 fits (1,0) <= (1,0)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "P1 requests (1,0) ≤ (1,2). It finishes and returns (0,1): Work = (1,2) + (0,1) = (1,3).",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2,
+         1,
+         0,
+         "yes"
+        ],
+        [
+         0,
+         1,
+         1,
+         0,
+         "yes"
+        ],
+        [
+         2,
+         1,
+         3,
+         1,
+         ""
+        ],
+        [
+         2,
+         0,
+         3,
+         2,
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "work",
+       "text": "Work = (1,2)+(0,1) = (1,3)"
+      },
+      {
+       "id": "ord",
+       "text": "P1 fits (1,0) <= (1,2)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "dim": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         1,
+         4
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "P2 requests (3,1): A is 3 but Work has A = 1, so no. P3 requests (3,2): A is 3, so no.",
+     "set": [
+      {
+       "id": "ord",
+       "text": "A: 3 > 1, no process fits",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ],
+        [
+         3,
+         2
+        ],
+        [
+         3,
+         3
+        ]
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "No unfinished process fits, so the loop stops. P2 and P3 can never finish: they are deadlocked.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2,
+         1,
+         0,
+         "yes"
+        ],
+        [
+         0,
+         1,
+         1,
+         0,
+         "yes"
+        ],
+        [
+         2,
+         1,
+         3,
+         1,
+         "no"
+        ],
+        [
+         2,
+         0,
+         3,
+         2,
+         "no"
+        ]
+       ]
+      },
+      {
+       "id": "ord",
+       "text": "P2 and P3 DEADLOCKED",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         4
+        ],
+        [
+         3,
+         4
+        ]
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Recovery: abort P3. Its (2,0) returns: Work = (1,3) + (2,0) = (3,3). P2's request (3,1) now fits, so P2 finishes.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         2,
+         1,
+         0,
+         "yes"
+        ],
+        [
+         0,
+         1,
+         1,
+         0,
+         "yes"
+        ],
+        [
+         2,
+         1,
+         3,
+         1,
+         "yes"
+        ],
+        [
+         0,
+         0,
+         0,
+         0,
+         "kill"
+        ]
+       ]
+      },
+      {
+       "id": "work",
+       "text": "Work = (1,3)+(2,0) = (3,3)"
+      },
+      {
+       "id": "ord",
+       "text": "abort P3: P2 (3,1) now fits",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.deadlock.minres",
+   "title": "Worst case: everyone holds max - 1",
+   "viewBox": [
+    0,
+    0,
+    360,
+    200
+   ],
+   "objects": [
+    {
+     "id": "ttl",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "5 processes, each needs at most 3 units",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "u",
+     "kind": "array",
+     "x": 15,
+     "y": 70,
+     "cells": [
+      "P1",
+      "P1",
+      "P2",
+      "P2",
+      "P3",
+      "P3",
+      "P4",
+      "P4",
+      "P5",
+      "P5",
+      ""
+     ],
+     "cw": 30,
+     "ch": 30,
+     "indices": true
+    },
+    {
+     "id": "eq",
+     "kind": "text",
+     "x": 180,
+     "y": 150,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 176,
+     "text": "",
+     "size": 13,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Look at the worst case. Every process holds 3 - 1 = 2 units and asks for the 3rd. That uses 5 × 2 = 10 units.",
+     "set": [
+      {
+       "id": "eq",
+       "text": "worst case: 5 x (3-1) = 10 held"
+      },
+      {
+       "id": "nt",
+       "text": "R = 10 units shown"
+      }
+     ],
+     "dim": [
+      {
+       "id": "u",
+       "cells": [
+        10
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "u",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "If there are exactly 10 units, none is free. Every process is waiting, and nobody can finish. Deadlock is possible, so 10 is not enough.",
+     "set": [
+      {
+       "id": "nt",
+       "text": "none free: DEADLOCK possible",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "u",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Add one more unit: R = 11. Now in the worst case one unit is still free.",
+     "set": [
+      {
+       "id": "eq",
+       "text": "add one: R = 10 + 1 = 11"
+      },
+      {
+       "id": "nt",
+       "text": "one unit is free",
+       "tone": "good"
+      }
+     ],
+     "undim": [
+      "u"
+     ],
+     "highlight": [
+      {
+       "id": "u",
+       "cells": [
+        10
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Give it to any process, say P1. P1 now holds 3, which is its maximum, so it finishes and returns 3 units.",
+     "set": [
+      {
+       "id": "u",
+       "cells": [
+        "",
+        "",
+        "P2",
+        "P2",
+        "P3",
+        "P3",
+        "P4",
+        "P4",
+        "P5",
+        "P5",
+        ""
+       ]
+      },
+      {
+       "id": "nt",
+       "text": "P1 reaches 3, finishes: 3 free",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "u",
+       "cells": [
+        0,
+        1,
+        10
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "With 3 units free, the others can each get their last unit in turn and finish. So R = 5 × (3 - 1) + 1 = 11 always avoids deadlock.",
+     "set": [
+      {
+       "id": "eq",
+       "text": "R = n(K-1) + 1 = 11"
+      },
+      {
+       "id": "nt",
+       "text": "the rest finish in turn",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "u",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.deadlock.lockorder",
+   "title": "Opposite lock orders and a global order",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "code",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "transfer(from, to): lock(from); lock(to)",
+     "size": 12,
+     "mono": true,
+     "tone": "muted"
+    },
+    {
+     "id": "T1",
+     "kind": "node",
+     "x": 60,
+     "y": 80,
+     "label": "T1",
+     "r": 22
+    },
+    {
+     "id": "T2",
+     "kind": "node",
+     "x": 60,
+     "y": 180,
+     "label": "T2",
+     "r": 22
+    },
+    {
+     "id": "tr1",
+     "kind": "text",
+     "x": 60,
+     "y": 118,
+     "text": "T1: lock 7, 3",
+     "size": 12,
+     "mono": true
+    },
+    {
+     "id": "tr2",
+     "kind": "text",
+     "x": 60,
+     "y": 218,
+     "text": "T2: lock 3, 7",
+     "size": 12,
+     "mono": true
+    },
+    {
+     "id": "A7",
+     "kind": "box",
+     "x": 230,
+     "y": 63,
+     "w": 100,
+     "h": 34,
+     "label": "acct 7"
+    },
+    {
+     "id": "A3",
+     "kind": "box",
+     "x": 230,
+     "y": 163,
+     "w": 100,
+     "h": 34,
+     "label": "acct 3"
+    },
+    {
+     "id": "h1",
+     "kind": "arrow",
+     "from": "A7",
+     "to": "T1"
+    },
+    {
+     "id": "h2",
+     "kind": "arrow",
+     "from": "A3",
+     "to": "T2"
+    },
+    {
+     "id": "w1",
+     "kind": "arrow",
+     "from": "T1",
+     "to": "A3",
+     "dash": true
+    },
+    {
+     "id": "w2",
+     "kind": "arrow",
+     "from": "T2",
+     "to": "A7",
+     "dash": true
+    },
+    {
+     "id": "h1b",
+     "kind": "arrow",
+     "from": "A3",
+     "to": "T1"
+    },
+    {
+     "id": "w2b",
+     "kind": "arrow",
+     "from": "T2",
+     "to": "A3",
+     "dash": true
+    },
+    {
+     "id": "h1c",
+     "kind": "arrow",
+     "from": "A7",
+     "to": "T1"
+    },
+    {
+     "id": "h2b",
+     "kind": "arrow",
+     "from": "A3",
+     "to": "T2"
+    },
+    {
+     "id": "h2c",
+     "kind": "arrow",
+     "from": "A7",
+     "to": "T2"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Two threads and two account locks. Each thread locks its from-account first and its to-account second.",
+     "show": [
+      "code",
+      "T1",
+      "T2",
+      "tr1",
+      "tr2",
+      "A7",
+      "A3"
+     ],
+     "hide": [
+      "h1",
+      "h2",
+      "w1",
+      "w2",
+      "h1b",
+      "w2b",
+      "h1c",
+      "h2b",
+      "h2c"
+     ]
+    },
+    {
+     "caption": "T1 locks account 7. T2 locks account 3. Both succeed because the locks are free.",
+     "show": [
+      "h1",
+      "h2"
+     ],
+     "draw": [
+      "h1",
+      "h2"
+     ],
+     "highlight": [
+      "h1",
+      "h2"
+     ]
+    },
+    {
+     "caption": "T1 now wants account 3, held by T2. T2 wants account 7, held by T1. Each holds one lock and waits for the other's: circular wait, so deadlock.",
+     "show": [
+      "w1",
+      "w2"
+     ],
+     "draw": [
+      "w1",
+      "w2"
+     ],
+     "highlight": [
+      {
+       "id": "h1",
+       "tone": "bad"
+      },
+      {
+       "id": "h2",
+       "tone": "bad"
+      },
+      {
+       "id": "w1",
+       "tone": "bad"
+      },
+      {
+       "id": "w2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Fix: always lock the account with the smaller id first. Now T1's transfer(7, 3) locks 3 first and then 7. T2's transfer(3, 7) also locks 3 first and then 7.",
+     "hide": [
+      "h1",
+      "h2",
+      "w1",
+      "w2"
+     ],
+     "set": [
+      {
+       "id": "code",
+       "text": "rule: lock the smaller id first",
+       "tone": "accent"
+      },
+      {
+       "id": "tr1",
+       "text": "T1: lock 3, 7"
+      },
+      {
+       "id": "tr2",
+       "text": "T2: lock 3, 7"
+      }
+     ],
+     "highlight": [
+      "code"
+     ]
+    },
+    {
+     "caption": "T1 gets lock 3. T2 asks for lock 3 too, but it is taken. T2 waits while holding nothing.",
+     "show": [
+      "h1b",
+      "w2b"
+     ],
+     "draw": [
+      "h1b",
+      "w2b"
+     ],
+     "highlight": [
+      {
+       "id": "h1b",
+       "tone": "good"
+      },
+      {
+       "id": "w2b",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "T1 locks 7, finishes, and unlocks both. T2 then gets 3 and then 7. Every wait now goes toward a larger id, so a loop is impossible.",
+     "hide": [
+      "h1b",
+      "w2b"
+     ],
+     "show": [
+      "h2b",
+      "h2c"
+     ],
+     "draw": [
+      "h2b",
+      "h2c"
+     ],
+     "highlight": [
+      {
+       "id": "h2b",
+       "tone": "good"
+      },
+      {
+       "id": "h2c",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

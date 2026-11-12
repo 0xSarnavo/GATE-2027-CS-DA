@@ -1,0 +1,2653 @@
+{
+  "topic_id": "db.transform",
+  "title": "Data transformation",
+  "chapter_note": {
+    "about": "Raw data is rarely used as it is. This chapter covers the preparation steps: what kind of attribute a column is, how to rescale it (min-max, z-score, decimal scaling), how to cut it into bins, how to sample rows from it, and how to compress it. GATE gives a few numbers and asks for one transformed value, so the work is choosing the right formula and ignoring the extra numbers the question includes.",
+    "simple": "Before a computer can learn from data, the data has to be tidied. Different columns use different units, so you put them on the same ruler: squeeze them between 0 and 1, or count how many typical gaps each value is from the average. You can also bucket numbers into a few groups, take a small fair sample instead of everything, or squash the data so it takes less space. Each of these is a recipe with a short formula, and the exam asks you to run one recipe on a handful of numbers.",
+    "concept_map": [
+      {
+        "atom_id": "f1",
+        "title": "Attribute types",
+        "one_line": "Nominal, ordinal, interval, ratio: what each allows."
+      },
+      {
+        "atom_id": "f2",
+        "title": "Min-max normalisation",
+        "one_line": "Map [min, max] onto [0, 1] (or [a, b])."
+      },
+      {
+        "atom_id": "f3",
+        "title": "z-score",
+        "one_line": "Subtract the mean, divide by the sd."
+      },
+      {
+        "atom_id": "f4",
+        "title": "Decimal scaling",
+        "one_line": "Divide by 10^j so the biggest magnitude is below 1."
+      },
+      {
+        "atom_id": "f5",
+        "title": "Discretisation and binning",
+        "one_line": "Equal-width or equal-frequency bins, then smooth."
+      },
+      {
+        "atom_id": "f6",
+        "title": "Sampling",
+        "one_line": "Random, stratified, cluster or systematic."
+      },
+      {
+        "atom_id": "f7",
+        "title": "Compression",
+        "one_line": "Run-length, Huffman, lossless against lossy."
+      }
+    ],
+    "gate_patterns": [
+      "Compute one z-score or min-max value from a short description; the question lists extra numbers (min, max, the other method's inputs) that you ignore (2024 DA Q27).",
+      "Bin a short sorted list and smooth it: equal-width against equal-frequency, means against boundaries. The ladder drills this shape.",
+      "Quick definition matches: attribute type, which sampling method, lossless against lossy, Huffman cost. Weightage: about 0.33 marks per DA paper, so this is a small chapter."
+    ]
+  },
+  "cards": [
+    {
+      "atom_id": "f1",
+      "title": "Attribute types",
+      "simple": "Think of what you can do with different things on a school report. A house colour only tells you which team someone is on, and you cannot say red is bigger than blue. A grade like A, B, C has an order, but nobody promises the gap from A to B equals the gap from B to C. A clock time has equal gaps, but midnight is just a chosen starting point, so 6 pm is not 'twice' 3 pm. Age in years has a real zero, so 40 really is twice 20. Each kind lets you do a bit more with the numbers than the one before it. In exam words: the four attribute types are nominal, ordinal, interval and ratio, and the type tells you which calculations are meaningful.",
+      "idea": "A column's **attribute type** says what you may do with its values. **Nominal** values are only names, **ordinal** values add an order, **interval** values add equal gaps, and **ratio** values add a true zero so that ratios mean something.",
+      "definition": "- **Nominal**: only $=$ and $\\neq$ make sense (colour, city, zip code).\n- **Ordinal**: adds order $<$ (grade, star rating, shirt size).\n- **Interval**: adds meaningful differences $a-b$; zero is only a convention (clock time, calendar year).\n- **Ratio**: adds meaningful ratios $a/b$; zero means none (age, weight, price, Kelvin).\n\nEach type allows everything the types before it allow.",
+      "intuition_full": "The four types are a ladder of information. At the bottom a number is just a label: swap 1 for 2 and 2 for 1 and nothing is lost. One step up, the label carries an order, so you can sort it, but the spacing means nothing. At the interval step the spacing is real, so differences and averages work, but the zero point was chosen by people. That is why 15:00 is not 'two and a half times' 06:00: move the clock to another time zone and the ratio changes, while the 9-hour difference stays 9. Only a ratio attribute has a zero that means 'nothing there', so a ratio survives a change of units (2 m against 1 m is 2 in any unit). The type also decides which summary is valid: mode for nominal, median for ordinal, mean and standard deviation for interval, and all of them plus ratios for ratio data.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Classify four columns: jersey colour, movie rating (1 to 5 stars), calendar year, age in years. For each one ask: can I tell same from different, put in order, trust the gaps, trust the ratios?",
+          "steps": [
+            "Jersey colour (red, blue, green): you can only say same or different. No order, no gaps. Nominal.",
+            "Movie rating (1 to 5 stars): 4 stars beats 3, so there is an order. But nobody promises the step from 4 to 5 equals the step from 1 to 2. Ordinal.",
+            "Calendar year: 2024 − 2019 = 5 years is a real gap. But year 0 is not 'no time', so the year 2000 is not 'twice' the year 1000. Interval.",
+            "Age in years: 0 means no age, 40 − 30 = 10 is a real gap, and 40 is twice 20. Ratio.",
+            "Each type keeps the powers of the one before and adds one: names, then order, then gaps, then ratios."
+          ],
+          "answer": "Nominal, ordinal, interval, ratio, in that order."
+        },
+        {
+          "level": "gate",
+          "setup": "A log has two timestamps on a 24-hour clock: 06:00 and 15:00. Someone says 15:00 is 2.5 times 06:00. Is that ratio meaningful? Test it by moving the clock 5.5 hours ahead (another time zone).",
+          "steps": [
+            "A clock has an arbitrary zero (midnight, chosen by convention). That makes it interval, not ratio.",
+            "As given: 15 / 6 = 2.5.",
+            "Shift both by +5.5 hours: 20.5 and 11.5, so 20.5 / 11.5 = 1.78.",
+            "A ratio that changes when you only move the zero is not a real ratio. The difference does not change: 15 − 6 = 9 hours and 20.5 − 11.5 = 9 hours.",
+            "Trap avoided: do not divide interval values. Subtract them."
+          ],
+          "answer": "Not meaningful. Clock time is interval: differences survive a shift of zero, ratios do not."
+        },
+        {
+          "level": "twist",
+          "setup": "Postal codes such as 560001 and 110001 are numbers. Can you average them, or say one is larger?",
+          "steps": [
+            "A postal code is only an identifier. 560001 > 110001 does not mean the first area is 'bigger'.",
+            "The average (560001 + 110001) / 2 = 335001 points to no real place.",
+            "Digits do not make a column a quantity. Postal code is nominal.",
+            "Only equality (same area or not) and counting how often each code appears (the mode) make sense."
+          ],
+          "answer": "Nominal, even though it looks numeric. Only equality tests and the mode are valid."
+        }
+      ],
+      "why": "Choosing a statistic or a scaling without checking the type gives meaningless numbers, and distance-based methods later assume numeric gaps. In GATE: this chapter is a DA topic (one question so far, a z-score computation); the types are the vocabulary the computation questions rely on.",
+      "how": [
+        "Can the values be told apart (same or different)? If that is all you can do, it is nominal.",
+        "Can you put them in order? If yes but the gaps are not equal, it is ordinal.",
+        "Are the gaps equal everywhere? If yes but zero is a convention, it is interval.",
+        "Does zero mean 'none', so that ratios make sense? Then it is ratio."
+      ],
+      "mistake": "Calling a column numeric-so-ratio. A code stored as a number (postal code, roll number) is nominal. A scale with a chosen zero (clock time, calendar year, a temperature in degrees) is interval, not ratio. Look at what zero means, not at how the value is stored.",
+      "edge_cases": [
+        "Yes/no attributes are nominal; they are ordinal only if 'yes' naturally ranks above 'no'.",
+        "Counts (number of children) are ratio: zero children is a true zero.",
+        "Star ratings are ordinal; averaging them is common practice but only an approximation.",
+        "Time of day is interval; a duration in seconds is ratio."
+      ],
+      "connections": [
+        "Scaling methods (f2, f3, f4) only make sense for interval or ratio columns.",
+        "Foundations: **Sets and logic** (found.sets_logic) covers equality, order and the idea of a set of possible values, which is how the first two types are defined.",
+        "Distance-based models (KNN in ml.knn, k-means in ml.kmeans) need interval or ratio columns."
+      ],
+      "check": [
+        {
+          "q": "Roll numbers 101, 102, 103: which type?",
+          "a": "Nominal. They are labels, so only equality makes sense."
+        },
+        {
+          "q": "Is 80 kg twice as heavy as 40 kg? Which type is weight?",
+          "a": "Yes. Weight is ratio, because zero means no weight."
+        },
+        {
+          "q": "Which type allows differences but not ratios?",
+          "a": "Interval."
+        }
+      ],
+      "asked": "Asked: no direct past question; this is the vocabulary behind the chapter's only pattern, 2024 DA Q27.",
+      "try": {
+        "id": "gen.db.transform.001",
+        "label": "Temperature recorded in degrees Celsius is which type of attribute? (L1)"
+      },
+      "scene": "db.transform.f1.types",
+      "example": {
+        "setup": "Classify four columns: jersey colour, movie rating (1 to 5 stars), calendar year, age in years. For each one ask: can I tell same from different, put in order, trust the gaps, trust the ratios?",
+        "steps": [
+          "Jersey colour (red, blue, green): you can only say same or different. No order, no gaps. Nominal.",
+          "Movie rating (1 to 5 stars): 4 stars beats 3, so there is an order. But nobody promises the step from 4 to 5 equals the step from 1 to 2. Ordinal.",
+          "Calendar year: 2024 − 2019 = 5 years is a real gap. But year 0 is not 'no time', so the year 2000 is not 'twice' the year 1000. Interval.",
+          "Age in years: 0 means no age, 40 − 30 = 10 is a real gap, and 40 is twice 20. Ratio.",
+          "Each type keeps the powers of the one before and adds one: names, then order, then gaps, then ratios."
+        ],
+        "answer": "Nominal, ordinal, interval, ratio, in that order."
+      },
+      "what": "A column's **attribute type** says what you may do with its values. **Nominal** values are only names, **ordinal** values add an order, **interval** values add equal gaps, and **ratio** values add a true zero so that ratios mean something.",
+      "what_full": "A column's **attribute type** says what you may do with its values. **Nominal** values are only names, **ordinal** values add an order, **interval** values add equal gaps, and **ratio** values add a true zero so that ratios mean something.\n\n- **Nominal**: only $=$ and $\\neq$ make sense (colour, city, zip code).\n- **Ordinal**: adds order $<$ (grade, star rating, shirt size).\n- **Interval**: adds meaningful differences $a-b$; zero is only a convention (clock time, calendar year).\n- **Ratio**: adds meaningful ratios $a/b$; zero means none (age, weight, price, Kelvin).\n\nEach type allows everything the types before it allow.\n\n**Worked example.** Classify four columns: jersey colour, movie rating (1 to 5 stars), calendar year, age in years. For each one ask: can I tell same from different, put in order, trust the gaps, trust the ratios?\n\n1. Jersey colour (red, blue, green): you can only say same or different. No order, no gaps. Nominal.\n2. Movie rating (1 to 5 stars): 4 stars beats 3, so there is an order. But nobody promises the step from 4 to 5 equals the step from 1 to 2. Ordinal.\n3. Calendar year: 2024 − 2019 = 5 years is a real gap. But year 0 is not 'no time', so the year 2000 is not 'twice' the year 1000. Interval.\n4. Age in years: 0 means no age, 40 − 30 = 10 is a real gap, and 40 is twice 20. Ratio.\n5. Each type keeps the powers of the one before and adds one: names, then order, then gaps, then ratios.\n\n**Answer:** Nominal, ordinal, interval, ratio, in that order.",
+      "why_full": "Choosing a statistic or a scaling without checking the type gives meaningless numbers, and distance-based methods later assume numeric gaps. In GATE: this chapter is a DA topic (one question so far, a z-score computation); the types are the vocabulary the computation questions rely on.\n\nAsked: no direct past question; this is the vocabulary behind the chapter's only pattern, 2024 DA Q27.",
+      "trap": "Calling a column numeric-so-ratio. A code stored as a number (postal code, roll number) is nominal. A scale with a chosen zero (clock time, calendar year, a temperature in degrees) is interval, not ratio. Look at what zero means, not at how the value is stored."
+    },
+    {
+      "atom_id": "f2",
+      "title": "Min-max normalisation",
+      "simple": "Imagine two tests, one out of 20 and one out of 100, and you want to compare how well a student did on each. You put every score on the same ruler from 0 to 1. The lowest score in the class goes to 0, the highest goes to 1, and everyone else lands in between at the right spot. First you slide all the scores down so the lowest is 0. Then you shrink them by the total spread so the highest is 1. Nobody changes places in the ranking, only the ruler changes. In exam words: min-max normalisation computes (v − min) / (max − min), which maps the column onto [0, 1]; to land on [a, b], multiply by (b − a) and add a.",
+      "idea": "**Min-max normalisation** squeezes a column onto a fixed ruler, usually 0 to 1. The smallest value becomes **0**, the largest becomes **1**, and everything else keeps its relative position. It is a straight-line stretch, so order and shape are unchanged.",
+      "definition": "$$v'=\\frac{v-\\min}{\\max-\\min}\\,(b-a)+a$$\n\n- $v$ is the value to convert; $\\min$ and $\\max$ are the smallest and largest values of the whole column.\n- $\\max-\\min$ is the range (the spread) of the data.\n- $[a,b]$ is the target range. For the default $[0,1]$ the factor $(b-a)$ is 1 and $a$ is 0, so only $\\frac{v-\\min}{\\max-\\min}$ remains.",
+      "intuition_full": "Picture the data as dots on a number line between min and max. Subtracting the min slides the whole line left until the smallest dot sits on 0. Dividing by the range then stretches or shrinks the line until the largest dot sits on 1. A dot that was 25% of the way along is still 25% of the way along, so the result is the fraction of the way from min to max. To use another target range [a, b], stretch by the new width (b − a) and slide so the line starts at a. All of this is a straight-line map, so order and correlations survive. The weak point is that min and max are single points: one extreme value stretches the range and squeezes every other value into a thin band near 0.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Five house prices in lakh: A 12, B 18, C 33, D 24, E 36. Min-max normalise them to [0, 1], then move C into [10, 20].",
+          "steps": [
+            "Min = 12, max = 36, so the range is 36 − 12 = 24.",
+            "Subtract the min from every price: 0, 6, 21, 12, 24. The smallest is now 0.",
+            "Divide by the range 24: 0, 0.25, 0.875, 0.5, 1. The largest is now 1.",
+            "Check C: (33 − 12) / 24 = 21 / 24 = 0.875. The bars keep the same shape; only the scale changed.",
+            "For [10, 20] instead: multiply by (20 − 10) = 10 and add 10. C becomes 0.875 × 10 + 10 = 18.75."
+          ],
+          "answer": "[0, 1]: 0, 0.25, 0.875, 0.5, 1. In [10, 20], C = 18.75."
+        },
+        {
+          "level": "gate",
+          "setup": "A column has min 20 and max 70. Normalise the value 55 into the range [5, 15].",
+          "steps": [
+            "Range = 70 − 20 = 50.",
+            "Fraction of the way along: (55 − 20) / 50 = 35 / 50 = 0.7.",
+            "Stretch to the target width 15 − 5 = 10: 0.7 × 10 = 7.",
+            "Shift to start at 5: 7 + 5 = 12.",
+            "Trap avoided: 0.7 is the answer only for [0, 1]. The question asks for [5, 15], so apply the width and the shift."
+          ],
+          "answer": "12."
+        },
+        {
+          "level": "twist",
+          "setup": "Min and max were measured on training data: min 20 and max 70. A new value 90 arrives. What does it normalise to?",
+          "steps": [
+            "Use the stored min and max, not the new data: (90 − 20) / (70 − 20) = 70 / 50 = 1.4.",
+            "1.4 lies outside [0, 1]. That is allowed: min-max only guarantees [0, 1] for values inside the old range.",
+            "Degenerate column: if max = min the denominator is 0 and the formula breaks (all values are equal)."
+          ],
+          "answer": "1.4. A value beyond the old max lands beyond 1."
+        }
+      ],
+      "why": "Columns in different units (rupees, years, kilograms) fight each other in distance calculations, and the biggest numbers win. Min-max puts all of them on one ruler. In GATE: a short computation where the question also lists numbers you must ignore (2024 DA Q27 is this style).",
+      "how": [
+        "Read the min and max of the whole column from the question.",
+        "Compute (v − min) / (max − min). That is a number between 0 and 1.",
+        "If the target is [a, b], multiply by (b − a), then add a.",
+        "Sanity check: the min should give a and the max should give b."
+      ],
+      "mistake": "Dividing by the max instead of the range (max − min), or giving the [0, 1] answer when the question asks for another range. The denominator is always max − min. Apply the width and shift last.",
+      "edge_cases": [
+        "max = min → division by zero; every value is equal.",
+        "A new value outside the old [min, max] gives a result outside [a, b].",
+        "One outlier squeezes the rest: 5, 6, 7, 8, 500 puts the first four values in 0 to 0.006.",
+        "Order and correlation with other columns are unchanged."
+      ],
+      "connections": [
+        "z-score (next card) is the outlier-friendlier cousin: it uses the mean and sd instead of the min and max.",
+        "Decimal scaling (f4) is the cheapest member of the same family of straight-line maps.",
+        "Distance-based models (KNN in ml.knn, k-means in ml.kmeans) rely on scaled columns."
+      ],
+      "check": [
+        {
+          "q": "Min 10, max 90. What is the min-max value of 50?",
+          "a": "(50 − 10) / (90 − 10) = 40 / 80 = 0.5."
+        },
+        {
+          "q": "Where does the maximum value land when the target range is [3, 8]?",
+          "a": "At 8, the top of the target range."
+        },
+        {
+          "q": "Is min-max affected by an outlier?",
+          "a": "Yes. One extreme value stretches the range and squeezes the others."
+        }
+      ],
+      "asked": "Asked (z-score or min-max computation): 2024 DA Q27.",
+      "try": {
+        "id": "gen.db.transform.006",
+        "label": "Min-max normalise the value $30$ to $[0,1]$ for an attribute with minimum $10$ and maximum $50$. (L2)"
+      },
+      "scene": "db.transform.f2.minmax",
+      "example": {
+        "setup": "Five house prices in lakh: A 12, B 18, C 33, D 24, E 36. Min-max normalise them to [0, 1], then move C into [10, 20].",
+        "steps": [
+          "Min = 12, max = 36, so the range is 36 − 12 = 24.",
+          "Subtract the min from every price: 0, 6, 21, 12, 24. The smallest is now 0.",
+          "Divide by the range 24: 0, 0.25, 0.875, 0.5, 1. The largest is now 1.",
+          "Check C: (33 − 12) / 24 = 21 / 24 = 0.875. The bars keep the same shape; only the scale changed.",
+          "For [10, 20] instead: multiply by (20 − 10) = 10 and add 10. C becomes 0.875 × 10 + 10 = 18.75."
+        ],
+        "answer": "[0, 1]: 0, 0.25, 0.875, 0.5, 1. In [10, 20], C = 18.75."
+      },
+      "what": "**Min-max normalisation** squeezes a column onto a fixed ruler, usually 0 to 1. The smallest value becomes **0**, the largest becomes **1**, and everything else keeps its relative position. It is a straight-line stretch, so order and shape are unchanged.",
+      "what_full": "**Min-max normalisation** squeezes a column onto a fixed ruler, usually 0 to 1. The smallest value becomes **0**, the largest becomes **1**, and everything else keeps its relative position. It is a straight-line stretch, so order and shape are unchanged.\n\n$$v'=\\frac{v-\\min}{\\max-\\min}\\,(b-a)+a$$\n\n- $v$ is the value to convert; $\\min$ and $\\max$ are the smallest and largest values of the whole column.\n- $\\max-\\min$ is the range (the spread) of the data.\n- $[a,b]$ is the target range. For the default $[0,1]$ the factor $(b-a)$ is 1 and $a$ is 0, so only $\\frac{v-\\min}{\\max-\\min}$ remains.\n\n**Worked example.** Five house prices in lakh: A 12, B 18, C 33, D 24, E 36. Min-max normalise them to [0, 1], then move C into [10, 20].\n\n1. Min = 12, max = 36, so the range is 36 − 12 = 24.\n2. Subtract the min from every price: 0, 6, 21, 12, 24. The smallest is now 0.\n3. Divide by the range 24: 0, 0.25, 0.875, 0.5, 1. The largest is now 1.\n4. Check C: (33 − 12) / 24 = 21 / 24 = 0.875. The bars keep the same shape; only the scale changed.\n5. For [10, 20] instead: multiply by (20 − 10) = 10 and add 10. C becomes 0.875 × 10 + 10 = 18.75.\n\n**Answer:** [0, 1]: 0, 0.25, 0.875, 0.5, 1. In [10, 20], C = 18.75.",
+      "why_full": "Columns in different units (rupees, years, kilograms) fight each other in distance calculations, and the biggest numbers win. Min-max puts all of them on one ruler. In GATE: a short computation where the question also lists numbers you must ignore (2024 DA Q27 is this style).\n\nAsked (z-score or min-max computation): 2024 DA Q27.",
+      "trap": "Dividing by the max instead of the range (max − min), or giving the [0, 1] answer when the question asks for another range. The denominator is always max − min. Apply the width and shift last."
+    },
+    {
+      "atom_id": "f3",
+      "title": "z-score",
+      "simple": "Suppose your class average is 60 and most people are within 10 marks of it. If you scored 80, you are two 'typical gaps' above average. A z-score is exactly that count: how many typical gaps (standard deviations) a value sits above or below the average. Zero means exactly average, plus 1 means one typical gap above, minus 2 means two below. Because it counts gaps instead of units, you can compare a height and a weight on the same scale. In exam words: z = (v − mean) / sd, the new column has mean 0 and standard deviation 1, and the minimum and maximum are not used.",
+      "idea": "A **z-score** says how many standard deviations a value sits from the mean. Subtract the mean, then divide by the standard deviation. The new column has mean **0** and sd **1**. Min and max play no part.",
+      "definition": "$$z=\\frac{v-\\mu}{\\sigma}$$\n\n- $v$ is the value, $\\mu$ is the mean of the column, $\\sigma$ is its standard deviation.\n- Population sd: $\\sigma=\\sqrt{\\tfrac1n\\sum(x_i-\\mu)^2}$ (divide by $n$). Sample sd: divide by $n-1$.\n- The result has mean 0 and sd 1, and no fixed bounds.",
+      "intuition_full": "The mean tells you where the middle is. The standard deviation tells you the typical distance from the middle. The top of the fraction, v − μ, is how far you are from the middle in the original units (minutes, rupees). Dividing by σ re-measures that distance in units of 'typical spread', so the original units cancel. That is why a z-score of 1.5 means the same thing for heights and for salaries. The new column is centred at 0 because subtracting μ shifts the mean to 0, and it has sd 1 because dividing by σ scales the spread to 1. Unlike min-max, nothing forces the result into a fixed interval: a value far from the mean can have z = 5.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Delivery times in minutes: 9, 11, 12, 13, 15. Z-score each one using the population standard deviation.",
+          "steps": [
+            "Mean = (9 + 11 + 12 + 13 + 15) / 5 = 60 / 5 = 12.",
+            "Deviations from the mean: −3, −1, 0, 1, 3. They add up to 0.",
+            "Square them: 9, 1, 0, 1, 9. The sum is 20, so the variance is 20 / 5 = 4 and the sd is √4 = 2.",
+            "Divide each deviation by the sd 2: z = −1.5, −0.5, 0, 0.5, 1.5.",
+            "Check: the z-scores average 0, and their squares add up to 5, so their variance is 5 / 5 = 1 and their sd is 1."
+          ],
+          "answer": "z-scores −1.5, −0.5, 0, 0.5, 1.5 (mean 0, sd 1)."
+        },
+        {
+          "level": "gate",
+          "setup": "A column has mean 62, standard deviation 8, minimum 40 and maximum 80. What is the z-score of 78?",
+          "steps": [
+            "A z-score uses only the mean and the sd. Ignore min 40 and max 80; they are distractors.",
+            "v − μ = 78 − 62 = 16.",
+            "z = 16 / 8 = 2.",
+            "Trap avoided: min-max would give (78 − 40) / (80 − 40) = 0.95, a believable but wrong number for this question."
+          ],
+          "answer": "z = 2."
+        },
+        {
+          "level": "twist",
+          "setup": "Same delivery times 9, 11, 12, 13, 15 (mean 12). Find the z-score of 15 using the SAMPLE standard deviation.",
+          "steps": [
+            "The sum of squared deviations is still 20.",
+            "Sample variance = 20 / (5 − 1) = 5, so the sample sd is √5 = 2.236.",
+            "z = (15 − 12) / 2.236 = 1.342.",
+            "The population sd gave 1.5. Read which one the question names; 'sample' means divide by n − 1."
+          ],
+          "answer": "1.342 (compare 1.5 with the population sd)."
+        }
+      ],
+      "why": "z-scores let you compare values from columns with different units, and they are less squeezed by outliers than min-max. Many models expect centred inputs. In GATE: a short computation where min and max are given as distractors (2024 DA Q27).",
+      "how": [
+        "Check which method the question names. z-score means mean and sd only.",
+        "Compute v − mean.",
+        "Divide by the sd. Check whether the question says population or sample.",
+        "If only data is given: find the mean, then the deviations, then the sd, then divide."
+      ],
+      "mistake": "Using the min and max because they appear in the question, or using the wrong sd. Min and max are distractors for a z-score. The sd divisor is n for a population and n − 1 for a sample; the question tells you which.",
+      "edge_cases": [
+        "sd = 0 (all values equal) → the z-score is undefined.",
+        "The z-scores of a whole column always add up to 0.",
+        "z can be negative (below the mean) and has no fixed upper limit.",
+        "A z-score is a positive straight-line map, so order and correlations survive."
+      ],
+      "connections": [
+        "Min-max (f2) uses the min and max; z-score uses the mean and sd.",
+        "The sd formula is the one from descriptive statistics (prob.desc).",
+        "Reading a standard normal table uses z-scores (prob.continuous)."
+      ],
+      "check": [
+        {
+          "q": "Mean 40, sd 5. What is the z-score of 52?",
+          "a": "(52 − 40) / 5 = 12 / 5 = 2.4."
+        },
+        {
+          "q": "A value equals the mean. What is its z-score?",
+          "a": "0."
+        },
+        {
+          "q": "Does a z-score need the minimum and maximum?",
+          "a": "No. Only the mean and the standard deviation."
+        }
+      ],
+      "asked": "Asked (z-score or min-max computation): 2024 DA Q27.",
+      "try": {
+        "id": "gen.db.transform.007",
+        "label": "A value $70$ comes from an attribute with mean $60$ and standard deviation $5$. What is its z-score? (L2)"
+      },
+      "scene": "db.transform.f3.zscore",
+      "example": {
+        "setup": "Delivery times in minutes: 9, 11, 12, 13, 15. Z-score each one using the population standard deviation.",
+        "steps": [
+          "Mean = (9 + 11 + 12 + 13 + 15) / 5 = 60 / 5 = 12.",
+          "Deviations from the mean: −3, −1, 0, 1, 3. They add up to 0.",
+          "Square them: 9, 1, 0, 1, 9. The sum is 20, so the variance is 20 / 5 = 4 and the sd is √4 = 2.",
+          "Divide each deviation by the sd 2: z = −1.5, −0.5, 0, 0.5, 1.5.",
+          "Check: the z-scores average 0, and their squares add up to 5, so their variance is 5 / 5 = 1 and their sd is 1."
+        ],
+        "answer": "z-scores −1.5, −0.5, 0, 0.5, 1.5 (mean 0, sd 1)."
+      },
+      "what": "A **z-score** says how many standard deviations a value sits from the mean. Subtract the mean, then divide by the standard deviation. The new column has mean **0** and sd **1**. Min and max play no part.",
+      "what_full": "A **z-score** says how many standard deviations a value sits from the mean. Subtract the mean, then divide by the standard deviation. The new column has mean **0** and sd **1**. Min and max play no part.\n\n$$z=\\frac{v-\\mu}{\\sigma}$$\n\n- $v$ is the value, $\\mu$ is the mean of the column, $\\sigma$ is its standard deviation.\n- Population sd: $\\sigma=\\sqrt{\\tfrac1n\\sum(x_i-\\mu)^2}$ (divide by $n$). Sample sd: divide by $n-1$.\n- The result has mean 0 and sd 1, and no fixed bounds.\n\n**Worked example.** Delivery times in minutes: 9, 11, 12, 13, 15. Z-score each one using the population standard deviation.\n\n1. Mean = (9 + 11 + 12 + 13 + 15) / 5 = 60 / 5 = 12.\n2. Deviations from the mean: −3, −1, 0, 1, 3. They add up to 0.\n3. Square them: 9, 1, 0, 1, 9. The sum is 20, so the variance is 20 / 5 = 4 and the sd is √4 = 2.\n4. Divide each deviation by the sd 2: z = −1.5, −0.5, 0, 0.5, 1.5.\n5. Check: the z-scores average 0, and their squares add up to 5, so their variance is 5 / 5 = 1 and their sd is 1.\n\n**Answer:** z-scores −1.5, −0.5, 0, 0.5, 1.5 (mean 0, sd 1).",
+      "why_full": "z-scores let you compare values from columns with different units, and they are less squeezed by outliers than min-max. Many models expect centred inputs. In GATE: a short computation where min and max are given as distractors (2024 DA Q27).\n\nAsked (z-score or min-max computation): 2024 DA Q27.",
+      "trap": "Using the min and max because they appear in the question, or using the wrong sd. Min and max are distractors for a z-score. The sd divisor is n for a population and n − 1 for a sample; the question tells you which."
+    },
+    {
+      "atom_id": "f4",
+      "title": "Decimal scaling",
+      "simple": "Say you want every number to look like 0.something, so none of them reaches 1. The easy trick is to slide the decimal point to the left. Look at your biggest number (ignore minus signs) and count how many places the point must slide so that it drops below 1. Then slide every number the same amount. Nobody changes places and the signs stay. In exam words: decimal scaling divides every value by 10 to the power j, where j is the smallest integer that makes the largest absolute value less than 1.",
+      "idea": "**Decimal scaling** moves the decimal point of every value by the same number of places. Pick the smallest power of 10 that pushes the **largest absolute value** below 1, then divide everything by it. Signs, order and relative sizes do not change.",
+      "definition": "$$v'=\\frac{v}{10^{j}}$$\n\n- $j$ is the smallest integer with $\\max|v|/10^{j}<1$.\n- $|v|$ is the absolute value: the sign is dropped when deciding $j$.\n- The inequality is strict: a result of exactly 1 is not allowed.",
+      "intuition_full": "The goal is a column where every entry has magnitude below 1, reached with the cheapest move available: sliding the decimal point. Because the point moves the same number of places for every entry, the ratios between entries are untouched. The largest absolute value decides j, because if the biggest entry fits under 1 then every smaller one does too. The sign never matters when asking whether a number fits: −3482 is as big as 3482. The 'strictly below 1' rule is why a maximum of exactly 1000 needs j = 4: 1000 / 10³ = 1 is not below 1. Compared with min-max, decimal scaling needs no minimum, only the largest magnitude, and it does not centre the data or set its spread.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A column holds −3482, 150, 2750 and 9. Apply decimal scaling.",
+          "steps": [
+            "Decimal scaling needs one number: the largest absolute value.",
+            "|−3482| = 3482 is the largest. The sign is ignored.",
+            "Find the smallest j with 3482 / 10^j < 1. j = 3 gives 3.482, still too big. j = 4 gives 0.3482, which works.",
+            "Divide every value by 10^4 = 10000: −0.3482, 0.015, 0.275, 0.0009.",
+            "Check: the biggest absolute value is now 0.3482, below 1. Order and relative sizes are unchanged."
+          ],
+          "answer": "j = 4; the values become −0.3482, 0.015, 0.275, 0.0009."
+        },
+        {
+          "level": "gate",
+          "setup": "A column holds values between −12000 and 3200. What does decimal scaling give for 3200?",
+          "steps": [
+            "Largest absolute value = max(|−12000|, 3200) = 12000. The negative end wins, not 3200.",
+            "j = 4: 12000 / 10000 = 1.2, still not below 1. j = 5: 12000 / 100000 = 0.12, below 1.",
+            "Divide 3200 by 10^5: 3200 / 100000 = 0.032.",
+            "Trap avoided: choosing j from 3200 would give j = 4 and 0.32, which is wrong."
+          ],
+          "answer": "0.032."
+        },
+        {
+          "level": "twist",
+          "setup": "A column holds 250, 1000 and −640. What is j, and what does 1000 become?",
+          "steps": [
+            "Largest absolute value = 1000.",
+            "j = 3 gives 1000 / 1000 = 1, which is NOT below 1.",
+            "j = 4 gives 1000 / 10000 = 0.1. So 250 → 0.025, 1000 → 0.1, −640 → −0.064."
+          ],
+          "answer": "j = 4; 1000 becomes 0.1."
+        }
+      ],
+      "why": "It is the cheapest rescaling: no min, mean or sd needed, only the largest magnitude. In GATE: the chapter's computation questions can ask for any of min-max, z-score or decimal scaling, so you need all three formulas (2024 DA Q27 asked the z-score).",
+      "how": [
+        "Find the largest absolute value, ignoring signs.",
+        "Find the smallest j with max / 10^j < 1 (strictly).",
+        "Divide every value by 10^j.",
+        "Check that the biggest result is below 1 in magnitude."
+      ],
+      "mistake": "Choosing j from the largest value instead of the largest absolute value, or stopping when the maximum equals exactly 1. If the biggest magnitude is 12000 (from −12000), j comes from 12000. A result of exactly 1 is not below 1, so go one power higher.",
+      "edge_cases": [
+        "Maximum exactly a power of 10 (1000) → j is one more than the digit count suggests.",
+        "If every |v| is already below 1, take j = 0: nothing changes.",
+        "Signs and order are preserved.",
+        "Decimal scaling does not centre the data or fix its spread."
+      ],
+      "connections": [
+        "Same family as min-max and z-score (f2, f3): all three are straight-line maps that keep order.",
+        "Choose between the three by the method the question names."
+      ],
+      "check": [
+        {
+          "q": "Largest |v| is 72. What is j, and what does 45 become?",
+          "a": "j = 2 (72 / 100 = 0.72). 45 becomes 0.45."
+        },
+        {
+          "q": "Largest |v| is exactly 100. What is j?",
+          "a": "j = 3, because 100 / 100 = 1 is not below 1."
+        },
+        {
+          "q": "Values −900 and 300. What does −900 become?",
+          "a": "j = 3 (900 / 1000 = 0.9). −900 becomes −0.9."
+        }
+      ],
+      "asked": "Asked: the normalisation family appears in 2024 DA Q27 (that question uses the z-score).",
+      "try": {
+        "id": "gen.db.transform.008",
+        "label": "Decimal scaling: an attribute has maximum absolute value $987$. Normalise the value $456$. (L2)"
+      },
+      "scene": "db.transform.f4.decimal",
+      "example": {
+        "setup": "A column holds −3482, 150, 2750 and 9. Apply decimal scaling.",
+        "steps": [
+          "Decimal scaling needs one number: the largest absolute value.",
+          "|−3482| = 3482 is the largest. The sign is ignored.",
+          "Find the smallest j with 3482 / 10^j < 1. j = 3 gives 3.482, still too big. j = 4 gives 0.3482, which works.",
+          "Divide every value by 10^4 = 10000: −0.3482, 0.015, 0.275, 0.0009.",
+          "Check: the biggest absolute value is now 0.3482, below 1. Order and relative sizes are unchanged."
+        ],
+        "answer": "j = 4; the values become −0.3482, 0.015, 0.275, 0.0009."
+      },
+      "what": "**Decimal scaling** moves the decimal point of every value by the same number of places. Pick the smallest power of 10 that pushes the **largest absolute value** below 1, then divide everything by it. Signs, order and relative sizes do not change.",
+      "what_full": "**Decimal scaling** moves the decimal point of every value by the same number of places. Pick the smallest power of 10 that pushes the **largest absolute value** below 1, then divide everything by it. Signs, order and relative sizes do not change.\n\n$$v'=\\frac{v}{10^{j}}$$\n\n- $j$ is the smallest integer with $\\max|v|/10^{j}<1$.\n- $|v|$ is the absolute value: the sign is dropped when deciding $j$.\n- The inequality is strict: a result of exactly 1 is not allowed.\n\n**Worked example.** A column holds −3482, 150, 2750 and 9. Apply decimal scaling.\n\n1. Decimal scaling needs one number: the largest absolute value.\n2. |−3482| = 3482 is the largest. The sign is ignored.\n3. Find the smallest j with 3482 / 10^j < 1. j = 3 gives 3.482, still too big. j = 4 gives 0.3482, which works.\n4. Divide every value by 10^4 = 10000: −0.3482, 0.015, 0.275, 0.0009.\n5. Check: the biggest absolute value is now 0.3482, below 1. Order and relative sizes are unchanged.\n\n**Answer:** j = 4; the values become −0.3482, 0.015, 0.275, 0.0009.",
+      "why_full": "It is the cheapest rescaling: no min, mean or sd needed, only the largest magnitude. In GATE: the chapter's computation questions can ask for any of min-max, z-score or decimal scaling, so you need all three formulas (2024 DA Q27 asked the z-score).\n\nAsked: the normalisation family appears in 2024 DA Q27 (that question uses the z-score).",
+      "trap": "Choosing j from the largest value instead of the largest absolute value, or stopping when the maximum equals exactly 1. If the biggest magnitude is 12000 (from −12000), j comes from 12000. A result of exactly 1 is not below 1, so go one power higher."
+    },
+    {
+      "atom_id": "f5",
+      "title": "Discretisation and binning",
+      "simple": "Say you have 12 prices and would rather talk about 'cheap, medium and expensive' than about 12 different numbers. So you sort the prices and split them into 3 buckets. You can make the buckets equally wide (each covers the same price range) or equally full (each holds the same number of prices). Then, to smooth out noise, you can replace each price by something typical of its bucket, like the bucket average. In exam words: equal-width binning fixes the range of each bin, equal-frequency binning fixes the count per bin, and smoothing replaces values by the bin mean, median or nearest boundary.",
+      "idea": "**Binning** turns many numbers into a few buckets. **Equal-width** bins cover the same range, so the counts can be uneven. **Equal-frequency** bins hold the same count, so the ranges can be uneven. **Smoothing** then replaces each value by its bin's mean or its nearest boundary.",
+      "definition": "- Equal-width: width $w=\\dfrac{\\max-\\min}{k}$ for $k$ bins. Value $v$ falls in bin $\\lfloor (v-\\min)/w\\rfloor+1$; the maximum goes in the last bin.\n- Equal-frequency: sort the data and give each bin $n/k$ consecutive values.\n- Smoothing by means: replace each value by its bin mean. By boundaries: replace each by the nearer of the bin's min or max. By medians: the bin median.",
+      "intuition_full": "Sorting first is the key. In equal-frequency binning you just cut the sorted list into runs of equal length, with no arithmetic on the values. In equal-width binning you cut the number line into equal slices, and the data decide how many values land in each. Skewed data, with a long tail of large values, makes equal-width bins very uneven: most values pile into the first bin. That is why equal-frequency is preferred for skew. Smoothing is noise reduction. Replacing every value by its bin mean removes small wiggles and keeps the broad level, and the bin's total is unchanged. Boundary smoothing keeps the bin's two extremes and snaps each inner value to whichever extreme is nearer.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Twelve sorted prices: 3, 7, 8, 14, 15, 16, 21, 24, 40, 45, 48, 63. Use 3 equal-frequency bins and smooth by bin means.",
+          "steps": [
+            "12 values in 3 bins means 12 / 3 = 4 values per bin.",
+            "Cut the sorted list into runs of 4: (3, 7, 8, 14), (15, 16, 21, 24), (40, 45, 48, 63).",
+            "Bin means: (3 + 7 + 8 + 14) / 4 = 8, (15 + 16 + 21 + 24) / 4 = 19, (40 + 45 + 48 + 63) / 4 = 49.",
+            "Smooth by means: every value becomes its bin mean: 8 8 8 8, 19 19 19 19, 49 49 49 49.",
+            "Each bin still holds exactly 4 values, but the ranges are uneven: 11, 9 and 23. That is what equal-frequency means."
+          ],
+          "answer": "Smoothed: 8 8 8 8 | 19 19 19 19 | 49 49 49 49."
+        },
+        {
+          "level": "gate",
+          "setup": "Same sorted data, but now use 3 equal-width bins over [3, 63]. How many values are in each bin, and which bin holds 40?",
+          "steps": [
+            "Width = (63 − 3) / 3 = 20. Edges at 3, 23, 43, 63.",
+            "Bin 1 = [3, 23): 3, 7, 8, 14, 15, 16, 21, which is 7 values.",
+            "Bin 2 = [23, 43): 24, 40, which is 2 values.",
+            "Bin 3 = [43, 63]: 45, 48, 63, which is 3 values. The maximum 63 goes in the last bin.",
+            "Bin of 40: ⌊(40 − 3) / 20⌋ + 1 = ⌊1.85⌋ + 1 = 2.",
+            "Trap avoided: equal-width gave counts 7, 2, 3, while equal-frequency gave 4, 4, 4."
+          ],
+          "answer": "Counts 7, 2, 3; the value 40 is in bin 2."
+        },
+        {
+          "level": "twist",
+          "setup": "Smooth the equal-frequency bins from the first example by boundaries instead of means.",
+          "steps": [
+            "Bin 1 (3, 7, 8, 14): 7 is 4 from 3 and 7 from 14, so it goes to 3. 8 is 5 from 3 and 6 from 14, so it goes to 3. Result 3, 3, 3, 14.",
+            "Bin 2 (15, 16, 21, 24): 16 → 15 (distance 1 against 8), 21 → 24 (6 against 3). Result 15, 15, 24, 24.",
+            "Bin 3 (40, 45, 48, 63): 45 → 40 (5 against 18), 48 → 40 (8 against 15). Result 40, 40, 40, 63.",
+            "The bin ends never move; only the inner values do."
+          ],
+          "answer": "3 3 3 14 | 15 15 24 24 | 40 40 40 63. The total is 284; smoothing by means would keep the original total of 304."
+        }
+      ],
+      "why": "Binning reduces noise and turns numbers into categories that many mining methods need. In GATE: expect a short sorted list and a question on a bin count, a bin number or a smoothed value; the ladder drills each shape.",
+      "how": [
+        "Sort the data first.",
+        "Equal-frequency: n/k consecutive values per bin. Equal-width: w = (max − min)/k, with edges at min + w, min + 2w, and so on.",
+        "Place each value in its bin; the maximum goes in the last bin.",
+        "To smooth: replace by the bin mean, median, or the nearer boundary."
+      ],
+      "mistake": "Using equal-width cut points for an equal-frequency question (or the reverse), or forgetting to sort first. Equal-frequency bins have equal counts but not equal ranges. Equal-width bins have equal ranges but not equal counts.",
+      "edge_cases": [
+        "If n is not divisible by k, the question says where the leftover values go.",
+        "A value exactly on an inner edge belongs to the higher bin; the maximum goes in the last bin.",
+        "Skewed data: equal-width bins pile most values into the first bin.",
+        "A value exactly halfway between the two boundaries is ambiguous; questions avoid it."
+      ],
+      "connections": [
+        "Equal-frequency bins are quantile cuts (prob.desc).",
+        "Binning a numeric column gives an ordinal column (see attribute types, f1).",
+        "Smoothing by means resembles k-means (ml.kmeans): each value is replaced by its group's centre."
+      ],
+      "check": [
+        {
+          "q": "Sorted data 2, 4, 6, 8, 10, 12 in 3 equal-frequency bins. What is bin 2?",
+          "a": "6, 8."
+        },
+        {
+          "q": "Range 0 to 60, 3 equal-width bins. What is the width, and which bin holds 41?",
+          "a": "Width 20. 41 is in bin 3 ([40, 60])."
+        },
+        {
+          "q": "A bin holds 5, 7, 12. What does smoothing by means give?",
+          "a": "The mean is 24 / 3 = 8, so all become 8, 8, 8."
+        }
+      ],
+      "asked": "Asked: no direct past question in the blueprint; the ladder covers each shape.",
+      "try": {
+        "id": "gen.db.transform.003",
+        "label": "Equal-frequency (equi-depth) binning splits sorted data so that (L1)"
+      },
+      "scene": "db.transform.f5.bins",
+      "example": {
+        "setup": "Twelve sorted prices: 3, 7, 8, 14, 15, 16, 21, 24, 40, 45, 48, 63. Use 3 equal-frequency bins and smooth by bin means.",
+        "steps": [
+          "12 values in 3 bins means 12 / 3 = 4 values per bin.",
+          "Cut the sorted list into runs of 4: (3, 7, 8, 14), (15, 16, 21, 24), (40, 45, 48, 63).",
+          "Bin means: (3 + 7 + 8 + 14) / 4 = 8, (15 + 16 + 21 + 24) / 4 = 19, (40 + 45 + 48 + 63) / 4 = 49.",
+          "Smooth by means: every value becomes its bin mean: 8 8 8 8, 19 19 19 19, 49 49 49 49.",
+          "Each bin still holds exactly 4 values, but the ranges are uneven: 11, 9 and 23. That is what equal-frequency means."
+        ],
+        "answer": "Smoothed: 8 8 8 8 | 19 19 19 19 | 49 49 49 49."
+      },
+      "what": "**Binning** turns many numbers into a few buckets. **Equal-width** bins cover the same range, so the counts can be uneven. **Equal-frequency** bins hold the same count, so the ranges can be uneven. **Smoothing** then replaces each value by its bin's mean or its nearest boundary.",
+      "what_full": "**Binning** turns many numbers into a few buckets. **Equal-width** bins cover the same range, so the counts can be uneven. **Equal-frequency** bins hold the same count, so the ranges can be uneven. **Smoothing** then replaces each value by its bin's mean or its nearest boundary.\n\n- Equal-width: width $w=\\dfrac{\\max-\\min}{k}$ for $k$ bins. Value $v$ falls in bin $\\lfloor (v-\\min)/w\\rfloor+1$; the maximum goes in the last bin.\n- Equal-frequency: sort the data and give each bin $n/k$ consecutive values.\n- Smoothing by means: replace each value by its bin mean. By boundaries: replace each by the nearer of the bin's min or max. By medians: the bin median.\n\n**Worked example.** Twelve sorted prices: 3, 7, 8, 14, 15, 16, 21, 24, 40, 45, 48, 63. Use 3 equal-frequency bins and smooth by bin means.\n\n1. 12 values in 3 bins means 12 / 3 = 4 values per bin.\n2. Cut the sorted list into runs of 4: (3, 7, 8, 14), (15, 16, 21, 24), (40, 45, 48, 63).\n3. Bin means: (3 + 7 + 8 + 14) / 4 = 8, (15 + 16 + 21 + 24) / 4 = 19, (40 + 45 + 48 + 63) / 4 = 49.\n4. Smooth by means: every value becomes its bin mean: 8 8 8 8, 19 19 19 19, 49 49 49 49.\n5. Each bin still holds exactly 4 values, but the ranges are uneven: 11, 9 and 23. That is what equal-frequency means.\n\n**Answer:** Smoothed: 8 8 8 8 | 19 19 19 19 | 49 49 49 49.",
+      "why_full": "Binning reduces noise and turns numbers into categories that many mining methods need. In GATE: expect a short sorted list and a question on a bin count, a bin number or a smoothed value; the ladder drills each shape.\n\nAsked: no direct past question in the blueprint; the ladder covers each shape.",
+      "trap": "Using equal-width cut points for an equal-frequency question (or the reverse), or forgetting to sort first. Equal-frequency bins have equal counts but not equal ranges. Equal-width bins have equal ranges but not equal counts."
+    },
+    {
+      "atom_id": "f6",
+      "title": "Sampling",
+      "simple": "Say you want to know what the whole school thinks about the canteen food, but you cannot ask every student. So you ask a few, and how you pick them matters. Drawing names from a hat is a simple random sample. Asking a few kids from every class is stratified sampling. Asking every kid in a few randomly chosen classes is cluster sampling. Asking every 10th kid in the register is systematic sampling. In exam words: simple random sampling (with or without replacement), stratified, cluster and systematic. Without replacement, each item has probability n/N of ending up in the sample.",
+      "idea": "**Sampling** studies a few items instead of all of them. **Simple random** gives every item an equal chance. **Stratified** samples inside every group, **cluster** picks whole groups, and **systematic** takes every $k$th item.",
+      "definition": "For a population of $N$ items and a sample of size $n$:\n\n- Simple random without replacement: each item is in the sample with probability $n/N$.\n- Simple random with replacement: an item can be drawn more than once; P(a given item appears at least once) $=1-(1-1/N)^n$.\n- Proportional stratified: take $n_h=n\\cdot N_h/N$ from a stratum of size $N_h$.\n- Cluster: choose whole clusters at random and take every item in them.\n- Systematic: step $k=N/n$, random start, then every $k$th item.",
+      "intuition_full": "The four methods differ in what they guarantee. Simple random sampling is fair to individuals but gives no balance: by bad luck a whole class can be missed. Stratified sampling guarantees that every group you care about is represented, which usually makes the estimate more stable. Cluster sampling guarantees convenience: you visit a few places and survey everyone there, which is cheap but can be biased if clusters differ from each other. Systematic sampling is a lazy simple random sample, and it fails if the list has a pattern with the same period as k (say, every second row is always a boy). With replacement, each draw is independent, so an item can appear twice. Without replacement the draws depend on each other, but the chance that a specific item ends up in the sample is n/N.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A school has 24 students in 6 classes (A to F) of 4. We want a sample of 12. See which students each method picks.",
+          "steps": [
+            "Population: 24 students numbered 1 to 24, six classes of four. Sample size n = 12.",
+            "Simple random: draw any 12 numbers blindly, say 1, 2, 4, 9, 12, 13, 14, 15, 16, 18, 22, 24. Class B got nobody and class D got all four. Possible, since nothing forces balance.",
+            "Stratified: sample inside every class. The proportional share is 12 × 4 / 24 = 2 per class, so every class sends 2.",
+            "Cluster: pick whole classes at random, say B, D, F, and take every student: 3 × 4 = 12. Cheap, but classes can differ.",
+            "Systematic: k = N / n = 24 / 12 = 2. Start at a random point, say 1, then take every 2nd student: 1, 3, 5, ..., 23."
+          ],
+          "answer": "Same size 12, different spread: random 3-0-2-4-1-2, stratified 2-2-2-2-2-2, cluster 0-4-0-4-0-4, systematic 2-2-2-2-2-2 (students per class)."
+        },
+        {
+          "level": "gate",
+          "setup": "A college has 200 students in three branches: CS 120, EC 60, ME 20. A proportional stratified sample of 40 is needed. How many from each branch? What is the chance that one particular student is in a simple random sample of 40 drawn without replacement?",
+          "steps": [
+            "Sampling fraction = 40 / 200 = 0.2, so take 20% from each stratum.",
+            "CS: 120 × 0.2 = 24.",
+            "EC: 60 × 0.2 = 12. ME: 20 × 0.2 = 4.",
+            "Check: 24 + 12 + 4 = 40.",
+            "Without replacement, the chance a given student is chosen is n / N = 40 / 200 = 0.2.",
+            "Trap avoided: taking about 13 from each branch would over-represent ME."
+          ],
+          "answer": "24, 12 and 4; the inclusion probability is 0.2."
+        },
+        {
+          "level": "twist",
+          "setup": "Draw 4 items WITH replacement from 6 distinct items. What is the probability that item number 1 appears at least once?",
+          "steps": [
+            "On one draw, item 1 is missed with probability 5/6.",
+            "Draws are independent, so it is missed on all 4 draws with probability (5/6)^4 = 625 / 1296.",
+            "At least once: 1 − 625/1296 = 671/1296 = 0.518.",
+            "For comparison, without replacement it would be n / N = 4/6 = 0.667."
+          ],
+          "answer": "About 0.518."
+        }
+      ],
+      "why": "A good sample lets you estimate the whole from a part, and the method decides what bias you get. In GATE: usually a definition match ('draws from every group' means stratified) or a probability (n/N, or 'at least once' with replacement).",
+      "how": [
+        "Name the method from the story: sampling inside every group is stratified; whole groups is cluster; every k-th is systematic; anything else random.",
+        "Stratified counts: n_h = n × N_h / N.",
+        "Without replacement: the inclusion probability is n/N.",
+        "With replacement and 'at least once': use the complement, 1 − (1 − 1/N)^n."
+      ],
+      "mistake": "Mixing up stratified and cluster. Stratified takes some items from every group; cluster takes every item from some groups. Another slip is using n/N when the sampling is with replacement and the question asks 'at least once'.",
+      "edge_cases": [
+        "Proportional shares that are not whole numbers need rounding; the question says how.",
+        "Plain systematic sampling needs k = N/n to be a whole number.",
+        "A list with a repeating pattern of period k biases systematic sampling.",
+        "With replacement the sample can be larger than the population."
+      ],
+      "connections": [
+        "'At least once' uses the complement rule from probability (prob.axioms).",
+        "Foundations: **Sets and logic** (found.sets_logic): a population is a set and a sample is a subset of it.",
+        "Cross-validation folds in ml.cv are stratified or random samples of the data."
+      ],
+      "check": [
+        {
+          "q": "N = 500 and a simple random sample of 25 without replacement. Chance a given item is chosen?",
+          "a": "25 / 500 = 0.05."
+        },
+        {
+          "q": "Strata of 300 and 100, proportional sample of 20. How many from each?",
+          "a": "15 and 5."
+        },
+        {
+          "q": "Whole villages are chosen at random and everyone in them is surveyed. Which method?",
+          "a": "Cluster sampling."
+        }
+      ],
+      "asked": "Asked: no direct past question in the blueprint; the ladder covers each shape.",
+      "try": {
+        "id": "gen.db.transform.004",
+        "label": "A population is divided into groups, and a random sample is drawn from every group. This is (L1)"
+      },
+      "scene": "db.transform.f6.sampling",
+      "example": {
+        "setup": "A school has 24 students in 6 classes (A to F) of 4. We want a sample of 12. See which students each method picks.",
+        "steps": [
+          "Population: 24 students numbered 1 to 24, six classes of four. Sample size n = 12.",
+          "Simple random: draw any 12 numbers blindly, say 1, 2, 4, 9, 12, 13, 14, 15, 16, 18, 22, 24. Class B got nobody and class D got all four. Possible, since nothing forces balance.",
+          "Stratified: sample inside every class. The proportional share is 12 × 4 / 24 = 2 per class, so every class sends 2.",
+          "Cluster: pick whole classes at random, say B, D, F, and take every student: 3 × 4 = 12. Cheap, but classes can differ.",
+          "Systematic: k = N / n = 24 / 12 = 2. Start at a random point, say 1, then take every 2nd student: 1, 3, 5, ..., 23."
+        ],
+        "answer": "Same size 12, different spread: random 3-0-2-4-1-2, stratified 2-2-2-2-2-2, cluster 0-4-0-4-0-4, systematic 2-2-2-2-2-2 (students per class)."
+      },
+      "what": "**Sampling** studies a few items instead of all of them. **Simple random** gives every item an equal chance. **Stratified** samples inside every group, **cluster** picks whole groups, and **systematic** takes every $k$th item.",
+      "what_full": "**Sampling** studies a few items instead of all of them. **Simple random** gives every item an equal chance. **Stratified** samples inside every group, **cluster** picks whole groups, and **systematic** takes every $k$th item.\n\nFor a population of $N$ items and a sample of size $n$:\n\n- Simple random without replacement: each item is in the sample with probability $n/N$.\n- Simple random with replacement: an item can be drawn more than once; P(a given item appears at least once) $=1-(1-1/N)^n$.\n- Proportional stratified: take $n_h=n\\cdot N_h/N$ from a stratum of size $N_h$.\n- Cluster: choose whole clusters at random and take every item in them.\n- Systematic: step $k=N/n$, random start, then every $k$th item.\n\n**Worked example.** A school has 24 students in 6 classes (A to F) of 4. We want a sample of 12. See which students each method picks.\n\n1. Population: 24 students numbered 1 to 24, six classes of four. Sample size n = 12.\n2. Simple random: draw any 12 numbers blindly, say 1, 2, 4, 9, 12, 13, 14, 15, 16, 18, 22, 24. Class B got nobody and class D got all four. Possible, since nothing forces balance.\n3. Stratified: sample inside every class. The proportional share is 12 × 4 / 24 = 2 per class, so every class sends 2.\n4. Cluster: pick whole classes at random, say B, D, F, and take every student: 3 × 4 = 12. Cheap, but classes can differ.\n5. Systematic: k = N / n = 24 / 12 = 2. Start at a random point, say 1, then take every 2nd student: 1, 3, 5, ..., 23.\n\n**Answer:** Same size 12, different spread: random 3-0-2-4-1-2, stratified 2-2-2-2-2-2, cluster 0-4-0-4-0-4, systematic 2-2-2-2-2-2 (students per class).",
+      "why_full": "A good sample lets you estimate the whole from a part, and the method decides what bias you get. In GATE: usually a definition match ('draws from every group' means stratified) or a probability (n/N, or 'at least once' with replacement).\n\nAsked: no direct past question in the blueprint; the ladder covers each shape.",
+      "trap": "Mixing up stratified and cluster. Stratified takes some items from every group; cluster takes every item from some groups. Another slip is using n/N when the sampling is with replacement and the question asks 'at least once'."
+    },
+    {
+      "atom_id": "f7",
+      "title": "Compression",
+      "simple": "Imagine texting a friend 'aaaaaaaaaaaa'. You would write 'a x 12' instead. That is compression: saying the same thing in fewer symbols. If your friend can rebuild the exact message, it is lossless, like a zip file. If they only get something close, like a small JPEG photo, it is lossy. Huffman coding is smarter about letters: common letters like 'e' get short codes and rare ones like 'z' get long codes, so the whole message gets shorter. In exam words: run-length encoding and Huffman are lossless, JPEG and MP3 are lossy, and a Huffman tree is built by repeatedly merging the two smallest weights. The total number of bits is the sum of all the merged weights.",
+      "idea": "**Compression** stores the same data in fewer bits. **Lossless** methods (run-length, Huffman) give back the exact original. **Lossy** methods (JPEG, MP3) throw detail away. **Huffman coding** gives short codes to frequent symbols and long codes to rare ones.",
+      "definition": "- Run-length encoding (RLE): replace each run of equal symbols by (symbol, count).\n- Huffman: repeatedly merge the two smallest weights into one node until a single tree remains. Label left edges 0 and right edges 1; a symbol's code is the path from the root.\n- Total bits $=\\sum f_i\\,\\ell_i$, which equals the sum of all merged (internal-node) weights. Average length $=$ total bits $/$ total symbols.\n- Codes are prefix-free: no code is the start of another.",
+      "intuition_full": "Compression works by exploiting patterns. RLE exploits runs: a line of 20 characters with 5 runs shrinks to 5 pairs. Huffman exploits unequal frequencies. A fixed-length code gives every symbol the same number of bits, which wastes bits on the common ones. Huffman builds a tree from the bottom. The two rarest symbols merge first, so they end up deepest, with the longest codes. A frequent symbol joins late and sits near the root with a short code. The total cost has a neat shortcut. Every merge adds one extra bit to every symbol under it, so the merge's weight is added to the total, and total bits equals the sum of all merged weights. Lossy methods trade accuracy for size, so they cannot be undone.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Five symbols with frequencies a:2, b:3, c:6, d:9, e:10 (30 symbols in all). Build the Huffman code and find the total bits.",
+          "steps": [
+            "A fixed-length code needs 3 bits per symbol (five symbols), so 30 × 3 = 90 bits.",
+            "Merge the two smallest weights, 2 and 3, into a node of weight 5. Running cost: 5.",
+            "Now the smallest two are 5 and 6. Merge into 11. Running cost: 5 + 11 = 16.",
+            "Now 9 and 10 are the smallest. Merge into 19. Running cost: 16 + 19 = 35.",
+            "The last two nodes are 11 and 19. Merge into the root, 30. Running cost: 35 + 30 = 65.",
+            "Label left edges 0 and right edges 1: a 000, b 001, c 01, d 10, e 11. Check: 2·3 + 3·3 + 6·2 + 9·2 + 10·2 = 65 bits, against 90."
+          ],
+          "answer": "65 bits in total (average 65/30 = 2.17 bits per symbol), against 90 for a fixed-length code."
+        },
+        {
+          "level": "gate",
+          "setup": "Run-length encode XXXXXXYYZZZZZZZZZWWQ as (symbol, count) pairs, with 1 byte for a symbol and 1 byte for a count. How many bytes, and how many are saved?",
+          "steps": [
+            "List the runs: X×6, Y×2, Z×9, W×2, Q×1. That is 5 runs.",
+            "Each run costs 2 bytes: 5 × 2 = 10 bytes.",
+            "The original has 6 + 2 + 9 + 2 + 1 = 20 characters = 20 bytes.",
+            "Saving = 20 − 10 = 10 bytes (50%).",
+            "Trap avoided: the single Q costs 2 bytes for 1 character. RLE only wins when runs are long."
+          ],
+          "answer": "10 bytes, saving 10."
+        },
+        {
+          "level": "twist",
+          "setup": "Run-length encode ABABABAB with (symbol, count) pairs of 1 byte each. Is the result smaller?",
+          "steps": [
+            "Every run has length 1: A1 B1 A1 B1 A1 B1 A1 B1, which is 8 runs.",
+            "8 runs × 2 bytes = 16 bytes, double the original 8 bytes.",
+            "RLE helps only when runs are long."
+          ],
+          "answer": "16 bytes, which is larger than the original 8."
+        }
+      ],
+      "why": "Storage and transmission cost scales with bits, and Huffman is the classic greedy algorithm. In GATE: compute a Huffman total or average code length from given frequencies, the size of an RLE string, or say whether a method is lossless.",
+      "how": [
+        "RLE: list the runs, then count 2 bytes (symbol and count) per run unless told otherwise.",
+        "Huffman: list all weights; repeatedly take the two smallest, merge them, put the sum back in the list, and add it to a running total.",
+        "Total bits = sum of all merged weights. Average length = total bits / sum of frequencies.",
+        "For an actual code: left edge 0, right edge 1, read from the root to the leaf."
+      ],
+      "mistake": "Merging the two largest weights, or forgetting to put the merged node back into the list before choosing the next pair. Always pick the two smallest from everything currently in the list, merged nodes included.",
+      "edge_cases": [
+        "Ties in weights can give different trees but the same total cost.",
+        "RLE on text with few repeats makes the data bigger.",
+        "Huffman average length L stays within 1 bit of the entropy: H ≤ L < H + 1.",
+        "Lossy compression cannot be reversed: JPEG and MP3 discard detail."
+      ],
+      "connections": [
+        "Huffman is a greedy algorithm (algo.greedy).",
+        "A prefix code is a binary tree (ds.trees).",
+        "Foundations: **Binary** (found.binary) covers bits and why 5 symbols need at least 3 bits in a fixed-length code."
+      ],
+      "check": [
+        {
+          "q": "Weights 1, 1, 2. What is the Huffman total cost?",
+          "a": "Merge 1+1 = 2, then 2+2 = 4. Total = 2 + 4 = 6."
+        },
+        {
+          "q": "Is JPEG lossless?",
+          "a": "No. JPEG is lossy."
+        },
+        {
+          "q": "RLE of AAAB with 1 byte per symbol and 1 per count: how many bytes?",
+          "a": "2 runs (A×3, B×1) = 4 bytes."
+        }
+      ],
+      "asked": "Asked: no direct past question in the blueprint; the ladder covers Huffman and RLE.",
+      "try": {
+        "id": "gen.db.transform.005",
+        "label": "Which of the following is a lossless compression technique? (L1)"
+      },
+      "scene": "db.transform.f7.huffman",
+      "example": {
+        "setup": "Five symbols with frequencies a:2, b:3, c:6, d:9, e:10 (30 symbols in all). Build the Huffman code and find the total bits.",
+        "steps": [
+          "A fixed-length code needs 3 bits per symbol (five symbols), so 30 × 3 = 90 bits.",
+          "Merge the two smallest weights, 2 and 3, into a node of weight 5. Running cost: 5.",
+          "Now the smallest two are 5 and 6. Merge into 11. Running cost: 5 + 11 = 16.",
+          "Now 9 and 10 are the smallest. Merge into 19. Running cost: 16 + 19 = 35.",
+          "The last two nodes are 11 and 19. Merge into the root, 30. Running cost: 35 + 30 = 65.",
+          "Label left edges 0 and right edges 1: a 000, b 001, c 01, d 10, e 11. Check: 2·3 + 3·3 + 6·2 + 9·2 + 10·2 = 65 bits, against 90."
+        ],
+        "answer": "65 bits in total (average 65/30 = 2.17 bits per symbol), against 90 for a fixed-length code."
+      },
+      "what": "**Compression** stores the same data in fewer bits. **Lossless** methods (run-length, Huffman) give back the exact original. **Lossy** methods (JPEG, MP3) throw detail away. **Huffman coding** gives short codes to frequent symbols and long codes to rare ones.",
+      "what_full": "**Compression** stores the same data in fewer bits. **Lossless** methods (run-length, Huffman) give back the exact original. **Lossy** methods (JPEG, MP3) throw detail away. **Huffman coding** gives short codes to frequent symbols and long codes to rare ones.\n\n- Run-length encoding (RLE): replace each run of equal symbols by (symbol, count).\n- Huffman: repeatedly merge the two smallest weights into one node until a single tree remains. Label left edges 0 and right edges 1; a symbol's code is the path from the root.\n- Total bits $=\\sum f_i\\,\\ell_i$, which equals the sum of all merged (internal-node) weights. Average length $=$ total bits $/$ total symbols.\n- Codes are prefix-free: no code is the start of another.\n\n**Worked example.** Five symbols with frequencies a:2, b:3, c:6, d:9, e:10 (30 symbols in all). Build the Huffman code and find the total bits.\n\n1. A fixed-length code needs 3 bits per symbol (five symbols), so 30 × 3 = 90 bits.\n2. Merge the two smallest weights, 2 and 3, into a node of weight 5. Running cost: 5.\n3. Now the smallest two are 5 and 6. Merge into 11. Running cost: 5 + 11 = 16.\n4. Now 9 and 10 are the smallest. Merge into 19. Running cost: 16 + 19 = 35.\n5. The last two nodes are 11 and 19. Merge into the root, 30. Running cost: 35 + 30 = 65.\n6. Label left edges 0 and right edges 1: a 000, b 001, c 01, d 10, e 11. Check: 2·3 + 3·3 + 6·2 + 9·2 + 10·2 = 65 bits, against 90.\n\n**Answer:** 65 bits in total (average 65/30 = 2.17 bits per symbol), against 90 for a fixed-length code.",
+      "why_full": "Storage and transmission cost scales with bits, and Huffman is the classic greedy algorithm. In GATE: compute a Huffman total or average code length from given frequencies, the size of an RLE string, or say whether a method is lossless.\n\nAsked: no direct past question in the blueprint; the ladder covers Huffman and RLE.",
+      "trap": "Merging the two largest weights, or forgetting to put the merged node back into the list before choosing the next pair. Always pick the two smallest from everything currently in the list, merged nodes included."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "db.transform.f1.types",
+      "title": "Four attribute types, built up one column at a time",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "T",
+          "kind": "grid",
+          "x": 120,
+          "y": 60,
+          "rows": 4,
+          "cols": 4,
+          "cw": 44,
+          "ch": 34,
+          "cells": [
+            [
+              "",
+              "",
+              "",
+              ""
+            ],
+            [
+              "",
+              "",
+              "",
+              ""
+            ],
+            [
+              "",
+              "",
+              "",
+              ""
+            ],
+            [
+              "",
+              "",
+              "",
+              ""
+            ]
+          ],
+          "colLabels": [
+            "same?",
+            "order",
+            "gaps",
+            "ratio"
+          ],
+          "rowLabels": [
+            "Jersey colour",
+            "Movie rating",
+            "Calendar year",
+            "Age (years)"
+          ],
+          "colTitle": "What the values let you do"
+        },
+        {
+          "id": "v0",
+          "kind": "text",
+          "x": 304,
+          "y": 77,
+          "text": "nominal",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "v1",
+          "kind": "text",
+          "x": 304,
+          "y": 111,
+          "text": "ordinal",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "v2",
+          "kind": "text",
+          "x": 304,
+          "y": 145,
+          "text": "interval",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "v3",
+          "kind": "text",
+          "x": 304,
+          "y": 179,
+          "text": "ratio",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 200,
+          "y": 226,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Jersey colour: you can only say same or different. No order, no gaps. That is nominal.",
+          "show": "v0",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  0,
+                  3
+                ]
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  "yes",
+                  "no",
+                  "no",
+                  "no"
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ]
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "names only"
+            }
+          ]
+        },
+        {
+          "caption": "Movie rating: 4 stars beats 3, so there is an order. Equal gaps are not promised. Ordinal.",
+          "show": "v1",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  2
+                ],
+                [
+                  1,
+                  3
+                ]
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  "yes",
+                  "no",
+                  "no",
+                  "no"
+                ],
+                [
+                  "yes",
+                  "yes",
+                  "no",
+                  "no"
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ]
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "names + order"
+            }
+          ]
+        },
+        {
+          "caption": "Calendar year: 2024 − 2019 = 5 is a real gap, but year 0 is not 'no time'. Interval.",
+          "show": "v2",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  2,
+                  3
+                ]
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  "yes",
+                  "no",
+                  "no",
+                  "no"
+                ],
+                [
+                  "yes",
+                  "yes",
+                  "no",
+                  "no"
+                ],
+                [
+                  "yes",
+                  "yes",
+                  "yes",
+                  "no"
+                ],
+                [
+                  "",
+                  "",
+                  "",
+                  ""
+                ]
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "names + order + gaps"
+            }
+          ]
+        },
+        {
+          "caption": "Age: 0 means no age, and 40 is twice 20. Everything works. Ratio.",
+          "show": "v3",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  3,
+                  0
+                ],
+                [
+                  3,
+                  1
+                ],
+                [
+                  3,
+                  2
+                ],
+                [
+                  3,
+                  3
+                ]
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  "yes",
+                  "no",
+                  "no",
+                  "no"
+                ],
+                [
+                  "yes",
+                  "yes",
+                  "no",
+                  "no"
+                ],
+                [
+                  "yes",
+                  "yes",
+                  "yes",
+                  "no"
+                ],
+                [
+                  "yes",
+                  "yes",
+                  "yes",
+                  "yes"
+                ]
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "names + order + gaps + ratios",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Reading down the diagonal: each type adds exactly one new power to the one above it.",
+          "highlight": [
+            {
+              "id": "T",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  3,
+                  3
+                ]
+              ],
+              "tone": "good"
+            },
+            "v0",
+            "v1",
+            "v2",
+            "v3"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "nominal < ordinal < interval < ratio"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db.transform.f2.minmax",
+      "title": "Min-max: slide to zero, then shrink to one",
+      "viewBox": [
+        0,
+        0,
+        440,
+        250
+      ],
+      "objects": [
+        {
+          "id": "R",
+          "kind": "bar",
+          "x": 10,
+          "y": 75,
+          "w": 110,
+          "h": 100,
+          "values": [
+            12,
+            18,
+            33,
+            24,
+            36
+          ],
+          "labels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
+        },
+        {
+          "id": "S",
+          "kind": "bar",
+          "x": 135,
+          "y": 75,
+          "w": 110,
+          "h": 100,
+          "values": [
+            0,
+            6,
+            21,
+            12,
+            24
+          ],
+          "labels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
+        },
+        {
+          "id": "N",
+          "kind": "bar",
+          "x": 260,
+          "y": 75,
+          "w": 165,
+          "h": 100,
+          "values": [
+            0,
+            0.25,
+            0.875,
+            0.5,
+            1
+          ],
+          "labels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
+        },
+        {
+          "id": "tR",
+          "kind": "text",
+          "x": 65,
+          "y": 36,
+          "text": "price (lakh)",
+          "size": 13,
+          "bold": true
+        },
+        {
+          "id": "tS",
+          "kind": "text",
+          "x": 190,
+          "y": 36,
+          "text": "v − 12",
+          "size": 13,
+          "bold": true
+        },
+        {
+          "id": "tN",
+          "kind": "text",
+          "x": 342,
+          "y": 36,
+          "text": "(v − 12) / 24",
+          "size": 13,
+          "bold": true
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 220,
+          "y": 222,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Five prices. The smallest is 12 (A), the largest is 36 (E), so the range is 24.",
+          "highlight": [
+            {
+              "id": "R",
+              "cells": [
+                0,
+                4
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "min = 12     max = 36     range = 24"
+          }
+        },
+        {
+          "caption": "Subtract the min from every price: 0, 6, 21, 12, 24. The smallest now sits at 0.",
+          "show": [
+            "S",
+            "tS"
+          ],
+          "highlight": [
+            {
+              "id": "S",
+              "cells": [
+                0
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "slide everything down by 12"
+          }
+        },
+        {
+          "caption": "Divide by the range 24: 0, 0.25, 0.875, 0.5, 1. The largest now sits at 1.",
+          "show": [
+            "N",
+            "tN"
+          ],
+          "highlight": [
+            {
+              "id": "N",
+              "cells": [
+                4
+              ],
+              "tone": "bad"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "shrink by 24: everything is in [0, 1]"
+          }
+        },
+        {
+          "caption": "Check C: (33 − 12) / 24 = 21 / 24 = 0.875. All three charts have the same shape; only the scale changed.",
+          "highlight": [
+            {
+              "id": "R",
+              "cells": [
+                2
+              ]
+            },
+            {
+              "id": "S",
+              "cells": [
+                2
+              ]
+            },
+            {
+              "id": "N",
+              "cells": [
+                2
+              ]
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "C: (33 − 12) / 24 = 0.875"
+          }
+        },
+        {
+          "caption": "For the range [10, 20]: multiply by 10, then add 10. C becomes 0.875 × 10 + 10 = 18.75.",
+          "set": [
+            {
+              "id": "N",
+              "values": [
+                10,
+                12.5,
+                18.75,
+                15,
+                20
+              ]
+            },
+            {
+              "id": "tN",
+              "text": "v′ × 10 + 10"
+            },
+            {
+              "id": "calc",
+              "text": "C: 0.875 × 10 + 10 = 18.75",
+              "tone": "good"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "N",
+              "cells": [
+                2
+              ],
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db.transform.f3.zscore",
+      "title": "z-score: distance from the mean, in units of sd",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "A",
+          "kind": "array",
+          "x": 130,
+          "y": 24,
+          "cw": 44,
+          "ch": 30,
+          "cells": [
+            9,
+            11,
+            12,
+            13,
+            15
+          ],
+          "indices": false
+        },
+        {
+          "id": "nA",
+          "kind": "text",
+          "x": 118,
+          "y": 39,
+          "text": "x (minutes)",
+          "size": 12,
+          "anchor": "end"
+        },
+        {
+          "id": "D",
+          "kind": "array",
+          "x": 130,
+          "y": 72,
+          "cw": 44,
+          "ch": 30,
+          "cells": [
+            "−3",
+            "−1",
+            "0",
+            "1",
+            "3"
+          ],
+          "indices": false
+        },
+        {
+          "id": "nD",
+          "kind": "text",
+          "x": 118,
+          "y": 87,
+          "text": "x − mean",
+          "size": 12,
+          "anchor": "end"
+        },
+        {
+          "id": "Q",
+          "kind": "array",
+          "x": 130,
+          "y": 120,
+          "cw": 44,
+          "ch": 30,
+          "cells": [
+            9,
+            1,
+            0,
+            1,
+            9
+          ],
+          "indices": false
+        },
+        {
+          "id": "nQ",
+          "kind": "text",
+          "x": 118,
+          "y": 135,
+          "text": "(x − mean)²",
+          "size": 12,
+          "anchor": "end"
+        },
+        {
+          "id": "Z",
+          "kind": "array",
+          "x": 130,
+          "y": 168,
+          "cw": 44,
+          "ch": 30,
+          "cells": [
+            "−1.5",
+            "−0.5",
+            "0",
+            "0.5",
+            "1.5"
+          ],
+          "indices": false
+        },
+        {
+          "id": "nZ",
+          "kind": "text",
+          "x": 118,
+          "y": 183,
+          "text": "z = dev / sd",
+          "size": 12,
+          "anchor": "end"
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 240,
+          "y": 226,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Five delivery times. The mean is (9 + 11 + 12 + 13 + 15) / 5 = 12.",
+          "highlight": "A",
+          "set": {
+            "id": "calc",
+            "text": "mean = 60 / 5 = 12"
+          }
+        },
+        {
+          "caption": "Subtract the mean from each: −3, −1, 0, 1, 3. Below the mean is negative; they add up to 0.",
+          "show": [
+            "D",
+            "nD"
+          ],
+          "highlight": "D",
+          "set": {
+            "id": "calc",
+            "text": "deviations add up to 0"
+          }
+        },
+        {
+          "caption": "Square the deviations: 9, 1, 0, 1, 9. Sum 20, variance 20 / 5 = 4, so sd = 2.",
+          "show": [
+            "Q",
+            "nQ"
+          ],
+          "highlight": "Q",
+          "set": {
+            "id": "calc",
+            "text": "variance = 20 / 5 = 4     sd = 2"
+          }
+        },
+        {
+          "caption": "Divide each deviation by the sd 2: −1.5, −0.5, 0, 0.5, 1.5.",
+          "show": [
+            "Z",
+            "nZ"
+          ],
+          "highlight": [
+            {
+              "id": "Z",
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "z = deviation / 2"
+          }
+        },
+        {
+          "caption": "Check: the z-scores average 0 and their squares add to 5 (2.25 + 0.25 + 0 + 0.25 + 2.25), so variance 5 / 5 = 1 and sd = 1.",
+          "highlight": [
+            {
+              "id": "Z",
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "calc",
+            "text": "new mean 0, new sd 1",
+            "tone": "good"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db.transform.f4.decimal",
+      "title": "Decimal scaling: slide the point until the biggest value is below 1",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "V",
+          "kind": "array",
+          "x": 40,
+          "y": 44,
+          "cw": 80,
+          "ch": 36,
+          "cells": [
+            "−3482",
+            "150",
+            "2750",
+            "9"
+          ],
+          "indices": false,
+          "label": "original values"
+        },
+        {
+          "id": "P",
+          "kind": "pointer",
+          "array": "V",
+          "index": 0,
+          "label": "largest |v|",
+          "side": "below"
+        },
+        {
+          "id": "tj",
+          "kind": "text",
+          "x": 200,
+          "y": 150,
+          "text": "j = 3:  3482 / 1000 = 3.482  (not below 1)\nj = 4:  3482 / 10000 = 0.3482  (below 1)",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "W",
+          "kind": "array",
+          "x": 40,
+          "y": 196,
+          "cw": 80,
+          "ch": 36,
+          "cells": [
+            "−0.3482",
+            "0.015",
+            "0.275",
+            "0.0009"
+          ],
+          "indices": false,
+          "label": "divided by 10⁴"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Four values. Decimal scaling needs one number first: the largest absolute value.",
+          "highlight": "V"
+        },
+        {
+          "caption": "The largest magnitude is |−3482| = 3482. The minus sign is ignored when choosing j.",
+          "show": "P",
+          "highlight": [
+            {
+              "id": "V",
+              "cells": [
+                0
+              ],
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Find the smallest j with 3482 / 10^j below 1. j = 3 gives 3.482 (too big). j = 4 gives 0.3482 (works).",
+          "show": "tj",
+          "highlight": "tj"
+        },
+        {
+          "caption": "Divide every value by 10^4 = 10000: −0.3482, 0.015, 0.275, 0.0009.",
+          "show": "W",
+          "highlight": [
+            {
+              "id": "W",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Check: the largest magnitude is now 0.3482, below 1. Signs and order are unchanged.",
+          "highlight": [
+            {
+              "id": "W",
+              "cells": [
+                0
+              ],
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db.transform.f5.bins",
+      "title": "Equal-frequency bins, then smoothing by means",
+      "viewBox": [
+        0,
+        0,
+        420,
+        250
+      ],
+      "objects": [
+        {
+          "id": "V",
+          "kind": "array",
+          "x": 18,
+          "y": 60,
+          "cw": 32,
+          "ch": 32,
+          "cells": [
+            3,
+            7,
+            8,
+            14,
+            15,
+            16,
+            21,
+            24,
+            40,
+            45,
+            48,
+            63
+          ],
+          "indices": false
+        },
+        {
+          "id": "B1",
+          "kind": "box",
+          "x": 17,
+          "y": 55,
+          "w": 130,
+          "h": 42,
+          "fill": false,
+          "tone": "accent"
+        },
+        {
+          "id": "B2",
+          "kind": "box",
+          "x": 145,
+          "y": 55,
+          "w": 130,
+          "h": 42,
+          "fill": false,
+          "tone": "mid"
+        },
+        {
+          "id": "B3",
+          "kind": "box",
+          "x": 273,
+          "y": 55,
+          "w": 130,
+          "h": 42,
+          "fill": false,
+          "tone": "good"
+        },
+        {
+          "id": "n1",
+          "kind": "text",
+          "x": 82,
+          "y": 114,
+          "text": "bin 1",
+          "size": 13,
+          "bold": true
+        },
+        {
+          "id": "n2",
+          "kind": "text",
+          "x": 210,
+          "y": 114,
+          "text": "bin 2",
+          "size": 13,
+          "bold": true
+        },
+        {
+          "id": "n3",
+          "kind": "text",
+          "x": 338,
+          "y": 114,
+          "text": "bin 3",
+          "size": 13,
+          "bold": true
+        },
+        {
+          "id": "m1",
+          "kind": "text",
+          "x": 82,
+          "y": 142,
+          "text": "mean 8",
+          "size": 13
+        },
+        {
+          "id": "m2",
+          "kind": "text",
+          "x": 210,
+          "y": 142,
+          "text": "mean 19",
+          "size": 13
+        },
+        {
+          "id": "m3",
+          "kind": "text",
+          "x": 338,
+          "y": 142,
+          "text": "mean 49",
+          "size": 13
+        },
+        {
+          "id": "r1",
+          "kind": "text",
+          "x": 82,
+          "y": 170,
+          "text": "range 11",
+          "size": 13
+        },
+        {
+          "id": "r2",
+          "kind": "text",
+          "x": 210,
+          "y": 170,
+          "text": "range 9",
+          "size": 13
+        },
+        {
+          "id": "r3",
+          "kind": "text",
+          "x": 338,
+          "y": 170,
+          "text": "range 23",
+          "size": 13
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 210,
+          "y": 214,
+          "text": "",
+          "size": 13,
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Twelve sorted prices. Three equal-frequency bins means 12 / 3 = 4 values in every bin.",
+          "highlight": "V",
+          "set": {
+            "id": "calc",
+            "text": "12 values, 3 bins, 4 each"
+          }
+        },
+        {
+          "caption": "Cut the sorted list into runs of 4: (3, 7, 8, 14), (15, 16, 21, 24), (40, 45, 48, 63).",
+          "show": [
+            "B1",
+            "B2",
+            "B3",
+            "n1",
+            "n2",
+            "n3"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "cut every 4 values"
+          }
+        },
+        {
+          "caption": "Bin means: (3+7+8+14)/4 = 8, (15+16+21+24)/4 = 19, (40+45+48+63)/4 = 49.",
+          "show": [
+            "m1",
+            "m2",
+            "m3"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "mean = sum / 4"
+          }
+        },
+        {
+          "caption": "Smooth by means: every value is replaced by its bin mean.",
+          "set": [
+            {
+              "id": "V",
+              "cells": [
+                8,
+                8,
+                8,
+                8,
+                19,
+                19,
+                19,
+                19,
+                49,
+                49,
+                49,
+                49
+              ]
+            },
+            {
+              "id": "calc",
+              "text": "bin totals unchanged"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "V",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Each bin still has exactly 4 values, but the ranges are uneven: 11, 9 and 23.",
+          "show": [
+            "r1",
+            "r2",
+            "r3"
+          ],
+          "highlight": [
+            "B1",
+            "B2",
+            "B3"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "equal count, unequal range"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db.transform.f6.sampling",
+      "title": "Four ways to draw 12 of 24 students",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "G",
+          "kind": "grid",
+          "x": 60,
+          "y": 34,
+          "rows": 6,
+          "cols": 4,
+          "cw": 38,
+          "ch": 30,
+          "cells": [
+            [
+              1,
+              2,
+              3,
+              4
+            ],
+            [
+              5,
+              6,
+              7,
+              8
+            ],
+            [
+              9,
+              10,
+              11,
+              12
+            ],
+            [
+              13,
+              14,
+              15,
+              16
+            ],
+            [
+              17,
+              18,
+              19,
+              20
+            ],
+            [
+              21,
+              22,
+              23,
+              24
+            ]
+          ],
+          "rowLabels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F"
+          ]
+        },
+        {
+          "id": "method",
+          "kind": "text",
+          "x": 300,
+          "y": 50,
+          "text": "Population",
+          "size": 15,
+          "bold": true
+        },
+        {
+          "id": "desc",
+          "kind": "text",
+          "x": 300,
+          "y": 100,
+          "text": "24 students\n6 classes of 4\nsample n = 12",
+          "size": 13
+        },
+        {
+          "id": "cnt",
+          "kind": "text",
+          "x": 300,
+          "y": 165,
+          "text": "",
+          "size": 13,
+          "mono": true
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 300,
+          "y": 210,
+          "text": "",
+          "size": 13,
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Population: 24 students numbered 1 to 24 in six classes of four. We want a sample of 12.",
+          "highlight": "G"
+        },
+        {
+          "caption": "Simple random: any 12 numbers, drawn blindly. Class B got nobody and class D got everyone. Nothing forces balance.",
+          "highlight": [
+            {
+              "id": "G",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  3
+                ],
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  3
+                ],
+                [
+                  3,
+                  0
+                ],
+                [
+                  3,
+                  1
+                ],
+                [
+                  3,
+                  2
+                ],
+                [
+                  3,
+                  3
+                ],
+                [
+                  4,
+                  1
+                ],
+                [
+                  5,
+                  1
+                ],
+                [
+                  5,
+                  3
+                ]
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": [
+            {
+              "id": "method",
+              "text": "Simple random"
+            },
+            {
+              "id": "desc",
+              "text": "12 numbers drawn\nblindly from 1..24"
+            },
+            {
+              "id": "cnt",
+              "text": "per class A-F:\n3 0 2 4 1 2"
+            },
+            {
+              "id": "calc",
+              "text": "uneven"
+            }
+          ]
+        },
+        {
+          "caption": "Stratified: sample inside every class. Share = 12 × 4 / 24 = 2 per class.",
+          "highlight": [
+            {
+              "id": "G",
+              "cells": [
+                [
+                  0,
+                  1
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  3
+                ],
+                [
+                  2,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  3,
+                  0
+                ],
+                [
+                  3,
+                  3
+                ],
+                [
+                  4,
+                  0
+                ],
+                [
+                  4,
+                  2
+                ],
+                [
+                  5,
+                  0
+                ],
+                [
+                  5,
+                  3
+                ]
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "method",
+              "text": "Stratified"
+            },
+            {
+              "id": "desc",
+              "text": "split by class,\nthen draw 2 from each"
+            },
+            {
+              "id": "cnt",
+              "text": "per class A-F:\n2 2 2 2 2 2"
+            },
+            {
+              "id": "calc",
+              "text": "balanced"
+            }
+          ]
+        },
+        {
+          "caption": "Cluster: pick whole classes at random (B, D, F) and take every student in them.",
+          "highlight": [
+            {
+              "id": "G",
+              "cells": [
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  2
+                ],
+                [
+                  1,
+                  3
+                ],
+                [
+                  3,
+                  0
+                ],
+                [
+                  3,
+                  1
+                ],
+                [
+                  3,
+                  2
+                ],
+                [
+                  3,
+                  3
+                ],
+                [
+                  5,
+                  0
+                ],
+                [
+                  5,
+                  1
+                ],
+                [
+                  5,
+                  2
+                ],
+                [
+                  5,
+                  3
+                ]
+              ],
+              "tone": "mid"
+            }
+          ],
+          "set": [
+            {
+              "id": "method",
+              "text": "Cluster"
+            },
+            {
+              "id": "desc",
+              "text": "pick whole classes:\nB, D, F"
+            },
+            {
+              "id": "cnt",
+              "text": "per class A-F:\n0 4 0 4 0 4"
+            },
+            {
+              "id": "calc",
+              "text": "cheap, clumpy"
+            }
+          ]
+        },
+        {
+          "caption": "Systematic: k = N / n = 24 / 12 = 2. Random start 1, then every 2nd student: 1, 3, 5, ..., 23.",
+          "highlight": [
+            {
+              "id": "G",
+              "cells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  2
+                ],
+                [
+                  2,
+                  0
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  3,
+                  0
+                ],
+                [
+                  3,
+                  2
+                ],
+                [
+                  4,
+                  0
+                ],
+                [
+                  4,
+                  2
+                ],
+                [
+                  5,
+                  0
+                ],
+                [
+                  5,
+                  2
+                ]
+              ],
+              "tone": "bad"
+            }
+          ],
+          "set": [
+            {
+              "id": "method",
+              "text": "Systematic"
+            },
+            {
+              "id": "desc",
+              "text": "k = 24 / 12 = 2\nstart 1, every 2nd"
+            },
+            {
+              "id": "cnt",
+              "text": "per class A-F:\n2 2 2 2 2 2"
+            },
+            {
+              "id": "calc",
+              "text": "watch for patterns"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "db.transform.f7.huffman",
+      "title": "Huffman: merge the two smallest until one tree remains",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "a",
+          "kind": "node",
+          "x": 40,
+          "y": 200,
+          "r": 18,
+          "label": "a:2"
+        },
+        {
+          "id": "b",
+          "kind": "node",
+          "x": 100,
+          "y": 200,
+          "r": 18,
+          "label": "b:3"
+        },
+        {
+          "id": "c",
+          "kind": "node",
+          "x": 160,
+          "y": 200,
+          "r": 18,
+          "label": "c:6"
+        },
+        {
+          "id": "d",
+          "kind": "node",
+          "x": 250,
+          "y": 200,
+          "r": 18,
+          "label": "d:9"
+        },
+        {
+          "id": "e",
+          "kind": "node",
+          "x": 310,
+          "y": 200,
+          "r": 18,
+          "label": "e:10"
+        },
+        {
+          "id": "n5",
+          "kind": "node",
+          "x": 70,
+          "y": 150,
+          "r": 18,
+          "label": "5"
+        },
+        {
+          "id": "n11",
+          "kind": "node",
+          "x": 115,
+          "y": 100,
+          "r": 18,
+          "label": "11"
+        },
+        {
+          "id": "n19",
+          "kind": "node",
+          "x": 280,
+          "y": 150,
+          "r": 18,
+          "label": "19"
+        },
+        {
+          "id": "n30",
+          "kind": "node",
+          "x": 200,
+          "y": 56,
+          "r": 18,
+          "label": "30"
+        },
+        {
+          "id": "e5a",
+          "kind": "edge",
+          "from": "n5",
+          "to": "a"
+        },
+        {
+          "id": "e5b",
+          "kind": "edge",
+          "from": "n5",
+          "to": "b"
+        },
+        {
+          "id": "e11n",
+          "kind": "edge",
+          "from": "n11",
+          "to": "n5"
+        },
+        {
+          "id": "e11c",
+          "kind": "edge",
+          "from": "n11",
+          "to": "c"
+        },
+        {
+          "id": "e19d",
+          "kind": "edge",
+          "from": "n19",
+          "to": "d"
+        },
+        {
+          "id": "e19e",
+          "kind": "edge",
+          "from": "n19",
+          "to": "e"
+        },
+        {
+          "id": "e30l",
+          "kind": "edge",
+          "from": "n30",
+          "to": "n11"
+        },
+        {
+          "id": "e30r",
+          "kind": "edge",
+          "from": "n30",
+          "to": "n19"
+        },
+        {
+          "id": "calc",
+          "kind": "text",
+          "x": 200,
+          "y": 16,
+          "text": "",
+          "size": 13,
+          "bold": true
+        },
+        {
+          "id": "ca",
+          "kind": "text",
+          "x": 40,
+          "y": 234,
+          "text": "000",
+          "size": 12,
+          "mono": true
+        },
+        {
+          "id": "cb",
+          "kind": "text",
+          "x": 100,
+          "y": 234,
+          "text": "001",
+          "size": 12,
+          "mono": true
+        },
+        {
+          "id": "cc",
+          "kind": "text",
+          "x": 160,
+          "y": 234,
+          "text": "01",
+          "size": 12,
+          "mono": true
+        },
+        {
+          "id": "cd",
+          "kind": "text",
+          "x": 250,
+          "y": 234,
+          "text": "10",
+          "size": 12,
+          "mono": true
+        },
+        {
+          "id": "ce",
+          "kind": "text",
+          "x": 310,
+          "y": 234,
+          "text": "11",
+          "size": 12,
+          "mono": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Five symbols, 30 in all. A fixed-length code needs 3 bits each: 30 × 3 = 90 bits. Huffman should do better.",
+          "highlight": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "fixed length: 30 × 3 = 90 bits"
+          }
+        },
+        {
+          "caption": "Merge the two smallest weights, 2 and 3, into a node of weight 5.",
+          "show": [
+            "n5",
+            "e5a",
+            "e5b"
+          ],
+          "highlight": [
+            "a",
+            "b",
+            "n5"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "cost so far: 5"
+          }
+        },
+        {
+          "caption": "The smallest two are now 5 and 6. Merge them into 11.",
+          "show": [
+            "n11",
+            "e11n",
+            "e11c"
+          ],
+          "highlight": [
+            "n5",
+            "c",
+            "n11"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "cost so far: 5 + 11 = 16"
+          }
+        },
+        {
+          "caption": "Now 9 and 10 are the smallest. Merge them into 19.",
+          "show": [
+            "n19",
+            "e19d",
+            "e19e"
+          ],
+          "highlight": [
+            "d",
+            "e",
+            "n19"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "cost so far: 16 + 19 = 35"
+          }
+        },
+        {
+          "caption": "Two nodes are left: 11 and 19. Merge them into the root, 30.",
+          "show": [
+            "n30",
+            "e30l",
+            "e30r"
+          ],
+          "highlight": [
+            "n11",
+            "n19",
+            "n30"
+          ],
+          "set": {
+            "id": "calc",
+            "text": "cost: 35 + 30 = 65 bits"
+          }
+        },
+        {
+          "caption": "Label left edges 0 and right edges 1. Codes: a 000, b 001, c 01, d 10, e 11. Total = 65 bits, against 90.",
+          "show": [
+            "ca",
+            "cb",
+            "cc",
+            "cd",
+            "ce"
+          ],
+          "set": [
+            {
+              "id": "e5a",
+              "label": "0"
+            },
+            {
+              "id": "e5b",
+              "label": "1"
+            },
+            {
+              "id": "e11n",
+              "label": "0"
+            },
+            {
+              "id": "e11c",
+              "label": "1"
+            },
+            {
+              "id": "e19d",
+              "label": "0"
+            },
+            {
+              "id": "e19e",
+              "label": "1"
+            },
+            {
+              "id": "e30l",
+              "label": "0"
+            },
+            {
+              "id": "e30r",
+              "label": "1"
+            },
+            {
+              "id": "calc",
+              "text": "65 bits (average 2.17 per symbol)",
+              "tone": "good"
+            }
+          ],
+          "highlight": [
+            "ca",
+            "cb",
+            "cc",
+            "cd",
+            "ce"
+          ]
+        }
+      ]
+    }
+  ]
+}

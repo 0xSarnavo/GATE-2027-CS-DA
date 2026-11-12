@@ -1,0 +1,1219 @@
+{
+ "topic_id": "net.app",
+ "blueprint": {
+  "atoms": [
+   {
+    "id": "d1",
+    "name": "DNS hierarchy",
+    "one_line": "Root points to TLD, TLD points to the organisation's authoritative server; names are read right to left."
+   },
+   {
+    "id": "d2",
+    "name": "DNS query counting",
+    "one_line": "Iterative: the resolver asks each level, one pair per server; caches skip levels above the deepest cached server."
+   },
+   {
+    "id": "d3",
+    "name": "Records and caching",
+    "one_line": "A address, AAAA IPv6, NS server name, CNAME alias, MX mail host; every record has a TTL; queries use UDP port 53."
+   },
+   {
+    "id": "d4",
+    "name": "HTTP basics",
+    "one_line": "Request and response, stateless, status codes (200, 301, 304, 404), cookies add state."
+   },
+   {
+    "id": "d5",
+    "name": "Non-persistent HTTP",
+    "one_line": "Each object needs a fresh TCP connection: 2 RTT per object (1 handshake plus 1 request)."
+   },
+   {
+    "id": "d6",
+    "name": "Persistent HTTP and pipelining",
+    "one_line": "One connection serves many requests: handshake once; pipelining sends all requests together, 1 RTT for the batch."
+   },
+   {
+    "id": "d7",
+    "name": "Parallel connections",
+    "one_line": "With p connections objects go in ceil(n/p) batches; base file must arrive first."
+   },
+   {
+    "id": "d8",
+    "name": "Timeline of a page load",
+    "one_line": "DNS, then SYN, then GET base, then objects; a second host needs its own DNS and connections."
+   },
+   {
+    "id": "d9",
+    "name": "Caching",
+    "one_line": "Conditional GET: If-Modified-Since, 304 with no body; proxy average = hit share x hit time + miss share x miss time."
+   }
+  ],
+  "patterns": [
+   {
+    "name": "DNS resolution counting",
+    "years": [
+     "2022-CS-q35",
+     "2023-CS-q52"
+    ],
+    "freq": 2,
+    "note": "Count servers walked in iterative mode; add DNS RTTs to the web timeline."
+   },
+   {
+    "name": "HTTP connections and page-load RTTs",
+    "years": [
+     "2020-CS-q35",
+     "2023-CS-q52",
+     "2026-CS1-q19",
+     "2015-CS1-q17"
+    ],
+    "freq": 4,
+    "note": "Non-persistent vs persistent vs pipelining vs parallel; batches are ceil(n/p)."
+   },
+   {
+    "name": "Order of packets on a page load",
+    "years": [
+     "2024-CS1-q16",
+     "2016-CS2-q25"
+    ],
+    "freq": 2,
+    "note": "DNS, SYN, GET base, GET objects."
+   },
+   {
+    "name": "Recall: which protocol, which transport",
+    "years": [
+     "2007-CS-q20",
+     "2019-CS-q26",
+     "2011-CS-q4"
+    ],
+    "freq": 3,
+    "note": "UDP for DNS; SMTP, POP, IMAP for mail (not named in the 2027 list)."
+   }
+  ],
+  "traps": [
+   "Counting the host-to-resolver query as a DNS server pair.",
+   "Forgetting that a non-persistent object costs 2 RTT, not 1.",
+   "Treating pipelining as parallel connections.",
+   "Rounding objects over connections down instead of up.",
+   "Requesting embedded objects before the base page.",
+   "Reusing a connection for a second host.",
+   "Adding web RTT to a DNS RTT that is different.",
+   "Forgetting the proxy lookup cost on a miss."
+  ],
+  "hardest_pyq": "2023-CS-q52",
+  "summary_md": "**Payoff:** count the round trips of any page load in one line.\n\n- **DNS**: one pair per server walked; **cache** skips levels.\n- **HTTP**: non-persistent costs two RTT per object.\n- **Batches**: parallel connections make ceil(n over p) rounds.\n\n$$T=T_{DNS}+2+2\\left\\lceil\\tfrac{n}{p}\\right\\rceil\\ \\text{RTT}$$\n\nNext: try the Level 1 questions.",
+  "summary_full_md": "## DNS\nDNS is a tree. A name is read right to left: root, top-level domain, then the organisation. Root and TLD servers give referrals (NS records). The authoritative server holds the final A record. Ordinary queries use UDP port 53.\n\nIn **iterative** mode the resolver asks each level in turn: one query-response pair per server. For www.gate.org.in that is root, in, org.in, gate.org.in: 4 pairs (GATE 2022). In **recursive** mode a server asks the next level on your behalf. Caches skip levels: the resolver starts at the deepest server whose address it has. Records expire after their TTL.\n\nRecord types: A (IPv4), AAAA (IPv6), NS (server for a zone), CNAME (alias), MX (mail host).\n\n## HTTP\nHTTP is a stateless request-response protocol over TCP. Status codes: 200 OK, 301 moved, 304 not modified, 404 not found. Cookies let a stateless server recognise a returning client. A conditional GET with If-Modified-Since returns 304 with no body when the cached copy is current.\n\n## Page-load round trips\nAfter DNS, a non-persistent object costs 2 RTT: 1 for the TCP handshake and 1 for request and response. A persistent connection pays the handshake once. With pipelining all requests for objects found in the base page share 1 RTT.\n\nFor a base file and $n$ small objects on one server:\n- Non-persistent sequential: $2+2n$.\n- Non-persistent with $p$ parallel connections: $2+2\\lceil n/p\\rceil$.\n- Persistent, no pipelining: $2+n$.\n- Persistent with pipelining: $3$.\nAdd the DNS RTTs in front. GATE 2023: DNS 3 plus 10 objects gives 9 RTT (non-persistent, 5 parallel) or 6 RTT (persistent, pipelining).\n\nThe base file must arrive before embedded objects can be requested. A second host needs its own DNS lookup and its own connections, so a connection to the first host cannot be reused.\n\nWhen RTTs differ between DNS and web, convert each phase to time before adding. With transmission time, add $L/R$ for each object.\n\n## Caching\nA proxy cache has average time $=h\\,t_{hit}+(1-h)\\,t_{miss}$, where a miss still pays the lookup first.\n\n## Not named in the 2027 list\nSMTP, POP3, IMAP, FTP appear in a few older questions. Remember: SMTP pushes mail, POP3 and IMAP pull it; FTP uses a control connection and a separate data connection. DNS and HTTP are the named topics."
+ },
+ "pyq_enrichment": [
+  {
+   "id": "2020-CS-q35",
+   "difficulty": 3,
+   "quick_method": "- Count one connection per object, **base** page included.",
+   "solution": "- Non-persistent opens a **connection** per object.\n- Base page plus five **images** makes six.\n- **Answer: 6**",
+   "explanation": "- Five images plus text is six **objects**.",
+   "trap_note": "- Don't **forget** the base page, do count it as an object.",
+   "hints": [
+    "How many TCP connections does non-persistent HTTP open per object?",
+    "How many objects does the page have?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Non-persistent HTTP: one TCP connection per request-response pair.\n2. The page is one base HTML file plus five images: 6 objects.\n3. So 6 connections (opened sequentially or in parallel).\nAnswer: 6.",
+   "explanation_full": "Persistent HTTP would use 1 connection for all six. The ladder's L1 and L2 questions on RTT counts use the same distinction.",
+   "trap_note_full": "Answering 5 counts only the images and drops the connection for the HTML text."
+  },
+  {
+   "id": "2022-CS-q35",
+   "difficulty": 2,
+   "quick_method": "- One pair per level of the name: root plus **three** labels.",
+   "solution": "- Resolver asks root, `in`, `org.in` and the **authoritative** server.\n- Four **query**-response pairs.\n- **Answer: 4**",
+   "explanation": "- www.gate.org.in has **labels** in, org, gate.",
+   "trap_note": "- Don't count the **host**-to-resolver query, do count server levels.",
+   "hints": [
+    "How many servers are walked in iterative mode?",
+    "Which servers know the address of www.gate.org.in finally?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Resolver asks the root: gets the .in server. (1)\n2. Asks .in: gets the org.in server. (2)\n3. Asks org.in: gets the gate.org.in server. (3)\n4. Asks gate.org.in: gets the A record. (4)\nAnswer: 4.",
+   "explanation_full": "The key counts the resolver's pairs only: 4. The ladder's L2 question with example.com has three levels, so 3.",
+   "trap_note_full": "Answering 3 treats .org.in as one level, or 5 adds the host's own query."
+  },
+  {
+   "id": "2023-CS-q52",
+   "difficulty": 4,
+   "quick_method": "- DNS three, plus handshake and base two, plus object **phase**.",
+   "solution": "- DNS takes 3 **RTT**; persistent pipelining adds 3, so 6.\n- Non-persistent with 5 **parallel** adds 6 after the base: 9.\n- **Answer: C, D**",
+   "explanation": "- Ten objects over five **connections** make two batches.",
+   "trap_note": "- Don't drop the DNS RTTs, do add **three** to each case.",
+   "hints": [
+    "How many RTT does the 3-tier iterative DNS lookup take?",
+    "How many batches of parallel connections are needed for 10 objects with 5 connections?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Image checked: the statements are 7, 5, 9 and 6 RTTs for the four cases.",
+   "solution_full": "1. DNS: 3 RTT.\n2. Persistent with pipelining: handshake 1, base page 1, all 10 objects pipelined 1. Total $3+1+1+1=6$. So D is true and B is false.\n3. Non-persistent with 5 parallel: base 2, then 2 batches of 2: $3+2+4=9$. So C is true and A is false.\nAnswer: C, D.",
+   "explanation_full": "Ladder question 17 and 18 build the same table with other numbers.",
+   "trap_note_full": "Forgetting that the base page takes 2 RTT (non-persistent) gives 7 or 5, the wrong options."
+  },
+  {
+   "id": "2024-CS1-q16",
+   "difficulty": 3,
+   "quick_method": "- DNS, SYN, GET page, GET **image**.",
+   "solution": "- Name first: DNS, then SYN, then GET **index**.\n- Image **request** waits for the index page.\n- **Answer: C**",
+   "explanation": "- The **image** URL lives in the index page.",
+   "trap_note": "- Don't send the **image** GET early, do read the page first.",
+   "hints": [
+    "Which packet needs the IP address, and which provides it?",
+    "When does the browser learn the image URL?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. The browser has only the name, so it sends a DNS query: (ii).\n2. It opens TCP: SYN (iv).\n3. It requests the index page: (i).\n4. It parses the page, finds images, requests one: (iii).\nOrder: (ii), (iv), (i), (iii): option C.",
+   "explanation_full": "Matches ladder question 13.",
+   "trap_note_full": "Options with the SYN first skip the name lookup."
+  },
+  {
+   "id": "2026-CS1-q19",
+   "difficulty": 2,
+   "quick_method": "- One TCP connection, one **server**; pipelining allowed.",
+   "solution": "- HTTP/1.1 reuses a **connection** for one server only.\n- **Pipelining** lets requests go before replies finish.\n- **Answer: A, C, D**",
+   "explanation": "- Different servers need different **connections**.",
+   "trap_note": "- Don't share a **connection** across servers, do open one per host.",
+   "hints": [
+    "How many servers can a TCP connection reach?",
+    "What does pipelining allow?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A: persistent connections fetch many objects from the same server. True.\n2. B: other servers need their own connections. False.\n3. C: pipelining sends a request without waiting for the previous object. True.\n4. D: several pages from one server can use one connection. True.\nAnswer: A, C, D.",
+   "explanation_full": "Ladder question 19 repeats the idea.",
+   "trap_note_full": "B imagines the browser fetches everything over a single pipe."
+  },
+  {
+   "id": "2019-CS-q26",
+   "difficulty": 1,
+   "quick_method": "- Mail: **push** with SMTP, pull with POP3.",
+   "solution": "- Send with **SMTP**; retrieve with POP3 or IMAP.\n- So **SMTP** then POP3.\n- **Answer: B**",
+   "explanation": "- MIME formats **attachments**, it does not move mail.",
+   "trap_note": "- Don't use **IMAP** to send, do use SMTP.",
+   "hints": [
+    "Which protocol pushes mail to a server?",
+    "Which pulls it to the user?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Sending: SMTP pushes mail from client to server and between servers.\n2. Retrieving: POP3 (or IMAP) downloads from the mailbox.\n3. IMAP cannot send, and MIME is a message format.\nAnswer: B.",
+   "explanation_full": "The email protocols are not named in the 2027 list. Treat the question as a one-line recall.",
+   "trap_note_full": "Option A reverses the pair; option D uses IMAP for sending.",
+   "syllabus_note": "SMTP, POP3 and IMAP are not named in the 2027 syllabus; low priority."
+  },
+  {
+   "id": "2007-CS-q20",
+   "difficulty": 1,
+   "quick_method": "- Short query and reply: **UDP**.",
+   "solution": "- DNS queries use **UDP**.\n- HTTP, **Telnet** and SMTP need TCP.\n- **Answer: C**",
+   "explanation": "- TCP is for **reliable** streams.",
+   "trap_note": "- Don't **pick** HTTP, do pick DNS.",
+   "hints": [
+    "Which protocol is a short question and answer?",
+    "Which ones need a reliable stream?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. DNS queries and replies fit in single datagrams.\n2. HTTP, Telnet and SMTP all need reliable streams.\n3. So DNS is the one on UDP.\nAnswer: C.",
+   "explanation_full": "DNS uses TCP for zone transfers and replies larger than the UDP limit.",
+   "trap_note_full": "HTTP is the best-known protocol, so it comes to mind first."
+  },
+  {
+   "id": "2011-CS-q4",
+   "difficulty": 1,
+   "quick_method": "- Client to server SMTP, mailbox download POP, **web** mail HTTP.",
+   "solution": "- Send with SMTP, download with POP, view in **HTTP**.\n- Option C pairs them **correctly**.\n- **Answer: C**",
+   "explanation": "- POP **downloads** mail; HTTP shows webmail.",
+   "trap_note": "- Don't put FTP or HTTP on mail **sending**, do use SMTP.",
+   "hints": [
+    "Which protocol hands mail to the mail server?",
+    "Which protocol serves a webmail page?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. m1: client to mail server: SMTP.\n2. m2: download from mailbox: POP.\n3. m3: web browser: HTTP.\nAnswer: C.",
+   "explanation_full": "Webmail hides the mail protocols behind HTTP between browser and mail provider.",
+   "trap_note_full": "FTP as a mail download protocol is the wrong option.",
+   "syllabus_note": "SMTP and POP are not named in the 2027 syllabus; low priority."
+  },
+  {
+   "id": "2015-CS1-q17",
+   "difficulty": 2,
+   "quick_method": "- HTTP parallel, FTP control plus **data**.",
+   "solution": "- HTTP opens several **connections**; FTP uses control and data.\n- So both can use multiple TCP **connections**.\n- **Answer: A**",
+   "explanation": "- Telnet and SMTP use a single **connection**.",
+   "trap_note": "- Don't **pair** SMTP with FTP, do pair HTTP with FTP.",
+   "hints": [
+    "How many TCP connections does FTP use?",
+    "Can a browser open several to one server?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. HTTP: browsers open several parallel connections to one server.\n2. FTP: one control connection and a new data connection per transfer.\n3. Telnet and SMTP use one connection.\nAnswer: A.",
+   "explanation_full": "FTP is called 'out of band' because control information travels on its own connection.",
+   "trap_note_full": "Option C pairs FTP with SMTP, where only FTP uses multiple connections.",
+   "syllabus_note": "FTP is not named in the 2027 syllabus; low priority. The HTTP half is on topic."
+  },
+  {
+   "id": "2016-CS2-q25",
+   "difficulty": 2,
+   "quick_method": "- Lookup, connect, then **request**.",
+   "solution": "- DNS first, then **SYN**, then GET.\n- **Option** C has that order.\n- **Answer: C**",
+   "explanation": "- No IP **address**, no TCP.",
+   "trap_note": "- Don't start with GET, do **resolve** first.",
+   "hints": [
+    "What does the browser need before it can open TCP?",
+    "What is sent only after the connection is up?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. The host has only a name: DNS query.\n2. TCP SYN to the address.\n3. HTTP GET.\nAnswer: C.",
+   "explanation_full": "Same ordering as the ladder's L2 question 7 and L3 question 13.",
+   "trap_note_full": "The GET looks like the 'real' request, but it follows the lookup and the handshake."
+  }
+ ],
+ "ladder": [
+  {
+   "id": "gen.net.app.001",
+   "level": 1,
+   "order_in_topic": 1,
+   "atoms": [
+    "d1"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Which DNS server holds the final, authoritative answer for the IP address of $www.example.com$?",
+   "options": [
+    {
+     "key": "A",
+     "text": "A root server"
+    },
+    {
+     "key": "B",
+     "text": "The .com top-level domain server"
+    },
+    {
+     "key": "C",
+     "text": "The authoritative server for example.com"
+    },
+    {
+     "key": "D",
+     "text": "The user's local resolver, which always owns the mapping"
+    }
+   ],
+   "answer": "C",
+   "hints": [
+    "DNS is a tree: root, top-level domains, then each organisation.",
+    "Root and TLD servers only point downwards.",
+    "Who manages the names inside example.com?"
+   ],
+   "solution": "- Root and TLD servers only give **referrals**.\n- The organisation's own **server** holds the real record.\n- **Answer: C**",
+   "quick_method": "- Root points to TLD, TLD points to **authoritative**.",
+   "trap_note": "- Don't expect the root to know **hosts**, do follow referrals down.",
+   "explanation": "- Each level of the tree knows only the **next** level.",
+   "solution_full": "1. The root server knows where to find each top-level domain (.com, .in, ...).\n2. The .com TLD server knows the servers for each .com domain.\n3. The authoritative server for example.com holds the A record for www.example.com.\n4. A local resolver only caches answers for a while. It is not the owner.",
+   "explanation_full": "A name is read right to left: www.example.com is looked up as . then com then example.com. Each step narrows the question. The authoritative server's answer is the 'real' one, and everything else can be cached copies of it.",
+   "trap_note_full": "The root server is the best-known DNS server, so students assume it knows every name. It knows only the TLD servers.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.002",
+   "level": 1,
+   "order_in_topic": 2,
+   "atoms": [
+    "d3"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Which DNS resource record type maps a host name to an IPv4 address?",
+   "options": [
+    {
+     "key": "A",
+     "text": "NS"
+    },
+    {
+     "key": "B",
+     "text": "A"
+    },
+    {
+     "key": "C",
+     "text": "CNAME"
+    },
+    {
+     "key": "D",
+     "text": "MX"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "NS names a server, CNAME names an alias, MX names a mail host.",
+    "Which type holds an address?",
+    "A stands for address."
+   ],
+   "solution": "- Type **A** returns the IPv4 address.\n- NS, CNAME and MX return names, not **addresses**.\n- **Answer: B**",
+   "quick_method": "- A is for **address**; AAAA is for IPv6.",
+   "trap_note": "- Don't **choose** NS, do choose A.",
+   "explanation": "- Other record types return **names**.",
+   "solution_full": "1. A record: name to IPv4 address.\n2. AAAA record: name to IPv6 address.\n3. NS: names the authoritative server for a zone.\n4. CNAME: says one name is an alias of another.\n5. MX: names the mail server for a domain.",
+   "explanation_full": "A resolver chain mixes these types: NS records are what a TLD server sends back as a referral, A records are the final answer. Each record carries a TTL, which tells caches how long they may keep it.",
+   "trap_note_full": "NS looks right because it contains 'name server', but an NS record tells you who answers, not the address of a host.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.003",
+   "level": 1,
+   "order_in_topic": 3,
+   "atoms": [
+    "d4"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "HTTP is called a stateless protocol. What does that mean?",
+   "options": [
+    {
+     "key": "A",
+     "text": "The server remembers nothing about earlier requests from the same client"
+    },
+    {
+     "key": "B",
+     "text": "The server never stores any files"
+    },
+    {
+     "key": "C",
+     "text": "Requests and responses carry no headers"
+    },
+    {
+     "key": "D",
+     "text": "The connection is closed after every byte"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "State means memory of past requests.",
+    "Does each request carry everything the server needs?",
+    "How do cookies fit in?"
+   ],
+   "solution": "- Each request is **independent** of earlier ones.\n- Servers keep no per-client memory in the **protocol**.\n- **Answer: A**",
+   "quick_method": "- Stateless means no **memory** between requests.",
+   "trap_note": "- Don't confuse stateless with **connectionless**, do read it as no memory.",
+   "explanation": "- Cookies add state on top of a stateless **protocol**.",
+   "solution_full": "1. A stateless server treats each request on its own.\n2. It does not need to remember anything about earlier requests to answer the next one.\n3. This makes servers simple and easy to scale.\n4. Sessions are built on top with cookies, where the client sends back an identifier.",
+   "explanation_full": "GATE 2016 asked which application protocols are stateful (HTTP was in the stateless group). HTTP/1.1 uses persistent TCP connections, but that is a transport detail: the server still keeps no application-level memory.",
+   "trap_note_full": "'Stateless' is often confused with 'no connection'. HTTP does use TCP connections, but each request is self-contained.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.004",
+   "level": 1,
+   "order_in_topic": 4,
+   "atoms": [
+    "d5"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A browser uses non-persistent HTTP to fetch one small object from a server whose IP address is already known. The round-trip time is $R$ and transmission time is negligible. How long does it take?",
+   "options": [
+    {
+     "key": "A",
+     "text": "$R$"
+    },
+    {
+     "key": "B",
+     "text": "$2R$"
+    },
+    {
+     "key": "C",
+     "text": "$3R$"
+    },
+    {
+     "key": "D",
+     "text": "$4R$"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "A TCP connection needs a handshake before data.",
+    "The handshake costs one round trip.",
+    "Then the request and response cost another."
+   ],
+   "solution": "- Handshake takes one **round** trip.\n- Request and **response** take another: 2R.\n- **Answer: B**",
+   "quick_method": "- Non-persistent object: one RTT for TCP, one for **HTTP**.",
+   "trap_note": "- Don't count only the request, do add the **handshake**.",
+   "explanation": "- Each object pays a fresh **handshake**.",
+   "solution_full": "1. The SYN and SYN+ACK take one RTT.\n2. The client sends its ACK together with the HTTP GET.\n3. The server's response arrives after another RTT.\n4. Total $=R+R=2R$.",
+   "explanation_full": "This 2 RTT per object cost is what persistent connections and parallel connections try to reduce. GATE 2020 and 2023 count RTTs this way, and GATE 2020 asks for the number of TCP connections.",
+   "trap_note_full": "R counts only the request-response and forgets the handshake that precedes it.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.005",
+   "level": 2,
+   "order_in_topic": 5,
+   "atoms": [
+    "d2"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A local resolver uses iterative queries to resolve $www.example.com$ with nothing cached anywhere. How many query-response pairs does the resolver exchange with root, TLD and authoritative servers? (answer in integer)",
+   "answer": "3",
+   "hints": [
+    "The resolver asks the root first.",
+    "Then the .com TLD server.",
+    "Then the authoritative server for example.com."
+   ],
+   "solution": "- Three servers are asked once each: root, TLD, **authoritative**.\n- So **three** query-response pairs.\n- **Answer: 3**",
+   "quick_method": "- Iterative: resolver asks each level once, so count **levels**.",
+   "trap_note": "- Don't count the **host**-to-resolver query, do count servers only.",
+   "explanation": "- The resolver does the **walking** itself.",
+   "solution_full": "1. Pair 1: resolver asks root, gets the .com TLD server address.\n2. Pair 2: resolver asks the .com server, gets the example.com server address.\n3. Pair 3: resolver asks the example.com server, gets the A record.\n4. Total 3 pairs between resolver and DNS servers.",
+   "explanation_full": "GATE 2022 asked this for www.gate.org.in: root, in, org.in, gate.org.in: 4 pairs (the host-to-resolver pair was not counted, because the question says 'by a DNS resolver'). In iterative mode the resolver carries the work. In recursive mode each server forwards the request itself.",
+   "trap_note_full": "Counting 4 adds the host's own request to the resolver. The question asks only about the resolver's exchanges.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.006",
+   "level": 2,
+   "order_in_topic": 6,
+   "atoms": [
+    "d2",
+    "d3"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "The local resolver has already cached the address of the .com TLD servers. It now resolves $www.example.com$ iteratively. How many query-response pairs does it exchange? (answer in integer)",
+   "answer": "2",
+   "hints": [
+    "Which server can it skip because of the cache?",
+    "It must still ask the TLD server and the authoritative server.",
+    "Count the remaining servers."
+   ],
+   "solution": "- The cache lets it skip the **root**.\n- TLD and **authoritative** remain: 2 pairs.\n- **Answer: 2**",
+   "quick_method": "- Cached servers are skipped; count what **remains**.",
+   "trap_note": "- Don't skip the TLD query, do skip only what is **cached**.",
+   "explanation": "- Caching saves queries at the top of the **tree**.",
+   "solution_full": "1. The resolver knows the TLD server's address, so it skips the root.\n2. Pair 1: ask the .com server, get the example.com server address.\n3. Pair 2: ask the example.com server, get the A record.\n4. Total 2 pairs.",
+   "explanation_full": "In practice root and TLD server addresses are almost always cached, so most lookups need only 1 or 2 pairs. This is why DNS scales. The cache entries expire after their TTL.",
+   "trap_note_full": "Answering 3 ignores the cache. Answering 1 would need the authoritative server's address cached too.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.007",
+   "level": 2,
+   "order_in_topic": 7,
+   "atoms": [
+    "d8"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A browser with empty caches opens a page at $www.example.com$ over a new TCP connection. Which packet leaves the computer first?",
+   "options": [
+    {
+     "key": "A",
+     "text": "TCP SYN to the web server"
+    },
+    {
+     "key": "B",
+     "text": "HTTP GET request"
+    },
+    {
+     "key": "C",
+     "text": "DNS query for www.example.com"
+    },
+    {
+     "key": "D",
+     "text": "TCP FIN"
+    }
+   ],
+   "answer": "C",
+   "hints": [
+    "To open a TCP connection you need a destination IP address.",
+    "Where does the IP address come from?",
+    "Which step comes before the SYN?"
+   ],
+   "solution": "- The SYN needs an IP address, which **DNS** provides.\n- So the DNS **query** goes first.\n- **Answer: C**",
+   "quick_method": "- Order: DNS, SYN, **GET**, later FIN.",
+   "trap_note": "- Don't send the SYN before **resolving**, do look up first.",
+   "explanation": "- No address, no **connection**.",
+   "solution_full": "1. The browser has only a name.\n2. It needs the server's IP address before it can open TCP.\n3. So the DNS query leaves first.\n4. Then the SYN, then the GET.",
+   "explanation_full": "GATE 2016 and 2024 ask for this ordering with the first packet being the DNS query. If the name were already cached, the SYN would leave first.",
+   "trap_note_full": "SYN is the first packet of the connection, but the connection cannot start before the browser knows an IP address.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.008",
+   "level": 2,
+   "order_in_topic": 8,
+   "atoms": [
+    "d6"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A browser uses persistent HTTP without pipelining. The page has one base HTML file and $4$ small embedded objects, all on the same server whose IP address is known. How many RTTs does it take to fetch everything, including the TCP handshake? (answer in integer)",
+   "answer": "6",
+   "hints": [
+    "Persistent: one TCP connection serves all requests.",
+    "Handshake costs one RTT. The base file costs one RTT.",
+    "Without pipelining each object waits for the previous one."
+   ],
+   "solution": "- One RTT for the handshake and one for the **base** file.\n- Four objects, one **RTT** each in sequence: 6.\n- **Answer: 6**",
+   "quick_method": "- Handshake once, then one RTT per **request**.",
+   "trap_note": "- Don't add a **handshake** per object, do reuse the connection.",
+   "explanation": "- Without pipelining, requests are sent one **after** another.",
+   "solution_full": "1. Handshake: 1 RTT.\n2. GET base file and receive it: 1 RTT.\n3. Four objects, each sent after the previous reply: 4 RTT.\n4. Total $1+1+4=6$ RTT.",
+   "explanation_full": "Compare non-persistent sequential: $2\\times5=10$ RTT. The saving is one RTT (the handshake) per object after the first. Pipelining removes the waiting between requests, which is the next step.",
+   "trap_note_full": "Counting 10 uses the non-persistent rule. Counting 5 forgets the handshake.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.009",
+   "level": 2,
+   "order_in_topic": 9,
+   "atoms": [
+    "d7",
+    "d5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A browser uses non-persistent HTTP and opens up to $4$ parallel connections for embedded objects. The page has one base file and $4$ small embedded objects on one server with known IP. How many RTTs does it take? (answer in integer)",
+   "answer": "4",
+   "hints": [
+    "The base file must arrive first: 2 RTT.",
+    "Then the four objects start together.",
+    "Each parallel object costs 2 RTT."
+   ],
+   "solution": "- Base file takes two RTT: handshake and **request**.\n- Four objects run in **parallel** for another 2 RTT: 4.\n- **Answer: 4**",
+   "quick_method": "- Base file first, then objects in **parallel** batches.",
+   "trap_note": "- Don't run **objects** before the base file, do wait for it.",
+   "explanation": "- Parallel connections overlap their **handshakes** and requests.",
+   "solution_full": "1. Base file: handshake plus GET: 2 RTT.\n2. The browser now knows the object URLs.\n3. Four connections open together. Each needs 2 RTT, and they overlap.\n4. Total $2+2=4$ RTT.",
+   "explanation_full": "With fewer parallel connections than objects the objects go in batches: $\\lceil\\text{objects}/\\text{parallel}\\rceil$ batches of 2 RTT each. The next ladder step does this.",
+   "trap_note_full": "Dividing by 4 and adding one by one gives 10 RTT if you count them as sequential. Parallel connections overlap.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.010",
+   "level": 2,
+   "order_in_topic": 10,
+   "atoms": [
+    "d9",
+    "d4"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A browser has a cached copy of a page and sends a conditional GET with If-Modified-Since. The page has not changed. What does the server reply?",
+   "options": [
+    {
+     "key": "A",
+     "text": "200 OK with the full page again"
+    },
+    {
+     "key": "B",
+     "text": "304 Not Modified with no body"
+    },
+    {
+     "key": "C",
+     "text": "404 Not Found"
+    },
+    {
+     "key": "D",
+     "text": "301 Moved Permanently"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "The point of a conditional GET is to save bandwidth.",
+    "If nothing changed, does the server need to resend the file?",
+    "Which status code means not modified?"
+   ],
+   "solution": "- **Unchanged** page means no body, only a 304 status.\n- The client reuses its **cached** copy.\n- **Answer: B**",
+   "quick_method": "- Unchanged: 304, **header** only.",
+   "trap_note": "- Don't **expect** 200 with a body, do expect 304.",
+   "explanation": "- Conditional GET saves the **body**, not the round trip.",
+   "solution_full": "1. The request carries the date of the cached copy in If-Modified-Since.\n2. The server compares it with the file's modification time.\n3. Unchanged: it replies 304 Not Modified with no body.\n4. The browser shows its cached copy.",
+   "explanation_full": "The conditional GET still costs a round trip but saves the transfer time of the body. Common codes: 200 OK, 301 moved permanently, 304 not modified, 404 not found, 500 server error.",
+   "trap_note_full": "A 200 reply with the full page means the file did change, or the request was not conditional.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.011",
+   "level": 3,
+   "order_in_topic": 11,
+   "atoms": [
+    "d6"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A browser uses persistent HTTP with pipelining for a base file and $4$ small embedded objects on one server with a known IP. How many RTTs does it take, including the TCP handshake? (answer in integer)",
+   "answer": "3",
+   "hints": [
+    "Handshake: 1 RTT. Base file: 1 RTT.",
+    "Pipelining sends all four object requests back to back.",
+    "All replies arrive together after one RTT."
+   ],
+   "solution": "- Handshake and base file take two **RTTs**.\n- Four **pipelined** requests share one more: 3.\n- **Answer: 3**",
+   "quick_method": "- Pipelining collapses all objects into one **RTT**.",
+   "trap_note": "- Don't charge one **RTT** per object, do charge one for the batch.",
+   "explanation": "- Pipelining sends requests without waiting for **replies**.",
+   "solution_full": "1. Handshake: 1 RTT.\n2. Base file: 1 RTT.\n3. After parsing the base file, the browser sends all 4 requests at once. Replies return after 1 RTT.\n4. Total $1+1+1=3$ RTT.",
+   "explanation_full": "Pipelining is the HTTP/1.1 feature GATE 2026 asked about (sending a request without waiting for the previous object to download completely). The three timings for 4 objects: non-persistent sequential 10, persistent 6, pipelined 3.",
+   "trap_note_full": "Reading 'pipelining' as 'parallel connections' gives 4. Pipelining uses one connection.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.012",
+   "level": 3,
+   "order_in_topic": 12,
+   "atoms": [
+    "d7",
+    "d5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A browser uses non-persistent HTTP with $3$ parallel connections. A page has one base file and $6$ small embedded objects on one server with known IP. How many RTTs does fetching the page take? (answer in integer)",
+   "answer": "6",
+   "hints": [
+    "Base file: 2 RTT.",
+    "The 6 objects go in batches of 3.",
+    "How many batches, and how long is each?"
+   ],
+   "solution": "- Base file takes 2 **RTT**.\n- Two **batches** of three objects, 2 RTT each: 6.\n- **Answer: 6**",
+   "quick_method": "- Base two, plus batches times two. Batches equal objects over **parallel**.",
+   "trap_note": "- Don't treat 6 **objects** as one batch, do divide by 3.",
+   "explanation": "- Round batches up, not **down**.",
+   "solution_full": "1. Base file: 2 RTT.\n2. Objects in batches of 3: $\\lceil6/3\\rceil=2$ batches.\n3. Each batch: 2 RTT.\n4. Total $2+2\\times2=6$ RTT.",
+   "explanation_full": "GATE 2023 used 10 objects with 5 parallel connections ($\\lceil10/5\\rceil=2$ batches). The formula: $\\text{RTT}=2+2\\lceil n/p\\rceil$ after DNS.",
+   "trap_note_full": "Treating all 6 as one parallel batch gives 4. There are only 3 connections.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.013",
+   "level": 3,
+   "order_in_topic": 13,
+   "atoms": [
+    "d8"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A browser with empty caches fetches $www.site.org$, which has one base page and one image on the same server, over one persistent connection that it closes at the end. Which is the correct order of packets leaving the computer?",
+   "options": [
+    {
+     "key": "A",
+     "text": "DNS query, TCP SYN, GET base page, GET image, FIN"
+    },
+    {
+     "key": "B",
+     "text": "TCP SYN, DNS query, GET base page, GET image, FIN"
+    },
+    {
+     "key": "C",
+     "text": "DNS query, GET base page, TCP SYN, GET image, FIN"
+    },
+    {
+     "key": "D",
+     "text": "DNS query, TCP SYN, GET image, GET base page, FIN"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Resolve the name first.",
+    "Open the connection next.",
+    "The image URL is only known after the base page arrives."
+   ],
+   "solution": "- Name first, then the **connection**.\n- The image is **requested** only after the base page.\n- **Answer: A**",
+   "quick_method": "- DNS, SYN, base GET, image GET, **FIN**.",
+   "trap_note": "- Don't **request** the image early, do read the page first.",
+   "explanation": "- The browser learns the image URL by reading the **page**.",
+   "solution_full": "1. DNS query: needed to get an IP address.\n2. TCP SYN: open the connection.\n3. GET for the base page.\n4. The browser parses the page, finds the image, and sends GET for it.\n5. FIN when the browser is done.",
+   "explanation_full": "This is the order GATE 2016 and 2024 ask for. 2024's option C (DNS, SYN, GET index, GET image) is the same chain.",
+   "trap_note_full": "Sending the image request before the base page is impossible, since the image link lives inside the base page.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.014",
+   "level": 3,
+   "order_in_topic": 14,
+   "atoms": [
+    "d3",
+    "d1"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A mail server wants to deliver mail to $user@gate.org$. Which DNS record type does it ask for, to find the host that accepts mail for $gate.org$?",
+   "options": [
+    {
+     "key": "A",
+     "text": "A"
+    },
+    {
+     "key": "B",
+     "text": "NS"
+    },
+    {
+     "key": "C",
+     "text": "MX"
+    },
+    {
+     "key": "D",
+     "text": "CNAME"
+    }
+   ],
+   "answer": "C",
+   "hints": [
+    "The record is about mail, not web hosts.",
+    "A gives a host's address, NS gives a DNS server.",
+    "Which type name stands for mail exchange?"
+   ],
+   "solution": "- **MX** stands for mail exchange.\n- It names the **host** that accepts mail for the domain.\n- **Answer: C**",
+   "quick_method": "- Mail host lookup uses **MX**, then A for its address.",
+   "trap_note": "- Don't ask for A on the **domain**, do ask for MX.",
+   "explanation": "- Each record type answers a different **question**.",
+   "solution_full": "1. The sender needs the mail host for gate.org, not a web host.\n2. The MX record for gate.org names it.\n3. Then it asks an A record for the mail host's name to get its address.\n4. NS and A records would give different answers.",
+   "explanation_full": "This is the link between DNS and e-mail. SMTP itself is not named in the 2027 syllabus, but the MX record is a DNS record type. Mail hosts are looked up with MX, then A.",
+   "trap_note_full": "A is the usual answer for 'find a server', but for mail, the domain's A record may point to the website, not the mail host.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.015",
+   "level": 3,
+   "order_in_topic": 15,
+   "atoms": [
+    "d4"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "HTTP is stateless, yet a shopping site recognises a returning user. Which mechanism makes this possible?",
+   "options": [
+    {
+     "key": "A",
+     "text": "The server stores the client's TCP port"
+    },
+    {
+     "key": "B",
+     "text": "A cookie sent by the server and returned by the browser on later requests"
+    },
+    {
+     "key": "C",
+     "text": "The HTTP method name"
+    },
+    {
+     "key": "D",
+     "text": "A new DNS record for each user"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "The server needs some identifier in each request.",
+    "Who stores that identifier?",
+    "Which HTTP header carries it?"
+   ],
+   "solution": "- The server sets a **cookie**; the browser returns it.\n- The **server** looks up the user from the identifier.\n- **Answer: B**",
+   "quick_method": "- Cookie equals identifier the browser repeats on every **request**.",
+   "trap_note": "- Don't rely on the TCP **port**, do use the cookie.",
+   "explanation": "- State lives in the **client** plus a server table.",
+   "solution_full": "1. On the first visit the server's response contains a Set-Cookie header with an identifier.\n2. The browser stores it.\n3. Every later request to that site includes a Cookie header with the identifier.\n4. The server looks up the identifier in its own table and recognises the user.",
+   "explanation_full": "Ports change from connection to connection, so they cannot identify a user. Cookies are the standard way to build sessions on stateless HTTP.",
+   "trap_note_full": "TCP ports are tempting because they identify a connection, but a persistent connection can close and the port changes.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.016",
+   "level": 3,
+   "order_in_topic": 16,
+   "atoms": [
+    "d2",
+    "d3"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A resolver starts with an empty cache. It iteratively resolves $www.example.com$, then $mail.example.com$, then $www.other.com$. All cached records stay valid. How many query-response pairs does the resolver exchange in total? (answer in integer)",
+   "answer": "6",
+   "hints": [
+    "First lookup: root, TLD, authoritative: 3 pairs.",
+    "Second lookup: the example.com server's address is cached.",
+    "Third lookup: the root and .com addresses are cached, but other.com's server is not."
+   ],
+   "solution": "- First **lookup** costs 3 pairs; the second only 1.\n- Third asks the .com **server** and other.com: 2 pairs, total 6.\n- **Answer: 6**",
+   "quick_method": "- Each new name starts from the deepest cached **server**.",
+   "trap_note": "- Don't **restart** at the root each time, do use the cache.",
+   "explanation": "- A cached server skips every level **above** it.",
+   "solution_full": "1. www.example.com: root, .com, example.com. 3 pairs. Caches now hold all three server addresses.\n2. mail.example.com: ask the cached example.com server directly. 1 pair.\n3. www.other.com: .com server is cached, so ask it (1 pair) for other.com's server, then ask that server (1 pair). 2 pairs.\n4. Total $3+1+2=6$.",
+   "explanation_full": "Real resolvers cache with TTLs. A very popular TLD server's address is cached almost all the time, which is why root servers see few queries relative to the volume of lookups.",
+   "trap_note_full": "Counting 3+3+3=9 repeats the full walk each time. Counting 3+1+1=5 forgets that other.com has a different authoritative server.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.017",
+   "level": 4,
+   "order_in_topic": 17,
+   "atoms": [
+    "d2",
+    "d5",
+    "d7",
+    "d8"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A browser with empty caches loads a page. The DNS lookup is iterative over a 3-tier hierarchy (root, TLD, authoritative), each query costing one RTT. The page is on one server with the same RTT. The base file has $12$ small embedded objects, and the browser uses non-persistent HTTP with $4$ parallel connections. What is the minimum elapsed time in RTTs? (answer in integer)",
+   "answer": "11",
+   "hints": [
+    "DNS: three servers, so 3 RTT.",
+    "Base file: 2 RTT (handshake and GET).",
+    "Objects: 12 over 4 parallel is 3 batches of 2 RTT."
+   ],
+   "solution": "- DNS takes 3, the base file 2, and **three** batches take 6.\n- **Total** 3 plus 2 plus 6 is 11.\n- **Answer: 11**",
+   "quick_method": "- DNS, then base two, then batches times two. Add the **parts**.",
+   "trap_note": "- Don't **overlap** DNS with the handshake, do add them.",
+   "explanation": "- Each phase must finish before the next one **starts**.",
+   "solution_full": "1. DNS: root, TLD, authoritative: 3 RTT.\n2. Base file: TCP handshake plus GET: 2 RTT.\n3. Objects: $\\lceil12/4\\rceil=3$ batches, each 2 RTT: 6 RTT.\n4. Total $3+2+6=11$ RTT.",
+   "explanation_full": "This is the 2023 GATE question with new numbers. There, 10 objects and 5 parallel connections gave $3+2+4=9$ RTT (option C). Persistent with pipelining gave $3+1+1+1=6$ (option D).",
+   "trap_note_full": "Using 10 objects or forgetting that the connection has to be opened before the base file changes the total.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.018",
+   "level": 4,
+   "order_in_topic": 18,
+   "atoms": [
+    "d2",
+    "d6",
+    "d7",
+    "d8"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "A browser with empty caches loads a page: 3 RTT of DNS lookup, then a base file and $6$ small embedded objects, all on one server. Which of the following minimum elapsed times (in RTTs) are correct?",
+   "options": [
+    {
+     "key": "A",
+     "text": "11 RTTs for persistent HTTP without pipelining"
+    },
+    {
+     "key": "B",
+     "text": "6 RTTs for persistent HTTP with pipelining"
+    },
+    {
+     "key": "C",
+     "text": "9 RTTs for non-persistent HTTP with 3 parallel connections"
+    },
+    {
+     "key": "D",
+     "text": "7 RTTs for persistent HTTP without pipelining"
+    }
+   ],
+   "answer": "A,B,C",
+   "hints": [
+    "DNS adds 3 RTT in every option.",
+    "Persistent without pipelining: handshake, base file, then 6 sequential requests.",
+    "Non-persistent with 3 parallel connections: base 2 RTT, then 2 batches of 2 RTT."
+   ],
+   "solution": "- Persistent without pipelining: 3, 1, 1, then six sequential: **eleven**.\n- **Pipelined**: 3 plus 3 is six. Parallel non-persistent: nine.\n- **Answer: A, B, C**",
+   "quick_method": "- Compute each total as DNS plus handshake plus **requests**.",
+   "trap_note": "- Don't drop DNS, do add its three **RTTs** to each case.",
+   "explanation": "- Pipelining and parallel connections cut different **terms**.",
+   "solution_full": "1. Persistent, no pipelining: $3+1+1+6=11$. True.\n2. Persistent, pipelined: $3+1+1+1=6$. True.\n3. Non-persistent, 3 parallel: $3+2+2\\times\\lceil6/3\\rceil=3+2+4=9$. True.\n4. 7 RTT would need only 2 request RTTs for 6 objects, which requires pipelining. False.",
+   "explanation_full": "Three of the four are correct because the question asks for 'correct' minimum times. In GATE 2023 two of four were correct. Always compute each option, since they are all plausible numbers.",
+   "trap_note_full": "Option D mixes up the numbers: 7 is 11 minus the 4 RTT that would be saved if requests overlapped, which only pipelining achieves.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.019",
+   "level": 4,
+   "order_in_topic": 19,
+   "atoms": [
+    "d6",
+    "d5",
+    "d4"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Which of the following statements about HTTP/1.1 are true?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Connections are persistent by default, so several requests can reuse one TCP connection"
+    },
+    {
+     "key": "B",
+     "text": "One TCP connection can carry objects fetched from several different servers"
+    },
+    {
+     "key": "C",
+     "text": "A client may send a request before the previous response is complete (pipelining)"
+    },
+    {
+     "key": "D",
+     "text": "A server may close the connection after a response when the request carries Connection: close"
+    }
+   ],
+   "answer": "A,C,D",
+   "hints": [
+    "Which version made persistent connections the default?",
+    "A TCP connection joins exactly two endpoints.",
+    "What does the Connection header do?"
+   ],
+   "solution": "- Default is persistent; a **TCP** connection has two ends.\n- So objects from different servers need separate **connections**.\n- **Answer: A, C, D**",
+   "quick_method": "- One connection, one server; **pipelining** is allowed.",
+   "trap_note": "- Don't share a **connection** across servers, do open one per host.",
+   "explanation": "- A TCP connection joins one client to one **server**.",
+   "solution_full": "1. A: HTTP/1.1 keeps the connection open by default. True.\n2. B: a connection is between two sockets. Objects from other servers need other connections. False.\n3. C: pipelining lets the client send requests without waiting. True.\n4. D: Connection: close tells the server to close after the response. True.",
+   "explanation_full": "GATE 2026 asked this with 'downloading multiple objects of the same page over the same TCP connection if on the same server' (true) and 'even if on different servers' (false).",
+   "trap_note_full": "B feels plausible because a browser seems to use 'one connection' for a page, but each server host needs its own.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.020",
+   "level": 4,
+   "order_in_topic": 20,
+   "atoms": [
+    "d9"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A proxy cache serves a hit in $10$ ms. A miss costs the proxy lookup of $10$ ms plus $200$ ms to fetch from the origin. The hit ratio is $0.4$. What is the average response time in ms? (answer in integer)",
+   "answer": "130",
+   "hints": [
+    "Hit time is 10 ms with probability 0.4.",
+    "Miss time is 10 plus 200 ms with probability 0.6.",
+    "Weight each by its probability."
+   ],
+   "solution": "- Hits cost 10 ms and **misses** cost 210 ms.\n- The weighted **average** is 130 ms.\n- **Answer: 130**",
+   "quick_method": "- Weight hit and **miss** times by their shares.",
+   "trap_note": "- Don't drop the 10 ms **lookup** on a miss, do add it.",
+   "explanation": "- A miss still pays the **lookup** first.",
+   "solution_full": "1. Hit time $=10$ ms, probability 0.4: $4$ ms.\n2. Miss time $=10+200=210$ ms, probability 0.6: $126$ ms.\n3. Average $=4+126=130$ ms.",
+   "explanation_full": "It's the same weighted average as cache AMAT in architecture. A proxy near the client turns most requests into cheap hits. Conditional GETs keep cached copies fresh at the cost of one round trip.",
+   "trap_note_full": "Using 200 for a miss gives 124. The proxy lookup comes first on a miss too.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.021",
+   "level": 5,
+   "order_in_topic": 21,
+   "atoms": [
+    "d2",
+    "d5",
+    "d7",
+    "d8"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A browser with empty caches resolves a name using a resolver on the same host. The resolver iterates over three servers, each with a round trip of $30$ ms. The web server's round trip is $100$ ms. HTTP is non-persistent with $3$ parallel connections and the page has a base file plus $6$ small objects. Transmission times are negligible. What is the minimum time in ms? (answer in integer)",
+   "answer": "690",
+   "hints": [
+    "DNS: 3 servers times 30 ms.",
+    "Web: base file 2 RTT, then objects in batches of 3.",
+    "Add DNS time and web time. They use different RTTs."
+   ],
+   "solution": "- DNS takes 90 ms; web needs **six** RTTs.\n- Six times 100 is 600, **giving** 690.\n- **Answer: 690**",
+   "quick_method": "- Different RTTs: price DNS and web **separately**.",
+   "trap_note": "- Don't use 100 ms for DNS, do use its own **round** trip.",
+   "explanation": "- Two RTT values appear, so do not **mix** them.",
+   "solution_full": "1. DNS: $3\\times30=90$ ms.\n2. Base file: 2 RTT $=200$ ms.\n3. Objects: $\\lceil6/3\\rceil=2$ batches $\\times2$ RTT $=4$ RTT $=400$ ms.\n4. Total $90+200+400=690$ ms.",
+   "explanation_full": "In GATE 2023 DNS and web RTT were equal, which hid the idea. When RTTs differ, convert each phase to milliseconds before adding.",
+   "trap_note_full": "Using 100 ms for DNS gives 900 ms. The resolver is on the host, with its own shorter paths to DNS servers.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.022",
+   "level": 5,
+   "order_in_topic": 22,
+   "atoms": [
+    "d2",
+    "d3",
+    "d5",
+    "d8"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A browser with empty caches loads a base page from $www.a.com$, which links to $4$ small objects on $www.b.com$. HTTP is non-persistent and sequential. All round trips cost 1 RTT. DNS is iterative; after the first lookup the resolver has cached the root and .com servers but not b.com's. How many RTTs does the whole load take? (answer in integer)",
+   "answer": "15",
+   "hints": [
+    "Lookup a.com: root, TLD, authoritative: 3 RTT. Then base page: 2 RTT.",
+    "After the page arrives, look up b.com: the .com server is cached.",
+    "Then fetch 4 objects, 2 RTT each."
+   ],
+   "solution": "- First **lookup** 3, base page 2, second lookup 2.\n- Four **objects** at 2 each is 8: total 15.\n- **Answer: 15**",
+   "quick_method": "- Add DNS one, page, DNS two, then objects times **two**.",
+   "trap_note": "- Don't **resolve** b.com at the start, do wait for the base page.",
+   "explanation": "- The second name is discovered only after the **first** page.",
+   "solution_full": "1. DNS for www.a.com: root, .com, a.com: 3 RTT.\n2. Base page: handshake plus GET: 2 RTT.\n3. The browser reads the page and finds www.b.com. The .com server's address is cached, so the lookup needs the .com server and b.com's server: 2 RTT.\n4. 4 objects, non-persistent sequential: $4\\times2=8$ RTT.\n5. Total $3+2+2+8=15$ RTT.",
+   "explanation_full": "This extends the 2023 pattern to two hosts. Each new host needs its own DNS lookup and its own connections. A cached TLD server shortens the second lookup.",
+   "trap_note_full": "Looking up both names at the start gives 3+2+2... in the wrong order. The second name appears only inside the first page.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.023",
+   "level": 5,
+   "order_in_topic": 23,
+   "atoms": [
+    "d2",
+    "d6",
+    "d7",
+    "d5",
+    "d8"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Same setup as before: base page from $www.a.com$ (3 RTT DNS), then $4$ small objects on $www.b.com$ whose lookup costs 2 RTT after the page arrives. Every connection handshake and every request-response costs 1 RTT. Which of the following minimum total times are correct?",
+   "options": [
+    {
+     "key": "A",
+     "text": "15 RTTs for non-persistent HTTP with sequential connections"
+    },
+    {
+     "key": "B",
+     "text": "12 RTTs for persistent HTTP without pipelining"
+    },
+    {
+     "key": "C",
+     "text": "9 RTTs for persistent HTTP with pipelining"
+    },
+    {
+     "key": "D",
+     "text": "10 RTTs for non-persistent HTTP with 4 parallel connections"
+    }
+   ],
+   "answer": "A,B,C",
+   "hints": [
+    "Common prefix: DNS 3 plus base page.",
+    "Persistent: one connection to a.com (2 RTT), then a second connection to b.com.",
+    "Parallel non-persistent: 4 objects at once, 2 RTT."
+   ],
+   "solution": "- Prefix: **three** DNS plus two for the base page, then two DNS.\n- Then objects: sequential 8, **persistent** 5, pipelined 2, parallel 2.\n- **Answer: A, B, C**",
+   "quick_method": "- Same prefix, then compare the **object** phase.",
+   "trap_note": "- Don't assume 10 for **parallel**, do add 3, 2, 2 and 2.",
+   "explanation": "- Parallel and pipelined both cut the object phase to **two** or less.",
+   "solution_full": "1. Prefix: DNS a.com 3, base page 2 (non-persistent or persistent new connection), DNS b.com 2: 7 RTT.\n2. Non-persistent sequential: $4\\times2=8$, total 15. True.\n3. Persistent without pipelining: TCP to b.com 1, then 4 sequential GETs: 5, total 12. True.\n4. Persistent with pipelining: TCP 1, then 1 RTT for all 4: 2, total 9. True.\n5. Non-persistent with 4 parallel: 4 connections at once, 2 RTT: total 9, not 10. False.",
+   "explanation_full": "Counting the first connection: the base page's connection to a.com cannot be reused for b.com, so a new TCP handshake to b.com is needed in the persistent cases. Parallel non-persistent and pipelined persistent both land at 9.",
+   "trap_note_full": "Option D (10) is off by one: 4 parallel objects take 2 RTT total, not 3.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.app.024",
+   "level": 5,
+   "order_in_topic": 24,
+   "atoms": [
+    "d1",
+    "d3"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Which of the following statements about DNS are true?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Ordinary DNS queries are sent over UDP to port 53"
+    },
+    {
+     "key": "B",
+     "text": "A resolver may keep a cached record until its TTL expires"
+    },
+    {
+     "key": "C",
+     "text": "An NS record maps a host name to its IPv4 address"
+    },
+    {
+     "key": "D",
+     "text": "A CNAME record says that one name is an alias for another canonical name"
+    }
+   ],
+   "answer": "A,B,D",
+   "hints": [
+    "Which transport carries short query and reply exchanges?",
+    "What does a TTL do?",
+    "NS and CNAME return names, not addresses."
+   ],
+   "solution": "- Ordinary queries use **UDP**; caches obey the TTL.\n- NS names a **server**; only A holds the address.\n- **Answer: A, B, D**",
+   "quick_method": "- Names go through **records**: A address, NS server, CNAME alias.",
+   "trap_note": "- Don't read NS as address, do read it as **server** name.",
+   "explanation": "- A TTL tells caches when to **discard**.",
+   "solution_full": "1. A: queries are short, so UDP port 53 is the default. True.\n2. B: every record has a TTL, and a cache may keep it until it expires. True.\n3. C: NS gives the authoritative server's name for a zone. A gives the address. False.\n4. D: CNAME is an alias. True.",
+   "explanation_full": "GATE 2013 asked which transport DNS uses (UDP). DNS falls back to TCP for large responses and zone transfers. TTLs balance freshness against load.",
+   "trap_note_full": "NS sounds like the thing that finds an address, but its answer is the name of a server.",
+   "verified": true
+  }
+ ],
+ "flashcards": [
+  {
+   "front": "DNS tree",
+   "back": "Root, TLD, authoritative. Names are read right to left.",
+   "kind": "definition"
+  },
+  {
+   "front": "Iterative query pairs",
+   "back": "One pair per server the resolver asks. www.gate.org.in with empty cache: 4.",
+   "kind": "formula"
+  },
+  {
+   "front": "Cache effect",
+   "back": "The resolver starts at the deepest server whose address it holds.",
+   "kind": "trap"
+  },
+  {
+   "front": "Record types",
+   "back": "A IPv4, AAAA IPv6, NS server, CNAME alias, MX mail host.",
+   "kind": "definition"
+  },
+  {
+   "front": "DNS transport",
+   "back": "UDP port 53 for ordinary queries; TCP for large replies and zone transfers.",
+   "kind": "definition"
+  },
+  {
+   "front": "HTTP stateless",
+   "back": "The server keeps no memory of earlier requests. Cookies add state.",
+   "kind": "definition"
+  },
+  {
+   "front": "304",
+   "back": "Conditional GET answered with Not Modified and no body.",
+   "kind": "definition"
+  },
+  {
+   "front": "Non-persistent object",
+   "back": "2 RTT: handshake plus request. Each object opens a new connection.",
+   "kind": "formula"
+  },
+  {
+   "front": "Persistent, no pipelining",
+   "back": "Handshake once, then one RTT per object: 2 plus n.",
+   "kind": "formula"
+  },
+  {
+   "front": "Pipelining",
+   "back": "All requests together: persistent total is 3 RTT after DNS.",
+   "kind": "formula"
+  },
+  {
+   "front": "Parallel batches",
+   "back": "$2+2\\lceil n/p\\rceil$ RTT after DNS. Round up.",
+   "kind": "formula"
+  },
+  {
+   "front": "Page-load order",
+   "back": "DNS, SYN, GET base, GET objects. A second host repeats DNS and SYN.",
+   "kind": "trap"
+  },
+  {
+   "front": "Different RTTs",
+   "back": "Price each phase in milliseconds, then add.",
+   "kind": "trap"
+  },
+  {
+   "front": "Proxy cache average",
+   "back": "$h\\,t_{hit}+(1-h)(t_{lookup}+t_{origin})$.",
+   "kind": "formula"
+  },
+  {
+   "front": "Mail protocols",
+   "back": "SMTP pushes, POP3 or IMAP pull. Not in the 2027 list.",
+   "kind": "definition"
+  }
+ ]
+}

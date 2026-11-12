@@ -1,0 +1,3123 @@
+{
+ "topic_id": "os.fs",
+ "title": "File systems and disks",
+ "chapter_note": {
+  "about": "This chapter covers how a file system lays files out on a disk, and how the disk itself works. It starts with the three ways to place a file's blocks: contiguous, linked and indexed. It then works out the sizes: usable bytes with linked blocks and a FAT, the maximum file size from an inode, and the space needed to track free blocks. After that it turns to the disk: its geometry and capacity, how long one access takes, and how the head is moved across cylinders by FCFS, SSTF and the sweep policies. Most questions are arithmetic with powers of two, so a clean working layout matters more than any theory.",
+  "simple": "A disk is a stack of spinning plates with a tiny arm that has to move to the right ring and wait for the right spot to come round. The file system decides where in that space each file goes. Some ways of storing a file are fast to jump into, some never waste room between files, and some need an index. The exam asks you to work out how much a file can hold, how much space the bookkeeping needs, how long a read takes, and how far the arm travels for a list of requests. In exam words: allocation methods, FAT, inode, free-space bitmap, disk geometry, access time, and disk scheduling (FCFS, SSTF, SCAN, LOOK, C-LOOK).",
+  "concept_map": [
+   {
+    "atom_id": "f1",
+    "title": "Allocation methods",
+    "one_line": "Contiguous is fast but fragments; linked is slow to jump into; indexed jumps directly."
+   },
+   {
+    "atom_id": "f2",
+    "title": "Linked allocation and FAT",
+    "one_line": "Usable bytes per block = block - pointer; a FAT keeps all links in one table."
+   },
+   {
+    "atom_id": "f3",
+    "title": "Inodes and maximum file size",
+    "one_line": "P = block / address; size = (direct + P + P^2 + P^3) x block."
+   },
+   {
+    "atom_id": "f4",
+    "title": "Free-space management",
+    "one_line": "A bitmap needs one bit per block; a free list needs a pointer slot in each list block."
+   },
+   {
+    "atom_id": "f5",
+    "title": "Disk geometry and capacity",
+    "one_line": "Surfaces x cylinders x sectors x bytes; sector number from cylinder, head, sector."
+   },
+   {
+    "atom_id": "f6",
+    "title": "Disk access time",
+    "one_line": "Seek + half a rotation + transfer; scattered sectors pay it every time."
+   },
+   {
+    "atom_id": "f7",
+    "title": "FCFS and SSTF scheduling",
+    "one_line": "Arrival order versus nearest request; SSTF can starve far requests."
+   },
+   {
+    "atom_id": "f8",
+    "title": "SCAN, LOOK and C-LOOK",
+    "one_line": "Sweep policies; SCAN goes to the disk end, LOOK stops at the last request, C-LOOK jumps back."
+   }
+  ],
+  "gate_patterns": [
+   "Disk-scheduling head movement: write the service order and add the distances (2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48; 7 questions). C-LOOK counts the return jump.",
+   "Disk access time and geometry: seek + half a rotation + transfer for each access, and sector location from cylinder, head and sector (2024 CS1 Q54, 2024 CS2 Q53, 2026 CS1 Q59, 2015 CS1 Q48; 11 questions).",
+   "Inodes, linked allocation and free space: pointers per block, rounding up, the FAT overhead (2019 CS Q52, 2004 CS Q49, 2012 CS Q41, 2025 CS1 Q51, 2026 CS2 Q53; 9 questions). Weightage: about 0.8 marks per CS paper; 7 questions in 6 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "f1",
+   "title": "Allocation methods",
+   "simple": "Imagine storing a long story in a notebook where pages can be anywhere. One way is to write the story on consecutive pages: reading page 7 of the story is easy, but if the story grows and the next pages are taken, you must copy it all somewhere bigger. Another way is to write on any free page and note at the bottom of each page where the story continues: no copying, but to read page 7 you have to flip through the first six. A third way is to keep a contents page that lists where every page of the story is: jumping is easy and growing is easy, but you spend one page on the contents. In exam words: contiguous is fast but fragments, linked has no fragments but slow random access, indexed has direct access and no fragments.",
+   "idea": "A file system must decide where a file's blocks go on the disk. **Contiguous** allocation puts them side by side, **linked** allocation chains them with pointers, and **indexed** allocation keeps a list of block numbers in an index block. Each choice trades speed, wasted space and ease of growth.",
+   "definition": "**Contiguous:** the file occupies consecutive blocks. The directory stores start and length. Block k is at start + k. Fast sequential and direct access. External fragmentation, and the file cannot grow if the next block is taken.\n\n**Linked:** each block holds a pointer to the next. The directory stores the first block. Block k needs k pointer hops (k + 1 reads). No external fragmentation, poor direct access, and a lost pointer breaks the chain.\n\n**Indexed:** an index block lists the file's blocks in order. Block k is in entry k. Direct access, no external fragmentation, but one extra block per file, and big files need more index blocks or levels.",
+   "intuition_full": "The three schemes differ in where the knowledge of 'which block is next' is stored. In contiguous allocation it is stored in the arithmetic start + k, which costs nothing, but it forces a rigid layout. In linked allocation it is stored inside every block, so the layout is free but the information is scattered and can only be read in sequence. In indexed allocation it is stored in one place, so it is both free of layout and quick to read. The price of the index is space. A one-block file takes two blocks. The usual way to build large files is a multi-level index, which is what a Unix inode does (see the next cards). Fragmentation is the other axis: contiguous allocation is the only one that needs holes of the right length. Exam questions are almost always true-or-false statements built from these properties.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A file of 4 blocks F0 to F3 is stored on a 12-block disk in three ways. Contiguous: blocks 4 to 7. Linked: blocks 5, 9, 2, 11 in that order. Indexed: index block 6 lists 3, 8, 1, 10. Another file X occupies blocks 8 and 9 in the contiguous case. How many disk reads does it take to read F3 in each case, and what is the weakness of each?",
+     "steps": [
+      "Contiguous: the directory stores the start (4) and the length (4). F0 to F3 sit side by side in blocks 4 to 7.",
+      "F3 is at 4 + 3 = block 7. It is one calculation and one disk read, so random access is fast. But X sits right behind the file, so F cannot grow without moving. Free space also splits into holes (external fragmentation).",
+      "Linked: each block stores a pointer to the next one, and the directory stores only the first block, 5. The chain is 5 → 9 → 2 → 11.",
+      "To reach F3 the system must follow the chain from the start: read block 5, then 9, then 2, then 11. That is 4 reads, one per pointer. Random access is slow, but there is no external fragmentation.",
+      "Indexed: the directory points to index block 6, which lists the data blocks 3, 8, 1, 10 in order. Blocks can be anywhere.",
+      "To read F3: read index block 6 (1 read), find entry 3 = block 10, read block 10 (2nd read). So 2 reads for any block. The cost is an extra index block per file."
+     ],
+     "answer": "Contiguous 1 read (but no growth, external fragmentation). Linked 4 reads (slow random access). Indexed 2 reads (extra index block)."
+    },
+    {
+     "level": "gate",
+     "setup": "For each statement, choose contiguous, linked or indexed allocation. (a) Suffers from external fragmentation. (b) A read of block k of the file needs k + 1 disk reads in the worst case. (c) Needs an extra block per file even for a very small file. (d) Supports direct access and has no external fragmentation.",
+     "steps": [
+      "(a) External fragmentation needs variable-size blocks in a row: only contiguous allocation has this problem.",
+      "(b) Following k pointers to reach block k, then reading it, is k + 1 reads. That is linked allocation.",
+      "(c) A small file of one block still needs one index block plus one data block: indexed allocation.",
+      "(d) Direct access without external fragmentation fits indexed allocation (contiguous has the fragmentation, linked has no direct access)."
+     ],
+     "answer": "(a) contiguous, (b) linked, (c) indexed, (d) indexed."
+    },
+    {
+     "level": "twist",
+     "setup": "Blocks are 1 KB and block numbers are 4 bytes, so an index block holds 256 entries. A file has 300 blocks. How many disk reads does it take to read block 280, if the index is a two-level structure (a top index block pointing to second-level index blocks)?",
+     "steps": [
+      "One index block can list only 256 data blocks. The file needs 300, so one index block is not enough.",
+      "Use two levels. The top index block points to second-level index blocks, each covering 256 data blocks. Block 280 lies in the second one (blocks 256 to 511), at entry 280 - 256 = 24.",
+      "Reads: top index block (1), second-level index block (2), data block (3). The top block is usually cached, so in practice the cost is lower.",
+      "Indexed allocation gives constant, small read cost for any block, even for large files. Linked allocation would need 281 reads."
+     ],
+     "answer": "3 reads with a two-level index (281 with linked allocation)."
+    }
+   ],
+   "why": "This card is the vocabulary for the whole chapter, and the statements are easy marks once the properties are clear. In GATE: pick the scheme that matches a property such as external fragmentation, random access cost or extra overhead (2017 CS2 Q8, 2021 CS1 Q25, 2003 CS Q25).",
+   "how": [
+    "Ask what the scheme stores: start and length (contiguous), first block and pointers (linked), or an index block (indexed).",
+    "For fragmentation: only contiguous allocation has external fragmentation.",
+    "For access cost of block k: contiguous 1 read, linked k + 1 reads, indexed 2 reads (one level).",
+    "For overhead: linked loses a few bytes per block, indexed costs an index block per file."
+   ],
+   "mistake": "Saying that linked allocation supports fast direct access, or that indexed allocation has external fragmentation. Another slip is forgetting the extra index-block read when counting disk reads for indexed allocation.",
+   "edge_cases": [
+    "Linked allocation is fine for sequential reading. The weakness is random access.",
+    "Contiguous allocation works best when the file size is known when it is created.",
+    "An index block that cannot hold all entries needs a second level or a chain of index blocks."
+   ],
+   "connections": [
+    "The Unix inode combines direct and multi-level indexes (see Inodes and maximum file size).",
+    "FAT moves the links out of the data blocks into one table (see Linked allocation and FAT).",
+    "External fragmentation here is the same idea as holes in memory (see Fragmentation and compaction)."
+   ],
+   "check": [
+    {
+     "q": "Which scheme needs 1 + k disk reads for block k?",
+     "a": "Linked allocation (k hops plus the final read)."
+    },
+    {
+     "q": "Which allocation can leave free space that no file fits into?",
+     "a": "Contiguous allocation, through external fragmentation."
+    },
+    {
+     "q": "A 1-block file under indexed allocation uses how many blocks?",
+     "a": "Two: the data block and the index block."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q8, 2021 CS1 Q25, 2003 CS Q25",
+   "try": {
+    "id": "gen.fs.001",
+    "label": "Try: which allocation scheme suffers external fragmentation (L1)"
+   },
+   "scene": "os.fs.alloc",
+   "example": {
+    "setup": "A file of 4 blocks F0 to F3 is stored on a 12-block disk in three ways. Contiguous: blocks 4 to 7. Linked: blocks 5, 9, 2, 11 in that order. Indexed: index block 6 lists 3, 8, 1, 10. Another file X occupies blocks 8 and 9 in the contiguous case. How many disk reads does it take to read F3 in each case, and what is the weakness of each?",
+    "steps": [
+     "Contiguous: the directory stores the start (4) and the length (4). F0 to F3 sit side by side in blocks 4 to 7.",
+     "F3 is at 4 + 3 = block 7. It is one calculation and one disk read, so random access is fast. But X sits right behind the file, so F cannot grow without moving. Free space also splits into holes (external fragmentation).",
+     "Linked: each block stores a pointer to the next one, and the directory stores only the first block, 5. The chain is 5 → 9 → 2 → 11.",
+     "To reach F3 the system must follow the chain from the start: read block 5, then 9, then 2, then 11. That is 4 reads, one per pointer. Random access is slow, but there is no external fragmentation.",
+     "Indexed: the directory points to index block 6, which lists the data blocks 3, 8, 1, 10 in order. Blocks can be anywhere.",
+     "To read F3: read index block 6 (1 read), find entry 3 = block 10, read block 10 (2nd read). So 2 reads for any block. The cost is an extra index block per file."
+    ],
+    "answer": "Contiguous 1 read (but no growth, external fragmentation). Linked 4 reads (slow random access). Indexed 2 reads (extra index block)."
+   },
+   "what": "A file system must decide where a file's blocks go on the disk. **Contiguous** allocation puts them side by side, **linked** allocation chains them with pointers, and **indexed** allocation keeps a list of block numbers in an index block. Each choice trades speed, wasted space and ease of growth.",
+   "what_full": "A file system must decide where a file's blocks go on the disk. **Contiguous** allocation puts them side by side, **linked** allocation chains them with pointers, and **indexed** allocation keeps a list of block numbers in an index block. Each choice trades speed, wasted space and ease of growth.\n\n**Contiguous:** the file occupies consecutive blocks. The directory stores start and length. Block k is at start + k. Fast sequential and direct access. External fragmentation, and the file cannot grow if the next block is taken.\n\n**Linked:** each block holds a pointer to the next. The directory stores the first block. Block k needs k pointer hops (k + 1 reads). No external fragmentation, poor direct access, and a lost pointer breaks the chain.\n\n**Indexed:** an index block lists the file's blocks in order. Block k is in entry k. Direct access, no external fragmentation, but one extra block per file, and big files need more index blocks or levels.\n\n**Worked example.** A file of 4 blocks F0 to F3 is stored on a 12-block disk in three ways. Contiguous: blocks 4 to 7. Linked: blocks 5, 9, 2, 11 in that order. Indexed: index block 6 lists 3, 8, 1, 10. Another file X occupies blocks 8 and 9 in the contiguous case. How many disk reads does it take to read F3 in each case, and what is the weakness of each?\n\n1. Contiguous: the directory stores the start (4) and the length (4). F0 to F3 sit side by side in blocks 4 to 7.\n2. F3 is at 4 + 3 = block 7. It is one calculation and one disk read, so random access is fast. But X sits right behind the file, so F cannot grow without moving. Free space also splits into holes (external fragmentation).\n3. Linked: each block stores a pointer to the next one, and the directory stores only the first block, 5. The chain is 5 → 9 → 2 → 11.\n4. To reach F3 the system must follow the chain from the start: read block 5, then 9, then 2, then 11. That is 4 reads, one per pointer. Random access is slow, but there is no external fragmentation.\n5. Indexed: the directory points to index block 6, which lists the data blocks 3, 8, 1, 10 in order. Blocks can be anywhere.\n6. To read F3: read index block 6 (1 read), find entry 3 = block 10, read block 10 (2nd read). So 2 reads for any block. The cost is an extra index block per file.\n\n**Answer:** Contiguous 1 read (but no growth, external fragmentation). Linked 4 reads (slow random access). Indexed 2 reads (extra index block).",
+   "why_full": "This card is the vocabulary for the whole chapter, and the statements are easy marks once the properties are clear. In GATE: pick the scheme that matches a property such as external fragmentation, random access cost or extra overhead (2017 CS2 Q8, 2021 CS1 Q25, 2003 CS Q25).\n\nAsked: 2017 CS2 Q8, 2021 CS1 Q25, 2003 CS Q25",
+   "trap": "Saying that linked allocation supports fast direct access, or that indexed allocation has external fragmentation. Another slip is forgetting the extra index-block read when counting disk reads for indexed allocation."
+  },
+  {
+   "atom_id": "f2",
+   "title": "Linked allocation and FAT",
+   "simple": "Suppose each sheet of a story must have a small note at the bottom saying which sheet comes next. That note takes up space, so each sheet holds a little less of the story than its full size. To work out how many sheets a story needs, you divide by the space left after the note, and round up because a part-filled last sheet still counts. Now imagine moving all those notes out of the sheets and into one big index at the front. Following the story only needs a quick look in the index, and the sheets are full again. That index is the FAT. In exam words: usable bytes per block = block size - pointer size; a FAT keeps all the links in one table.",
+   "idea": "In **linked allocation** every block ends with a pointer to the next block, so each block holds block size minus pointer size bytes of data. A **FAT** (file allocation table) moves all the pointers into one table on the disk, with one entry per block. The data blocks are then full.",
+   "definition": "**In-block pointers:** data per block = B - p, where B is the block size and p the pointer size. Blocks for a file of F bytes = ceil(F / (B - p)).\n\n**FAT:** one table with one entry per disk block. Entry i holds the number of the block that follows block i in its file (or an end marker). The directory holds the first block. A cached FAT lets the system follow chains without reading the data blocks.\n\nNumber of entries = disk size / block size. Entry size is the number of bytes needed to hold a block number, rounded up to whole bytes.\n\nFAT size = entries × entry size, rounded up to whole blocks. Data blocks available = total blocks - FAT blocks.",
+   "intuition_full": "The pointer is a tax on every block. With B = 512 and p = 4, the tax is under 1%, but the effect on the arithmetic is the difference between 5.9 and 6 blocks, which is why the question hides it. Divide by the usable bytes, not by B, and always round up. The pointer also has a second cost: it makes direct access slow, because the only way to find block k is to follow k pointers. The FAT answers that. The links are all in one table, so one disk read brings in many links, and a cached FAT removes the disk reads altogether. The price is memory: a big disk needs a big table. A FAT also lets the OS find free blocks by looking for an entry marked 0. For exam questions, keep the order straight: find the number of blocks, then the entry width, then the FAT size, then subtract.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A file system uses linked allocation with 512-byte blocks. Each block reserves 4 bytes for the pointer to the next block. A file is 3000 bytes. How many blocks does it need, and how much space is wasted?",
+     "steps": [
+      "Each block holds 512 - 4 = 508 bytes of data, because 4 bytes go to the pointer.",
+      "Blocks needed = ceil(3000 / 508) = ceil(5.9) = 6.",
+      "Five full blocks hold 5 × 508 = 2540 bytes.",
+      "The sixth block holds the remaining 3000 - 2540 = 460 bytes of data (plus its pointer).",
+      "It has 508 - 460 = 48 data bytes unused. That is internal fragmentation in the last block.",
+      "The file occupies 6 × 512 = 3072 bytes of disk for 3000 bytes of data. The overhead is 72 bytes: 6 × 4 = 24 for pointers and 48 unused."
+     ],
+     "answer": "6 blocks. The waste is 72 bytes: 24 for pointers and 48 unused in the last block."
+    },
+    {
+     "level": "gate",
+     "setup": "A 32 MB disk uses 2 KB blocks and a FAT file system with one 2-byte FAT entry per disk block. The FAT is stored on the disk in whole blocks. What is the size of the largest file?",
+     "steps": [
+      "Blocks = 32 MB / 2 KB = 2^25 / 2^11 = 2^14 = 16384 blocks.",
+      "The FAT has one entry per block: 16384 × 2 B = 32768 B = 32 KB.",
+      "The FAT occupies 32 KB / 2 KB = 16 blocks of the disk.",
+      "Blocks left for data = 16384 - 16 = 16368. The largest file uses all of them.",
+      "Largest file = 16368 × 2 KB = 32,736 KB, about 31.97 MB. There are no pointers inside the data blocks, so the full block is data."
+     ],
+     "answer": "32,736 KB (about 31.97 MB). The FAT takes 16 blocks, and nothing is lost to per-block pointers."
+    },
+    {
+     "level": "twist",
+     "setup": "A file's blocks are chained. To read the file's block number 12 (counting from 0), how many disk reads are needed with in-block linked allocation, and with a FAT that is cached in memory?",
+     "steps": [
+      "In-block linked allocation: the pointer to block 12 is inside block 11, which is inside block 10, and so on. The system must read blocks 0, 1, ..., 11 to follow the chain, then block 12. That is 13 disk reads.",
+      "FAT in memory: the whole chain is in one table in RAM. Following 12 links costs 12 memory lookups and no disk reads.",
+      "Then one disk read fetches block 12. Total: 1 disk read.",
+      "The FAT does not change where the data is. It only moves the links to a table that is fast to scan."
+     ],
+     "answer": "13 disk reads with in-block pointers, 1 disk read with a cached FAT (plus 12 memory lookups)."
+    }
+   ],
+   "why": "This is straight arithmetic with two traps: the pointer bytes and the rounding. In GATE: blocks needed for a file with in-block pointers, wasted space, or the largest file with a FAT (2025 CS1 Q51, 2026 CS2 Q53, 2014 CS2 Q20, 2022 CS Q63).",
+   "how": [
+    "Usable data per block = block size - pointer size.",
+    "Blocks needed = ceil(file size / usable). Round up.",
+    "Waste in the last block = blocks × usable - file size.",
+    "For a FAT: entries = blocks on disk; FAT bytes = entries × entry size; subtract the FAT's blocks from the data blocks.",
+    "Largest file = data blocks × block size (the FAT stores the links, so blocks are full)."
+   ],
+   "mistake": "Dividing the file size by the full block size, or forgetting to round up. Another common slip is subtracting the pointer in a FAT system, where the data blocks hold no pointers, or forgetting that the FAT itself uses disk space.",
+   "edge_cases": [
+    "An entry of 14 bits takes 2 bytes, since entries are stored in whole bytes (FAT16 style).",
+    "The pointer to the next block is also in the last block (set to an end marker). It still takes up its 4 bytes.",
+    "If the file size is an exact multiple of the usable bytes, the last block is full."
+   ],
+   "connections": [
+    "Linked allocation is the middle scheme in the allocation card (see Allocation methods).",
+    "The inode is the indexed alternative with multi-level pointers (see Inodes and maximum file size).",
+    "Free-space tracking can reuse the FAT by marking free blocks (see Free-space management)."
+   ],
+   "check": [
+    {
+     "q": "1 KB blocks, 4-byte pointers. A file of 2040 bytes. Blocks needed?",
+     "a": "Usable 1020. 2040 / 1020 = 2 exactly, so 2 blocks."
+    },
+    {
+     "q": "Disk of 1 MB, 1 KB blocks, 2-byte FAT entries. FAT size?",
+     "a": "1024 blocks × 2 B = 2048 B = 2 KB."
+    },
+    {
+     "q": "Why is a cached FAT faster than in-block pointers for random access?",
+     "a": "The chain is followed in memory, with no disk read per link."
+    }
+   ],
+   "asked": "Asked: 2025 CS1 Q51, 2026 CS2 Q53, 2014 CS2 Q20, 2022 CS Q63",
+   "try": {
+    "id": "gen.fs.007",
+    "label": "Try: blocks needed when each block loses 4 bytes to a pointer (L2)"
+   },
+   "scene": "os.fs.linked",
+   "example": {
+    "setup": "A file system uses linked allocation with 512-byte blocks. Each block reserves 4 bytes for the pointer to the next block. A file is 3000 bytes. How many blocks does it need, and how much space is wasted?",
+    "steps": [
+     "Each block holds 512 - 4 = 508 bytes of data, because 4 bytes go to the pointer.",
+     "Blocks needed = ceil(3000 / 508) = ceil(5.9) = 6.",
+     "Five full blocks hold 5 × 508 = 2540 bytes.",
+     "The sixth block holds the remaining 3000 - 2540 = 460 bytes of data (plus its pointer).",
+     "It has 508 - 460 = 48 data bytes unused. That is internal fragmentation in the last block.",
+     "The file occupies 6 × 512 = 3072 bytes of disk for 3000 bytes of data. The overhead is 72 bytes: 6 × 4 = 24 for pointers and 48 unused."
+    ],
+    "answer": "6 blocks. The waste is 72 bytes: 24 for pointers and 48 unused in the last block."
+   },
+   "what": "In **linked allocation** every block ends with a pointer to the next block, so each block holds block size minus pointer size bytes of data. A **FAT** (file allocation table) moves all the pointers into one table on the disk, with one entry per block. The data blocks are then full.",
+   "what_full": "In **linked allocation** every block ends with a pointer to the next block, so each block holds block size minus pointer size bytes of data. A **FAT** (file allocation table) moves all the pointers into one table on the disk, with one entry per block. The data blocks are then full.\n\n**In-block pointers:** data per block = B - p, where B is the block size and p the pointer size. Blocks for a file of F bytes = ceil(F / (B - p)).\n\n**FAT:** one table with one entry per disk block. Entry i holds the number of the block that follows block i in its file (or an end marker). The directory holds the first block. A cached FAT lets the system follow chains without reading the data blocks.\n\nNumber of entries = disk size / block size. Entry size is the number of bytes needed to hold a block number, rounded up to whole bytes.\n\nFAT size = entries × entry size, rounded up to whole blocks. Data blocks available = total blocks - FAT blocks.\n\n**Worked example.** A file system uses linked allocation with 512-byte blocks. Each block reserves 4 bytes for the pointer to the next block. A file is 3000 bytes. How many blocks does it need, and how much space is wasted?\n\n1. Each block holds 512 - 4 = 508 bytes of data, because 4 bytes go to the pointer.\n2. Blocks needed = ceil(3000 / 508) = ceil(5.9) = 6.\n3. Five full blocks hold 5 × 508 = 2540 bytes.\n4. The sixth block holds the remaining 3000 - 2540 = 460 bytes of data (plus its pointer).\n5. It has 508 - 460 = 48 data bytes unused. That is internal fragmentation in the last block.\n6. The file occupies 6 × 512 = 3072 bytes of disk for 3000 bytes of data. The overhead is 72 bytes: 6 × 4 = 24 for pointers and 48 unused.\n\n**Answer:** 6 blocks. The waste is 72 bytes: 24 for pointers and 48 unused in the last block.",
+   "why_full": "This is straight arithmetic with two traps: the pointer bytes and the rounding. In GATE: blocks needed for a file with in-block pointers, wasted space, or the largest file with a FAT (2025 CS1 Q51, 2026 CS2 Q53, 2014 CS2 Q20, 2022 CS Q63).\n\nAsked: 2025 CS1 Q51, 2026 CS2 Q53, 2014 CS2 Q20, 2022 CS Q63",
+   "trap": "Dividing the file size by the full block size, or forgetting to round up. Another common slip is subtracting the pointer in a FAT system, where the data blocks hold no pointers, or forgetting that the FAT itself uses disk space."
+  },
+  {
+   "atom_id": "f3",
+   "title": "Inodes and maximum file size",
+   "simple": "An inode is like a file's ID card. It holds a few direct pointers to the first blocks of the file, so small files are found immediately. For bigger files it holds a pointer to a page that is a list of more block addresses. For very big files, a pointer to a list of lists, and one more level beyond that. Each extra level multiplies how many blocks you can reach by the number of addresses that fit in one block. So the biggest file is found by adding up what each kind of pointer can reach. In exam words: with P = block size / address size, the maximum size = (direct + P + P^2 + P^3) × block size.",
+   "idea": "A Unix **inode** stores a file's attributes and a few block pointers. Some are **direct** and point at data blocks. Others are **indirect**: they point at an index block that holds more pointers. Each extra level of indirection multiplies the reachable blocks by P, the number of pointers per block.",
+   "definition": "Let B be the block size and a the size of a block address.\n\n**P = B / a** pointers fit in one index block.\n\nDirect pointers (d of them): d data blocks.\n\n**Single indirect:** one index block, P data blocks.\n\n**Double indirect:** P index blocks, each pointing to P data blocks: P^2 data blocks.\n\n**Triple indirect:** P^3 data blocks.\n\n**Maximum file size = (d + P + P^2 + P^3) × B**, including only the levels that the inode has.\n\nThe inode stores the attributes (owner, size, times, permissions) but not the file name, which lives in the directory.",
+   "intuition_full": "The design makes small files cheap and large files possible. Most files are small, so a handful of direct pointers reaches them with no extra reads. Each indirect level costs one more disk read to reach a data block, so the layout pays more only for the files that need it. The counting is a tree. Level 0 has d leaves. Level 1 has P leaves. Level 2 has P times P leaves, and so on. The total is a geometric-like sum in which the deepest level dominates by a factor of P. That is why dropping the last term, or misjudging P, is the most common error. A second limit is the width of the address: if addresses are 16 bits, the disk has at most 2^16 blocks, which caps the file size no matter what the inode could name. Exams also fix the pointer size at 4 bytes, so P = B / 4.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "An inode has 10 direct pointers, 1 single-indirect pointer and 1 double-indirect pointer. Blocks are 512 bytes and block addresses are 4 bytes. What is the maximum file size?",
+     "steps": [
+      "One index block holds 512 / 4 = 128 pointers. Call this P.",
+      "The 10 direct pointers each point at a data block: 10 blocks.",
+      "The single-indirect pointer points to one index block with 128 pointers: 128 more data blocks.",
+      "The double-indirect pointer points to an index block of 128 pointers, each pointing to another index block. That makes 128 second-level index blocks.",
+      "Each of those 128 index blocks has 128 pointers to data blocks: 128 × 128 = 16384 data blocks.",
+      "Total = 10 + 128 + 16384 = 16522 blocks. Size = 16522 × 512 = 8,459,264 bytes, about 8.07 MB (MiB). The double term supplies almost all of it."
+     ],
+     "answer": "16,522 blocks, which is 8,459,264 bytes (about 8.07 MiB)."
+    },
+    {
+     "level": "gate",
+     "setup": "An inode has 12 direct pointers and one each of single, double and triple indirect pointers. Blocks are 1 KB and block addresses are 4 bytes. What is the maximum file size?",
+     "steps": [
+      "P = 1 KB / 4 B = 256 pointers per index block.",
+      "Direct: 12 blocks. Single: P = 256. Double: P^2 = 65,536. Triple: P^3 = 16,777,216.",
+      "Total blocks = 12 + 256 + 65,536 + 16,777,216 = 16,843,020.",
+      "Size = 16,843,020 KB. Divide by 1,048,576 to get GB: about 16.06 GB (GiB)."
+     ],
+     "answer": "16,843,020 blocks of 1 KB, about 16.06 GB. The triple term gives 99.6% of it; dropping it is the usual error."
+    },
+    {
+     "level": "twist",
+     "setup": "Blocks are 1 KB and block addresses are 2 bytes (16 bits). The inode has 10 direct pointers, one single and one double indirect pointer. The disk has only as many blocks as 16-bit addresses can name. What limits the maximum file size, the inode or the disk?",
+     "steps": [
+      "P = 1024 / 2 = 512 pointers per index block.",
+      "Inode capacity = 10 + 512 + 512^2 = 10 + 512 + 262,144 = 262,666 blocks, about 256.5 MB.",
+      "But 16-bit addresses name only 2^16 = 65,536 blocks, so the disk is at most 64 MB.",
+      "A file cannot be bigger than the disk. So the practical limit is the disk size (a bit under 64 MB, since the index blocks also use space)."
+     ],
+     "answer": "The disk limits it: at most 65,536 blocks (64 MB), even though the inode could address about 256.5 MB."
+    }
+   ],
+   "why": "The inode calculation is the standard file-system numerical in GATE. In GATE: compute the maximum file size from block size, address size and the pointer layout (2019 CS Q52, 2004 CS Q49, 2012 CS Q41, 2008 CS Q20).",
+   "how": [
+    "Compute P = block size / address size.",
+    "List the levels the inode has and the blocks each gives: d, P, P^2, P^3.",
+    "Add them and multiply by the block size.",
+    "Convert units at the end (B → KB → MB → GB). Check that the pointer width does not cap the disk size."
+   ],
+   "mistake": "Dropping the highest indirect level, or using the direct pointers only. A second slip is mixing up B and a, which gives the wrong P. A third is forgetting to multiply by the block size at the end.",
+   "edge_cases": [
+    "If the file is smaller than the direct area, no index block is read at all.",
+    "If addresses are narrow, the disk size can be smaller than the inode's capacity.",
+    "The count is in blocks; the size is blocks × block size."
+   ],
+   "connections": [
+    "Indexed allocation, in the first card, is the idea; the inode is the Unix version (see Allocation methods).",
+    "Reading a block deep in a big file costs one disk read per indirect level.",
+    "The same tree-counting idea gives multi-level page tables (see Multi-level page tables in the virtual-memory chapter)."
+   ],
+   "check": [
+    {
+     "q": "B = 1 KB, address 4 B. Pointers per index block?",
+     "a": "1024 / 4 = 256."
+    },
+    {
+     "q": "12 direct + single indirect, B = 4 KB, address 4 B. Blocks reachable?",
+     "a": "P = 1024. 12 + 1024 = 1036 blocks."
+    },
+    {
+     "q": "Which level contributes most to a file's maximum size?",
+     "a": "The deepest indirect level, since it adds P^n blocks."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q52, 2004 CS Q49, 2012 CS Q41, 2002 CS Q2.22, 2008 CS Q20",
+   "try": {
+    "id": "gen.fs.002",
+    "label": "Try: what a Unix inode stores (L1)"
+   },
+   "scene": "os.fs.inode",
+   "example": {
+    "setup": "An inode has 10 direct pointers, 1 single-indirect pointer and 1 double-indirect pointer. Blocks are 512 bytes and block addresses are 4 bytes. What is the maximum file size?",
+    "steps": [
+     "One index block holds 512 / 4 = 128 pointers. Call this P.",
+     "The 10 direct pointers each point at a data block: 10 blocks.",
+     "The single-indirect pointer points to one index block with 128 pointers: 128 more data blocks.",
+     "The double-indirect pointer points to an index block of 128 pointers, each pointing to another index block. That makes 128 second-level index blocks.",
+     "Each of those 128 index blocks has 128 pointers to data blocks: 128 × 128 = 16384 data blocks.",
+     "Total = 10 + 128 + 16384 = 16522 blocks. Size = 16522 × 512 = 8,459,264 bytes, about 8.07 MB (MiB). The double term supplies almost all of it."
+    ],
+    "answer": "16,522 blocks, which is 8,459,264 bytes (about 8.07 MiB)."
+   },
+   "what": "A Unix **inode** stores a file's attributes and a few block pointers. Some are **direct** and point at data blocks. Others are **indirect**: they point at an index block that holds more pointers. Each extra level of indirection multiplies the reachable blocks by P, the number of pointers per block.",
+   "what_full": "A Unix **inode** stores a file's attributes and a few block pointers. Some are **direct** and point at data blocks. Others are **indirect**: they point at an index block that holds more pointers. Each extra level of indirection multiplies the reachable blocks by P, the number of pointers per block.\n\nLet B be the block size and a the size of a block address.\n\n**P = B / a** pointers fit in one index block.\n\nDirect pointers (d of them): d data blocks.\n\n**Single indirect:** one index block, P data blocks.\n\n**Double indirect:** P index blocks, each pointing to P data blocks: P^2 data blocks.\n\n**Triple indirect:** P^3 data blocks.\n\n**Maximum file size = (d + P + P^2 + P^3) × B**, including only the levels that the inode has.\n\nThe inode stores the attributes (owner, size, times, permissions) but not the file name, which lives in the directory.\n\n**Worked example.** An inode has 10 direct pointers, 1 single-indirect pointer and 1 double-indirect pointer. Blocks are 512 bytes and block addresses are 4 bytes. What is the maximum file size?\n\n1. One index block holds 512 / 4 = 128 pointers. Call this P.\n2. The 10 direct pointers each point at a data block: 10 blocks.\n3. The single-indirect pointer points to one index block with 128 pointers: 128 more data blocks.\n4. The double-indirect pointer points to an index block of 128 pointers, each pointing to another index block. That makes 128 second-level index blocks.\n5. Each of those 128 index blocks has 128 pointers to data blocks: 128 × 128 = 16384 data blocks.\n6. Total = 10 + 128 + 16384 = 16522 blocks. Size = 16522 × 512 = 8,459,264 bytes, about 8.07 MB (MiB). The double term supplies almost all of it.\n\n**Answer:** 16,522 blocks, which is 8,459,264 bytes (about 8.07 MiB).",
+   "why_full": "The inode calculation is the standard file-system numerical in GATE. In GATE: compute the maximum file size from block size, address size and the pointer layout (2019 CS Q52, 2004 CS Q49, 2012 CS Q41, 2008 CS Q20).\n\nAsked: 2019 CS Q52, 2004 CS Q49, 2012 CS Q41, 2002 CS Q2.22, 2008 CS Q20",
+   "trap": "Dropping the highest indirect level, or using the direct pointers only. A second slip is mixing up B and a, which gives the wrong P. A third is forgetting to multiply by the block size at the end."
+  },
+  {
+   "atom_id": "f4",
+   "title": "Free-space management",
+   "simple": "The OS must remember which blocks of the disk are free. One way is a long strip of tickboxes, one box per block, ticked when the block is free. To size the strip, count the blocks and you have the number of boxes. Eight boxes fit in one byte. The other way is a list of free block numbers written on spare blocks. That list is short if almost nothing is free and long if everything is free, while the strip always stays the same length. The strip also makes it easy to find a run of free blocks side by side. In exam words: a bitmap uses one bit per block; a linked free list uses list blocks that each hold a pointer and a number of free-block addresses.",
+   "idea": "The file system tracks free blocks in one of two ways. A **bitmap** has one bit per disk block (1 = free in the usual convention) and a fixed size. A **linked list** stores the free block numbers inside list blocks, so it grows with the amount of free space.",
+   "definition": "Number of blocks N = disk size / block size.\n\n**Bitmap:** N bits = N / 8 bytes, rounded up to whole blocks. Allocation scans for a 1. A run of k free blocks is a run of k ones.\n\n**Linked free list:** each list block of size B holds one pointer to the next list block and (B / a) - 1 free block numbers, where a is the address size. Blocks needed = ceil(free blocks / ((B / a) - 1)).\n\nOther schemes: grouping (one free block holds n addresses and the last points to another such block) and counting (store a start and a run length).\n\nThe convention for 0 and 1 must be read from the question.",
+   "intuition_full": "Both schemes answer the same question, 'which blocks are free?', but with opposite cost profiles. The bitmap pays a fixed fee, one bit per block, whether the disk is empty or full. For a modern disk the fee is small (128 KB for 1 GB of 1 KB blocks), and the whole map can sit in memory. In return the bitmap makes it easy to find a run of consecutive free blocks, which helps contiguous or nearly contiguous allocation. The free list pays only for the free blocks, so a nearly full disk has a tiny list, but a nearly empty disk has a huge one, and scanning for a run of blocks is slow because the numbers are unsorted. The exam asks sizes: be careful with powers of two, count bits and bytes separately, and subtract the pointer slot from each list block.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 1 GB disk uses 1 KB blocks. A bit vector (bitmap) keeps one bit per block, where 1 means free and 0 means used. How big is the bitmap? In the first 16 bits 0011 0100 1110 0010 (blocks 0 to 15), which block does the system allocate first, and where are 3 free blocks in a row?",
+     "steps": [
+      "Blocks = 1 GB / 1 KB = 2^30 / 2^10 = 2^20 = 1,048,576 blocks.",
+      "One bit per block: 2^20 bits / 8 = 2^17 bytes = 128 KB. That is 128 blocks of the disk.",
+      "Read the first 16 bits: 0011 0100 1110 0010. Scanning from the left, the first 1 is at position 2, so block 2 is the first free block.",
+      "Allocate it: set bit 2 to 0. The map becomes 0001 0100 1110 0010.",
+      "For 3 contiguous free blocks, look for 111. The bits 8, 9 and 10 are all 1. Allocate them: set those bits to 0.",
+      "When the file is deleted, its blocks are freed: set bits 2, 8, 9 and 10 back to 1. The map returns to 0011 0100 1110 0010."
+     ],
+     "answer": "The bitmap is 128 KB. The first free block is 2, and the run of three free blocks is blocks 8 to 10."
+    },
+    {
+     "level": "gate",
+     "setup": "A 2 GB disk has 1 KB blocks and 32-bit block numbers. Compare the space needed to track all-free space with a bitmap and with a linked free list, where each list block stores one 4-byte pointer to the next list block and as many free block numbers as fit.",
+     "steps": [
+      "Blocks = 2 GB / 1 KB = 2^31 / 2^10 = 2^21 = 2,097,152.",
+      "Bitmap: 2^21 bits = 2^18 bytes = 256 KB, which is 256 blocks.",
+      "Linked list: a 1 KB block holds 256 four-byte slots. One slot is the next pointer, so 255 hold block numbers.",
+      "Blocks needed = ceil(2,097,152 / 255) = ceil(8224.1) = 8225.",
+      "With the whole disk free, the list needs 8225 blocks against 256 for the bitmap. The bitmap is about 32 times smaller."
+     ],
+     "answer": "Bitmap: 256 KB (256 blocks). Free list: 8225 blocks when every block is free."
+    },
+    {
+     "level": "twist",
+     "setup": "The same 2 GB disk is almost full, with only 1000 free blocks. Which scheme is smaller now?",
+     "steps": [
+      "The bitmap size does not depend on how many blocks are free. It is still 256 KB (256 blocks).",
+      "The linked list stores only the free blocks. 1000 numbers need ceil(1000 / 255) = 4 list blocks.",
+      "Now the list is much smaller: 4 blocks against 256.",
+      "A free list shrinks as the disk fills. A bitmap stays fixed but allows quick search for runs of free blocks."
+     ],
+     "answer": "The linked list: 4 blocks against 256 for the bitmap. The bitmap's size is fixed, the list's size follows the free space."
+    }
+   ],
+   "why": "Free-space sizes are a quick power-of-two calculation. In GATE: the size of a bitmap for a given disk, or the number of blocks needed for a free list (the free-space questions of 2025 CS1 Q51, 2026 CS2 Q53, 2014 CS2 Q20, 2022 CS Q63).",
+   "how": [
+    "Compute N = disk size / block size, as a power of two if possible.",
+    "Bitmap size = N bits. Divide by 8 for bytes, then by the block size for blocks.",
+    "List block capacity = (block size / address size) - 1 numbers (one slot is the next pointer).",
+    "List blocks = ceil(free blocks / capacity)."
+   ],
+   "mistake": "Forgetting to convert bits to bytes (a factor of 8), or counting the pointer slot as a free-block number. Another slip is to assume the bitmap shrinks when the disk fills; it does not.",
+   "edge_cases": [
+    "The bit convention differs between textbooks and questions: always read whether 1 means free or used.",
+    "If N is not a multiple of 8, the bitmap is rounded up to whole bytes.",
+    "The free-list blocks are themselves free blocks, so they cost nothing extra on an empty disk."
+   ],
+   "connections": [
+    "A FAT can double as a free-space map: free blocks have entry 0 (see Linked allocation and FAT).",
+    "Finding a run of free blocks matters for contiguous allocation (see Allocation methods).",
+    "The same bitmap idea tracks free frames in physical memory."
+   ],
+   "check": [
+    {
+     "q": "A 4 GB disk with 4 KB blocks. Bitmap size?",
+     "a": "2^32 / 2^12 = 2^20 blocks = 2^20 bits = 128 KB."
+    },
+    {
+     "q": "A 4 KB list block with 4-byte addresses stores how many free block numbers?",
+     "a": "1024 slots - 1 pointer = 1023."
+    },
+    {
+     "q": "When is a linked free list smaller than a bitmap?",
+     "a": "When few blocks are free."
+    }
+   ],
+   "asked": "Asked: 2025 CS1 Q51, 2026 CS2 Q53, 2014 CS2 Q20, 2022 CS Q63",
+   "try": {
+    "id": "gen.fs.006",
+    "label": "Try: size of a bitmap for a given disk (L2)"
+   },
+   "scene": "os.fs.bitmap",
+   "example": {
+    "setup": "A 1 GB disk uses 1 KB blocks. A bit vector (bitmap) keeps one bit per block, where 1 means free and 0 means used. How big is the bitmap? In the first 16 bits 0011 0100 1110 0010 (blocks 0 to 15), which block does the system allocate first, and where are 3 free blocks in a row?",
+    "steps": [
+     "Blocks = 1 GB / 1 KB = 2^30 / 2^10 = 2^20 = 1,048,576 blocks.",
+     "One bit per block: 2^20 bits / 8 = 2^17 bytes = 128 KB. That is 128 blocks of the disk.",
+     "Read the first 16 bits: 0011 0100 1110 0010. Scanning from the left, the first 1 is at position 2, so block 2 is the first free block.",
+     "Allocate it: set bit 2 to 0. The map becomes 0001 0100 1110 0010.",
+     "For 3 contiguous free blocks, look for 111. The bits 8, 9 and 10 are all 1. Allocate them: set those bits to 0.",
+     "When the file is deleted, its blocks are freed: set bits 2, 8, 9 and 10 back to 1. The map returns to 0011 0100 1110 0010."
+    ],
+    "answer": "The bitmap is 128 KB. The first free block is 2, and the run of three free blocks is blocks 8 to 10."
+   },
+   "what": "The file system tracks free blocks in one of two ways. A **bitmap** has one bit per disk block (1 = free in the usual convention) and a fixed size. A **linked list** stores the free block numbers inside list blocks, so it grows with the amount of free space.",
+   "what_full": "The file system tracks free blocks in one of two ways. A **bitmap** has one bit per disk block (1 = free in the usual convention) and a fixed size. A **linked list** stores the free block numbers inside list blocks, so it grows with the amount of free space.\n\nNumber of blocks N = disk size / block size.\n\n**Bitmap:** N bits = N / 8 bytes, rounded up to whole blocks. Allocation scans for a 1. A run of k free blocks is a run of k ones.\n\n**Linked free list:** each list block of size B holds one pointer to the next list block and (B / a) - 1 free block numbers, where a is the address size. Blocks needed = ceil(free blocks / ((B / a) - 1)).\n\nOther schemes: grouping (one free block holds n addresses and the last points to another such block) and counting (store a start and a run length).\n\nThe convention for 0 and 1 must be read from the question.\n\n**Worked example.** A 1 GB disk uses 1 KB blocks. A bit vector (bitmap) keeps one bit per block, where 1 means free and 0 means used. How big is the bitmap? In the first 16 bits 0011 0100 1110 0010 (blocks 0 to 15), which block does the system allocate first, and where are 3 free blocks in a row?\n\n1. Blocks = 1 GB / 1 KB = 2^30 / 2^10 = 2^20 = 1,048,576 blocks.\n2. One bit per block: 2^20 bits / 8 = 2^17 bytes = 128 KB. That is 128 blocks of the disk.\n3. Read the first 16 bits: 0011 0100 1110 0010. Scanning from the left, the first 1 is at position 2, so block 2 is the first free block.\n4. Allocate it: set bit 2 to 0. The map becomes 0001 0100 1110 0010.\n5. For 3 contiguous free blocks, look for 111. The bits 8, 9 and 10 are all 1. Allocate them: set those bits to 0.\n6. When the file is deleted, its blocks are freed: set bits 2, 8, 9 and 10 back to 1. The map returns to 0011 0100 1110 0010.\n\n**Answer:** The bitmap is 128 KB. The first free block is 2, and the run of three free blocks is blocks 8 to 10.",
+   "why_full": "Free-space sizes are a quick power-of-two calculation. In GATE: the size of a bitmap for a given disk, or the number of blocks needed for a free list (the free-space questions of 2025 CS1 Q51, 2026 CS2 Q53, 2014 CS2 Q20, 2022 CS Q63).\n\nAsked: 2025 CS1 Q51, 2026 CS2 Q53, 2014 CS2 Q20, 2022 CS Q63",
+   "trap": "Forgetting to convert bits to bytes (a factor of 8), or counting the pointer slot as a free-block number. Another slip is to assume the bitmap shrinks when the disk fills; it does not."
+  },
+  {
+   "atom_id": "f5",
+   "title": "Disk geometry and capacity",
+   "simple": "A hard disk is a stack of round plates, like a stack of records, and each plate can be written on both sides. Every side has circular tracks, like the rings of a tree. Each ring is cut into small pieces called sectors, and every sector holds the same number of bytes. To find the total space, you just multiply: how many sides, how many rings on each side, how many sectors on each ring, and how many bytes in a sector. A cylinder means the same ring number on every side at once. In exam words: capacity = surfaces × cylinders × sectors per track × bytes per sector.",
+   "idea": "A disk has several **platters**, each with two **surfaces**. Each surface has concentric **tracks**, and each track is split into **sectors** of equal size. The same track number on all surfaces forms a **cylinder**. Capacity is the product of these four counts.",
+   "definition": "Surfaces = platters × 2 (one head per surface).\n\nTracks per surface = number of cylinders.\n\n**Capacity = surfaces × cylinders × sectors per track × bytes per sector.**\n\nSectors per cylinder = surfaces × sectors per track.\n\nSector number from ⟨cylinder c, head h, sector s⟩ (counting from 0) = (c × surfaces + h) × sectors per track + s.\n\nThe reverse: c = n div (sectors per cylinder), then h and s from the remainder.",
+   "intuition_full": "The geometry is a set of nested counts, so capacity is a chain of multiplications and the sector number is a mixed-radix number: sector within the track, track within the cylinder, cylinder within the disk. Counting in this order is the order in which the disk would be read if it read as much as possible without moving the arm: all sectors of one track, then the next head (no seek), then the next cylinder (one seek). That is why the formula puts the cylinder as the most significant digit. The classic traps are counting platters as surfaces and mixing units (KB, MB, GB with powers of two). Write each count as a power of two where possible, and the product is just adding exponents.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A disk has 2 platters, each recording on both sides, with 1024 cylinders, 200 sectors per track and 512 bytes per sector. Find its capacity. Then find the sector number of the sector at cylinder 5, head 2, sector 30, counting from 0.",
+     "steps": [
+      "Each platter has two sides, so 2 platters give 2 × 2 = 4 surfaces. There is one head per surface, so 4 heads.",
+      "One track holds 200 sectors × 512 B = 102,400 B.",
+      "A cylinder is the set of tracks at the same position on all surfaces: here 4 tracks. So one cylinder holds 4 × 102,400 = 409,600 B.",
+      "The disk has 1024 cylinders, so capacity = 1024 × 409,600 = 419,430,400 B = 400 MB (MiB).",
+      "Sector number = (cylinder × surfaces + head) × sectors per track + sector = (5 × 4 + 2) × 200 + 30 = 22 × 200 + 30 = 4430."
+     ],
+     "answer": "Capacity 419,430,400 bytes (400 MB). The sector at cylinder 5, head 2, sector 30 is number 4430."
+    },
+    {
+     "level": "gate",
+     "setup": "A 2 GB disk has 8 surfaces, 512 sectors per track and 1 KB sectors. How many cylinders does it have? Which cylinder, head and sector hold sector number 1,000,000 (counting from 0)?",
+     "steps": [
+      "Bytes per cylinder = 8 surfaces × 512 sectors × 1 KB = 4096 KB = 4 MB.",
+      "Cylinders = 2 GB / 4 MB = 2^31 / 2^22 = 2^9 = 512.",
+      "Sectors per cylinder = 8 × 512 = 4096. Cylinder = 1,000,000 div 4096 = 244, remainder 576.",
+      "Within the cylinder: head = 576 div 512 = 1, sector = 576 mod 512 = 64."
+     ],
+     "answer": "512 cylinders. Sector 1,000,000 is at cylinder 244, head 1, sector 64."
+    },
+    {
+     "level": "twist",
+     "setup": "A drive has 3 platters, recording on both sides, with 1000 cylinders, 300 sectors per track and 512-byte sectors. A student counts 3 surfaces. What is the real capacity, and how far off is the student?",
+     "steps": [
+      "Surfaces = 3 platters × 2 sides = 6 (not 3).",
+      "Capacity = 6 × 1000 × 300 × 512 = 921,600,000 B, about 878.9 MB (MiB).",
+      "With 3 surfaces the student gets 460,800,000 B, which is half the true value.",
+      "Always count surfaces (heads), not platters."
+     ],
+     "answer": "921,600,000 bytes. The student's number is half the true capacity."
+    }
+   ],
+   "why": "Capacity and address arithmetic are the first step in most disk questions, and part of many access-time questions. In GATE: capacity from a geometry, the missing count from a capacity, or the position of a sector number (2024 CS1 Q54, 2024 CS2 Q53, 2015 CS1 Q48, 2009 CS Q51).",
+   "how": [
+    "Count surfaces: platters × 2 if both sides are used.",
+    "Multiply surfaces × cylinders × sectors per track × bytes per sector. Use powers of two.",
+    "To find a missing count, divide the capacity by the other three.",
+    "For a sector number: sector = (c × surfaces + h) × sectors per track + s. Reverse with div and mod."
+   ],
+   "mistake": "Using the number of platters as the number of surfaces, which halves the answer. A second slip is using the sector count of the whole disk where the question gives sectors per track.",
+   "edge_cases": [
+    "If sectors are numbered from 1 instead of 0, shift the formula by one. Read the question.",
+    "Some disks use only one side of a platter. The question will say so.",
+    "Units: 1 KB = 2^10, 1 MB = 2^20, 1 GB = 2^30 in GATE questions."
+   ],
+   "connections": [
+    "The geometry sets the rotation and transfer times in the next card (see Disk access time).",
+    "Disk scheduling moves the head across cylinders (see FCFS and SSTF scheduling).",
+    "Allocation methods place file blocks on these sectors (see Allocation methods)."
+   ],
+   "check": [
+    {
+     "q": "4 surfaces, 100 cylinders, 50 sectors per track, 1 KB sectors. Capacity?",
+     "a": "4 × 100 × 50 × 1 KB = 20,000 KB."
+    },
+    {
+     "q": "How many surfaces do 5 platters give if both sides are used?",
+     "a": "10."
+    },
+    {
+     "q": "What is a cylinder?",
+     "a": "The set of tracks with the same track number on all surfaces."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q54, 2024 CS2 Q53, 2026 CS1 Q59, 2015 CS1 Q48, 2015 CS2 Q49, 2011 CS Q44, 2007 CS Q11, 2009 CS Q51, 2009 CS Q52, 2013 CS Q29, 2008 CS Q32",
+   "try": {
+    "id": "gen.fs.005",
+    "label": "Try: capacity of a disk from its geometry (L2)"
+   },
+   "scene": "os.fs.geometry",
+   "example": {
+    "setup": "A disk has 2 platters, each recording on both sides, with 1024 cylinders, 200 sectors per track and 512 bytes per sector. Find its capacity. Then find the sector number of the sector at cylinder 5, head 2, sector 30, counting from 0.",
+    "steps": [
+     "Each platter has two sides, so 2 platters give 2 × 2 = 4 surfaces. There is one head per surface, so 4 heads.",
+     "One track holds 200 sectors × 512 B = 102,400 B.",
+     "A cylinder is the set of tracks at the same position on all surfaces: here 4 tracks. So one cylinder holds 4 × 102,400 = 409,600 B.",
+     "The disk has 1024 cylinders, so capacity = 1024 × 409,600 = 419,430,400 B = 400 MB (MiB).",
+     "Sector number = (cylinder × surfaces + head) × sectors per track + sector = (5 × 4 + 2) × 200 + 30 = 22 × 200 + 30 = 4430."
+    ],
+    "answer": "Capacity 419,430,400 bytes (400 MB). The sector at cylinder 5, head 2, sector 30 is number 4430."
+   },
+   "what": "A disk has several **platters**, each with two **surfaces**. Each surface has concentric **tracks**, and each track is split into **sectors** of equal size. The same track number on all surfaces forms a **cylinder**. Capacity is the product of these four counts.",
+   "what_full": "A disk has several **platters**, each with two **surfaces**. Each surface has concentric **tracks**, and each track is split into **sectors** of equal size. The same track number on all surfaces forms a **cylinder**. Capacity is the product of these four counts.\n\nSurfaces = platters × 2 (one head per surface).\n\nTracks per surface = number of cylinders.\n\n**Capacity = surfaces × cylinders × sectors per track × bytes per sector.**\n\nSectors per cylinder = surfaces × sectors per track.\n\nSector number from ⟨cylinder c, head h, sector s⟩ (counting from 0) = (c × surfaces + h) × sectors per track + s.\n\nThe reverse: c = n div (sectors per cylinder), then h and s from the remainder.\n\n**Worked example.** A disk has 2 platters, each recording on both sides, with 1024 cylinders, 200 sectors per track and 512 bytes per sector. Find its capacity. Then find the sector number of the sector at cylinder 5, head 2, sector 30, counting from 0.\n\n1. Each platter has two sides, so 2 platters give 2 × 2 = 4 surfaces. There is one head per surface, so 4 heads.\n2. One track holds 200 sectors × 512 B = 102,400 B.\n3. A cylinder is the set of tracks at the same position on all surfaces: here 4 tracks. So one cylinder holds 4 × 102,400 = 409,600 B.\n4. The disk has 1024 cylinders, so capacity = 1024 × 409,600 = 419,430,400 B = 400 MB (MiB).\n5. Sector number = (cylinder × surfaces + head) × sectors per track + sector = (5 × 4 + 2) × 200 + 30 = 22 × 200 + 30 = 4430.\n\n**Answer:** Capacity 419,430,400 bytes (400 MB). The sector at cylinder 5, head 2, sector 30 is number 4430.",
+   "why_full": "Capacity and address arithmetic are the first step in most disk questions, and part of many access-time questions. In GATE: capacity from a geometry, the missing count from a capacity, or the position of a sector number (2024 CS1 Q54, 2024 CS2 Q53, 2015 CS1 Q48, 2009 CS Q51).\n\nAsked: 2024 CS1 Q54, 2024 CS2 Q53, 2026 CS1 Q59, 2015 CS1 Q48, 2015 CS2 Q49, 2011 CS Q44, 2007 CS Q11, 2009 CS Q51, 2009 CS Q52, 2013 CS Q29, 2008 CS Q32",
+   "trap": "Using the number of platters as the number of surfaces, which halves the answer. A second slip is using the sector count of the whole disk where the question gives sectors per track."
+  },
+  {
+   "atom_id": "f6",
+   "title": "Disk access time",
+   "simple": "Reading a record on a spinning disk is like catching a particular horse on a merry-go-round. First the arm has to walk to the right ring (the seek). Then you wait for the horse you want to come round to you, which takes on average half a turn (the rotational wait). Finally you grab it and ride along while it passes (the transfer). The walk and the wait take most of the time, and the grab is quick. If you need many horses that are scattered, you walk and wait again for each. In exam words: access time = seek + average rotational latency (half a rotation) + transfer time.",
+   "idea": "To read a sector the disk does three things in turn: the head **seeks** to the right track, it waits for the sector to rotate under it (on average **half a rotation**), and it **transfers** the data as the sector passes. The total is seek + rotational latency + transfer.",
+   "definition": "Rotation time T = 60 / rpm seconds.\n\n**Average rotational latency = T / 2.**\n\n**Transfer time** for one sector = T / (sectors per track). For k consecutive sectors, k times that. A whole track takes T.\n\n**Seek time:** given (the average, or from the distance).\n\n**Access time = seek + T / 2 + transfer.**\n\nFor k scattered sectors the full cost is paid k times. For k consecutive sectors on one track it is paid once, plus k transfer times.",
+   "intuition_full": "The three costs differ by a factor of about 100. A seek takes milliseconds because an arm has to move. Rotational delay is bounded by one rotation (a few ms at 7200 rpm). Transfer of one sector is microseconds because it is only a small slice of a rotation. So the cost of a read is almost entirely positioning, and the cheapest way to speed up a workload is to read sequentially: pay the positioning once, and stream the data. That is also why disk scheduling tries to reduce seeks, and why a file system tries to put a file's blocks together. The average rotational latency is half a rotation because the sector is equally likely to be anywhere from 'just arrived' to 'just missed'. Using a full rotation is a frequent error.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A disk rotates at 5400 rpm, has 120 sectors per track and an average seek time of 9 ms. Find the average time to read one random sector.",
+     "steps": [
+      "One rotation takes 60 / 5400 s = 11.11 ms.",
+      "Seek: the head moves to the right track. On average this takes 9 ms.",
+      "Rotational latency: the wanted sector is on average half a rotation away. 11.11 / 2 = 5.56 ms.",
+      "Transfer: one sector is 1/120 of a track, so it passes under the head in 11.11 / 120 = 0.093 ms.",
+      "Total = seek + rotational latency + transfer = 9 + 5.56 + 0.09 = 14.65 ms."
+     ],
+     "answer": "About 14.65 ms. The seek dominates, then the rotational wait; the transfer is tiny."
+    },
+    {
+     "level": "gate",
+     "setup": "Same disk (5400 rpm, 120 sectors per track, 9 ms average seek). A file has 40 sectors. (a) The sectors are stored consecutively on one track. (b) They are scattered at random positions. Find the time to read the file in each case.",
+     "steps": [
+      "One sector takes 0.093 ms to transfer, and the average rotational latency is 5.56 ms, as before.",
+      "(a) Consecutive sectors on one track: pay the seek and latency once, then read 40 sectors in a row. Time = 9 + 5.56 + 40 × 0.093 = 9 + 5.56 + 3.70 = 18.26 ms.",
+      "(b) Scattered: every sector needs its own seek, latency and transfer. Time = 40 × 14.65 = 585.9 ms.",
+      "Scattering the file makes it about 32 times slower. This is why allocation methods try to keep a file together."
+     ],
+     "answer": "(a) 18.26 ms, (b) about 585.9 ms."
+    },
+    {
+     "level": "twist",
+     "setup": "On the same disk the head is already on the right track. How long does a random-sector read take now?",
+     "steps": [
+      "There is no seek, since the head is already on the track.",
+      "Rotational latency is still half a rotation on average: 5.56 ms.",
+      "Add the transfer 0.093 ms. Total = 5.56 + 0.09 = 5.65 ms.",
+      "The seek is charged only when the track changes. A common error is charging it for every access."
+     ],
+     "answer": "About 5.65 ms: no seek, but the rotational wait remains."
+    }
+   ],
+   "why": "Access-time questions are the largest group in the file-system chapter. In GATE: compute the time for one random read, for a contiguous or scattered file, or for a set of reads with a given seek model (2024 CS1 Q54, 2024 CS2 Q53, 2026 CS1 Q59, 2015 CS1 Q48, 2009 CS Q51).",
+   "how": [
+    "Compute T = 60 / rpm (in ms: 60,000 / rpm).",
+    "Rotational latency = T / 2 unless the question says otherwise.",
+    "Transfer = T / sectors per track, multiplied by the number of consecutive sectors.",
+    "Add the seek, charged once per positioning. Consecutive sectors share one positioning; scattered ones each pay it."
+   ],
+   "mistake": "Using a full rotation as the average rotational latency, or charging one seek for scattered sectors. Another slip is mixing units: rpm to ms needs 60,000 / rpm.",
+   "edge_cases": [
+    "If the head is already on the track, the seek is 0 but the rotational wait remains.",
+    "Sequential reads of the next track may pay a track-to-track seek, which the question will give.",
+    "If the question says 'worst case', the rotational wait is a full rotation."
+   ],
+   "connections": [
+    "Geometry gives the sectors per track (see Disk geometry and capacity).",
+    "Disk scheduling reduces the seek part (see FCFS and SSTF scheduling, SCAN, LOOK and C-LOOK).",
+    "Contiguous allocation makes the cheap case (a) common (see Allocation methods)."
+   ],
+   "check": [
+    {
+     "q": "A disk spins at 7500 rpm. Average rotational latency?",
+     "a": "T = 60,000 / 7500 = 8 ms. Latency = 4 ms."
+    },
+    {
+     "q": "10 sectors per track, 6000 rpm. Transfer time of one sector?",
+     "a": "T = 10 ms. One sector = 10 / 10 = 1 ms."
+    },
+    {
+     "q": "Which part of access time is paid once for a run of consecutive sectors on one track?",
+     "a": "The seek and the rotational latency."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q54, 2024 CS2 Q53, 2026 CS1 Q59, 2015 CS1 Q48, 2015 CS2 Q49, 2011 CS Q44, 2007 CS Q11, 2009 CS Q51, 2009 CS Q52, 2013 CS Q29, 2008 CS Q32",
+   "try": {
+    "id": "gen.fs.003",
+    "label": "Try: average rotational latency at a given rpm (L1)"
+   },
+   "scene": "os.fs.access",
+   "example": {
+    "setup": "A disk rotates at 5400 rpm, has 120 sectors per track and an average seek time of 9 ms. Find the average time to read one random sector.",
+    "steps": [
+     "One rotation takes 60 / 5400 s = 11.11 ms.",
+     "Seek: the head moves to the right track. On average this takes 9 ms.",
+     "Rotational latency: the wanted sector is on average half a rotation away. 11.11 / 2 = 5.56 ms.",
+     "Transfer: one sector is 1/120 of a track, so it passes under the head in 11.11 / 120 = 0.093 ms.",
+     "Total = seek + rotational latency + transfer = 9 + 5.56 + 0.09 = 14.65 ms."
+    ],
+    "answer": "About 14.65 ms. The seek dominates, then the rotational wait; the transfer is tiny."
+   },
+   "what": "To read a sector the disk does three things in turn: the head **seeks** to the right track, it waits for the sector to rotate under it (on average **half a rotation**), and it **transfers** the data as the sector passes. The total is seek + rotational latency + transfer.",
+   "what_full": "To read a sector the disk does three things in turn: the head **seeks** to the right track, it waits for the sector to rotate under it (on average **half a rotation**), and it **transfers** the data as the sector passes. The total is seek + rotational latency + transfer.\n\nRotation time T = 60 / rpm seconds.\n\n**Average rotational latency = T / 2.**\n\n**Transfer time** for one sector = T / (sectors per track). For k consecutive sectors, k times that. A whole track takes T.\n\n**Seek time:** given (the average, or from the distance).\n\n**Access time = seek + T / 2 + transfer.**\n\nFor k scattered sectors the full cost is paid k times. For k consecutive sectors on one track it is paid once, plus k transfer times.\n\n**Worked example.** A disk rotates at 5400 rpm, has 120 sectors per track and an average seek time of 9 ms. Find the average time to read one random sector.\n\n1. One rotation takes 60 / 5400 s = 11.11 ms.\n2. Seek: the head moves to the right track. On average this takes 9 ms.\n3. Rotational latency: the wanted sector is on average half a rotation away. 11.11 / 2 = 5.56 ms.\n4. Transfer: one sector is 1/120 of a track, so it passes under the head in 11.11 / 120 = 0.093 ms.\n5. Total = seek + rotational latency + transfer = 9 + 5.56 + 0.09 = 14.65 ms.\n\n**Answer:** About 14.65 ms. The seek dominates, then the rotational wait; the transfer is tiny.",
+   "why_full": "Access-time questions are the largest group in the file-system chapter. In GATE: compute the time for one random read, for a contiguous or scattered file, or for a set of reads with a given seek model (2024 CS1 Q54, 2024 CS2 Q53, 2026 CS1 Q59, 2015 CS1 Q48, 2009 CS Q51).\n\nAsked: 2024 CS1 Q54, 2024 CS2 Q53, 2026 CS1 Q59, 2015 CS1 Q48, 2015 CS2 Q49, 2011 CS Q44, 2007 CS Q11, 2009 CS Q51, 2009 CS Q52, 2013 CS Q29, 2008 CS Q32",
+   "trap": "Using a full rotation as the average rotational latency, or charging one seek for scattered sectors. Another slip is mixing units: rpm to ms needs 60,000 / rpm."
+  },
+  {
+   "atom_id": "f7",
+   "title": "FCFS and SSTF scheduling",
+   "simple": "Imagine a postman with a list of houses in one long street. If he visits them in the order the letters arrived, he runs up and down the street a lot. If he always goes to the nearest house that still needs a letter, he walks much less. The risk is that a house at the far end of the street is always a bit further than the next nearby house, so it might never get its letter if new nearby houses keep joining the list. The disk arm is the postman and the cylinders are the houses. In exam words: FCFS follows arrival order, SSTF picks the nearest request each time and can starve far ones.",
+   "idea": "A disk scheduler picks which pending request the head serves next. **FCFS** serves them in arrival order. **SSTF** (shortest seek time first) always picks the request nearest to the current head position. SSTF moves the head less, but a far request can wait for ever.",
+   "definition": "Total head movement = sum of |next - current| over the service order, starting at the head position.\n\n**FCFS:** the order is the arrival order. Fair, but the path can zigzag.\n\n**SSTF:** from the current head position, choose the pending request with the smallest distance. Repeat. Break ties by a stated rule.\n\nSSTF is greedy: it minimises each move, not the total, so it is not always optimal. It can starve requests far from the head when close requests keep arriving.\n\nSSTF is the disk analogue of shortest job first.",
+   "intuition_full": "FCFS ignores where the head is, so a bad queue order makes the head swing across the disk again and again. SSTF fixes that by always taking the cheapest next step. In a queue where requests cluster, this finishes a cluster before leaving it, which is very efficient. The cost is fairness: the choice depends only on distance, so a steady stream of close requests keeps a far one waiting. That is the same trade as SJF versus FCFS for the CPU. A common exam mistake is to sort the whole queue and sweep it in order, which is not SSTF: SSTF picks the nearest to where the head is now, which can mean going back and forth. Always write the service order first, then add the distances. If a tie appears, the question should say which side wins.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The head is at cylinder 60 on a disk of 200 cylinders. The pending requests, in arrival order, are 20, 150, 45, 110, 80. Find the total head movement under FCFS and under SSTF.",
+     "steps": [
+      "The head starts at 60. The requests are 20, 150, 45, 110, 80. We add up the distance between each pair of consecutive stops.",
+      "FCFS serves them in arrival order: 60 → 20 → 150 → 45 → 110 → 80. Distances 40 + 130 + 105 + 65 + 30 = 370.",
+      "SSTF always picks the nearest pending request. From 60 the nearest is 45 (15). From 45 the nearest is 20 (25). From 20 the nearest is 80 (60). Then 110 (30), then 150 (40). Total = 15 + 25 + 60 + 30 + 40 = 170.",
+      "SSTF needs 170 against 370. It avoids crossing the same cylinders back and forth.",
+      "But SSTF served 150 last. If new requests near the head had kept arriving, the request at 150 could have waited indefinitely (starvation)."
+     ],
+     "answer": "FCFS 370 cylinders, SSTF 170 cylinders. SSTF is shorter but can starve far requests."
+    },
+    {
+     "level": "gate",
+     "setup": "The head is at 120. The queue in arrival order is 85, 175, 60, 140, 110, 20. Find the head movement under FCFS and under SSTF, and the ratio.",
+     "steps": [
+      "FCFS: 120 → 85 (35), → 175 (90), → 60 (115), → 140 (80), → 110 (30), → 20 (90). Total = 440.",
+      "SSTF from 120: the nearest is 110 (10). From 110: 85 is 25 away, 140 is 30 away, so 85 (25). From 85: 60 (25). From 60: 20 (40).",
+      "From 20 the remaining requests are 140 (120) and 175 (155), so 140 (120). Then 175 (35).",
+      "SSTF total = 10 + 25 + 25 + 40 + 120 + 35 = 255. The ratio FCFS : SSTF = 440 : 255, about 1.7."
+     ],
+     "answer": "FCFS 440, SSTF 255. SSTF moves about 42% less."
+    },
+    {
+     "level": "twist",
+     "setup": "The head is at 50. A request for 190 arrived first, and one for 55 after it. After each service a new request arrives close to the head: 45, then 52, then 47. Compare FCFS and SSTF.",
+     "steps": [
+      "SSTF: from 50 the nearest is 55 (5). Then 45 has arrived: 10 away, against 135 for 190. Go to 45 (10). Then 52 arrives (7 away), then 47 (5).",
+      "Each time the nearby request beats 190. After the four close requests, only 190 is left: 47 → 190 is 143. Total = 5 + 10 + 7 + 5 + 143 = 170.",
+      "The request for 190 waited through four services. If nearby requests kept arriving, it would wait forever.",
+      "FCFS would serve 190 first (140 away) and then bounce back, a total of 297 here. SSTF moves less but can starve; FCFS moves more but is fair."
+     ],
+     "answer": "SSTF 170 with the far request served last; FCFS 297. SSTF risks starvation."
+    }
+   ],
+   "why": "Head-movement totals are the most predictable arithmetic in the file-system chapter. In GATE: write the service order and add the distances for FCFS and SSTF (2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48).",
+   "how": [
+    "Write the head position and the queue.",
+    "FCFS: the order is the queue order.",
+    "SSTF: at each step find the pending request nearest to the current position. Remove it and move there.",
+    "Add the distances between consecutive stops, including the first move from the head.",
+    "Check for ties and apply the rule given."
+   ],
+   "mistake": "Sorting the queue and calling it SSTF. SSTF picks the nearest from the current position at every step. Another slip is assuming SSTF always has the lowest total movement; it is greedy and can lose to a sweep.",
+   "edge_cases": [
+    "A request at the head's own cylinder costs 0.",
+    "Ties between two equidistant requests change the total; the question must state a rule.",
+    "SSTF can starve far requests only if new nearby ones keep arriving."
+   ],
+   "connections": [
+    "SJF is SSTF for the CPU (see SJF and SRTF).",
+    "SCAN and LOOK remove the starvation by sweeping in one direction (see SCAN, LOOK and C-LOOK).",
+    "Seek distance feeds the seek term of disk access time (see Disk access time)."
+   ],
+   "check": [
+    {
+     "q": "Head at 50, queue 60, 30 (in that order). FCFS and SSTF movement?",
+     "a": "FCFS: 10 + 30 = 40. SSTF: 60 is 10 away, 30 is 20 away, so 60 then 30, also 40."
+    },
+    {
+     "q": "Which policy can starve a request?",
+     "a": "SSTF. FCFS cannot."
+    },
+    {
+     "q": "Head at 100, queue 90, 150, 105. First stop under SSTF?",
+     "a": "105 (5 away)."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48, 2009 CS Q31, 2004 CS Q12",
+   "try": {
+    "id": "gen.fs.004",
+    "label": "Try: what SSTF serves next (L1)"
+   },
+   "scene": "os.fs.sstf",
+   "example": {
+    "setup": "The head is at cylinder 60 on a disk of 200 cylinders. The pending requests, in arrival order, are 20, 150, 45, 110, 80. Find the total head movement under FCFS and under SSTF.",
+    "steps": [
+     "The head starts at 60. The requests are 20, 150, 45, 110, 80. We add up the distance between each pair of consecutive stops.",
+     "FCFS serves them in arrival order: 60 → 20 → 150 → 45 → 110 → 80. Distances 40 + 130 + 105 + 65 + 30 = 370.",
+     "SSTF always picks the nearest pending request. From 60 the nearest is 45 (15). From 45 the nearest is 20 (25). From 20 the nearest is 80 (60). Then 110 (30), then 150 (40). Total = 15 + 25 + 60 + 30 + 40 = 170.",
+     "SSTF needs 170 against 370. It avoids crossing the same cylinders back and forth.",
+     "But SSTF served 150 last. If new requests near the head had kept arriving, the request at 150 could have waited indefinitely (starvation)."
+    ],
+    "answer": "FCFS 370 cylinders, SSTF 170 cylinders. SSTF is shorter but can starve far requests."
+   },
+   "what": "A disk scheduler picks which pending request the head serves next. **FCFS** serves them in arrival order. **SSTF** (shortest seek time first) always picks the request nearest to the current head position. SSTF moves the head less, but a far request can wait for ever.",
+   "what_full": "A disk scheduler picks which pending request the head serves next. **FCFS** serves them in arrival order. **SSTF** (shortest seek time first) always picks the request nearest to the current head position. SSTF moves the head less, but a far request can wait for ever.\n\nTotal head movement = sum of |next - current| over the service order, starting at the head position.\n\n**FCFS:** the order is the arrival order. Fair, but the path can zigzag.\n\n**SSTF:** from the current head position, choose the pending request with the smallest distance. Repeat. Break ties by a stated rule.\n\nSSTF is greedy: it minimises each move, not the total, so it is not always optimal. It can starve requests far from the head when close requests keep arriving.\n\nSSTF is the disk analogue of shortest job first.\n\n**Worked example.** The head is at cylinder 60 on a disk of 200 cylinders. The pending requests, in arrival order, are 20, 150, 45, 110, 80. Find the total head movement under FCFS and under SSTF.\n\n1. The head starts at 60. The requests are 20, 150, 45, 110, 80. We add up the distance between each pair of consecutive stops.\n2. FCFS serves them in arrival order: 60 → 20 → 150 → 45 → 110 → 80. Distances 40 + 130 + 105 + 65 + 30 = 370.\n3. SSTF always picks the nearest pending request. From 60 the nearest is 45 (15). From 45 the nearest is 20 (25). From 20 the nearest is 80 (60). Then 110 (30), then 150 (40). Total = 15 + 25 + 60 + 30 + 40 = 170.\n4. SSTF needs 170 against 370. It avoids crossing the same cylinders back and forth.\n5. But SSTF served 150 last. If new requests near the head had kept arriving, the request at 150 could have waited indefinitely (starvation).\n\n**Answer:** FCFS 370 cylinders, SSTF 170 cylinders. SSTF is shorter but can starve far requests.",
+   "why_full": "Head-movement totals are the most predictable arithmetic in the file-system chapter. In GATE: write the service order and add the distances for FCFS and SSTF (2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48).\n\nAsked: 2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48, 2009 CS Q31, 2004 CS Q12",
+   "trap": "Sorting the queue and calling it SSTF. SSTF picks the nearest from the current position at every step. Another slip is assuming SSTF always has the lowest total movement; it is greedy and can lose to a sweep."
+  },
+  {
+   "atom_id": "f8",
+   "title": "SCAN, LOOK and C-LOOK",
+   "simple": "Think of a lift in a tall building that goes all the way up and then all the way down, stopping at every floor where someone has pressed the button. Nobody is ever forgotten, because the lift passes every floor twice in each full trip. The simple version always rides to the very top and bottom (SCAN). A smarter version turns round at the highest floor anyone actually wants (LOOK). Another version always goes up, and when it reaches the highest wanted floor it zooms back down to the lowest wanted floor without stopping and starts going up again (C-LOOK). In exam words: SCAN goes to the disk end, LOOK stops at the last request, C-LOOK sweeps one way and the jump back counts as movement.",
+   "idea": "The sweep policies move the head in one direction, serve every request on the way, and then turn. **SCAN** goes to the disk end before turning, **LOOK** turns at the last request, and **C-LOOK** sweeps one way only and jumps back to the lowest request. None of them starve a request.",
+   "definition": "Let the head move in direction D, with requests sorted.\n\n**SCAN:** serve requests in direction D up to the end of the disk (cylinder 0 or the last cylinder), then reverse and serve the rest.\n\n**LOOK:** like SCAN, but reverse at the last request in direction D.\n\n**C-SCAN:** serve in direction D to the disk end, jump to the other end, and continue in direction D.\n\n**C-LOOK:** serve in direction D to the last request, jump to the first request on the other side, and continue in D.\n\nTotal movement = sum of distances, including the end trip for SCAN and the jump for C-SCAN and C-LOOK, if the question counts it.",
+   "intuition_full": "The sweeps avoid both of FCFS's zigzags and SSTF's starvation. Because the head commits to a direction, every request is reached within two sweeps. SCAN is the original elevator. LOOK notices that going to the very end of the disk is wasted when there are no requests there, so it turns at the last request. C-LOOK removes a different inefficiency: after turning, the head sweeps back over the area it just served, which is now empty because requests that arrive there wait until the next pass. By always sweeping the same way and jumping back, C-LOOK gives more uniform waiting times, but the jump costs a long move. Whether the jump counts as movement depends on the question; GATE usually says so. Draw the path as a list of stops and add the legs.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The head is at 90 and moving toward higher cylinders on a disk with cylinders 0 to 199. The requests are 30, 120, 55, 170, 140, 15. Find the head movement under SCAN, LOOK and C-LOOK, where C-LOOK jumps from the highest request to the lowest and the jump counts as movement.",
+     "steps": [
+      "Sort the requests. Above the head: 120, 140, 170. Below the head: 55, 30, 15. The head moves up first.",
+      "SCAN: sweep up through 120, 140, 170 and continue to the end at 199 (109 cylinders). Then reverse and sweep down to 55, 30, 15 (199 → 15 is 184). Total = 109 + 184 = 293.",
+      "LOOK: sweep up to the last request, 170 (80 cylinders), and reverse there. Sweep down to the last request below, 15 (170 → 15 is 155). Total = 80 + 155 = 235.",
+      "C-LOOK: sweep up to 170 (80). Jump to the lowest pending request, 15 (155). Then sweep up again through 30 and 55 (15 → 55 is 40). Total = 80 + 155 + 40 = 275.",
+      "SCAN 293, LOOK 235, C-LOOK 275. LOOK saved the trip to 199. If the jump is not counted, C-LOOK is 80 + 40 = 120."
+     ],
+     "answer": "SCAN 293, LOOK 235, C-LOOK 275 cylinders (120 if the return jump is not counted)."
+    },
+    {
+     "level": "gate",
+     "setup": "Same requests (30, 120, 55, 170, 140, 15) and the head at 90, but now it moves toward lower cylinders. Find the head movement under LOOK and under C-LOOK, where the jump from the lowest request back to the highest counts.",
+     "steps": [
+      "LOOK down: 90 → 55 (35) → 30 (25) → 15 (15). That is 75 to the last request below.",
+      "Reverse and sweep up: 15 → 120 (105) → 140 (20) → 170 (30). That is 155. Total LOOK = 75 + 155 = 230.",
+      "C-LOOK down: the same 75 down to 15. Then jump to the highest request, 170 (155 cylinders).",
+      "Continue downward from 170: → 140 (30) → 120 (20) = 50. Total C-LOOK = 75 + 155 + 50 = 280."
+     ],
+     "answer": "LOOK 230, C-LOOK 280. C-LOOK pays for the return jump."
+    },
+    {
+     "level": "twist",
+     "setup": "The head is at 90 moving up. The only requests are 30, 55 and 15, all below the head. What do LOOK and SCAN cost?",
+     "steps": [
+      "No request lies above the head. LOOK sees there is nothing ahead and reverses at once.",
+      "LOOK: 90 → 55 (35) → 30 (25) → 15 (15). Total = 75.",
+      "SCAN still travels to the disk end first: 90 → 199 (109). Then 199 → 15 (184). Total = 293.",
+      "LOOK is 75 and SCAN is 293. SCAN spends 218 cylinders of movement for no request."
+     ],
+     "answer": "LOOK 75, SCAN 293. SCAN goes to the end even when nothing is there."
+    }
+   ],
+   "why": "These are the highest-frequency disk-scheduling questions, and the trick is only to count the right legs. In GATE: total head movement under SCAN, LOOK, C-SCAN or C-LOOK, often with the direction and the jump stated (2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48).",
+   "how": [
+    "Note the head position, the direction, the disk range and whether the jump counts.",
+    "Split the requests into those ahead of the head and those behind it, and sort each group.",
+    "Write the full list of stops: ahead (to the end for SCAN, or to the last request for LOOK), then the turn or the jump, then the rest.",
+    "Add the distance of each leg, including the trip to the disk end for SCAN."
+   ],
+   "mistake": "Treating SCAN as LOOK, or leaving out the return jump in C-LOOK when the question counts it. A third slip is starting in the wrong direction because the head's direction was given in the question.",
+   "edge_cases": [
+    "If no request lies ahead of the head, LOOK turns at once, while SCAN still goes to the end.",
+    "A request exactly at the head position costs 0 and is served first.",
+    "If the jump is not counted as movement, subtract it from the C-LOOK total."
+   ],
+   "connections": [
+    "SSTF (previous card) is faster per move but can starve.",
+    "The elevator picture also explains multi-level feedback queues in CPU scheduling.",
+    "The scheduling chapter has the same policies in its disk-scheduling card (see Disk scheduling in CPU and disk scheduling)."
+   ],
+   "check": [
+    {
+     "q": "Head at 50 moving up, requests 60 and 40, disk 0 to 99. LOOK movement?",
+     "a": "50 → 60 is 10, then 60 → 40 is 20. Total 30."
+    },
+    {
+     "q": "Same, but SCAN?",
+     "a": "50 → 99 is 49, then 99 → 40 is 59. Total 108."
+    },
+    {
+     "q": "What does C-LOOK do after serving the highest request?",
+     "a": "It jumps to the lowest pending request and continues in the same direction."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48, 2009 CS Q31, 2004 CS Q12",
+   "try": {
+    "id": "gen.fs.009",
+    "label": "Try: head movement under LOOK (L2)"
+   },
+   "scene": "os.fs.scan",
+   "example": {
+    "setup": "The head is at 90 and moving toward higher cylinders on a disk with cylinders 0 to 199. The requests are 30, 120, 55, 170, 140, 15. Find the head movement under SCAN, LOOK and C-LOOK, where C-LOOK jumps from the highest request to the lowest and the jump counts as movement.",
+    "steps": [
+     "Sort the requests. Above the head: 120, 140, 170. Below the head: 55, 30, 15. The head moves up first.",
+     "SCAN: sweep up through 120, 140, 170 and continue to the end at 199 (109 cylinders). Then reverse and sweep down to 55, 30, 15 (199 → 15 is 184). Total = 109 + 184 = 293.",
+     "LOOK: sweep up to the last request, 170 (80 cylinders), and reverse there. Sweep down to the last request below, 15 (170 → 15 is 155). Total = 80 + 155 = 235.",
+     "C-LOOK: sweep up to 170 (80). Jump to the lowest pending request, 15 (155). Then sweep up again through 30 and 55 (15 → 55 is 40). Total = 80 + 155 + 40 = 275.",
+     "SCAN 293, LOOK 235, C-LOOK 275. LOOK saved the trip to 199. If the jump is not counted, C-LOOK is 80 + 40 = 120."
+    ],
+    "answer": "SCAN 293, LOOK 235, C-LOOK 275 cylinders (120 if the return jump is not counted)."
+   },
+   "what": "The sweep policies move the head in one direction, serve every request on the way, and then turn. **SCAN** goes to the disk end before turning, **LOOK** turns at the last request, and **C-LOOK** sweeps one way only and jumps back to the lowest request. None of them starve a request.",
+   "what_full": "The sweep policies move the head in one direction, serve every request on the way, and then turn. **SCAN** goes to the disk end before turning, **LOOK** turns at the last request, and **C-LOOK** sweeps one way only and jumps back to the lowest request. None of them starve a request.\n\nLet the head move in direction D, with requests sorted.\n\n**SCAN:** serve requests in direction D up to the end of the disk (cylinder 0 or the last cylinder), then reverse and serve the rest.\n\n**LOOK:** like SCAN, but reverse at the last request in direction D.\n\n**C-SCAN:** serve in direction D to the disk end, jump to the other end, and continue in direction D.\n\n**C-LOOK:** serve in direction D to the last request, jump to the first request on the other side, and continue in D.\n\nTotal movement = sum of distances, including the end trip for SCAN and the jump for C-SCAN and C-LOOK, if the question counts it.\n\n**Worked example.** The head is at 90 and moving toward higher cylinders on a disk with cylinders 0 to 199. The requests are 30, 120, 55, 170, 140, 15. Find the head movement under SCAN, LOOK and C-LOOK, where C-LOOK jumps from the highest request to the lowest and the jump counts as movement.\n\n1. Sort the requests. Above the head: 120, 140, 170. Below the head: 55, 30, 15. The head moves up first.\n2. SCAN: sweep up through 120, 140, 170 and continue to the end at 199 (109 cylinders). Then reverse and sweep down to 55, 30, 15 (199 → 15 is 184). Total = 109 + 184 = 293.\n3. LOOK: sweep up to the last request, 170 (80 cylinders), and reverse there. Sweep down to the last request below, 15 (170 → 15 is 155). Total = 80 + 155 = 235.\n4. C-LOOK: sweep up to 170 (80). Jump to the lowest pending request, 15 (155). Then sweep up again through 30 and 55 (15 → 55 is 40). Total = 80 + 155 + 40 = 275.\n5. SCAN 293, LOOK 235, C-LOOK 275. LOOK saved the trip to 199. If the jump is not counted, C-LOOK is 80 + 40 = 120.\n\n**Answer:** SCAN 293, LOOK 235, C-LOOK 275 cylinders (120 if the return jump is not counted).",
+   "why_full": "These are the highest-frequency disk-scheduling questions, and the trick is only to count the right legs. In GATE: total head movement under SCAN, LOOK, C-SCAN or C-LOOK, often with the direction and the jump stated (2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48).\n\nAsked: 2018 CS Q63, 2020 CS Q45, 2014 CS1 Q19, 2015 CS1 Q30, 2016 CS1 Q48, 2009 CS Q31, 2004 CS Q12",
+   "trap": "Treating SCAN as LOOK, or leaving out the return jump in C-LOOK when the question counts it. A third slip is starting in the wrong direction because the head's direction was given in the question."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "os.fs.alloc",
+   "title": "Contiguous, linked and indexed allocation of one file",
+   "viewBox": [
+    0,
+    0,
+    360,
+    320
+   ],
+   "objects": [
+    {
+     "id": "l1",
+     "kind": "text",
+     "x": 180,
+     "y": 34,
+     "text": "contiguous",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "d1",
+     "kind": "array",
+     "x": 24,
+     "y": 44,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "F0",
+      "F1",
+      "F2",
+      "F3",
+      "X",
+      "X",
+      "",
+      ""
+     ],
+     "cw": 26,
+     "ch": 26,
+     "indices": true
+    },
+    {
+     "id": "i1",
+     "kind": "text",
+     "x": 180,
+     "y": 110,
+     "text": "",
+     "size": 12,
+     "mono": true,
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "l2",
+     "kind": "text",
+     "x": 180,
+     "y": 134,
+     "text": "linked",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "d2",
+     "kind": "array",
+     "x": 24,
+     "y": 144,
+     "cells": [
+      "",
+      "",
+      "F2",
+      "",
+      "",
+      "F0",
+      "",
+      "",
+      "",
+      "F1",
+      "",
+      "F3"
+     ],
+     "cw": 26,
+     "ch": 26,
+     "indices": true
+    },
+    {
+     "id": "i2",
+     "kind": "text",
+     "x": 180,
+     "y": 210,
+     "text": "",
+     "size": 12,
+     "mono": true,
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "l3",
+     "kind": "text",
+     "x": 180,
+     "y": 234,
+     "text": "indexed",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "d3",
+     "kind": "array",
+     "x": 24,
+     "y": 244,
+     "cells": [
+      "",
+      "F2",
+      "",
+      "F0",
+      "",
+      "",
+      "ix",
+      "",
+      "F1",
+      "",
+      "F3",
+      ""
+     ],
+     "cw": 26,
+     "ch": 26,
+     "indices": true
+    },
+    {
+     "id": "i3",
+     "kind": "text",
+     "x": 180,
+     "y": 310,
+     "text": "",
+     "size": 12,
+     "mono": true,
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Contiguous: the directory stores the start (4) and the length (4). F0 to F3 sit side by side in blocks 4 to 7.",
+     "show": [
+      "l1",
+      "d1",
+      "i1"
+     ],
+     "hide": [
+      "l2",
+      "d2",
+      "i2",
+      "l3",
+      "d3",
+      "i3"
+     ],
+     "set": [
+      {
+       "id": "i1",
+       "text": "start 4, length 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d1",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "F3 is at 4 + 3 = block 7. It is one calculation and one disk read, so random access is fast. But X sits right behind the file, so F cannot grow without moving. Free space also splits into holes (external fragmentation).",
+     "set": [
+      {
+       "id": "i1",
+       "text": "F3 = 4+3 = 7: 1 read; X blocks growth"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d1",
+       "cells": [
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Linked: each block stores a pointer to the next one, and the directory stores only the first block, 5. The chain is 5 → 9 → 2 → 11.",
+     "show": [
+      "l2",
+      "d2",
+      "i2"
+     ],
+     "set": [
+      {
+       "id": "i2",
+       "text": "start 5: chain 5 > 9 > 2 > 11"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d2",
+       "cells": [
+        5,
+        9,
+        2,
+        11
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "To reach F3 the system must follow the chain from the start: read block 5, then 9, then 2, then 11. That is 4 reads, one per pointer. Random access is slow, but there is no external fragmentation.",
+     "set": [
+      {
+       "id": "i2",
+       "text": "F3 needs 4 reads (one per pointer)",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d2",
+       "cells": [
+        11
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Indexed: the directory points to index block 6, which lists the data blocks 3, 8, 1, 10 in order. Blocks can be anywhere.",
+     "show": [
+      "l3",
+      "d3",
+      "i3"
+     ],
+     "set": [
+      {
+       "id": "i3",
+       "text": "index block 6: 3, 8, 1, 10"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d3",
+       "cells": [
+        6
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "To read F3: read index block 6 (1 read), find entry 3 = block 10, read block 10 (2nd read). So 2 reads for any block. The cost is an extra index block per file.",
+     "set": [
+      {
+       "id": "i3",
+       "text": "read ix (1), then block 10 (2)",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d3",
+       "cells": [
+        6,
+        10
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.fs.linked",
+   "title": "Linked allocation: usable bytes per block",
+   "viewBox": [
+    0,
+    0,
+    360,
+    238
+   ],
+   "objects": [
+    {
+     "id": "blk",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "block = 512 B = 508 data + 4 pointer",
+     "size": 13,
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "dat",
+     "kind": "array",
+     "x": 30,
+     "y": 62,
+     "cells": [],
+     "cw": 50,
+     "ch": 30,
+     "slots": 6,
+     "indices": false,
+     "label": "data bytes in each block"
+    },
+    {
+     "id": "ptr",
+     "kind": "array",
+     "x": 30,
+     "y": 124,
+     "cells": [],
+     "cw": 50,
+     "ch": 30,
+     "slots": 6,
+     "label": "pointer bytes"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 192,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "calc2",
+     "kind": "text",
+     "x": 180,
+     "y": 220,
+     "text": "",
+     "size": 12,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Each block holds 512 - 4 = 508 bytes of data, because 4 bytes go to the pointer.",
+     "set": [
+      {
+       "id": "dat",
+       "cells": [
+        508
+       ]
+      },
+      {
+       "id": "ptr",
+       "cells": [
+        4
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "512 - 4 = 508 data bytes"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dat",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "ptr",
+       "cells": [
+        0
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Blocks needed = ceil(3000 / 508) = ceil(5.9) = 6.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "3000 / 508 = 5.9, so 6 blocks"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dat",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Five full blocks hold 5 × 508 = 2540 bytes.",
+     "set": [
+      {
+       "id": "dat",
+       "cells": [
+        508,
+        508,
+        508,
+        508,
+        508
+       ]
+      },
+      {
+       "id": "ptr",
+       "cells": [
+        4,
+        4,
+        4,
+        4,
+        4
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "5 x 508 = 2540 bytes"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dat",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The sixth block holds the remaining 3000 - 2540 = 460 bytes of data (plus its pointer).",
+     "set": [
+      {
+       "id": "dat",
+       "cells": [
+        508,
+        508,
+        508,
+        508,
+        508,
+        460
+       ]
+      },
+      {
+       "id": "ptr",
+       "cells": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "3000 - 2540 = 460 bytes"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dat",
+       "cells": [
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "It has 508 - 460 = 48 data bytes unused. That is internal fragmentation in the last block.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "508 - 460 = 48 bytes unused",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "dat",
+       "cells": [
+        5
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "The file occupies 6 × 512 = 3072 bytes of disk for 3000 bytes of data. The overhead is 72 bytes: 6 × 4 = 24 for pointers and 48 unused.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "6 x 512 = 3072 for 3000 data"
+      },
+      {
+       "id": "calc2",
+       "text": "overhead 24 (pointers) + 48 (unused) = 72"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ptr",
+       "tone": "mid"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.fs.inode",
+   "title": "Counting the blocks reachable from an inode",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "ino",
+     "kind": "array",
+     "x": 12,
+     "y": 48,
+     "cells": [
+      "10 direct",
+      "single",
+      "double"
+     ],
+     "cw": 84,
+     "ch": 44,
+     "dir": "down",
+     "label": "inode"
+    },
+    {
+     "id": "Dd",
+     "kind": "box",
+     "x": 140,
+     "y": 56,
+     "w": 130,
+     "h": 28,
+     "label": "10 data blocks"
+    },
+    {
+     "id": "e1",
+     "kind": "arrow",
+     "x1": 96,
+     "y1": 70,
+     "x2": 140,
+     "y2": 70
+    },
+    {
+     "id": "S1",
+     "kind": "box",
+     "x": 140,
+     "y": 100,
+     "w": 80,
+     "h": 28,
+     "label": "index 128"
+    },
+    {
+     "id": "e2",
+     "kind": "arrow",
+     "x1": 96,
+     "y1": 114,
+     "x2": 140,
+     "y2": 114
+    },
+    {
+     "id": "Ds",
+     "kind": "box",
+     "x": 250,
+     "y": 100,
+     "w": 100,
+     "h": 28,
+     "label": "128 data"
+    },
+    {
+     "id": "e2b",
+     "kind": "arrow",
+     "from": "S1",
+     "to": "Ds"
+    },
+    {
+     "id": "Q1",
+     "kind": "box",
+     "x": 140,
+     "y": 144,
+     "w": 80,
+     "h": 28,
+     "label": "index 128"
+    },
+    {
+     "id": "e3",
+     "kind": "arrow",
+     "x1": 96,
+     "y1": 158,
+     "x2": 140,
+     "y2": 158
+    },
+    {
+     "id": "Q2",
+     "kind": "box",
+     "x": 250,
+     "y": 144,
+     "w": 100,
+     "h": 28,
+     "label": "128 index"
+    },
+    {
+     "id": "e3b",
+     "kind": "arrow",
+     "from": "Q1",
+     "to": "Q2"
+    },
+    {
+     "id": "Dq",
+     "kind": "box",
+     "x": 140,
+     "y": 190,
+     "w": 210,
+     "h": 28,
+     "label": "128 x 128 = 16384 data"
+    },
+    {
+     "id": "e3c",
+     "kind": "arrow",
+     "from": "Q2",
+     "to": "Dq"
+    },
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 244,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "One index block holds 512 / 4 = 128 pointers. Call this P.",
+     "show": [
+      "ino"
+     ],
+     "hide": [
+      "Dd",
+      "e1",
+      "S1",
+      "e2",
+      "Ds",
+      "e2b",
+      "Q1",
+      "e3",
+      "Q2",
+      "e3b",
+      "Dq",
+      "e3c"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "P = 512 / 4 = 128 pointers"
+      }
+     ],
+     "highlight": [
+      "ino"
+     ]
+    },
+    {
+     "caption": "The 10 direct pointers each point at a data block: 10 blocks.",
+     "show": [
+      "Dd"
+     ],
+     "draw": [
+      "e1"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "direct: 10 blocks"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ino",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The single-indirect pointer points to one index block with 128 pointers: 128 more data blocks.",
+     "show": [
+      "S1",
+      "Ds"
+     ],
+     "draw": [
+      "e2",
+      "e2b"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "single: 128 blocks"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ino",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The double-indirect pointer points to an index block of 128 pointers, each pointing to another index block. That makes 128 second-level index blocks.",
+     "show": [
+      "Q1",
+      "Q2"
+     ],
+     "draw": [
+      "e3",
+      "e3b"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "double: 128 index blocks"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ino",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Each of those 128 index blocks has 128 pointers to data blocks: 128 × 128 = 16384 data blocks.",
+     "show": [
+      "Dq"
+     ],
+     "draw": [
+      "e3c"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "double: 128 x 128 = 16384"
+      }
+     ],
+     "highlight": [
+      "Dq"
+     ]
+    },
+    {
+     "caption": "Total = 10 + 128 + 16384 = 16522 blocks. Size = 16522 × 512 = 8,459,264 bytes, about 8.07 MB (MiB). The double term supplies almost all of it.",
+     "set": [
+      {
+       "id": "tot",
+       "text": "10+128+16384 = 16522 blocks",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "Dd",
+      "Ds",
+      "Dq"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.fs.bitmap",
+   "title": "A free-space bitmap in use",
+   "viewBox": [
+    0,
+    0,
+    360,
+    200
+   ],
+   "objects": [
+    {
+     "id": "tt",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "bitmap, 1 = free (blocks 0 to 15 shown)",
+     "size": 12,
+     "mono": true,
+     "tone": "muted"
+    },
+    {
+     "id": "bm",
+     "kind": "array",
+     "x": 12,
+     "y": 84,
+     "cells": [
+      0,
+      0,
+      1,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "cw": 21,
+     "ch": 28,
+     "indices": true
+    },
+    {
+     "id": "pf",
+     "kind": "pointer",
+     "array": "bm",
+     "index": 2,
+     "label": "first free",
+     "side": "above"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 158,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "calc2",
+     "kind": "text",
+     "x": 180,
+     "y": 180,
+     "text": "",
+     "size": 12,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Blocks = 1 GB / 1 KB = 2^30 / 2^10 = 2^20 = 1,048,576 blocks.",
+     "hide": [
+      "pf"
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "2^30 / 2^10 = 2^20 blocks"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bm",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "One bit per block: 2^20 bits / 8 = 2^17 bytes = 128 KB. That is 128 blocks of the disk.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "2^20 bits = 2^17 B = 128 KB"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bm",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Read the first 16 bits: 0011 0100 1110 0010. Scanning from the left, the first 1 is at position 2, so block 2 is the first free block.",
+     "show": [
+      "pf"
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "scan from the left: block 2"
+      },
+      {
+       "id": "calc2",
+       "text": "first free block = 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bm",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Allocate it: set bit 2 to 0. The map becomes 0001 0100 1110 0010.",
+     "set": [
+      {
+       "id": "bm",
+       "cells": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "allocate: bit 2 -> 0"
+      },
+      {
+       "id": "calc2",
+       "text": ""
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bm",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "For 3 contiguous free blocks, look for 111. The bits 8, 9 and 10 are all 1. Allocate them: set those bits to 0.",
+     "hide": [
+      "pf"
+     ],
+     "set": [
+      {
+       "id": "bm",
+       "cells": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "run 111 at blocks 8, 9, 10"
+      },
+      {
+       "id": "calc2",
+       "text": "allocate: bits -> 0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bm",
+       "cells": [
+        8,
+        9,
+        10
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "When the file is deleted, its blocks are freed: set bits 2, 8, 9 and 10 back to 1. The map returns to 0011 0100 1110 0010.",
+     "set": [
+      {
+       "id": "bm",
+       "cells": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        1,
+        0,
+        0,
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "file deleted: bits back to 1"
+      },
+      {
+       "id": "calc2",
+       "text": "free blocks 2, 8, 9, 10"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "bm",
+       "cells": [
+        2,
+        8,
+        9,
+        10
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.fs.geometry",
+   "title": "Platters, surfaces, cylinders and sectors",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "pl1",
+     "kind": "text",
+     "x": 8,
+     "y": 70,
+     "text": "platter 1",
+     "size": 12,
+     "anchor": "start",
+     "tone": "muted"
+    },
+    {
+     "id": "pl2",
+     "kind": "text",
+     "x": 8,
+     "y": 128,
+     "text": "platter 2",
+     "size": 12,
+     "anchor": "start",
+     "tone": "muted"
+    },
+    {
+     "id": "sp",
+     "kind": "box",
+     "x": 338,
+     "y": 44,
+     "w": 8,
+     "h": 112,
+     "tone": "muted"
+    },
+    {
+     "id": "s0",
+     "kind": "box",
+     "x": 90,
+     "y": 52,
+     "w": 240,
+     "h": 18,
+     "label": "surface 0 (head 0)"
+    },
+    {
+     "id": "s1",
+     "kind": "box",
+     "x": 90,
+     "y": 72,
+     "w": 240,
+     "h": 18,
+     "label": "surface 1 (head 1)"
+    },
+    {
+     "id": "s2",
+     "kind": "box",
+     "x": 90,
+     "y": 110,
+     "w": 240,
+     "h": 18,
+     "label": "surface 2 (head 2)"
+    },
+    {
+     "id": "s3",
+     "kind": "box",
+     "x": 90,
+     "y": 130,
+     "w": 240,
+     "h": 18,
+     "label": "surface 3 (head 3)"
+    },
+    {
+     "id": "cyl",
+     "kind": "box",
+     "x": 292,
+     "y": 46,
+     "w": 18,
+     "h": 108,
+     "dash": true,
+     "fill": false,
+     "tone": "accent"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 190,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "calc2",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Each platter has two sides, so 2 platters give 2 × 2 = 4 surfaces. There is one head per surface, so 4 heads.",
+     "show": [
+      "pl1",
+      "pl2",
+      "sp",
+      "s0",
+      "s1",
+      "s2",
+      "s3"
+     ],
+     "hide": [
+      "cyl"
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "2 platters x 2 sides = 4 surfaces"
+      }
+     ],
+     "highlight": [
+      "s0",
+      "s1",
+      "s2",
+      "s3"
+     ]
+    },
+    {
+     "caption": "One track holds 200 sectors × 512 B = 102,400 B.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "1 track = 200 x 512 = 102,400 B"
+      }
+     ],
+     "highlight": [
+      "s0"
+     ]
+    },
+    {
+     "caption": "A cylinder is the set of tracks at the same position on all surfaces: here 4 tracks. So one cylinder holds 4 × 102,400 = 409,600 B.",
+     "show": [
+      "cyl"
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "1 cylinder = 4 tracks = 409,600 B"
+      }
+     ],
+     "highlight": [
+      "cyl"
+     ]
+    },
+    {
+     "caption": "The disk has 1024 cylinders, so capacity = 1024 × 409,600 = 419,430,400 B = 400 MB (MiB).",
+     "set": [
+      {
+       "id": "calc",
+       "text": "1024 x 409,600 = 419,430,400 B"
+      },
+      {
+       "id": "calc2",
+       "text": "= 400 MB"
+      }
+     ],
+     "highlight": [
+      "cyl"
+     ]
+    },
+    {
+     "caption": "Sector number = (cylinder × surfaces + head) × sectors per track + sector = (5 × 4 + 2) × 200 + 30 = 22 × 200 + 30 = 4430.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "sector <5, 2, 30>"
+      },
+      {
+       "id": "calc2",
+       "text": "(5*4 + 2)*200 + 30 = 4430"
+      }
+     ],
+     "highlight": [
+      "s2",
+      "cyl"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.fs.access",
+   "title": "Seek, rotation and transfer",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "ax",
+     "kind": "axis",
+     "x": 180,
+     "y": 122,
+     "unit": 1,
+     "xr": [
+      -100,
+      100
+     ],
+     "yr": [
+      -100,
+      100
+     ]
+    },
+    {
+     "id": "trk1",
+     "kind": "circle",
+     "cx": 180,
+     "cy": 122,
+     "r": 40,
+     "fillOpacity": 0.05
+    },
+    {
+     "id": "trk2",
+     "kind": "circle",
+     "cx": 180,
+     "cy": 122,
+     "r": 76,
+     "fillOpacity": 0.08,
+     "tone": "accent"
+    },
+    {
+     "id": "hd",
+     "kind": "node",
+     "x": 220,
+     "y": 122,
+     "r": 7,
+     "tone": "accent"
+    },
+    {
+     "id": "hl",
+     "kind": "text",
+     "x": 220,
+     "y": 142,
+     "text": "head",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "tgt",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      -76,
+      0
+     ],
+     "label": "sector",
+     "tone": "mid"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "calc2",
+     "kind": "text",
+     "x": 180,
+     "y": 222,
+     "text": "",
+     "size": 13,
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "One rotation takes 60 / 5400 s = 11.11 ms.",
+     "hide": [
+      "ax"
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "1 rotation = 60/5400 = 11.11 ms"
+      },
+      {
+       "id": "calc2",
+       "text": "head on an inner track"
+      }
+     ],
+     "highlight": [
+      "trk2"
+     ]
+    },
+    {
+     "caption": "Seek: the head moves to the right track. On average this takes 9 ms.",
+     "move": [
+      {
+       "id": "hd",
+       "x": 256,
+       "y": 122
+      },
+      {
+       "id": "hl",
+       "x": 256,
+       "y": 142
+      }
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "seek: head moves to the track"
+      },
+      {
+       "id": "calc2",
+       "text": "average seek = 9 ms"
+      }
+     ],
+     "highlight": [
+      "hd"
+     ]
+    },
+    {
+     "caption": "Rotational latency: the wanted sector is on average half a rotation away. 11.11 / 2 = 5.56 ms.",
+     "move": [
+      {
+       "id": "tgt",
+       "x": 76,
+       "y": 0,
+       "arc": {
+        "cx": 0,
+        "cy": 0
+       }
+      }
+     ],
+     "set": [
+      {
+       "id": "calc",
+       "text": "wait half a turn: 11.11 / 2 = 5.56 ms"
+      },
+      {
+       "id": "calc2",
+       "text": "sector rotates under the head"
+      }
+     ],
+     "highlight": [
+      "tgt"
+     ]
+    },
+    {
+     "caption": "Transfer: one sector is 1/120 of a track, so it passes under the head in 11.11 / 120 = 0.093 ms.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "transfer: 11.11 / 120 = 0.09 ms"
+      },
+      {
+       "id": "calc2",
+       "text": "1/120 of the track passes"
+      }
+     ],
+     "highlight": [
+      "tgt"
+     ]
+    },
+    {
+     "caption": "Total = seek + rotational latency + transfer = 9 + 5.56 + 0.09 = 14.65 ms.",
+     "set": [
+      {
+       "id": "calc",
+       "text": "9 + 5.56 + 0.09 = 14.65 ms",
+       "tone": "good"
+      },
+      {
+       "id": "calc2",
+       "text": "seek + latency + transfer"
+      }
+     ],
+     "highlight": [
+      "trk2"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.fs.sstf",
+   "title": "FCFS versus SSTF head paths",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "z0",
+     "kind": "text",
+     "x": 24,
+     "y": 16,
+     "text": "0",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "z1",
+     "kind": "text",
+     "x": 336,
+     "y": 16,
+     "text": "199",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "zt",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "cylinder",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 248,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "fn0",
+     "kind": "node",
+     "x": 118.1,
+     "y": 46,
+     "label": "60",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "fn1",
+     "kind": "node",
+     "x": 55.4,
+     "y": 73,
+     "label": "20",
+     "r": 13
+    },
+    {
+     "id": "fa1",
+     "kind": "arrow",
+     "from": "fn0",
+     "to": "fn1"
+    },
+    {
+     "id": "fn2",
+     "kind": "node",
+     "x": 259.2,
+     "y": 100,
+     "label": "150",
+     "r": 13
+    },
+    {
+     "id": "fa2",
+     "kind": "arrow",
+     "from": "fn1",
+     "to": "fn2"
+    },
+    {
+     "id": "fn3",
+     "kind": "node",
+     "x": 94.6,
+     "y": 127,
+     "label": "45",
+     "r": 13
+    },
+    {
+     "id": "fa3",
+     "kind": "arrow",
+     "from": "fn2",
+     "to": "fn3"
+    },
+    {
+     "id": "fn4",
+     "kind": "node",
+     "x": 196.5,
+     "y": 154,
+     "label": "110",
+     "r": 13
+    },
+    {
+     "id": "fa4",
+     "kind": "arrow",
+     "from": "fn3",
+     "to": "fn4"
+    },
+    {
+     "id": "fn5",
+     "kind": "node",
+     "x": 149.4,
+     "y": 181,
+     "label": "80",
+     "r": 13
+    },
+    {
+     "id": "fa5",
+     "kind": "arrow",
+     "from": "fn4",
+     "to": "fn5"
+    },
+    {
+     "id": "sn0",
+     "kind": "node",
+     "x": 118.1,
+     "y": 46,
+     "label": "60",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "sn1",
+     "kind": "node",
+     "x": 94.6,
+     "y": 73,
+     "label": "45",
+     "r": 13
+    },
+    {
+     "id": "sa1",
+     "kind": "arrow",
+     "from": "sn0",
+     "to": "sn1"
+    },
+    {
+     "id": "sn2",
+     "kind": "node",
+     "x": 55.4,
+     "y": 100,
+     "label": "20",
+     "r": 13
+    },
+    {
+     "id": "sa2",
+     "kind": "arrow",
+     "from": "sn1",
+     "to": "sn2"
+    },
+    {
+     "id": "sn3",
+     "kind": "node",
+     "x": 149.4,
+     "y": 127,
+     "label": "80",
+     "r": 13
+    },
+    {
+     "id": "sa3",
+     "kind": "arrow",
+     "from": "sn2",
+     "to": "sn3"
+    },
+    {
+     "id": "sn4",
+     "kind": "node",
+     "x": 196.5,
+     "y": 154,
+     "label": "110",
+     "r": 13
+    },
+    {
+     "id": "sa4",
+     "kind": "arrow",
+     "from": "sn3",
+     "to": "sn4"
+    },
+    {
+     "id": "sn5",
+     "kind": "node",
+     "x": 259.2,
+     "y": 181,
+     "label": "150",
+     "r": 13
+    },
+    {
+     "id": "sa5",
+     "kind": "arrow",
+     "from": "sn4",
+     "to": "sn5"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The head starts at 60. The requests are 20, 150, 45, 110, 80. We add up the distance between each pair of consecutive stops.",
+     "show": [
+      "z0",
+      "z1",
+      "zt",
+      "fn0"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "queue: 20 150 45 110 80"
+      }
+     ],
+     "highlight": [
+      "fn0"
+     ]
+    },
+    {
+     "caption": "FCFS serves them in arrival order: 60 → 20 → 150 → 45 → 110 → 80. Distances 40 + 130 + 105 + 65 + 30 = 370.",
+     "show": [
+      "fn1",
+      "fn2",
+      "fn3",
+      "fn4",
+      "fn5"
+     ],
+     "draw": [
+      "fa1",
+      "fa2",
+      "fa3",
+      "fa4",
+      "fa5"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "FCFS: 370"
+      }
+     ]
+    },
+    {
+     "caption": "SSTF always picks the nearest pending request. From 60 the nearest is 45 (15). From 45 the nearest is 20 (25). From 20 the nearest is 80 (60). Then 110 (30), then 150 (40). Total = 15 + 25 + 60 + 30 + 40 = 170.",
+     "hide": [
+      "fn0",
+      "fn1",
+      "fn2",
+      "fn3",
+      "fn4",
+      "fn5",
+      "fa1",
+      "fa2",
+      "fa3",
+      "fa4",
+      "fa5"
+     ],
+     "show": [
+      "sn0",
+      "sn1",
+      "sn2",
+      "sn3",
+      "sn4",
+      "sn5"
+     ],
+     "draw": [
+      "sa1",
+      "sa2",
+      "sa3",
+      "sa4",
+      "sa5"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "SSTF: 170"
+      }
+     ]
+    },
+    {
+     "caption": "SSTF needs 170 against 370. It avoids crossing the same cylinders back and forth.",
+     "set": [
+      {
+       "id": "tot",
+       "text": "FCFS 370   SSTF 170",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "sn0"
+     ]
+    },
+    {
+     "caption": "But SSTF served 150 last. If new requests near the head had kept arriving, the request at 150 could have waited indefinitely (starvation).",
+     "set": [
+      {
+       "id": "tot",
+       "text": "150 is served last: starvation risk",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sn5",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.fs.scan",
+   "title": "SCAN, LOOK and C-LOOK from the same head",
+   "viewBox": [
+    0,
+    0,
+    360,
+    282
+   ],
+   "objects": [
+    {
+     "id": "z0",
+     "kind": "text",
+     "x": 24,
+     "y": 16,
+     "text": "0",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "z1",
+     "kind": "text",
+     "x": 336,
+     "y": 16,
+     "text": "199",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "zt",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "cylinder",
+     "size": 12,
+     "tone": "muted"
+    },
+    {
+     "id": "tot",
+     "kind": "text",
+     "x": 180,
+     "y": 268,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true,
+     "tone": "accent"
+    },
+    {
+     "id": "sn0",
+     "kind": "node",
+     "x": 165.1,
+     "y": 46,
+     "label": "90",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "sn1",
+     "kind": "node",
+     "x": 212.1,
+     "y": 73,
+     "label": "120",
+     "r": 13
+    },
+    {
+     "id": "sa1",
+     "kind": "arrow",
+     "from": "sn0",
+     "to": "sn1"
+    },
+    {
+     "id": "sn2",
+     "kind": "node",
+     "x": 243.5,
+     "y": 100,
+     "label": "140",
+     "r": 13
+    },
+    {
+     "id": "sa2",
+     "kind": "arrow",
+     "from": "sn1",
+     "to": "sn2"
+    },
+    {
+     "id": "sn3",
+     "kind": "node",
+     "x": 290.5,
+     "y": 127,
+     "label": "170",
+     "r": 13
+    },
+    {
+     "id": "sa3",
+     "kind": "arrow",
+     "from": "sn2",
+     "to": "sn3"
+    },
+    {
+     "id": "sn4",
+     "kind": "node",
+     "x": 336.0,
+     "y": 154,
+     "label": "199",
+     "r": 13,
+     "tone": "muted"
+    },
+    {
+     "id": "sa4",
+     "kind": "arrow",
+     "from": "sn3",
+     "to": "sn4"
+    },
+    {
+     "id": "sn5",
+     "kind": "node",
+     "x": 110.2,
+     "y": 181,
+     "label": "55",
+     "r": 13
+    },
+    {
+     "id": "sa5",
+     "kind": "arrow",
+     "from": "sn4",
+     "to": "sn5"
+    },
+    {
+     "id": "sn6",
+     "kind": "node",
+     "x": 71.0,
+     "y": 208,
+     "label": "30",
+     "r": 13
+    },
+    {
+     "id": "sa6",
+     "kind": "arrow",
+     "from": "sn5",
+     "to": "sn6"
+    },
+    {
+     "id": "sn7",
+     "kind": "node",
+     "x": 47.5,
+     "y": 235,
+     "label": "15",
+     "r": 13
+    },
+    {
+     "id": "sa7",
+     "kind": "arrow",
+     "from": "sn6",
+     "to": "sn7"
+    },
+    {
+     "id": "ln0",
+     "kind": "node",
+     "x": 165.1,
+     "y": 46,
+     "label": "90",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "ln1",
+     "kind": "node",
+     "x": 212.1,
+     "y": 73,
+     "label": "120",
+     "r": 13
+    },
+    {
+     "id": "la1",
+     "kind": "arrow",
+     "from": "ln0",
+     "to": "ln1"
+    },
+    {
+     "id": "ln2",
+     "kind": "node",
+     "x": 243.5,
+     "y": 100,
+     "label": "140",
+     "r": 13
+    },
+    {
+     "id": "la2",
+     "kind": "arrow",
+     "from": "ln1",
+     "to": "ln2"
+    },
+    {
+     "id": "ln3",
+     "kind": "node",
+     "x": 290.5,
+     "y": 127,
+     "label": "170",
+     "r": 13
+    },
+    {
+     "id": "la3",
+     "kind": "arrow",
+     "from": "ln2",
+     "to": "ln3"
+    },
+    {
+     "id": "ln4",
+     "kind": "node",
+     "x": 110.2,
+     "y": 154,
+     "label": "55",
+     "r": 13
+    },
+    {
+     "id": "la4",
+     "kind": "arrow",
+     "from": "ln3",
+     "to": "ln4"
+    },
+    {
+     "id": "ln5",
+     "kind": "node",
+     "x": 71.0,
+     "y": 181,
+     "label": "30",
+     "r": 13
+    },
+    {
+     "id": "la5",
+     "kind": "arrow",
+     "from": "ln4",
+     "to": "ln5"
+    },
+    {
+     "id": "ln6",
+     "kind": "node",
+     "x": 47.5,
+     "y": 208,
+     "label": "15",
+     "r": 13
+    },
+    {
+     "id": "la6",
+     "kind": "arrow",
+     "from": "ln5",
+     "to": "ln6"
+    },
+    {
+     "id": "kn0",
+     "kind": "node",
+     "x": 165.1,
+     "y": 46,
+     "label": "90",
+     "r": 13,
+     "tone": "accent"
+    },
+    {
+     "id": "kn1",
+     "kind": "node",
+     "x": 212.1,
+     "y": 73,
+     "label": "120",
+     "r": 13
+    },
+    {
+     "id": "ka1",
+     "kind": "arrow",
+     "from": "kn0",
+     "to": "kn1"
+    },
+    {
+     "id": "kn2",
+     "kind": "node",
+     "x": 243.5,
+     "y": 100,
+     "label": "140",
+     "r": 13
+    },
+    {
+     "id": "ka2",
+     "kind": "arrow",
+     "from": "kn1",
+     "to": "kn2"
+    },
+    {
+     "id": "kn3",
+     "kind": "node",
+     "x": 290.5,
+     "y": 127,
+     "label": "170",
+     "r": 13
+    },
+    {
+     "id": "ka3",
+     "kind": "arrow",
+     "from": "kn2",
+     "to": "kn3"
+    },
+    {
+     "id": "kn4",
+     "kind": "node",
+     "x": 47.5,
+     "y": 154,
+     "label": "15",
+     "r": 13
+    },
+    {
+     "id": "ka4",
+     "kind": "arrow",
+     "from": "kn3",
+     "to": "kn4",
+     "dash": true
+    },
+    {
+     "id": "kn5",
+     "kind": "node",
+     "x": 71.0,
+     "y": 181,
+     "label": "30",
+     "r": 13
+    },
+    {
+     "id": "ka5",
+     "kind": "arrow",
+     "from": "kn4",
+     "to": "kn5"
+    },
+    {
+     "id": "kn6",
+     "kind": "node",
+     "x": 110.2,
+     "y": 208,
+     "label": "55",
+     "r": 13
+    },
+    {
+     "id": "ka6",
+     "kind": "arrow",
+     "from": "kn5",
+     "to": "kn6"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Sort the requests. Above the head: 120, 140, 170. Below the head: 55, 30, 15. The head moves up first.",
+     "show": [
+      "z0",
+      "z1",
+      "zt",
+      "sn0"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "head 90 up; 30 120 55 170 140 15"
+      }
+     ],
+     "highlight": [
+      "sn0"
+     ]
+    },
+    {
+     "caption": "SCAN: sweep up through 120, 140, 170 and continue to the end at 199 (109 cylinders). Then reverse and sweep down to 55, 30, 15 (199 → 15 is 184). Total = 109 + 184 = 293.",
+     "show": [
+      "sn1",
+      "sn2",
+      "sn3",
+      "sn4",
+      "sn5",
+      "sn6",
+      "sn7"
+     ],
+     "draw": [
+      "sa1",
+      "sa2",
+      "sa3",
+      "sa4",
+      "sa5",
+      "sa6",
+      "sa7"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "SCAN: 109 + 184 = 293"
+      }
+     ]
+    },
+    {
+     "caption": "LOOK: sweep up to the last request, 170 (80 cylinders), and reverse there. Sweep down to the last request below, 15 (170 → 15 is 155). Total = 80 + 155 = 235.",
+     "hide": [
+      "sn0",
+      "sn1",
+      "sn2",
+      "sn3",
+      "sn4",
+      "sn5",
+      "sn6",
+      "sn7",
+      "sa1",
+      "sa2",
+      "sa3",
+      "sa4",
+      "sa5",
+      "sa6",
+      "sa7"
+     ],
+     "show": [
+      "ln0",
+      "ln1",
+      "ln2",
+      "ln3",
+      "ln4",
+      "ln5",
+      "ln6"
+     ],
+     "draw": [
+      "la1",
+      "la2",
+      "la3",
+      "la4",
+      "la5",
+      "la6"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "LOOK: 80 + 155 = 235"
+      }
+     ]
+    },
+    {
+     "caption": "C-LOOK: sweep up to 170 (80). Jump to the lowest pending request, 15 (155). Then sweep up again through 30 and 55 (15 → 55 is 40). Total = 80 + 155 + 40 = 275.",
+     "hide": [
+      "ln0",
+      "ln1",
+      "ln2",
+      "ln3",
+      "ln4",
+      "ln5",
+      "ln6",
+      "la1",
+      "la2",
+      "la3",
+      "la4",
+      "la5",
+      "la6"
+     ],
+     "show": [
+      "kn0",
+      "kn1",
+      "kn2",
+      "kn3",
+      "kn4",
+      "kn5",
+      "kn6"
+     ],
+     "draw": [
+      "ka1",
+      "ka2",
+      "ka3",
+      "ka4",
+      "ka5",
+      "ka6"
+     ],
+     "set": [
+      {
+       "id": "tot",
+       "text": "C-LOOK: 80 + 155 + 40 = 275"
+      }
+     ]
+    },
+    {
+     "caption": "SCAN 293, LOOK 235, C-LOOK 275. LOOK saved the trip to 199. If the jump is not counted, C-LOOK is 80 + 40 = 120.",
+     "set": [
+      {
+       "id": "tot",
+       "text": "SCAN 293  LOOK 235  C-LOOK 275",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "kn0"
+     ]
+    }
+   ]
+  }
+ ]
+}

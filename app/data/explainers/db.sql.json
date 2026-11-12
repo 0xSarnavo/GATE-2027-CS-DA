@@ -1,0 +1,3804 @@
+{
+ "topic_id": "db.sql",
+ "title": "SQL",
+ "chapter_note": {
+  "about": "SQL is the language you actually use to ask a database questions. Its core is SELECT-FROM-WHERE, but unlike relational algebra it works on bags (tables that may repeat rows) and has NULL, which makes conditions three-valued. This chapter covers selection and bags, joins, aggregates and NULL, GROUP BY and HAVING, subqueries, set operations, three-valued logic, constraints, and the ANY/ALL idioms. GATE gives small tables and a query and asks how many rows come out, so the habit is to run the query in the order the database does: FROM, WHERE, GROUP BY, HAVING, SELECT.",
+  "simple": "Think of asking a school office for information. FROM says which register to look in, and WHERE says which students to look at. GROUP BY puts students into piles, for example by class, and HAVING throws away whole piles you do not want. Unlike a mathematical table, an SQL table can repeat a line, so you ask for DISTINCT if you do not want repeats. Missing information (NULL) is neither true nor false but unknown, and an unknown answer is not good enough to keep a line; counting and averaging skip missing values, except counting every line. The exam gives small tables and asks how many lines come out.",
+  "concept_map": [
+   {
+    "atom_id": "s1",
+    "title": "SELECT-FROM-WHERE and bags",
+    "one_line": "WHERE filters rows; duplicates stay unless DISTINCT."
+   },
+   {
+    "atom_id": "s2",
+    "title": "Joins",
+    "one_line": "Cross, inner, left, right, full; count matches plus leftovers."
+   },
+   {
+    "atom_id": "s3",
+    "title": "Aggregates and NULL",
+    "one_line": "COUNT(*) counts rows; the rest skip NULL."
+   },
+   {
+    "atom_id": "s4",
+    "title": "GROUP BY and HAVING",
+    "one_line": "WHERE filters rows, HAVING filters groups."
+   },
+   {
+    "atom_id": "s5",
+    "title": "Subqueries",
+    "one_line": "IN, EXISTS, correlated; NOT EXISTS means none."
+   },
+   {
+    "atom_id": "s6",
+    "title": "Set operations",
+    "one_line": "UNION, INTERSECT, EXCEPT remove duplicates; ALL keeps them."
+   },
+   {
+    "atom_id": "s7",
+    "title": "NULL and three-valued logic",
+    "one_line": "Comparisons with NULL are unknown; WHERE keeps only true."
+   },
+   {
+    "atom_id": "s8",
+    "title": "Constraints and DDL",
+    "one_line": "Primary key, unique, foreign key, cascade actions."
+   },
+   {
+    "atom_id": "s9",
+    "title": "ANY, ALL and ranking",
+    "one_line": "ALL is the maximum, ANY the minimum; count-of-higher gives rank."
+   }
+  ],
+  "gate_patterns": [
+   "Evaluate a query on small tables and count the rows: apply FROM, WHERE, GROUP BY, HAVING, SELECT in order and run any subquery first (2017 CS1 Q23, 2019 CS Q61, 2020 CS Q23, 2022 CS Q56, 2023 CS Q61, 2024 DA Q31, 2025 CS1 Q55, 2025 DA Q33, 2026 DA Q60).",
+   "What a nested query computes, and query equivalence: untangle NOT EXISTS and NOT IN from the inside out, remember joins repeat rows while IN does not (2021 CS2 Q41, 2014 CS3 Q54, 2007 CS Q61, 2025 CS2 Q54, 2026 DA Q51, 2014 CS2 Q54).",
+   "ANY/ALL/NULL traps, joins and outer joins, constraints and division in SQL (2017 CS2 Q46, 2012 CS Q51, 2018 CS Q22, 2025 DA Q56, 2014 CS1 Q22, 2025 DA Q62). Weightage: about 1.1 marks per CS paper and 3.3 per DA paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "s1",
+   "title": "SELECT-FROM-WHERE and bags",
+   "simple": "Think of a class register. FROM says which register to open, WHERE is a sieve that keeps only the rows that pass, and SELECT picks which columns to show. Here is the surprise: SQL does not tidy up. If three students are from CS and you ask for the department of each, you get CS three times. A mathematical table would show it once, but an SQL table is a bag that can hold repeats. If you want each value once, you must say DISTINCT. In exam words: WHERE is selection (a row filter); SELECT is projection without duplicate removal; SELECT DISTINCT removes duplicate rows.",
+   "idea": "A basic query has three parts: **FROM** names the table, **WHERE** keeps the rows that satisfy a condition, **SELECT** chooses the columns. SQL tables are **bags**: they can contain repeated rows. So `SELECT dept FROM Emp` returns one row per employee, and `SELECT DISTINCT dept` is needed to remove repeats. In AND/OR conditions, AND is evaluated before OR.",
+   "definition": "`SELECT [DISTINCT] columns FROM table WHERE condition`\n\n- Evaluation order: FROM, then WHERE (row filter), then SELECT.\n- **WHERE** = relational selection $\\sigma$. **SELECT** = projection $\\pi$ **without** duplicate removal.\n- **DISTINCT** removes duplicate *rows* of the whole select list, not of the first column.\n- **Precedence:** NOT, then AND, then OR. Use parentheses to be safe.",
+   "intuition_full": "Relational algebra says a relation is a set, so projection removes duplicates automatically. SQL chose speed and practicality: removing duplicates needs sorting or hashing, which is expensive, and sometimes the repeats carry information (three sales of the same product are three sales). So SQL keeps repeats unless you ask. This affects counting: the number of rows of SELECT dept FROM Emp is the number of employees, not the number of departments. DISTINCT applies to the entire row of selected columns, so SELECT DISTINCT dept, sal returns every distinct (dept, sal) pair; if the pairs are all different, nothing is removed. For conditions, remember that AND binds tighter than OR, as multiplication binds tighter than addition: a = 1 OR b = 2 AND c = 3 means a = 1 OR (b = 2 AND c = 3). Many wrong answers come from reading it left to right.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Emp(eid, dept, sal) = (1,CS,60), (2,EE,45), (3,CS,75), (4,CS,55), (5,EE,80), (6,ME,40). How many rows does SELECT dept FROM Emp WHERE sal > 50 return? And with DISTINCT?",
+     "steps": [
+      "WHERE sal > 50 keeps rows 1 (60), 3 (75), 4 (55) and 5 (80). Rows 2 (45) and 6 (40) are dropped.",
+      "SELECT dept keeps only the dept column of the 4 rows: CS, CS, CS, EE.",
+      "SQL does not remove duplicates, so the result has 4 rows.",
+      "With DISTINCT, repeated CS rows collapse: CS, EE. 2 rows."
+     ],
+     "answer": "4 rows without DISTINCT; 2 rows with DISTINCT."
+    },
+    {
+     "level": "gate",
+     "setup": "T(a, b, c) = (1,0,0), (2,2,3), (3,2,0), (1,5,3), (4,9,9), (0,2,3), (2,1,3). How many rows are returned by WHERE a = 1 OR b = 2 AND c = 3? And by WHERE (a = 1 OR b = 2) AND c = 3?",
+     "steps": [
+      "AND binds tighter, so the first condition is a = 1 OR (b = 2 AND c = 3).",
+      "Row 1 (a = 1) ✓. Row 2 (b = 2, c = 3) ✓. Row 3 (b = 2 but c = 0; a ≠ 1) ✗. Row 4 (a = 1) ✓. Row 5 ✗. Row 6 (b = 2, c = 3) ✓. Row 7 ✗. That is 4 rows.",
+      "With parentheses, both a = 1 or b = 2, and c = 3 must hold.",
+      "Row 1 has c = 0 ✗. Row 2 ✓. Row 4 ✓. Row 6 ✓. Rows 3, 5, 7 ✗. That is 3 rows."
+     ],
+     "answer": "4 rows without parentheses, 3 rows with them. The parentheses change the answer."
+    },
+    {
+     "level": "twist",
+     "setup": "Same Emp as above. How many rows does SELECT DISTINCT dept, sal FROM Emp WHERE sal > 50 return?",
+     "steps": [
+      "The 4 rows that pass WHERE are (CS,60), (CS,75), (CS,55), (EE,80).",
+      "DISTINCT removes duplicate rows of the whole select list (dept, sal).",
+      "All four pairs are different, so nothing is removed."
+     ],
+     "answer": "4 rows. DISTINCT does not look at dept alone; it compares the whole row."
+    }
+   ],
+   "why": "This is the base of every query question. The bag rule and the AND/OR precedence decide many counts. In GATE: evaluate a query on a small table and count the rows (2017 CS1 Q23, 2020 CS Q23, 2015 CS1 Q27, 2012 CS Q15).",
+   "how": [
+    "Apply WHERE to each row: keep only rows where the condition is true.",
+    "Evaluate AND before OR (add parentheses in your head).",
+    "Keep the selected columns; do not remove duplicates unless DISTINCT is present.",
+    "Count the rows."
+   ],
+   "mistake": "Assuming SELECT removes duplicates, and reading AND/OR left to right. A plain SELECT returns one row per surviving input row, and AND is evaluated before OR.",
+   "edge_cases": [
+    "SELECT * keeps every column and every passing row.",
+    "WHERE condition unknown (NULL) → the row is dropped.",
+    "DISTINCT applies to the full select list.",
+    "COUNT(*) counts rows of the bag; COUNT(DISTINCT col) counts distinct values."
+   ],
+   "connections": [
+    "Algebra: σ and π (db.relalg, r2). NULL rows in WHERE: s7. Joins: s2."
+   ],
+   "check": [
+    {
+     "q": "Emp has 10 rows in 4 departments. SELECT dept FROM Emp returns how many rows?",
+     "a": "10."
+    },
+    {
+     "q": "Does WHERE or SELECT remove duplicates?",
+     "a": "Neither. Only DISTINCT does."
+    },
+    {
+     "q": "a = 1 OR a = 2 AND b = 0: which part is grouped first?",
+     "a": "a = 2 AND b = 0."
+    }
+   ],
+   "asked": "Asked (evaluate on small tables): 2017 CS1 Q23, 2020 CS Q23, 2015 CS1 Q27; Asked (language facts): 2015 CS1 Q7, 2012 CS Q15",
+   "try": {
+    "id": "gen.sql.001",
+    "label": "In SQL, the query SELECT dept FROM Emp (no DISTINCT) returns? (L1)"
+   },
+   "scene": "db.sql.s1.bags",
+   "example": {
+    "setup": "Emp(eid, dept, sal) = (1,CS,60), (2,EE,45), (3,CS,75), (4,CS,55), (5,EE,80), (6,ME,40). How many rows does SELECT dept FROM Emp WHERE sal > 50 return? And with DISTINCT?",
+    "steps": [
+     "WHERE sal > 50 keeps rows 1 (60), 3 (75), 4 (55) and 5 (80). Rows 2 (45) and 6 (40) are dropped.",
+     "SELECT dept keeps only the dept column of the 4 rows: CS, CS, CS, EE.",
+     "SQL does not remove duplicates, so the result has 4 rows.",
+     "With DISTINCT, repeated CS rows collapse: CS, EE. 2 rows."
+    ],
+    "answer": "4 rows without DISTINCT; 2 rows with DISTINCT."
+   },
+   "what": "A basic query has three parts: **FROM** names the table, **WHERE** keeps the rows that satisfy a condition, **SELECT** chooses the columns. SQL tables are **bags**: they can contain repeated rows. So `SELECT dept FROM Emp` returns one row per employee, and `SELECT DISTINCT dept` is needed to remove repeats. In AND/OR conditions, AND is evaluated before OR.",
+   "what_full": "A basic query has three parts: **FROM** names the table, **WHERE** keeps the rows that satisfy a condition, **SELECT** chooses the columns. SQL tables are **bags**: they can contain repeated rows. So `SELECT dept FROM Emp` returns one row per employee, and `SELECT DISTINCT dept` is needed to remove repeats. In AND/OR conditions, AND is evaluated before OR.\n\n`SELECT [DISTINCT] columns FROM table WHERE condition`\n\n- Evaluation order: FROM, then WHERE (row filter), then SELECT.\n- **WHERE** = relational selection $\\sigma$. **SELECT** = projection $\\pi$ **without** duplicate removal.\n- **DISTINCT** removes duplicate *rows* of the whole select list, not of the first column.\n- **Precedence:** NOT, then AND, then OR. Use parentheses to be safe.\n\n**Worked example.** Emp(eid, dept, sal) = (1,CS,60), (2,EE,45), (3,CS,75), (4,CS,55), (5,EE,80), (6,ME,40). How many rows does SELECT dept FROM Emp WHERE sal > 50 return? And with DISTINCT?\n\n1. WHERE sal > 50 keeps rows 1 (60), 3 (75), 4 (55) and 5 (80). Rows 2 (45) and 6 (40) are dropped.\n2. SELECT dept keeps only the dept column of the 4 rows: CS, CS, CS, EE.\n3. SQL does not remove duplicates, so the result has 4 rows.\n4. With DISTINCT, repeated CS rows collapse: CS, EE. 2 rows.\n\n**Answer:** 4 rows without DISTINCT; 2 rows with DISTINCT.",
+   "why_full": "This is the base of every query question. The bag rule and the AND/OR precedence decide many counts. In GATE: evaluate a query on a small table and count the rows (2017 CS1 Q23, 2020 CS Q23, 2015 CS1 Q27, 2012 CS Q15).\n\nAsked (evaluate on small tables): 2017 CS1 Q23, 2020 CS Q23, 2015 CS1 Q27; Asked (language facts): 2015 CS1 Q7, 2012 CS Q15",
+   "trap": "Assuming SELECT removes duplicates, and reading AND/OR left to right. A plain SELECT returns one row per surviving input row, and AND is evaluated before OR."
+  },
+  {
+   "atom_id": "s2",
+   "title": "Joins",
+   "simple": "Take a list of customers and a list of orders. If you pair every customer with every order, you get a big pile: that is the cross join. If you keep only the pairs where the order belongs to that customer, that is the inner join. A left join keeps all customers, even ones with no orders, and fills in blanks for the missing order details. A right join keeps all orders, even ones with no known customer. A full join keeps both. To count rows, first count the proper matches, then add the lonely rows on the kept side. In exam words: inner join = matches; left/right/full outer joins add unmatched rows padded with NULL. A missing join condition gives a cross product.",
+   "idea": "A **join** combines rows from two tables. A **cross join** pairs every row with every row ($m\\times n$). An **inner join** keeps the pairs that satisfy the ON condition. **LEFT, RIGHT and FULL OUTER** joins also keep rows with no match, padded with NULL. To count the result: **matches plus leftovers**. A FROM list with a missing join condition produces a cross product.",
+   "definition": "For tables $R$ ($m$ rows) and $S$ ($n$ rows):\n\n- `R CROSS JOIN S`: $m\\cdot n$ rows.\n- `R JOIN S ON c`: rows of the cross product that satisfy $c$.\n- `R LEFT JOIN S ON c`: inner rows + unmatched $R$ rows (S columns NULL).\n- `R RIGHT JOIN S ON c`: inner rows + unmatched $S$ rows.\n- `R FULL JOIN S ON c`: inner rows + both kinds of unmatched rows.\n- Comma-separated tables in FROM with WHERE conditions are an inner join; each table needs a condition linking it, or the result is multiplied.",
+   "intuition_full": "Count by the match structure, not by the table sizes. For an equality join on a column, group both tables by the join value; each value that appears a times on the left and b times on the right contributes a·b rows. Add these up and you have the inner join. Then the outer joins add the values that appear only on one side: each unmatched left row adds one row for LEFT JOIN, each unmatched right row adds one for RIGHT JOIN, and FULL adds both. The cross join is the extreme where every value \"matches\". This is also why a forgotten join condition is so costly: with three tables in FROM and only one linking condition, the unlinked table multiplies the row count by its size. An important detail for outer joins is where you put a condition. A condition in ON is part of what counts as a match, so non-matching rows are still kept with NULLs. The same condition in WHERE runs afterwards and removes the NULL-padded rows, which turns the outer join back into an inner join.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Cust(cid, name) has cids 1, 2, 3, 4. Ord(oid, cid) = (10,1), (11,1), (12,2), (13,2), (14,2), (15,7). Count the rows of CROSS, INNER, LEFT, RIGHT and FULL joins on cid.",
+     "steps": [
+      "Cust(cid, name) has cids 1 to 4. Ord(oid, cid) = (10,1), (11,1), (12,2), (13,2), (14,2), (15,7). Count the rows of each join on cid.",
+      "Cross join: 4 × 6 = 24.",
+      "Matches: cid 1 has 2 orders; cid 2 has 3 orders. Inner join: 5 rows.",
+      "Unmatched customers: 3 and 4 (no orders). LEFT JOIN: 5 + 2 = 7.",
+      "Unmatched order: 15, with cid 7 which is no customer. RIGHT JOIN: 5 + 1 = 6.",
+      "FULL OUTER JOIN: 5 + 2 + 1 = 8."
+     ],
+     "answer": "CROSS 24, INNER 5, LEFT 7, RIGHT 6, FULL 8."
+    },
+    {
+     "level": "gate",
+     "setup": "C(cid) = 1, 2, 3 and O(oid, cid, amt) = (10,1,150), (11,1,50), (12,2,80). Compare C LEFT JOIN O ON C.cid = O.cid AND O.amt > 100 with C LEFT JOIN O ON C.cid = O.cid WHERE O.amt > 100.",
+     "steps": [
+      "First query: the condition amt > 100 is part of ON. Only (10,1,150) matches customer 1.",
+      "Customer 1 matches once; customers 2 and 3 have no qualifying order, so they appear once each with NULLs. Total 3 rows.",
+      "Second query: the join with ON cid only gives (1,10,150), (1,11,50), (2,12,80), (3,NULL).",
+      "Then WHERE amt > 100 keeps only (1,10,150). The NULL row is dropped (NULL > 100 is unknown). Total 1 row."
+     ],
+     "answer": "3 rows with the condition in ON; 1 row with it in WHERE. For outer joins, ON and WHERE are not interchangeable."
+    },
+    {
+     "level": "twist",
+     "setup": "R(a) = 1, 2, 3; S(a, x) = (1,p), (1,q), (2,r), (9,s); T(z) = 1, 2, 3, 4, 5. How many rows does SELECT * FROM R, S, T WHERE R.a = S.a return?",
+     "steps": [
+      "R and S are linked by R.a = S.a: matches are (1,p), (1,q), (2,r) = 3 rows.",
+      "T has no condition linking it to anything, so every one of the 3 rows pairs with every T row.",
+      "3 × 5 = 15."
+     ],
+     "answer": "15 rows. One table has no join condition, so it multiplies the result by its size."
+    }
+   ],
+   "why": "Join counting is the most common SQL question type. In GATE: row counts of inner and outer joins, and spotting a missing condition (2018 CS Q22, 2011 CS Q46, 2024 DA sample Q14, 2023 CS Q61).",
+   "how": [
+    "Count the matches per join value: (left count) × (right count), summed.",
+    "Add unmatched left rows for LEFT, unmatched right rows for RIGHT, both for FULL.",
+    "Check that every table in FROM is linked by a condition.",
+    "For outer joins, check whether a condition sits in ON or in WHERE."
+   ],
+   "mistake": "Forgetting that a table without a join condition multiplies the rows (cross product), and moving an outer join condition from ON to WHERE. The first multiplies the count; the second silently turns the outer join into an inner join.",
+   "edge_cases": [
+    "FULL JOIN contains the inner, left and right results.",
+    "NULL join values never match (NULL = NULL is unknown).",
+    "Duplicate join values on both sides → m·n rows for that value.",
+    "Joining on a key of one side → at most one match per row of the other side."
+   ],
+   "connections": [
+    "Algebra: joins and outer joins (db.relalg, r4, r5).",
+    "Aggregates after a join repeat rows: s4."
+   ],
+   "check": [
+    {
+     "q": "R has 12 rows, S has 5, no condition. Rows in R CROSS JOIN S?",
+     "a": "60."
+    },
+    {
+     "q": "Inner join 20 rows; 3 left rows and 4 right rows unmatched. Rows in a FULL JOIN?",
+     "a": "27."
+    },
+    {
+     "q": "Where do you put a condition on S so that a LEFT JOIN keeps unmatched left rows?",
+     "a": "In the ON clause."
+    }
+   ],
+   "asked": "Asked (joins and outer joins): 2018 CS Q22, 2011 CS Q46; Asked (evaluate on small tables): 2022 CS Q56, 2023 CS Q61",
+   "try": {
+    "id": "gen.sql.008",
+    "label": "R has 12 rows and 3 columns; S has 5 rows and 2 columns: values in R CROSS JOIN S? (L2)"
+   },
+   "scene": "db.sql.s2.joins",
+   "example": {
+    "setup": "Cust(cid, name) has cids 1, 2, 3, 4. Ord(oid, cid) = (10,1), (11,1), (12,2), (13,2), (14,2), (15,7). Count the rows of CROSS, INNER, LEFT, RIGHT and FULL joins on cid.",
+    "steps": [
+     "Cust(cid, name) has cids 1 to 4. Ord(oid, cid) = (10,1), (11,1), (12,2), (13,2), (14,2), (15,7). Count the rows of each join on cid.",
+     "Cross join: 4 × 6 = 24.",
+     "Matches: cid 1 has 2 orders; cid 2 has 3 orders. Inner join: 5 rows.",
+     "Unmatched customers: 3 and 4 (no orders). LEFT JOIN: 5 + 2 = 7.",
+     "Unmatched order: 15, with cid 7 which is no customer. RIGHT JOIN: 5 + 1 = 6.",
+     "FULL OUTER JOIN: 5 + 2 + 1 = 8."
+    ],
+    "answer": "CROSS 24, INNER 5, LEFT 7, RIGHT 6, FULL 8."
+   },
+   "what": "A **join** combines rows from two tables. A **cross join** pairs every row with every row ($m\\times n$). An **inner join** keeps the pairs that satisfy the ON condition. **LEFT, RIGHT and FULL OUTER** joins also keep rows with no match, padded with NULL. To count the result: **matches plus leftovers**. A FROM list with a missing join condition produces a cross product.",
+   "what_full": "A **join** combines rows from two tables. A **cross join** pairs every row with every row ($m\\times n$). An **inner join** keeps the pairs that satisfy the ON condition. **LEFT, RIGHT and FULL OUTER** joins also keep rows with no match, padded with NULL. To count the result: **matches plus leftovers**. A FROM list with a missing join condition produces a cross product.\n\nFor tables $R$ ($m$ rows) and $S$ ($n$ rows):\n\n- `R CROSS JOIN S`: $m\\cdot n$ rows.\n- `R JOIN S ON c`: rows of the cross product that satisfy $c$.\n- `R LEFT JOIN S ON c`: inner rows + unmatched $R$ rows (S columns NULL).\n- `R RIGHT JOIN S ON c`: inner rows + unmatched $S$ rows.\n- `R FULL JOIN S ON c`: inner rows + both kinds of unmatched rows.\n- Comma-separated tables in FROM with WHERE conditions are an inner join; each table needs a condition linking it, or the result is multiplied.\n\n**Worked example.** Cust(cid, name) has cids 1, 2, 3, 4. Ord(oid, cid) = (10,1), (11,1), (12,2), (13,2), (14,2), (15,7). Count the rows of CROSS, INNER, LEFT, RIGHT and FULL joins on cid.\n\n1. Cust(cid, name) has cids 1 to 4. Ord(oid, cid) = (10,1), (11,1), (12,2), (13,2), (14,2), (15,7). Count the rows of each join on cid.\n2. Cross join: 4 × 6 = 24.\n3. Matches: cid 1 has 2 orders; cid 2 has 3 orders. Inner join: 5 rows.\n4. Unmatched customers: 3 and 4 (no orders). LEFT JOIN: 5 + 2 = 7.\n5. Unmatched order: 15, with cid 7 which is no customer. RIGHT JOIN: 5 + 1 = 6.\n6. FULL OUTER JOIN: 5 + 2 + 1 = 8.\n\n**Answer:** CROSS 24, INNER 5, LEFT 7, RIGHT 6, FULL 8.",
+   "why_full": "Join counting is the most common SQL question type. In GATE: row counts of inner and outer joins, and spotting a missing condition (2018 CS Q22, 2011 CS Q46, 2024 DA sample Q14, 2023 CS Q61).\n\nAsked (joins and outer joins): 2018 CS Q22, 2011 CS Q46; Asked (evaluate on small tables): 2022 CS Q56, 2023 CS Q61",
+   "trap": "Forgetting that a table without a join condition multiplies the rows (cross product), and moving an outer join condition from ON to WHERE. The first multiplies the count; the second silently turns the outer join into an inner join."
+  },
+  {
+   "atom_id": "s3",
+   "title": "Aggregates and NULL",
+   "simple": "Imagine a column of bonuses where some people have no bonus recorded (blank). If you ask \"how many rows are there?\" you count every row, blanks included. If you ask \"how many bonuses are recorded?\" you count only the filled boxes. When you add up or average, the blanks are simply ignored, as if those people were not in the list. The average divides by how many numbers there really were, not by the number of rows. In exam words: COUNT(*) counts all rows; COUNT(col), SUM, AVG, MIN and MAX ignore NULL. AVG divides by the number of non-NULL values. On an empty set COUNT is 0 and the others return NULL.",
+   "idea": "An **aggregate** turns many rows into one value. `COUNT(*)` counts every row. `COUNT(col)`, `SUM`, `AVG`, `MIN` and `MAX` **skip NULL values**. So AVG divides by the count of non-NULL values, not by the row count. On an empty input, COUNT returns 0 while SUM, AVG, MIN and MAX return NULL.",
+   "definition": "For a column $x$ with some NULLs:\n\n- `COUNT(*)` = number of rows.\n- `COUNT(x)` = number of non-NULL values.\n- `SUM(x)` = sum of non-NULL values; `AVG(x)` $=$ `SUM(x)` $/$ `COUNT(x)`.\n- `MIN(x)`, `MAX(x)` ignore NULL.\n- If no non-NULL value exists (empty set, or all NULL): `COUNT(x)` $=0$; `SUM`, `AVG`, `MIN`, `MAX` are NULL.",
+   "intuition_full": "The unifying rule: an aggregate over a column looks only at the values that exist. NULL means \"unknown\", and including an unknown in a sum would make the sum unknown, which would be useless. So SQL throws NULLs away before aggregating. The one exception is COUNT(*), which does not look at any column at all, only at rows. That is why COUNT(*) and COUNT(col) differ exactly by the number of NULLs in col. The same rule makes AVG surprising if you compute it by hand: SUM(col)/COUNT(*) divides by all rows and gives a smaller number than AVG(col). For the empty case, think of what each function would do on no data. Counting nothing gives 0 (a perfectly good number), but summing nothing or finding the maximum of nothing has no meaningful answer in SQL, so it gives NULL. Be careful with nested aggregates and with integer division: SUM/COUNT(*) on integer columns may truncate.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Emp(eid, bonus) = (1,40), (2,NULL), (3,20), (4,NULL), (5,60). Find COUNT(*), COUNT(bonus), SUM(bonus) and AVG(bonus).",
+     "steps": [
+      "Emp(eid, bonus) = (1,40), (2,NULL), (3,20), (4,NULL), (5,60). Two bonuses are NULL.",
+      "COUNT(*) counts rows: 5.",
+      "COUNT(bonus) skips the two NULLs: 40, 20, 60 → 3.",
+      "SUM(bonus) = 40 + 20 + 60 = 120.",
+      "AVG(bonus) = 120 / 3 = 40. The two NULL rows are not part of the average."
+     ],
+     "answer": "COUNT(*) = 5, COUNT(bonus) = 3, SUM = 120, AVG = 40."
+    },
+    {
+     "level": "gate",
+     "setup": "Same Emp. What does SELECT SUM(bonus) / COUNT(*) FROM Emp return, compared with AVG(bonus)?",
+     "steps": [
+      "SUM(bonus) = 120.",
+      "COUNT(*) = 5, because it counts all rows including those with NULL bonus.",
+      "120 / 5 = 24.",
+      "AVG(bonus) is 120 / 3 = 40."
+     ],
+     "answer": "24 versus 40. The two differ whenever the column has NULLs."
+    },
+    {
+     "level": "twist",
+     "setup": "What do COUNT(*), COUNT(bonus), SUM(bonus) and AVG(bonus) return for a table where bonus is NULL in both of its rows? And what about an empty table?",
+     "steps": [
+      "Two rows with NULL bonus: COUNT(*) = 2, COUNT(bonus) = 0.",
+      "There are no values to add or average, so SUM and AVG are NULL (not 0).",
+      "Empty table: COUNT(*) = 0 and COUNT(bonus) = 0, and SUM, AVG are NULL."
+     ],
+     "answer": "All-NULL table: (2, 0, NULL, NULL). Empty table: (0, 0, NULL, NULL). Only COUNT returns a number."
+    }
+   ],
+   "why": "COUNT(*) versus COUNT(col) and AVG with NULLs are favourite 1-mark and 2-mark traps. In GATE: aggregate values on a column with NULLs, and aggregates inside nested queries (2025 CS1 Q55, 2025 DA Q33, 2023 CS Q61, 2012 CS Q51).",
+   "how": [
+    "Mark the NULLs in the column.",
+    "COUNT(*): all rows. Other aggregates: ignore NULLs.",
+    "AVG = sum of non-NULL ÷ count of non-NULL.",
+    "Empty or all-NULL input: COUNT gives 0, the rest give NULL."
+   ],
+   "mistake": "Dividing AVG by the number of rows, or treating SUM of nothing as 0. AVG divides by the number of non-NULL values, and SUM of no values is NULL, not 0.",
+   "edge_cases": [
+    "COUNT(*) never returns NULL.",
+    "COUNT(DISTINCT col) counts distinct non-NULL values.",
+    "MIN and MAX ignore NULL; with no values they return NULL.",
+    "Integer division can truncate: SUM/COUNT(*) on integers may differ from AVG."
+   ],
+   "connections": [
+    "NULL in conditions: s7. GROUP BY and HAVING: s4.",
+    "Aggregates are outside basic algebra (db.relalg, r9)."
+   ],
+   "check": [
+    {
+     "q": "Column: 10, NULL, 30. COUNT(*), COUNT(col), AVG(col)?",
+     "a": "3, 2, 20."
+    },
+    {
+     "q": "Empty table: SUM(x) returns?",
+     "a": "NULL."
+    },
+    {
+     "q": "Does COUNT(*) ignore NULL?",
+     "a": "No. COUNT(*) counts all rows."
+    }
+   ],
+   "asked": "Asked (evaluate on small tables): 2025 CS1 Q55, 2025 DA Q33, 2023 CS Q61; Asked (ANY/ALL/NULL): 2012 CS Q51",
+   "try": {
+    "id": "gen.sql.002",
+    "label": "Column sal of Emp holds 10, 20, NULL, 30. COUNT(*) and COUNT(sal) return? (L1)"
+   },
+   "scene": "db.sql.s3.nullagg",
+   "example": {
+    "setup": "Emp(eid, bonus) = (1,40), (2,NULL), (3,20), (4,NULL), (5,60). Find COUNT(*), COUNT(bonus), SUM(bonus) and AVG(bonus).",
+    "steps": [
+     "Emp(eid, bonus) = (1,40), (2,NULL), (3,20), (4,NULL), (5,60). Two bonuses are NULL.",
+     "COUNT(*) counts rows: 5.",
+     "COUNT(bonus) skips the two NULLs: 40, 20, 60 → 3.",
+     "SUM(bonus) = 40 + 20 + 60 = 120.",
+     "AVG(bonus) = 120 / 3 = 40. The two NULL rows are not part of the average."
+    ],
+    "answer": "COUNT(*) = 5, COUNT(bonus) = 3, SUM = 120, AVG = 40."
+   },
+   "what": "An **aggregate** turns many rows into one value. `COUNT(*)` counts every row. `COUNT(col)`, `SUM`, `AVG`, `MIN` and `MAX` **skip NULL values**. So AVG divides by the count of non-NULL values, not by the row count. On an empty input, COUNT returns 0 while SUM, AVG, MIN and MAX return NULL.",
+   "what_full": "An **aggregate** turns many rows into one value. `COUNT(*)` counts every row. `COUNT(col)`, `SUM`, `AVG`, `MIN` and `MAX` **skip NULL values**. So AVG divides by the count of non-NULL values, not by the row count. On an empty input, COUNT returns 0 while SUM, AVG, MIN and MAX return NULL.\n\nFor a column $x$ with some NULLs:\n\n- `COUNT(*)` = number of rows.\n- `COUNT(x)` = number of non-NULL values.\n- `SUM(x)` = sum of non-NULL values; `AVG(x)` $=$ `SUM(x)` $/$ `COUNT(x)`.\n- `MIN(x)`, `MAX(x)` ignore NULL.\n- If no non-NULL value exists (empty set, or all NULL): `COUNT(x)` $=0$; `SUM`, `AVG`, `MIN`, `MAX` are NULL.\n\n**Worked example.** Emp(eid, bonus) = (1,40), (2,NULL), (3,20), (4,NULL), (5,60). Find COUNT(*), COUNT(bonus), SUM(bonus) and AVG(bonus).\n\n1. Emp(eid, bonus) = (1,40), (2,NULL), (3,20), (4,NULL), (5,60). Two bonuses are NULL.\n2. COUNT(*) counts rows: 5.\n3. COUNT(bonus) skips the two NULLs: 40, 20, 60 → 3.\n4. SUM(bonus) = 40 + 20 + 60 = 120.\n5. AVG(bonus) = 120 / 3 = 40. The two NULL rows are not part of the average.\n\n**Answer:** COUNT(*) = 5, COUNT(bonus) = 3, SUM = 120, AVG = 40.",
+   "why_full": "COUNT(*) versus COUNT(col) and AVG with NULLs are favourite 1-mark and 2-mark traps. In GATE: aggregate values on a column with NULLs, and aggregates inside nested queries (2025 CS1 Q55, 2025 DA Q33, 2023 CS Q61, 2012 CS Q51).\n\nAsked (evaluate on small tables): 2025 CS1 Q55, 2025 DA Q33, 2023 CS Q61; Asked (ANY/ALL/NULL): 2012 CS Q51",
+   "trap": "Dividing AVG by the number of rows, or treating SUM of nothing as 0. AVG divides by the number of non-NULL values, and SUM of no values is NULL, not 0."
+  },
+  {
+   "atom_id": "s4",
+   "title": "GROUP BY and HAVING",
+   "simple": "Imagine sorting a stack of sales slips into piles, one pile per region, and then adding up each pile. That is GROUP BY with SUM. HAVING then looks at each pile total and throws away whole piles you do not want. WHERE works earlier: before sorting into piles, it throws away single slips. This order matters. If you throw away small slips first (WHERE), the pile totals shrink and some piles fall under the limit. You can only use a total in HAVING, because totals exist only after the piles are made. In exam words: order of work is FROM, WHERE, GROUP BY, HAVING, SELECT. WHERE filters rows before grouping; HAVING filters groups after, and can use aggregates.",
+   "idea": "**GROUP BY** collapses rows with the same key into one group, and aggregates are computed per group. The order of work is **FROM, WHERE, GROUP BY, HAVING, SELECT**. **WHERE** removes single rows before grouping, so it cannot use aggregates. **HAVING** removes whole groups afterwards, so it can. The output has one row per surviving group.",
+   "definition": "`SELECT g, AGG(x) FROM T WHERE c1 GROUP BY g HAVING c2`\n\n1. FROM: take the table.\n2. WHERE $c_1$: keep only the rows that satisfy it (no aggregates here).\n3. GROUP BY $g$: one group per distinct value of $g$.\n4. HAVING $c_2$: keep groups where $c_2$ is true (may use AGG).\n5. SELECT: one output row per group.\n\n- Every non-aggregated column in SELECT must appear in GROUP BY.\n- NULL group keys form a single group.",
+   "intuition_full": "The fixed order explains every trap. Aggregates are computed per group, so they cannot exist before the groups exist, which is why WHERE cannot use them. A condition on the raw rows (\"amt >= 10\") belongs in WHERE, and because it runs first, it changes what goes into each aggregate: the group sums are sums of surviving rows only. A condition on the aggregate (\"SUM(amt) > 50\") belongs in HAVING. Moving a row condition from WHERE into HAVING changes the answer in general (and is often illegal), and moving it from HAVING into WHERE is impossible if it needs an aggregate. For counting output rows, count the groups that survive HAVING, not the rows. Group keys treat all NULLs as equal, so the NULL rows end up in a single group, even though NULL = NULL is unknown everywhere else. Finally, grouping after a join groups the joined rows: if the join repeated rows, the aggregates count the repeats.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Sales(region, amt) = (N,30), (N,20), (S,10), (S,15), (S,40), (E,5), (E,12), (W,50), (W,5), (N,25). Evaluate SELECT region, SUM(amt) FROM Sales WHERE amt >= 10 GROUP BY region HAVING SUM(amt) > 50.",
+     "steps": [
+      "Order of work: FROM, WHERE, GROUP BY, HAVING, SELECT.",
+      "WHERE amt >= 10 drops (E,5) and (W,5). Eight rows remain.",
+      "GROUP BY region: group N = 30 + 20 + 25 = 75.",
+      "Group S = 10 + 15 + 40 = 65.",
+      "Group E = 12 (only (E,12) is left). Group W = 50 (only (W,50) is left).",
+      "HAVING SUM(amt) > 50 keeps N (75) and S (65). W has exactly 50, which is not greater. E has 12."
+     ],
+     "answer": "2 rows: (N, 75) and (S, 65)."
+    },
+    {
+     "level": "gate",
+     "setup": "Emp(eid, dept, sal) = (1,CS,60), (2,CS,55), (3,EE,70), (4,EE,40), (5,CS,30), (6,ME,80). Compare (a) SELECT dept, COUNT(*) FROM Emp WHERE sal > 50 GROUP BY dept HAVING COUNT(*) >= 2 with (b) the same query without the WHERE.",
+     "steps": [
+      "(a) WHERE sal > 50 keeps (1,CS,60), (2,CS,55), (3,EE,70), (6,ME,80).",
+      "Groups: CS has 2, EE has 1, ME has 1. HAVING COUNT(*) >= 2 keeps only CS. 1 row.",
+      "(b) Without WHERE all six rows are grouped: CS has 3, EE has 2, ME has 1.",
+      "HAVING COUNT(*) >= 2 keeps CS (3) and EE (2). 2 rows."
+     ],
+     "answer": "(a) 1 row: (CS, 2). (b) 2 rows: (CS, 3) and (EE, 2). WHERE changes what gets counted."
+    },
+    {
+     "level": "twist",
+     "setup": "g(k, v) = (NULL,1), (NULL,2), (a,3), (a,4), (b,5). How many rows does SELECT k, COUNT(*) FROM g GROUP BY k return?",
+     "steps": [
+      "Distinct group keys: NULL, a, b.",
+      "GROUP BY treats the two NULLs as the same group, even though NULL = NULL is unknown in WHERE.",
+      "Groups: (NULL, 2), (a, 2), (b, 1)."
+     ],
+     "answer": "3 rows. All NULL keys fall into a single group."
+    }
+   ],
+   "why": "Grouping questions test the order of evaluation. In GATE: result of a GROUP BY/HAVING query on small tables, and where an aggregate condition must go (2019 CS Q61, 2024 DA Q31, 2026 DA Q60, 2025 DA Q33).",
+   "how": [
+    "Apply WHERE to single rows first.",
+    "Group the survivors by the key and compute the aggregates per group.",
+    "Apply HAVING to the groups (aggregates are allowed).",
+    "Count the surviving groups: one output row each."
+   ],
+   "mistake": "Putting an aggregate in WHERE, or applying HAVING before WHERE. A WHERE condition changes the rows inside each group, so it can change group totals and counts. HAVING only chooses among groups that already exist.",
+   "edge_cases": [
+    "HAVING without GROUP BY → the whole table is one group.",
+    "NULL group keys → one group.",
+    "SELECT a non-grouped, non-aggregated column → invalid in standard SQL.",
+    "A join before GROUP BY can repeat rows and inflate sums and counts."
+   ],
+   "connections": [
+    "Aggregates and NULL: s3. Joins: s2. Subqueries in HAVING: s5.",
+    "Not in basic algebra (db.relalg, r9)."
+   ],
+   "check": [
+    {
+     "q": "Which clause can contain AVG(sal) > 50: WHERE or HAVING?",
+     "a": "HAVING."
+    },
+    {
+     "q": "8 rows fall into 3 groups; HAVING removes one group. How many output rows?",
+     "a": "2."
+    },
+    {
+     "q": "Does WHERE run before or after GROUP BY?",
+     "a": "Before."
+    }
+   ],
+   "asked": "Asked (evaluate on small tables): 2019 CS Q61, 2024 DA Q31, 2026 DA Q60, 2025 DA Q33",
+   "try": {
+    "id": "gen.sql.003",
+    "label": "A condition such as AVG(sal) > 50 on groups formed by GROUP BY is written in? (L1)"
+   },
+   "scene": "db.sql.s4.groupby",
+   "example": {
+    "setup": "Sales(region, amt) = (N,30), (N,20), (S,10), (S,15), (S,40), (E,5), (E,12), (W,50), (W,5), (N,25). Evaluate SELECT region, SUM(amt) FROM Sales WHERE amt >= 10 GROUP BY region HAVING SUM(amt) > 50.",
+    "steps": [
+     "Order of work: FROM, WHERE, GROUP BY, HAVING, SELECT.",
+     "WHERE amt >= 10 drops (E,5) and (W,5). Eight rows remain.",
+     "GROUP BY region: group N = 30 + 20 + 25 = 75.",
+     "Group S = 10 + 15 + 40 = 65.",
+     "Group E = 12 (only (E,12) is left). Group W = 50 (only (W,50) is left).",
+     "HAVING SUM(amt) > 50 keeps N (75) and S (65). W has exactly 50, which is not greater. E has 12."
+    ],
+    "answer": "2 rows: (N, 75) and (S, 65)."
+   },
+   "what": "**GROUP BY** collapses rows with the same key into one group, and aggregates are computed per group. The order of work is **FROM, WHERE, GROUP BY, HAVING, SELECT**. **WHERE** removes single rows before grouping, so it cannot use aggregates. **HAVING** removes whole groups afterwards, so it can. The output has one row per surviving group.",
+   "what_full": "**GROUP BY** collapses rows with the same key into one group, and aggregates are computed per group. The order of work is **FROM, WHERE, GROUP BY, HAVING, SELECT**. **WHERE** removes single rows before grouping, so it cannot use aggregates. **HAVING** removes whole groups afterwards, so it can. The output has one row per surviving group.\n\n`SELECT g, AGG(x) FROM T WHERE c1 GROUP BY g HAVING c2`\n\n1. FROM: take the table.\n2. WHERE $c_1$: keep only the rows that satisfy it (no aggregates here).\n3. GROUP BY $g$: one group per distinct value of $g$.\n4. HAVING $c_2$: keep groups where $c_2$ is true (may use AGG).\n5. SELECT: one output row per group.\n\n- Every non-aggregated column in SELECT must appear in GROUP BY.\n- NULL group keys form a single group.\n\n**Worked example.** Sales(region, amt) = (N,30), (N,20), (S,10), (S,15), (S,40), (E,5), (E,12), (W,50), (W,5), (N,25). Evaluate SELECT region, SUM(amt) FROM Sales WHERE amt >= 10 GROUP BY region HAVING SUM(amt) > 50.\n\n1. Order of work: FROM, WHERE, GROUP BY, HAVING, SELECT.\n2. WHERE amt >= 10 drops (E,5) and (W,5). Eight rows remain.\n3. GROUP BY region: group N = 30 + 20 + 25 = 75.\n4. Group S = 10 + 15 + 40 = 65.\n5. Group E = 12 (only (E,12) is left). Group W = 50 (only (W,50) is left).\n6. HAVING SUM(amt) > 50 keeps N (75) and S (65). W has exactly 50, which is not greater. E has 12.\n\n**Answer:** 2 rows: (N, 75) and (S, 65).",
+   "why_full": "Grouping questions test the order of evaluation. In GATE: result of a GROUP BY/HAVING query on small tables, and where an aggregate condition must go (2019 CS Q61, 2024 DA Q31, 2026 DA Q60, 2025 DA Q33).\n\nAsked (evaluate on small tables): 2019 CS Q61, 2024 DA Q31, 2026 DA Q60, 2025 DA Q33",
+   "trap": "Putting an aggregate in WHERE, or applying HAVING before WHERE. A WHERE condition changes the rows inside each group, so it can change group totals and counts. HAVING only chooses among groups that already exist."
+  },
+  {
+   "atom_id": "s5",
+   "title": "Subqueries",
+   "simple": "A subquery is a question asked inside another question. \"Which employees earn more than the average of their own department?\" To answer for one employee, you first ask the inner question: what is the average salary in this person's department? Then you compare. A subquery that depends on the current outer row is called correlated, and it is asked again for every outer row, like a teacher checking each student against their own class average. IN asks \"is this value on the list?\" EXISTS asks \"does the inner question return anything?\" NOT EXISTS asks \"does it return nothing?\", which is how \"none\" and \"never\" are written. In exam words: correlated subqueries run once per outer row; IN tests membership; EXISTS is true if the subquery returns at least one row.",
+   "idea": "A **subquery** is a query inside a query. A **scalar** subquery returns one value. `IN` tests membership in the result. `EXISTS` is true when the subquery returns at least one row. A **correlated** subquery refers to the outer row, so it is re-evaluated for each outer row. `NOT EXISTS` means \"no matching row\" and is the SQL way to say \"none\" or \"never\".",
+   "definition": "- **Uncorrelated:** the inner query runs once, independent of the outer row.\n- **Correlated:** the inner query mentions an outer column (`e.dept`); it runs for each outer row.\n- `x IN (subquery)`: true if $x$ equals some returned value.\n- `EXISTS (subquery)`: true if the subquery returns at least one row; `NOT EXISTS`: true if it returns none.\n- A scalar subquery must return a single value (one row, one column).",
+   "intuition_full": "The cleanest way to evaluate a nested query by hand is to mimic the database: take the first outer row, plug its values into the inner query, run the inner query, use the answer to decide whether the outer row stays, and then move to the next row. An uncorrelated subquery needs no plugging: compute it once and treat the result like a constant (or a list). EXISTS ignores what the inner rows contain; it only asks whether any row exists, which is why SELECT 1 or SELECT * inside EXISTS works equally. NOT EXISTS is the safe way to say \"there is no row such that\": it behaves well with NULLs, unlike NOT IN. A correlated \"above the department average\" query compares each row to a different number, whereas the uncorrelated \"above the overall average\" compares every row to the same number. Mixing those two is a typical wrong-option trap. Also, an IN subquery returns each outer row at most once, but a join with the same inner table can repeat the outer row for every match.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Emp(eid, dept, sal) = (1,CS,60), (2,CS,80), (3,CS,70), (4,EE,50), (5,EE,90), (6,ME,40). Evaluate SELECT eid FROM Emp e WHERE sal > (SELECT AVG(sal) FROM Emp WHERE dept = e.dept).",
+     "steps": [
+      "The subquery is correlated through dept = e.dept: for each outer row it runs with that row's dept.",
+      "CS: average (60 + 80 + 70) / 3 = 70. Compare: 60 no, 80 yes, 70 no (70 > 70 is false).",
+      "EE: average (50 + 90) / 2 = 70. Compare: 50 no, 90 yes.",
+      "ME: average 40. 40 > 40 is false.",
+      "Answer: eid 2 and eid 5."
+     ],
+     "answer": "eid 2 and eid 5: two rows."
+    },
+    {
+     "level": "gate",
+     "setup": "Parts(pid, color): (1,red), (2,blue), (3,red), (4,green). Cat(sid, pid): (s1,1), (s1,2), (s2,2), (s2,4), (s3,3), (s3,1), (s4,4), (s1,3). (a) Which suppliers supply some red part? (b) Which supply no red part?",
+     "steps": [
+      "(a) SELECT DISTINCT sid FROM Cat WHERE pid IN (SELECT pid FROM Parts WHERE color = 'red'). Red parts are {1, 3}.",
+      "Cat rows with pid 1 or 3: s1 (1), s3 (3), s3 (1), s1 (3). Suppliers: s1, s3.",
+      "(b) NOT EXISTS: for each supplier, look for a red part among their rows.",
+      "s2 has parts 2, 4 (no red). s4 has part 4 (no red). So s2 and s4."
+     ],
+     "answer": "(a) {s1, s3}. (b) {s2, s4}. Every supplier is in exactly one of the two sets."
+    },
+    {
+     "level": "twist",
+     "setup": "Same Emp. What does SELECT eid FROM Emp WHERE sal > (SELECT AVG(sal) FROM Emp) return? Why does it differ from the basic example?",
+     "steps": [
+      "The subquery has no reference to the outer row: uncorrelated. It runs once.",
+      "Overall average: (60 + 80 + 70 + 50 + 90 + 40) / 6 = 390 / 6 = 65.",
+      "Salaries above 65: 80 (eid 2), 70 (eid 3), 90 (eid 5)."
+     ],
+     "answer": "eid 2, 3, 5 (three rows). A global average treats all departments alike. The correlated version compares each row with its own department."
+    }
+   ],
+   "why": "Nested queries are about half of the hard SQL questions. In GATE: what a nested query returns, and rewriting between IN, EXISTS and joins (2021 CS2 Q41, 2014 CS3 Q54, 2007 CS Q61, 2004 CS Q53, 2005 CS Q77, 2009 CS Q55).",
+   "how": [
+    "Find out if the subquery is correlated (does it mention an outer column?).",
+    "Uncorrelated: run it once and replace it by its result.",
+    "Correlated: for each outer row, plug in its values and run the inner query.",
+    "IN → membership; EXISTS → any row; NOT EXISTS → no row."
+   ],
+   "mistake": "Treating a correlated subquery as if it ran once, or mixing up NOT IN with NOT EXISTS. A correlated subquery depends on the outer row, so its value changes with each row.",
+   "edge_cases": [
+    "EXISTS only checks for at least one row; the selected columns do not matter.",
+    "A scalar subquery that returns more than one row is an error.",
+    "IN does not repeat outer rows; a join can.",
+    "NOT IN with a NULL in the subquery returns no rows (s7)."
+   ],
+   "connections": [
+    "NULL and NOT IN: s7. Division in SQL (NOT EXISTS / EXCEPT): db.relalg (r6).",
+    "Aggregates inside subqueries: s3, s4."
+   ],
+   "check": [
+    {
+     "q": "EXISTS (SELECT * FROM T WHERE 1 = 0) evaluates to?",
+     "a": "False (no row returned)."
+    },
+    {
+     "q": "Is a subquery that mentions e.dept from the outer query correlated?",
+     "a": "Yes."
+    },
+    {
+     "q": "Which is safer with NULLs: NOT IN or NOT EXISTS?",
+     "a": "NOT EXISTS."
+    }
+   ],
+   "asked": "Asked (what does this nested query compute): 2021 CS2 Q41, 2014 CS3 Q54, 2007 CS Q61, 2004 CS Q53, 2005 CS Q77, 2009 CS Q55",
+   "try": {
+    "id": "gen.sql.004",
+    "label": "EXISTS (subquery) evaluates to true when the subquery...? (L1)"
+   },
+   "scene": "db.sql.s5.subquery",
+   "example": {
+    "setup": "Emp(eid, dept, sal) = (1,CS,60), (2,CS,80), (3,CS,70), (4,EE,50), (5,EE,90), (6,ME,40). Evaluate SELECT eid FROM Emp e WHERE sal > (SELECT AVG(sal) FROM Emp WHERE dept = e.dept).",
+    "steps": [
+     "The subquery is correlated through dept = e.dept: for each outer row it runs with that row's dept.",
+     "CS: average (60 + 80 + 70) / 3 = 70. Compare: 60 no, 80 yes, 70 no (70 > 70 is false).",
+     "EE: average (50 + 90) / 2 = 70. Compare: 50 no, 90 yes.",
+     "ME: average 40. 40 > 40 is false.",
+     "Answer: eid 2 and eid 5."
+    ],
+    "answer": "eid 2 and eid 5: two rows."
+   },
+   "what": "A **subquery** is a query inside a query. A **scalar** subquery returns one value. `IN` tests membership in the result. `EXISTS` is true when the subquery returns at least one row. A **correlated** subquery refers to the outer row, so it is re-evaluated for each outer row. `NOT EXISTS` means \"no matching row\" and is the SQL way to say \"none\" or \"never\".",
+   "what_full": "A **subquery** is a query inside a query. A **scalar** subquery returns one value. `IN` tests membership in the result. `EXISTS` is true when the subquery returns at least one row. A **correlated** subquery refers to the outer row, so it is re-evaluated for each outer row. `NOT EXISTS` means \"no matching row\" and is the SQL way to say \"none\" or \"never\".\n\n- **Uncorrelated:** the inner query runs once, independent of the outer row.\n- **Correlated:** the inner query mentions an outer column (`e.dept`); it runs for each outer row.\n- `x IN (subquery)`: true if $x$ equals some returned value.\n- `EXISTS (subquery)`: true if the subquery returns at least one row; `NOT EXISTS`: true if it returns none.\n- A scalar subquery must return a single value (one row, one column).\n\n**Worked example.** Emp(eid, dept, sal) = (1,CS,60), (2,CS,80), (3,CS,70), (4,EE,50), (5,EE,90), (6,ME,40). Evaluate SELECT eid FROM Emp e WHERE sal > (SELECT AVG(sal) FROM Emp WHERE dept = e.dept).\n\n1. The subquery is correlated through dept = e.dept: for each outer row it runs with that row's dept.\n2. CS: average (60 + 80 + 70) / 3 = 70. Compare: 60 no, 80 yes, 70 no (70 > 70 is false).\n3. EE: average (50 + 90) / 2 = 70. Compare: 50 no, 90 yes.\n4. ME: average 40. 40 > 40 is false.\n5. Answer: eid 2 and eid 5.\n\n**Answer:** eid 2 and eid 5: two rows.",
+   "why_full": "Nested queries are about half of the hard SQL questions. In GATE: what a nested query returns, and rewriting between IN, EXISTS and joins (2021 CS2 Q41, 2014 CS3 Q54, 2007 CS Q61, 2004 CS Q53, 2005 CS Q77, 2009 CS Q55).\n\nAsked (what does this nested query compute): 2021 CS2 Q41, 2014 CS3 Q54, 2007 CS Q61, 2004 CS Q53, 2005 CS Q77, 2009 CS Q55",
+   "trap": "Treating a correlated subquery as if it ran once, or mixing up NOT IN with NOT EXISTS. A correlated subquery depends on the outer row, so its value changes with each row."
+  },
+  {
+   "atom_id": "s6",
+   "title": "Set operations",
+   "simple": "Take two shopping lists where some items repeat. UNION is a single list with each item once. UNION ALL is both lists glued together, repeats and all. INTERSECT is the items on both lists, once each. EXCEPT is the items on the first list but not on the second. The ALL versions count copies: INTERSECT ALL keeps as many copies as both lists share, and EXCEPT ALL cancels copies one for one. The two lists must have the same number of columns, of matching types. In exam words: UNION, INTERSECT and EXCEPT remove duplicates; adding ALL keeps and counts them. Both queries need the same number of compatible columns.",
+   "idea": "**UNION**, **INTERSECT** and **EXCEPT** combine the results of two queries and, by default, **remove duplicates**. Adding **ALL** keeps duplicates and works with counts: `UNION ALL` adds the counts, `INTERSECT ALL` keeps the minimum, `EXCEPT ALL` subtracts. Both queries must return the same number of columns with compatible types.",
+   "definition": "For a value $v$ with $a$ copies in $A$ and $b$ copies in $B$:\n\n- `UNION`: 1 copy if $a+b>0$. `UNION ALL`: $a+b$ copies.\n- `INTERSECT`: 1 copy if $a>0$ and $b>0$. `INTERSECT ALL`: $\\min(a,b)$ copies.\n- `EXCEPT`: 1 copy if $a>0$ and $b=0$. `EXCEPT ALL`: $\\max(a-b,0)$ copies.\n- Column counts must match; the result takes column names from the first query.",
+   "intuition_full": "Think of each query result as a bag, a table of items with multiplicities. The plain operators first reduce each bag to a set and then do ordinary set union, intersection or difference. The ALL operators work on multiplicities instead: add them, take the minimum, or subtract and floor at zero. This is the same arithmetic as for counting. One subtle point is that the plain operators also remove duplicates inside one operand: A UNION A is the distinct values of A, not A with every row doubled. Another is that EXCEPT depends on the value being present on the right at all, however many copies, whereas EXCEPT ALL cancels one copy per copy. In an exam, write each value and its counts in A and in B on a small table, then apply the formula for each operator. The result column names come from the first query, and ORDER BY (if any) goes at the very end.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Bags A = {1, 1, 2, 3} and B = {1, 1, 2, 2, 4}. Compute the number of rows for A UNION B, A UNION ALL B, A INTERSECT B, A INTERSECT ALL B, B EXCEPT A, B EXCEPT ALL A.",
+     "steps": [
+      "Counts: value 1 → 2 in A, 2 in B. Value 2 → 1 in A, 2 in B. Value 3 → 1 in A, 0 in B. Value 4 → 0 in A, 1 in B.",
+      "UNION: each value once: {1, 2, 3, 4} = 4 rows.",
+      "UNION ALL: 4 + 5 = 9 rows.",
+      "INTERSECT: values in both: {1, 2} = 2 rows.",
+      "INTERSECT ALL: min counts 2 + 1 = 3 rows ({1, 1, 2}).",
+      "B EXCEPT A: values of B absent from A: {4} = 1 row.",
+      "B EXCEPT ALL A: 1: 2 − 2 = 0; 2: 2 − 1 = 1; 4: 1 − 0 = 1 → {2, 4} = 2 rows."
+     ],
+     "answer": "4, 9, 2, 3, 1, 2 rows respectively."
+    },
+    {
+     "level": "gate",
+     "setup": "With the same A and B, how many rows does (A UNION ALL B) EXCEPT (A INTERSECT B) return?",
+     "steps": [
+      "A UNION ALL B is the 9-row bag {1,1,2,3,1,1,2,2,4}.",
+      "A INTERSECT B = {1, 2}.",
+      "EXCEPT (plain) removes duplicates and then removes values present on the right: distinct values {1, 2, 3, 4} minus {1, 2}."
+     ],
+     "answer": "{3, 4}: 2 rows. The plain EXCEPT removed every copy of 1 and 2, not just two copies."
+    },
+    {
+     "level": "twist",
+     "setup": "A = {1, 1, 2, 3}. How many rows does SELECT x FROM A UNION SELECT x FROM A return?",
+     "steps": [
+      "UNION removes duplicates, including those inside one operand.",
+      "The result is the distinct values of A: {1, 2, 3}.",
+      "UNION ALL would give 8 rows."
+     ],
+     "answer": "3 rows. A UNION A is the distinct values of A, not a doubled bag."
+    }
+   ],
+   "why": "Set operations are short questions that hinge on the duplicate rules. In GATE: count rows of UNION/INTERSECT/EXCEPT queries and pick the equivalent query (2025 CS2 Q54, 2026 DA Q51, 2024 DA sample Q55).",
+   "how": [
+    "Write each value and its count in both bags.",
+    "Plain UNION/INTERSECT/EXCEPT: work with distinct values.",
+    "ALL versions: add, minimum, or subtract (not below 0).",
+    "Check both queries have the same number of columns."
+   ],
+   "mistake": "Expecting UNION to keep repeats, or treating EXCEPT ALL like EXCEPT. UNION removes duplicates; UNION ALL keeps every row. And plain EXCEPT removes a value completely if it appears on the right at all.",
+   "edge_cases": [
+    "Different number of columns → error.",
+    "Column names come from the first query.",
+    "ORDER BY applies to the whole result, at the end.",
+    "INTERSECT binds tighter than UNION and EXCEPT in the standard."
+   ],
+   "connections": [
+    "Algebra: ∪, ∩, − (db.relalg, r3); those work on sets.",
+    "Division through EXCEPT: db.relalg (r6)."
+   ],
+   "check": [
+    {
+     "q": "A has 5 rows, B has 3. Rows in A UNION ALL B?",
+     "a": "8."
+    },
+    {
+     "q": "Does UNION remove duplicates?",
+     "a": "Yes. UNION ALL keeps them."
+    },
+    {
+     "q": "A = {1,1}, B = {1}. Rows in A EXCEPT ALL B?",
+     "a": "1."
+    }
+   ],
+   "asked": "Asked (query equivalence and duplicates): 2025 CS2 Q54, 2026 DA Q51, 2014 CS2 Q54",
+   "try": {
+    "id": "gen.sql.012",
+    "label": "Bags A = {1,2,2,3} and B = {2,3,3,4}: rows in A UNION B? (L2)"
+   },
+   "scene": "db.sql.s6.setops",
+   "example": {
+    "setup": "Bags A = {1, 1, 2, 3} and B = {1, 1, 2, 2, 4}. Compute the number of rows for A UNION B, A UNION ALL B, A INTERSECT B, A INTERSECT ALL B, B EXCEPT A, B EXCEPT ALL A.",
+    "steps": [
+     "Counts: value 1 → 2 in A, 2 in B. Value 2 → 1 in A, 2 in B. Value 3 → 1 in A, 0 in B. Value 4 → 0 in A, 1 in B.",
+     "UNION: each value once: {1, 2, 3, 4} = 4 rows.",
+     "UNION ALL: 4 + 5 = 9 rows.",
+     "INTERSECT: values in both: {1, 2} = 2 rows.",
+     "INTERSECT ALL: min counts 2 + 1 = 3 rows ({1, 1, 2}).",
+     "B EXCEPT A: values of B absent from A: {4} = 1 row.",
+     "B EXCEPT ALL A: 1: 2 − 2 = 0; 2: 2 − 1 = 1; 4: 1 − 0 = 1 → {2, 4} = 2 rows."
+    ],
+    "answer": "4, 9, 2, 3, 1, 2 rows respectively."
+   },
+   "what": "**UNION**, **INTERSECT** and **EXCEPT** combine the results of two queries and, by default, **remove duplicates**. Adding **ALL** keeps duplicates and works with counts: `UNION ALL` adds the counts, `INTERSECT ALL` keeps the minimum, `EXCEPT ALL` subtracts. Both queries must return the same number of columns with compatible types.",
+   "what_full": "**UNION**, **INTERSECT** and **EXCEPT** combine the results of two queries and, by default, **remove duplicates**. Adding **ALL** keeps duplicates and works with counts: `UNION ALL` adds the counts, `INTERSECT ALL` keeps the minimum, `EXCEPT ALL` subtracts. Both queries must return the same number of columns with compatible types.\n\nFor a value $v$ with $a$ copies in $A$ and $b$ copies in $B$:\n\n- `UNION`: 1 copy if $a+b>0$. `UNION ALL`: $a+b$ copies.\n- `INTERSECT`: 1 copy if $a>0$ and $b>0$. `INTERSECT ALL`: $\\min(a,b)$ copies.\n- `EXCEPT`: 1 copy if $a>0$ and $b=0$. `EXCEPT ALL`: $\\max(a-b,0)$ copies.\n- Column counts must match; the result takes column names from the first query.\n\n**Worked example.** Bags A = {1, 1, 2, 3} and B = {1, 1, 2, 2, 4}. Compute the number of rows for A UNION B, A UNION ALL B, A INTERSECT B, A INTERSECT ALL B, B EXCEPT A, B EXCEPT ALL A.\n\n1. Counts: value 1 → 2 in A, 2 in B. Value 2 → 1 in A, 2 in B. Value 3 → 1 in A, 0 in B. Value 4 → 0 in A, 1 in B.\n2. UNION: each value once: {1, 2, 3, 4} = 4 rows.\n3. UNION ALL: 4 + 5 = 9 rows.\n4. INTERSECT: values in both: {1, 2} = 2 rows.\n5. INTERSECT ALL: min counts 2 + 1 = 3 rows ({1, 1, 2}).\n6. B EXCEPT A: values of B absent from A: {4} = 1 row.\n7. B EXCEPT ALL A: 1: 2 − 2 = 0; 2: 2 − 1 = 1; 4: 1 − 0 = 1 → {2, 4} = 2 rows.\n\n**Answer:** 4, 9, 2, 3, 1, 2 rows respectively.",
+   "why_full": "Set operations are short questions that hinge on the duplicate rules. In GATE: count rows of UNION/INTERSECT/EXCEPT queries and pick the equivalent query (2025 CS2 Q54, 2026 DA Q51, 2024 DA sample Q55).\n\nAsked (query equivalence and duplicates): 2025 CS2 Q54, 2026 DA Q51, 2014 CS2 Q54",
+   "trap": "Expecting UNION to keep repeats, or treating EXCEPT ALL like EXCEPT. UNION removes duplicates; UNION ALL keeps every row. And plain EXCEPT removes a value completely if it appears on the right at all."
+  },
+  {
+   "atom_id": "s7",
+   "title": "NULL and three-valued logic",
+   "simple": "NULL means \"we do not know\". If you do not know someone's age, you also do not know whether their age is greater than 18, so the answer is neither yes nor no but \"unknown\". So SQL has three truth values: true, false and unknown. Unknown behaves sensibly: true or unknown is true (one yes is enough), false and unknown is false (one no is enough), and otherwise the answer stays unknown. A row is kept by WHERE only when the answer is a definite true, so unknown rows disappear along with false ones. Comparing with NULL never works with the equals sign; you must ask IS NULL. In exam words: any comparison with NULL is unknown; AND, OR and NOT follow three-valued logic; WHERE and HAVING keep only rows where the condition is true.",
+   "idea": "A comparison involving NULL, even `NULL = NULL`, is **unknown**. SQL uses **three-valued logic**: true, false and unknown. `true OR unknown` is true, `false AND unknown` is false, `NOT unknown` is unknown, and everything else with unknown is unknown. **WHERE and HAVING keep a row only when the condition is true**, so unknown rows are dropped, just like false ones. Test for missing values with `IS NULL`.",
+   "definition": "Truth tables (T true, F false, U unknown):\n\n- NOT: T→F, F→T, U→U.\n- AND: F if either is F; T if both T; otherwise U.\n- OR: T if either is T; F if both F; otherwise U.\n\n- `x = NULL`, `x <> NULL`, `NULL = NULL` are all U. Use `x IS NULL`, `x IS NOT NULL`.\n- `x NOT IN (…, NULL)` is never true: for a non-member it is U.\n- Aggregates skip NULL (s3); ORDER BY, DISTINCT and GROUP BY treat NULLs as equal.",
+   "intuition_full": "Think of NULL as \"a value exists but I do not know it\". Then every comparison with NULL has an unknown answer, because the answer would depend on the hidden value. Three-valued logic gives the strongest answer that is certain whatever the hidden value is. \"True OR unknown\" is true because it is true no matter what the unknown turns out to be. \"False AND unknown\" is false for the same reason. \"True AND unknown\" depends on the unknown, so it stays unknown. WHERE only returns rows for which the condition is certainly true; unknown is not certain. A very common surprise is NOT: NOT (a > 1) on a NULL row is NOT unknown, which is unknown again, so the row is dropped by both the condition and its negation. This is why a NULL row is neither in σ_c nor in σ_¬c. NOT IN with a list that contains a NULL is the same idea: for a value that is not in the visible list, the comparison with the NULL element is unknown, so the whole NOT IN is unknown and nothing qualifies.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "T(a, b) = (1,1), (2,NULL), (NULL,3), (4,5), (NULL,NULL). How many rows does WHERE a > 1 OR b = 3 return?",
+     "steps": [
+      "Row (1,1): a > 1 is F, b = 3 is F. F OR F = F. Dropped.",
+      "Row (2,NULL): a > 1 is T. T OR U = T. Kept.",
+      "Row (NULL,3): a > 1 is U, b = 3 is T. U OR T = T. Kept.",
+      "Row (4,5): T OR F = T. Kept.",
+      "Row (NULL,NULL): U OR U = U. Dropped (WHERE keeps only true)."
+     ],
+     "answer": "3 rows: (2,NULL), (NULL,3), (4,5)."
+    },
+    {
+     "level": "gate",
+     "setup": "X(v) = 1, 2, 3 and Y(w) = 1, 2, NULL. Compare SELECT v FROM X WHERE v NOT IN (SELECT w FROM Y) with SELECT v FROM X WHERE NOT EXISTS (SELECT 1 FROM Y WHERE Y.w = X.v).",
+     "steps": [
+      "NOT IN version: v = 3 gives 3 <> 1 AND 3 <> 2 AND 3 <> NULL = T AND T AND U = U. Not true, so dropped.",
+      "v = 1: 1 <> 1 is F, so the whole AND is F. Dropped. v = 2 likewise.",
+      "No row returns: 0 rows.",
+      "NOT EXISTS version: for v = 3 there is no Y row with w = 3 (w = NULL does not match). The inner query is empty, so NOT EXISTS is true.",
+      "v = 1 and v = 2 have matching rows. So only 3 is returned."
+     ],
+     "answer": "NOT IN: 0 rows. NOT EXISTS: 1 row (v = 3). One NULL in the subquery list kills every NOT IN."
+    },
+    {
+     "level": "twist",
+     "setup": "With the T above, what do WHERE a = NULL and WHERE a IS NULL return?",
+     "steps": [
+      "a = NULL is unknown for every row (even for rows where a is NULL).",
+      "WHERE keeps only true, so a = NULL returns 0 rows.",
+      "a IS NULL is true for the rows where a is NULL: (NULL,3) and (NULL,NULL)."
+     ],
+     "answer": "a = NULL returns 0 rows; a IS NULL returns 2 rows. Always use IS NULL."
+    }
+   ],
+   "why": "NULL traps appear in many question types: conditions, NOT IN, aggregates and joins. In GATE: row counts with NULLs and the truth value of a NULL expression (2017 CS2 Q46, 2012 CS Q51, 2000 CS Q2_26).",
+   "how": [
+    "Mark the cells that are NULL.",
+    "Evaluate each comparison to T, F or U.",
+    "Combine with the three-valued AND, OR and NOT tables.",
+    "Keep a row only if the final value is T.",
+    "For NOT IN, check whether the list contains NULL."
+   ],
+   "mistake": "Testing for missing values with the equals sign, or thinking NULL = NULL is true. Both are unknown. And a NOT IN list that contains a NULL returns no rows at all.",
+   "edge_cases": [
+    "NOT (unknown) = unknown: a NULL row fails both σ_c and σ_¬c.",
+    "NULL in a UNIQUE column is allowed several times (s8).",
+    "IS NULL and IS NOT NULL are always true or false, never unknown.",
+    "GROUP BY treats NULLs as one group."
+   ],
+   "connections": [
+    "Aggregates and NULL: s3. NOT IN versus NOT EXISTS: s5.",
+    "Outer joins produce NULLs (db.relalg, r5)."
+   ],
+   "check": [
+    {
+     "q": "Value of true AND unknown?",
+     "a": "Unknown."
+    },
+    {
+     "q": "Value of NULL = NULL?",
+     "a": "Unknown."
+    },
+    {
+     "q": "WHERE x > 5 on a row where x is NULL: kept or dropped?",
+     "a": "Dropped (the condition is unknown, not true)."
+    }
+   ],
+   "asked": "Asked (ANY/ALL/NULL traps): 2017 CS2 Q46, 2012 CS Q51, 2000 CS Q2_26",
+   "try": {
+    "id": "gen.sql.006",
+    "label": "In SQL, the truth value of NULL = NULL is? (L1)"
+   },
+   "scene": "db.sql.s7.threevalued",
+   "example": {
+    "setup": "T(a, b) = (1,1), (2,NULL), (NULL,3), (4,5), (NULL,NULL). How many rows does WHERE a > 1 OR b = 3 return?",
+    "steps": [
+     "Row (1,1): a > 1 is F, b = 3 is F. F OR F = F. Dropped.",
+     "Row (2,NULL): a > 1 is T. T OR U = T. Kept.",
+     "Row (NULL,3): a > 1 is U, b = 3 is T. U OR T = T. Kept.",
+     "Row (4,5): T OR F = T. Kept.",
+     "Row (NULL,NULL): U OR U = U. Dropped (WHERE keeps only true)."
+    ],
+    "answer": "3 rows: (2,NULL), (NULL,3), (4,5)."
+   },
+   "what": "A comparison involving NULL, even `NULL = NULL`, is **unknown**. SQL uses **three-valued logic**: true, false and unknown. `true OR unknown` is true, `false AND unknown` is false, `NOT unknown` is unknown, and everything else with unknown is unknown. **WHERE and HAVING keep a row only when the condition is true**, so unknown rows are dropped, just like false ones. Test for missing values with `IS NULL`.",
+   "what_full": "A comparison involving NULL, even `NULL = NULL`, is **unknown**. SQL uses **three-valued logic**: true, false and unknown. `true OR unknown` is true, `false AND unknown` is false, `NOT unknown` is unknown, and everything else with unknown is unknown. **WHERE and HAVING keep a row only when the condition is true**, so unknown rows are dropped, just like false ones. Test for missing values with `IS NULL`.\n\nTruth tables (T true, F false, U unknown):\n\n- NOT: T→F, F→T, U→U.\n- AND: F if either is F; T if both T; otherwise U.\n- OR: T if either is T; F if both F; otherwise U.\n\n- `x = NULL`, `x <> NULL`, `NULL = NULL` are all U. Use `x IS NULL`, `x IS NOT NULL`.\n- `x NOT IN (…, NULL)` is never true: for a non-member it is U.\n- Aggregates skip NULL (s3); ORDER BY, DISTINCT and GROUP BY treat NULLs as equal.\n\n**Worked example.** T(a, b) = (1,1), (2,NULL), (NULL,3), (4,5), (NULL,NULL). How many rows does WHERE a > 1 OR b = 3 return?\n\n1. Row (1,1): a > 1 is F, b = 3 is F. F OR F = F. Dropped.\n2. Row (2,NULL): a > 1 is T. T OR U = T. Kept.\n3. Row (NULL,3): a > 1 is U, b = 3 is T. U OR T = T. Kept.\n4. Row (4,5): T OR F = T. Kept.\n5. Row (NULL,NULL): U OR U = U. Dropped (WHERE keeps only true).\n\n**Answer:** 3 rows: (2,NULL), (NULL,3), (4,5).",
+   "why_full": "NULL traps appear in many question types: conditions, NOT IN, aggregates and joins. In GATE: row counts with NULLs and the truth value of a NULL expression (2017 CS2 Q46, 2012 CS Q51, 2000 CS Q2_26).\n\nAsked (ANY/ALL/NULL traps): 2017 CS2 Q46, 2012 CS Q51, 2000 CS Q2_26",
+   "trap": "Testing for missing values with the equals sign, or thinking NULL = NULL is true. Both are unknown. And a NOT IN list that contains a NULL returns no rows at all."
+  },
+  {
+   "atom_id": "s8",
+   "title": "Constraints and DDL",
+   "simple": "Constraints are the rules a table enforces so that bad data cannot get in. A primary key is like a roll number: every student has one, and no two share it. A foreign key is a promise that a number really exists in another table, like the class on a student card must be a real class. Then there is the question of what happens when you remove the thing that is pointed to. CASCADE removes everything that pointed to it, and everything that pointed to those, and so on down the chain. SET NULL keeps the pointing rows but blanks the pointer. RESTRICT refuses to delete. In exam words: PRIMARY KEY is UNIQUE plus NOT NULL; a foreign key must match an existing parent key or be NULL; ON DELETE CASCADE deletes dependent rows, SET NULL blanks them, RESTRICT blocks the delete.",
+   "idea": "**PRIMARY KEY** means UNIQUE and NOT NULL, and a table has one. **UNIQUE** forbids repeated values but allows NULLs. A **foreign key** must match an existing key value in the parent table or be NULL. **ON DELETE** actions decide what happens to child rows when a parent row is deleted: **CASCADE** deletes them (and their own children), **SET NULL** blanks the foreign key, and the default (**NO ACTION / RESTRICT**) rejects the delete.",
+   "definition": "- `PRIMARY KEY (k)`: unique and not null; at most one per table.\n- `UNIQUE (u)`: no repeated non-NULL values; several NULLs are allowed.\n- `NOT NULL`, `CHECK (cond)`: row-level rules.\n- `FOREIGN KEY (f) REFERENCES P(k)`: every non-NULL $f$ equals some $k$ in $P$, and $k$ must be a key (or unique).\n- On deleting a parent row: `CASCADE` (delete children), `SET NULL` (child $f$ becomes NULL), `RESTRICT`/`NO ACTION` (reject).",
+   "intuition_full": "Constraints are checked by the database at every insert, update and delete. The primary key and unique constraints are about one table: the new row must not duplicate an existing key. The foreign key links two tables: when you insert a child, its reference must exist; when you delete or update a parent, the database must decide what to do with the children pointing at it. CASCADE makes the deletion spread: deleting a parent deletes its children, and because those children may themselves be parents, the deletion keeps spreading down the whole tree below. To count how many rows go, count the deleted row plus all its descendants through the foreign key chain. SET NULL stops the spread; the children survive with a NULL pointer. NOT NULL on that column would make SET NULL fail. UNIQUE allows several NULLs because NULLs are never equal to each other, but a primary key forbids NULL entirely.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "t(id, parent) with parent REFERENCES t(id) ON DELETE CASCADE has rows (1,NULL), (2,1), (3,2), (4,2), (5,3), (6,1), (7,6), (8,NULL), (9,8), (10,4). Delete the row with id = 2. Which rows disappear?",
+     "steps": [
+      "Row 2 is deleted directly.",
+      "Rows with parent 2 are deleted by the cascade: 3 and 4.",
+      "Rows with parent 3 or 4 follow: 5 (parent 3) and 10 (parent 4).",
+      "Nothing points to 5 or 10, so the cascade stops.",
+      "Rows 1, 6, 7, 8 and 9 do not descend from 2 and remain."
+     ],
+     "answer": "Rows 2, 3, 4, 5, 10 are deleted: 4 by the cascade, 5 in total. 5 rows remain."
+    },
+    {
+     "level": "gate",
+     "setup": "Dept(did PRIMARY KEY) = D1, D2. Emp(eid PRIMARY KEY, did REFERENCES Dept(did)) = (1,D1), (2,D2), (3,D2), (4,D2). What happens on DELETE FROM Dept WHERE did = 'D2' with (a) ON DELETE CASCADE, (b) ON DELETE SET NULL, (c) the default NO ACTION?",
+     "steps": [
+      "(a) CASCADE: the three D2 employees are deleted too. Emp keeps (1, D1): 1 row.",
+      "(b) SET NULL: employees 2, 3, 4 stay, with did = NULL. Emp has 4 rows, 3 of them with NULL did.",
+      "(c) NO ACTION: three employees still reference D2, so the delete is rejected. Nothing changes."
+     ],
+     "answer": "(a) 1 row left; (b) 4 rows, 3 with NULL; (c) delete rejected."
+    },
+    {
+     "level": "twist",
+     "setup": "u(a UNIQUE, b) already contains (NULL,1), (NULL,2), (1,3). Is inserting another (NULL,4) allowed? Would it be allowed if a were the PRIMARY KEY?",
+     "steps": [
+      "UNIQUE forbids repeated values, but NULL is not equal to anything, including another NULL.",
+      "So any number of NULLs can sit in a UNIQUE column. The insert is allowed.",
+      "A PRIMARY KEY column cannot hold NULL at all. Even the first NULL would be rejected."
+     ],
+     "answer": "Allowed for UNIQUE. Rejected for PRIMARY KEY."
+    }
+   ],
+   "why": "Constraint questions are mostly statements to judge true or false. In GATE: what a key allows, which inserts and deletes fail, and how far a cascade spreads (2025 DA Q56, 2014 CS1 Q22, 2001 CS Q2_25).",
+   "how": [
+    "Primary key: unique and never NULL. Unique: no repeats, NULLs allowed.",
+    "Foreign key: matches a parent key or is NULL.",
+    "On a parent delete, apply the action: CASCADE spreads, SET NULL blanks, RESTRICT blocks.",
+    "For a cascade, count the row and all its descendants along the foreign key chain."
+   ],
+   "mistake": "Letting a primary key hold NULL, or counting only the direct children in a cascade. A cascade follows the chain all the way down, so grandchildren and deeper rows go as well.",
+   "edge_cases": [
+    "A foreign key may reference a UNIQUE column, not only the primary key.",
+    "ON UPDATE CASCADE works like ON DELETE CASCADE for key changes.",
+    "SET NULL fails if the foreign key column is NOT NULL.",
+    "A table can have many UNIQUE constraints but only one PRIMARY KEY."
+   ],
+   "connections": [
+    "ER mapping gives the foreign keys: db.er (a6). Weak entities cascade on deletion: db.er (a4).",
+    "Keys and normal forms: db.nf."
+   ],
+   "check": [
+    {
+     "q": "Can a primary key column contain NULL?",
+     "a": "No."
+    },
+    {
+     "q": "Deleting a parent with ON DELETE SET NULL: what happens to its children?",
+     "a": "They stay, with the foreign key set to NULL."
+    },
+    {
+     "q": "Parent 1 has child 2, which has child 3, with CASCADE. Delete 1: rows deleted in total?",
+     "a": "3."
+    }
+   ],
+   "asked": "Asked (constraints, keys and DDL): 2025 DA Q56, 2014 CS1 Q22, 2001 CS Q2_25",
+   "try": {
+    "id": "gen.sql.005",
+    "label": "A column declared PRIMARY KEY in SQL...? (L1)"
+   },
+   "scene": "db.sql.s8.cascade",
+   "example": {
+    "setup": "t(id, parent) with parent REFERENCES t(id) ON DELETE CASCADE has rows (1,NULL), (2,1), (3,2), (4,2), (5,3), (6,1), (7,6), (8,NULL), (9,8), (10,4). Delete the row with id = 2. Which rows disappear?",
+    "steps": [
+     "Row 2 is deleted directly.",
+     "Rows with parent 2 are deleted by the cascade: 3 and 4.",
+     "Rows with parent 3 or 4 follow: 5 (parent 3) and 10 (parent 4).",
+     "Nothing points to 5 or 10, so the cascade stops.",
+     "Rows 1, 6, 7, 8 and 9 do not descend from 2 and remain."
+    ],
+    "answer": "Rows 2, 3, 4, 5, 10 are deleted: 4 by the cascade, 5 in total. 5 rows remain."
+   },
+   "what": "**PRIMARY KEY** means UNIQUE and NOT NULL, and a table has one. **UNIQUE** forbids repeated values but allows NULLs. A **foreign key** must match an existing key value in the parent table or be NULL. **ON DELETE** actions decide what happens to child rows when a parent row is deleted: **CASCADE** deletes them (and their own children), **SET NULL** blanks the foreign key, and the default (**NO ACTION / RESTRICT**) rejects the delete.",
+   "what_full": "**PRIMARY KEY** means UNIQUE and NOT NULL, and a table has one. **UNIQUE** forbids repeated values but allows NULLs. A **foreign key** must match an existing key value in the parent table or be NULL. **ON DELETE** actions decide what happens to child rows when a parent row is deleted: **CASCADE** deletes them (and their own children), **SET NULL** blanks the foreign key, and the default (**NO ACTION / RESTRICT**) rejects the delete.\n\n- `PRIMARY KEY (k)`: unique and not null; at most one per table.\n- `UNIQUE (u)`: no repeated non-NULL values; several NULLs are allowed.\n- `NOT NULL`, `CHECK (cond)`: row-level rules.\n- `FOREIGN KEY (f) REFERENCES P(k)`: every non-NULL $f$ equals some $k$ in $P$, and $k$ must be a key (or unique).\n- On deleting a parent row: `CASCADE` (delete children), `SET NULL` (child $f$ becomes NULL), `RESTRICT`/`NO ACTION` (reject).\n\n**Worked example.** t(id, parent) with parent REFERENCES t(id) ON DELETE CASCADE has rows (1,NULL), (2,1), (3,2), (4,2), (5,3), (6,1), (7,6), (8,NULL), (9,8), (10,4). Delete the row with id = 2. Which rows disappear?\n\n1. Row 2 is deleted directly.\n2. Rows with parent 2 are deleted by the cascade: 3 and 4.\n3. Rows with parent 3 or 4 follow: 5 (parent 3) and 10 (parent 4).\n4. Nothing points to 5 or 10, so the cascade stops.\n5. Rows 1, 6, 7, 8 and 9 do not descend from 2 and remain.\n\n**Answer:** Rows 2, 3, 4, 5, 10 are deleted: 4 by the cascade, 5 in total. 5 rows remain.",
+   "why_full": "Constraint questions are mostly statements to judge true or false. In GATE: what a key allows, which inserts and deletes fail, and how far a cascade spreads (2025 DA Q56, 2014 CS1 Q22, 2001 CS Q2_25).\n\nAsked (constraints, keys and DDL): 2025 DA Q56, 2014 CS1 Q22, 2001 CS Q2_25",
+   "trap": "Letting a primary key hold NULL, or counting only the direct children in a cascade. A cascade follows the chain all the way down, so grandchildren and deeper rows go as well."
+  },
+  {
+   "atom_id": "s9",
+   "title": "ANY, ALL and ranking",
+   "simple": "Suppose a list of marks is {35, 48}. \"More than ALL of them\" means you must beat every mark, so you must beat the highest, 48. \"More than ANY of them\" means you only need to beat at least one, so beating the lowest, 35, is enough. There is a corner case: if the list is empty, \"beat all of them\" is true (there is nothing to beat) and \"beat any of them\" is false (there is nobody to beat). To find the top two marks without ranking functions, ask for each mark how many marks are higher: if fewer than two are higher, it is in the top two. In exam words: x > ALL (subquery) means x exceeds the maximum; x > ANY means x exceeds the minimum. On an empty subquery ALL is true and ANY is false. Rank = 1 + the count of higher rows.",
+   "idea": "`x > ALL (subquery)` is true when $x$ beats every returned value, so $x$ exceeds the **maximum**. `x > ANY (subquery)` is true when $x$ beats at least one, so $x$ exceeds the **minimum**. For an **empty** subquery, ALL is true and ANY is false. For ranking without window functions, count how many rows are higher: the rank is that count plus one.",
+   "definition": "For a non-empty set $V$ of values:\n\n- $x>\\text{ALL}(V)\\iff x>\\max V$.  $x>\\text{ANY}(V)\\iff x>\\min V$.\n- $x<\\text{ALL}(V)\\iff x<\\min V$.  $x<\\text{ANY}(V)\\iff x<\\max V$.\n- $V=\\emptyset$: ALL is true, ANY is false (for every operator).\n- `= ANY` is the same as `IN`; `<> ALL` is the same as `NOT IN`.\n- Top-$k$: `WHERE (SELECT COUNT(*) FROM T b WHERE b.m > a.m) < k`; ties share a rank.",
+   "intuition_full": "ANY is \"exists\" and ALL is \"for all\". For the greater-than comparison, \"for all v in V, x > v\" collapses to a test against the single most demanding value, the maximum. \"There exists v in V with x > v\" collapses to a test against the easiest value, the minimum. That is why you never need to compare against every element: find the max or min once. The empty set shows the logical meaning: for all of nothing is vacuously true, and there exists in nothing is false. If NULLs are in V the comparison with a NULL element is unknown, so ALL can become unknown even when every real value is beaten. For ranking, \"how many rows are strictly higher than me\" counts the people ahead of me. Zero means first place, one means second, and so on. Two equal marks have the same number of strictly higher rows, so they tie. Asking for a count below k can therefore return more than k rows when there are ties.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Marks(m) = 35, 48, 52, 60, 75. How many rows do (a) WHERE m > ALL (SELECT m FROM Marks WHERE m <= 50) and (b) WHERE m > ANY (same subquery) return?",
+     "steps": [
+      "Marks = 35, 48, 52, 60, 75.",
+      "The subquery returns the marks at most 50: {35, 48}.",
+      "(a) m > ALL means m must beat both 35 and 48, so m > 48. Marks 52, 60, 75: 3 rows.",
+      "(b) m > ANY means m must beat at least one, so m > 35. Marks 48, 52, 60, 75: 4 rows.",
+      "If the subquery were empty, > ALL would be true for every row and > ANY false for every row."
+     ],
+     "answer": "(a) 3 rows, (b) 4 rows."
+    },
+    {
+     "level": "gate",
+     "setup": "Marks(m) = 35, 48, 52, 60, 75. What does SELECT m FROM Marks a WHERE (SELECT COUNT(*) FROM Marks b WHERE b.m > a.m) < 2 return?",
+     "steps": [
+      "For each mark, count the marks strictly higher.",
+      "75: 0 higher. 60: 1 higher (75). 52: 2 higher. 48: 3 higher. 35: 4 higher.",
+      "Keep those with fewer than 2 higher: 75 and 60."
+     ],
+     "answer": "{60, 75}: the top two marks."
+    },
+    {
+     "level": "twist",
+     "setup": "Now Marks(m) = 35, 48, 60, 60, 75 (two equal marks). Run the same top-two query.",
+     "steps": [
+      "75: 0 higher. Each 60: 1 higher (75) for both of them. 48: 3 higher. 35: 4 higher.",
+      "Both 60s have 1 higher, which is below 2.",
+      "Kept: 60, 60, 75."
+     ],
+     "answer": "3 rows. Ties share a rank, so a \"top 2\" query can return more than 2 rows."
+    }
+   ],
+   "why": "ANY/ALL and the count-of-higher idiom show up as nested-query puzzles. In GATE: evaluate ANY/ALL on small sets, including the empty set, and rank-type queries (2017 CS2 Q46, 2000 CS Q2_26, 2012 CS Q51).",
+   "how": [
+    "Compute the subquery set first.",
+    "Translate: > ALL → above the maximum; > ANY → above the minimum.",
+    "Empty set: ALL is true, ANY is false.",
+    "For rank, count strictly higher rows and compare with k − 1."
+   ],
+   "mistake": "Treating ALL as the minimum, or forgetting the empty-subquery cases. > ALL needs to beat the largest value, and over an empty set ALL is true while ANY is false.",
+   "edge_cases": [
+    "NULL in the subquery makes ALL unknown if all other comparisons are true.",
+    "= ANY is IN; <> ALL is NOT IN.",
+    "Ties share a rank when you count strictly higher rows.",
+    "MAX/MIN subqueries are equivalent only when the set is non-empty."
+   ],
+   "connections": [
+    "IN, EXISTS and correlated subqueries: s5. NULL and NOT IN: s7.",
+    "Aggregates MAX, MIN, COUNT: s3."
+   ],
+   "check": [
+    {
+     "q": "x > ALL (3, 8, 5): x must exceed what?",
+     "a": "8, the maximum."
+    },
+    {
+     "q": "x > ANY (3, 8, 5): x must exceed what?",
+     "a": "3, the minimum."
+    },
+    {
+     "q": "Is x > ALL (empty subquery) true or false?",
+     "a": "True."
+    }
+   ],
+   "asked": "Asked (ANY/ALL/NULL traps): 2017 CS2 Q46, 2000 CS Q2_26, 2012 CS Q51",
+   "try": {
+    "id": "gen.sql.013",
+    "label": "Marks = 40, 50, 60, 70: COUNT of marks above ALL marks that are at most 50? (L2)"
+   },
+   "scene": "db.sql.s9.anyall",
+   "example": {
+    "setup": "Marks(m) = 35, 48, 52, 60, 75. How many rows do (a) WHERE m > ALL (SELECT m FROM Marks WHERE m <= 50) and (b) WHERE m > ANY (same subquery) return?",
+    "steps": [
+     "Marks = 35, 48, 52, 60, 75.",
+     "The subquery returns the marks at most 50: {35, 48}.",
+     "(a) m > ALL means m must beat both 35 and 48, so m > 48. Marks 52, 60, 75: 3 rows.",
+     "(b) m > ANY means m must beat at least one, so m > 35. Marks 48, 52, 60, 75: 4 rows.",
+     "If the subquery were empty, > ALL would be true for every row and > ANY false for every row."
+    ],
+    "answer": "(a) 3 rows, (b) 4 rows."
+   },
+   "what": "`x > ALL (subquery)` is true when $x$ beats every returned value, so $x$ exceeds the **maximum**. `x > ANY (subquery)` is true when $x$ beats at least one, so $x$ exceeds the **minimum**. For an **empty** subquery, ALL is true and ANY is false. For ranking without window functions, count how many rows are higher: the rank is that count plus one.",
+   "what_full": "`x > ALL (subquery)` is true when $x$ beats every returned value, so $x$ exceeds the **maximum**. `x > ANY (subquery)` is true when $x$ beats at least one, so $x$ exceeds the **minimum**. For an **empty** subquery, ALL is true and ANY is false. For ranking without window functions, count how many rows are higher: the rank is that count plus one.\n\nFor a non-empty set $V$ of values:\n\n- $x>\\text{ALL}(V)\\iff x>\\max V$.  $x>\\text{ANY}(V)\\iff x>\\min V$.\n- $x<\\text{ALL}(V)\\iff x<\\min V$.  $x<\\text{ANY}(V)\\iff x<\\max V$.\n- $V=\\emptyset$: ALL is true, ANY is false (for every operator).\n- `= ANY` is the same as `IN`; `<> ALL` is the same as `NOT IN`.\n- Top-$k$: `WHERE (SELECT COUNT(*) FROM T b WHERE b.m > a.m) < k`; ties share a rank.\n\n**Worked example.** Marks(m) = 35, 48, 52, 60, 75. How many rows do (a) WHERE m > ALL (SELECT m FROM Marks WHERE m <= 50) and (b) WHERE m > ANY (same subquery) return?\n\n1. Marks = 35, 48, 52, 60, 75.\n2. The subquery returns the marks at most 50: {35, 48}.\n3. (a) m > ALL means m must beat both 35 and 48, so m > 48. Marks 52, 60, 75: 3 rows.\n4. (b) m > ANY means m must beat at least one, so m > 35. Marks 48, 52, 60, 75: 4 rows.\n5. If the subquery were empty, > ALL would be true for every row and > ANY false for every row.\n\n**Answer:** (a) 3 rows, (b) 4 rows.",
+   "why_full": "ANY/ALL and the count-of-higher idiom show up as nested-query puzzles. In GATE: evaluate ANY/ALL on small sets, including the empty set, and rank-type queries (2017 CS2 Q46, 2000 CS Q2_26, 2012 CS Q51).\n\nAsked (ANY/ALL/NULL traps): 2017 CS2 Q46, 2000 CS Q2_26, 2012 CS Q51",
+   "trap": "Treating ALL as the minimum, or forgetting the empty-subquery cases. > ALL needs to beat the largest value, and over an empty set ALL is true while ANY is false."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "db.sql.s1.bags",
+   "title": "WHERE filters rows; SELECT keeps duplicates",
+   "viewBox": [
+    0,
+    0,
+    400,
+    258
+   ],
+   "objects": [
+    {
+     "id": "E",
+     "kind": "grid",
+     "x": 10,
+     "y": 70,
+     "rows": 6,
+     "cols": 3,
+     "cw": 46,
+     "ch": 24,
+     "cells": [
+      [
+       "1",
+       "CS",
+       "60"
+      ],
+      [
+       "2",
+       "EE",
+       "45"
+      ],
+      [
+       "3",
+       "CS",
+       "75"
+      ],
+      [
+       "4",
+       "CS",
+       "55"
+      ],
+      [
+       "5",
+       "EE",
+       "80"
+      ],
+      [
+       "6",
+       "ME",
+       "40"
+      ]
+     ],
+     "colLabels": [
+      "eid",
+      "dept",
+      "sal"
+     ],
+     "colTitle": "Emp"
+    },
+    {
+     "id": "B",
+     "kind": "grid",
+     "x": 190,
+     "y": 70,
+     "rows": 4,
+     "cols": 1,
+     "cw": 60,
+     "ch": 24,
+     "cells": [
+      [
+       "CS"
+      ],
+      [
+       "CS"
+      ],
+      [
+       "CS"
+      ],
+      [
+       "EE"
+      ]
+     ],
+     "colLabels": [
+      "dept"
+     ],
+     "colTitle": "SELECT dept"
+    },
+    {
+     "id": "D",
+     "kind": "grid",
+     "x": 300,
+     "y": 70,
+     "rows": 2,
+     "cols": 1,
+     "cw": 60,
+     "ch": 24,
+     "cells": [
+      [
+       "CS"
+      ],
+      [
+       "EE"
+      ]
+     ],
+     "colLabels": [
+      "dept"
+     ],
+     "colTitle": "DISTINCT"
+    },
+    {
+     "id": "q",
+     "kind": "text",
+     "x": 200,
+     "y": 14,
+     "text": "SELECT dept FROM Emp WHERE sal > 50",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 200,
+     "y": 236,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Emp has 6 rows. The query keeps the dept of every employee whose sal is above 50.",
+     "highlight": [
+      "E",
+      "q"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "FROM → WHERE → SELECT"
+     }
+    },
+    {
+     "caption": "WHERE is a row filter. Rows with sal ≤ 50 (EE 45 and ME 40) are dropped. Four rows pass.",
+     "dim": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         5,
+         0
+        ],
+        [
+         5,
+         1
+        ],
+        [
+         5,
+         2
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ],
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         4,
+         2
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "4 rows pass WHERE"
+     }
+    },
+    {
+     "caption": "SELECT dept keeps just that column of the 4 rows: CS, CS, CS, EE. SQL does not remove duplicates, so CS appears 3 times. The result is a bag of 4 rows.",
+     "show": "B",
+     "highlight": [
+      {
+       "id": "B",
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "result: 4 rows (a bag)"
+     }
+    },
+    {
+     "caption": "Add DISTINCT and duplicates are removed: 2 rows. Without it, the count stays 4.",
+     "show": "D",
+     "highlight": [
+      {
+       "id": "D",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "DISTINCT: 2 rows;   plain SELECT: 4 rows",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "db.sql.s2.joins",
+   "title": "Joins: count the matches, then the leftovers",
+   "viewBox": [
+    0,
+    0,
+    400,
+    320
+   ],
+   "objects": [
+    {
+     "id": "C",
+     "kind": "grid",
+     "x": 10,
+     "y": 45,
+     "rows": 4,
+     "cols": 2,
+     "cw": 44,
+     "ch": 24,
+     "cells": [
+      [
+       "1",
+       "A"
+      ],
+      [
+       "2",
+       "B"
+      ],
+      [
+       "3",
+       "C"
+      ],
+      [
+       "4",
+       "D"
+      ]
+     ],
+     "colLabels": [
+      "cid",
+      "name"
+     ],
+     "colTitle": "Cust"
+    },
+    {
+     "id": "O",
+     "kind": "grid",
+     "x": 150,
+     "y": 45,
+     "rows": 6,
+     "cols": 2,
+     "cw": 44,
+     "ch": 24,
+     "cells": [
+      [
+       "10",
+       "1"
+      ],
+      [
+       "11",
+       "1"
+      ],
+      [
+       "12",
+       "2"
+      ],
+      [
+       "13",
+       "2"
+      ],
+      [
+       "14",
+       "2"
+      ],
+      [
+       "15",
+       "7"
+      ]
+     ],
+     "colLabels": [
+      "oid",
+      "cid"
+     ],
+     "colTitle": "Ord"
+    },
+    {
+     "id": "m00",
+     "kind": "edge",
+     "x1": 98,
+     "y1": 57.0,
+     "x2": 150,
+     "y2": 57.0
+    },
+    {
+     "id": "m01",
+     "kind": "edge",
+     "x1": 98,
+     "y1": 57.0,
+     "x2": 150,
+     "y2": 81.0
+    },
+    {
+     "id": "m12",
+     "kind": "edge",
+     "x1": 98,
+     "y1": 81.0,
+     "x2": 150,
+     "y2": 105.0
+    },
+    {
+     "id": "m13",
+     "kind": "edge",
+     "x1": 98,
+     "y1": 81.0,
+     "x2": 150,
+     "y2": 129.0
+    },
+    {
+     "id": "m14",
+     "kind": "edge",
+     "x1": 98,
+     "y1": 81.0,
+     "x2": 150,
+     "y2": 153.0
+    },
+    {
+     "id": "bars",
+     "kind": "bar",
+     "x": 60,
+     "y": 225,
+     "w": 300,
+     "h": 55,
+     "values": [
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "cross",
+      "inner",
+      "left",
+      "right",
+      "full"
+     ],
+     "max": 24,
+     "hideZero": true
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 200,
+     "y": 203,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Cust has 4 rows, Ord has 6. We count the rows each kind of join returns.",
+     "highlight": [
+      "C",
+      "O"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "4 customers, 6 orders"
+     }
+    },
+    {
+     "caption": "CROSS JOIN pairs every customer with every order: 4 × 6 = 24 rows. A join with no condition gives this.",
+     "set": {
+      "id": "bars",
+      "values": [
+       24,
+       0,
+       0,
+       0,
+       0
+      ]
+     },
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "INNER JOIN ON Cust.cid = Ord.cid keeps matching pairs only. Customer 1 has 2 orders, customer 2 has 3: 5 rows.",
+     "show": [
+      "m00",
+      "m01",
+      "m12",
+      "m13",
+      "m14"
+     ],
+     "highlight": [
+      "m00",
+      "m01",
+      "m12",
+      "m13",
+      "m14",
+      {
+       "id": "bars",
+       "cells": [
+        1
+       ]
+      }
+     ],
+     "set": {
+      "id": "bars",
+      "values": [
+       24,
+       5,
+       0,
+       0,
+       0
+      ]
+     }
+    },
+    {
+     "caption": "LEFT JOIN keeps every customer. Customers 3 and 4 have no order, so each adds one NULL-padded row: 5 + 2 = 7.",
+     "highlight": [
+      {
+       "id": "C",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "bars",
+       "cells": [
+        2
+       ]
+      }
+     ],
+     "set": {
+      "id": "bars",
+      "values": [
+       24,
+       5,
+       7,
+       0,
+       0
+      ]
+     }
+    },
+    {
+     "caption": "RIGHT JOIN keeps every order. Order 15 has cid 7, which is no customer: 5 + 1 = 6.",
+     "highlight": [
+      {
+       "id": "O",
+       "cells": [
+        [
+         5,
+         0
+        ],
+        [
+         5,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "bars",
+       "cells": [
+        3
+       ]
+      }
+     ],
+     "set": {
+      "id": "bars",
+      "values": [
+       24,
+       5,
+       7,
+       6,
+       0
+      ]
+     }
+    },
+    {
+     "caption": "FULL OUTER JOIN keeps both kinds of leftovers: 5 + 2 + 1 = 8. It contains the inner, left and right results.",
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        4
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        24,
+        5,
+        7,
+        6,
+        8
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "rows = matches + leftovers",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.sql.s3.nullagg",
+   "title": "Aggregates skip NULL, but COUNT(*) does not",
+   "viewBox": [
+    0,
+    0,
+    400,
+    250
+   ],
+   "objects": [
+    {
+     "id": "E",
+     "kind": "grid",
+     "x": 20,
+     "y": 55,
+     "rows": 5,
+     "cols": 2,
+     "cw": 60,
+     "ch": 28,
+     "cells": [
+      [
+       "1",
+       "40"
+      ],
+      [
+       "2",
+       "NULL"
+      ],
+      [
+       "3",
+       "20"
+      ],
+      [
+       "4",
+       "NULL"
+      ],
+      [
+       "5",
+       "60"
+      ]
+     ],
+     "colLabels": [
+      "eid",
+      "bonus"
+     ],
+     "colTitle": "Emp"
+    },
+    {
+     "id": "R",
+     "kind": "grid",
+     "x": 320,
+     "y": 55,
+     "rows": 4,
+     "cols": 1,
+     "cw": 60,
+     "ch": 28,
+     "cells": [
+      "",
+      "",
+      "",
+      ""
+     ],
+     "rowLabels": [
+      "COUNT(*)",
+      "COUNT(bonus)",
+      "SUM(bonus)",
+      "AVG(bonus)"
+     ],
+     "colTitle": "result"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 200,
+     "y": 225,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Emp has 5 rows. Two of the bonus values are NULL (missing).",
+     "highlight": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         1,
+         1
+        ],
+        [
+         3,
+         1
+        ]
+       ],
+       "tone": "bad"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "bonus: 40, NULL, 20, NULL, 60"
+     }
+    },
+    {
+     "caption": "COUNT(*) counts rows, whatever they hold: 5.",
+     "highlight": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ]
+       ]
+      },
+      {
+       "id": "R",
+       "cells": [
+        0
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "R",
+       "cells": [
+        "5",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "COUNT(*) = 5"
+      }
+     ]
+    },
+    {
+     "caption": "COUNT(bonus) skips NULL: only 40, 20, 60 count. Result 3.",
+     "dim": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         0,
+         1
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         4,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "R",
+       "cells": [
+        1
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "R",
+       "cells": [
+        "5",
+        "3",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "COUNT(bonus) = 3"
+      }
+     ]
+    },
+    {
+     "caption": "SUM(bonus) adds the non-NULL values: 40 + 20 + 60 = 120.",
+     "highlight": [
+      {
+       "id": "R",
+       "cells": [
+        2
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "R",
+       "cells": [
+        "5",
+        "3",
+        "120",
+        ""
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "SUM = 120"
+      }
+     ]
+    },
+    {
+     "caption": "AVG(bonus) divides by the number of non-NULL values: 120 / 3 = 40. It is not 120 / 5 = 24.",
+     "highlight": [
+      {
+       "id": "R",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "R",
+       "cells": [
+        "5",
+        "3",
+        "120",
+        "40"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "AVG = 120 / 3 = 40  (not 120 / 5)",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.sql.s4.groupby",
+   "title": "GROUP BY forms groups; HAVING filters whole groups",
+   "viewBox": [
+    0,
+    0,
+    400,
+    308
+   ],
+   "objects": [
+    {
+     "id": "S",
+     "kind": "grid",
+     "x": 10,
+     "y": 78,
+     "rows": 10,
+     "cols": 2,
+     "cw": 52,
+     "ch": 22,
+     "cells": [
+      [
+       "N",
+       "30"
+      ],
+      [
+       "N",
+       "20"
+      ],
+      [
+       "S",
+       "10"
+      ],
+      [
+       "S",
+       "15"
+      ],
+      [
+       "S",
+       "40"
+      ],
+      [
+       "E",
+       "5"
+      ],
+      [
+       "E",
+       "12"
+      ],
+      [
+       "W",
+       "50"
+      ],
+      [
+       "W",
+       "5"
+      ],
+      [
+       "N",
+       "25"
+      ]
+     ],
+     "colLabels": [
+      "region",
+      "amt"
+     ],
+     "colTitle": "Sales"
+    },
+    {
+     "id": "G",
+     "kind": "grid",
+     "x": 170,
+     "y": 78,
+     "rows": 4,
+     "cols": 2,
+     "cw": 50,
+     "ch": 26,
+     "cells": [
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ],
+      [
+       "",
+       ""
+      ]
+     ],
+     "colLabels": [
+      "region",
+      "sum"
+     ],
+     "colTitle": "groups"
+    },
+    {
+     "id": "H",
+     "kind": "grid",
+     "x": 300,
+     "y": 78,
+     "rows": 2,
+     "cols": 2,
+     "cw": 46,
+     "ch": 26,
+     "cells": [
+      [
+       "N",
+       "75"
+      ],
+      [
+       "S",
+       "65"
+      ]
+     ],
+     "colLabels": [
+      "region",
+      "sum"
+     ],
+     "colTitle": "HAVING"
+    },
+    {
+     "id": "q",
+     "kind": "text",
+     "x": 200,
+     "y": 20,
+     "text": "SELECT region, SUM(amt) FROM Sales WHERE amt >= 10\nGROUP BY region HAVING SUM(amt) > 50",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 270,
+     "y": 230,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Order of work: FROM, then WHERE (rows), then GROUP BY, then HAVING (groups), then SELECT.",
+     "highlight": [
+      "S",
+      "q"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "WHERE → GROUP BY → HAVING"
+     }
+    },
+    {
+     "caption": "WHERE amt >= 10 removes single rows first: (E, 5) and (W, 5) are gone before any grouping.",
+     "dim": [
+      {
+       "id": "S",
+       "cells": [
+        [
+         5,
+         0
+        ],
+        [
+         5,
+         1
+        ],
+        [
+         8,
+         0
+        ],
+        [
+         8,
+         1
+        ]
+       ]
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "8 rows left"
+     }
+    },
+    {
+     "caption": "GROUP BY region: group N has 30, 20, 25, so SUM = 75.",
+     "highlight": [
+      {
+       "id": "S",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         9,
+         0
+        ],
+        [
+         9,
+         1
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "G",
+       "cells": [
+        [
+         "N",
+         "75"
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "N: 30 + 20 + 25 = 75"
+      }
+     ]
+    },
+    {
+     "caption": "Group S has 10, 15, 40: SUM = 65.",
+     "highlight": [
+      {
+       "id": "S",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "G",
+       "cells": [
+        [
+         "N",
+         "75"
+        ],
+        [
+         "S",
+         "65"
+        ],
+        [
+         "",
+         ""
+        ],
+        [
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "S: 10 + 15 + 40 = 65"
+      }
+     ]
+    },
+    {
+     "caption": "Group E has only (E, 12) left: SUM = 12. Group W has only (W, 50): SUM = 50.",
+     "highlight": [
+      {
+       "id": "S",
+       "cells": [
+        [
+         6,
+         0
+        ],
+        [
+         6,
+         1
+        ],
+        [
+         7,
+         0
+        ],
+        [
+         7,
+         1
+        ]
+       ],
+       "tone": "mid"
+      }
+     ],
+     "set": [
+      {
+       "id": "G",
+       "cells": [
+        [
+         "N",
+         "75"
+        ],
+        [
+         "S",
+         "65"
+        ],
+        [
+         "E",
+         "12"
+        ],
+        [
+         "W",
+         "50"
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "E: 12      W: 50"
+      }
+     ]
+    },
+    {
+     "caption": "HAVING SUM(amt) > 50 keeps whole groups. N (75) and S (65) pass. W has exactly 50, which is not greater than 50. E (12) fails.",
+     "show": "H",
+     "highlight": [
+      {
+       "id": "G",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "H",
+       "tone": "good"
+      }
+     ],
+     "dim": [
+      {
+       "id": "G",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ]
+       ]
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "result: 2 rows (N, S)",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "db.sql.s5.subquery",
+   "title": "A correlated subquery runs once per outer row",
+   "viewBox": [
+    0,
+    0,
+    400,
+    295
+   ],
+   "objects": [
+    {
+     "id": "E",
+     "kind": "grid",
+     "x": 10,
+     "y": 82,
+     "rows": 6,
+     "cols": 3,
+     "cw": 46,
+     "ch": 26,
+     "cells": [
+      [
+       "1",
+       "CS",
+       "60"
+      ],
+      [
+       "2",
+       "CS",
+       "80"
+      ],
+      [
+       "3",
+       "CS",
+       "70"
+      ],
+      [
+       "4",
+       "EE",
+       "50"
+      ],
+      [
+       "5",
+       "EE",
+       "90"
+      ],
+      [
+       "6",
+       "ME",
+       "40"
+      ]
+     ],
+     "colLabels": [
+      "eid",
+      "dept",
+      "sal"
+     ],
+     "colTitle": "Emp"
+    },
+    {
+     "id": "A",
+     "kind": "grid",
+     "x": 175,
+     "y": 82,
+     "rows": 3,
+     "cols": 2,
+     "cw": 50,
+     "ch": 26,
+     "cells": [
+      [
+       "CS",
+       ""
+      ],
+      [
+       "EE",
+       ""
+      ],
+      [
+       "ME",
+       ""
+      ]
+     ],
+     "colLabels": [
+      "dept",
+      "avg"
+     ],
+     "colTitle": "inner result"
+    },
+    {
+     "id": "R",
+     "kind": "grid",
+     "x": 310,
+     "y": 82,
+     "rows": 2,
+     "cols": 1,
+     "cw": 60,
+     "ch": 26,
+     "cells": [
+      [
+       "2"
+      ],
+      [
+       "5"
+      ]
+     ],
+     "colLabels": [
+      "eid"
+     ],
+     "colTitle": "answer"
+    },
+    {
+     "id": "q",
+     "kind": "text",
+     "x": 200,
+     "y": 20,
+     "text": "SELECT eid FROM Emp e WHERE sal >\n (SELECT AVG(sal) FROM Emp WHERE dept = e.dept)",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 200,
+     "y": 268,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "For each outer row e, the inner query computes the average salary of e's own department (that is the correlation: dept = e.dept).",
+     "highlight": [
+      "q"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "inner query depends on the outer row"
+     }
+    },
+    {
+     "caption": "Rows of CS (60, 80, 70): the inner average is (60 + 80 + 70) / 3 = 70. Only 80 > 70 passes. 70 is not greater than 70.",
+     "highlight": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ]
+       ]
+      },
+      {
+       "id": "A",
+       "cells": [
+        [
+         0,
+         1
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "A",
+       "cells": [
+        [
+         "CS",
+         "70"
+        ],
+        [
+         "EE",
+         ""
+        ],
+        [
+         "ME",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "CS avg 70: eid 2 passes"
+      }
+     ]
+    },
+    {
+     "caption": "Rows of EE (50, 90): the inner average is 70. 90 > 70 passes, 50 does not.",
+     "highlight": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ],
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         4,
+         2
+        ]
+       ]
+      },
+      {
+       "id": "A",
+       "cells": [
+        [
+         1,
+         1
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "A",
+       "cells": [
+        [
+         "CS",
+         "70"
+        ],
+        [
+         "EE",
+         "70"
+        ],
+        [
+         "ME",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "EE avg 70: eid 5 passes"
+      }
+     ]
+    },
+    {
+     "caption": "Row of ME (40): the inner average is 40 itself. 40 > 40 is false: nobody beats their own average when alone.",
+     "highlight": [
+      {
+       "id": "E",
+       "cells": [
+        [
+         5,
+         0
+        ],
+        [
+         5,
+         1
+        ],
+        [
+         5,
+         2
+        ]
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "A",
+       "cells": [
+        [
+         2,
+         1
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "A",
+       "cells": [
+        [
+         "CS",
+         "70"
+        ],
+        [
+         "EE",
+         "70"
+        ],
+        [
+         "ME",
+         "40"
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "ME avg 40: no row passes"
+      }
+     ]
+    },
+    {
+     "caption": "The answer: employees 2 and 5. A global average (65) would have given a different answer, adding employee 3.",
+     "highlight": [
+      {
+       "id": "R",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "answer: eid 2 and 5",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "db.sql.s6.setops",
+   "title": "UNION, INTERSECT, EXCEPT and their ALL versions",
+   "viewBox": [
+    0,
+    0,
+    400,
+    290
+   ],
+   "objects": [
+    {
+     "id": "A",
+     "kind": "array",
+     "x": 40,
+     "y": 40,
+     "cells": [
+      1,
+      1,
+      2,
+      3
+     ],
+     "cw": 30,
+     "ch": 30,
+     "indices": false,
+     "label": "A (bag)"
+    },
+    {
+     "id": "B",
+     "kind": "array",
+     "x": 40,
+     "y": 100,
+     "cells": [
+      1,
+      1,
+      2,
+      2,
+      4
+     ],
+     "cw": 30,
+     "ch": 30,
+     "indices": false,
+     "label": "B (bag)"
+    },
+    {
+     "id": "res",
+     "kind": "array",
+     "x": 40,
+     "y": 185,
+     "cells": [],
+     "slots": 9,
+     "cw": 30,
+     "ch": 30,
+     "indices": false,
+     "label": "result"
+    },
+    {
+     "id": "q",
+     "kind": "text",
+     "x": 200,
+     "y": 12,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 200,
+     "y": 255,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Two bags (tables with repeats): A = {1, 1, 2, 3} and B = {1, 1, 2, 2, 4}. Both have one column, so we can combine them.",
+     "highlight": [
+      "A",
+      "B"
+     ],
+     "set": {
+      "id": "q",
+      "text": "A  op  B"
+     }
+    },
+    {
+     "caption": "UNION removes duplicates: {1, 2, 3, 4}. 4 rows.",
+     "set": [
+      {
+       "id": "res",
+       "cells": [
+        1,
+        2,
+        3,
+        4
+       ]
+      },
+      {
+       "id": "q",
+       "text": "A UNION B"
+      },
+      {
+       "id": "calc",
+       "text": "4 rows"
+      }
+     ],
+     "highlight": [
+      "res"
+     ]
+    },
+    {
+     "caption": "UNION ALL keeps every row: 4 + 5 = 9 rows.",
+     "set": [
+      {
+       "id": "res",
+       "cells": [
+        1,
+        1,
+        2,
+        3,
+        1,
+        1,
+        2,
+        2,
+        4
+       ]
+      },
+      {
+       "id": "q",
+       "text": "A UNION ALL B"
+      },
+      {
+       "id": "calc",
+       "text": "9 rows"
+      }
+     ],
+     "highlight": [
+      "res"
+     ]
+    },
+    {
+     "caption": "INTERSECT gives each common value once: {1, 2}. 2 rows.",
+     "set": [
+      {
+       "id": "res",
+       "cells": [
+        1,
+        2
+       ]
+      },
+      {
+       "id": "q",
+       "text": "A INTERSECT B"
+      },
+      {
+       "id": "calc",
+       "text": "2 rows"
+      }
+     ],
+     "highlight": [
+      "res"
+     ]
+    },
+    {
+     "caption": "INTERSECT ALL keeps min(count in A, count in B) copies: value 1 twice, value 2 once. 3 rows.",
+     "set": [
+      {
+       "id": "res",
+       "cells": [
+        1,
+        1,
+        2
+       ]
+      },
+      {
+       "id": "q",
+       "text": "A INTERSECT ALL B"
+      },
+      {
+       "id": "calc",
+       "text": "3 rows"
+      }
+     ],
+     "highlight": [
+      "res"
+     ]
+    },
+    {
+     "caption": "B EXCEPT A removes every value that appears in A at all: only 4 survives. 1 row.",
+     "set": [
+      {
+       "id": "res",
+       "cells": [
+        4
+       ]
+      },
+      {
+       "id": "q",
+       "text": "B EXCEPT A"
+      },
+      {
+       "id": "calc",
+       "text": "1 row"
+      }
+     ],
+     "highlight": [
+      "res"
+     ]
+    },
+    {
+     "caption": "B EXCEPT ALL A subtracts counts: value 1: 2 − 2 = 0; value 2: 2 − 1 = 1; value 4: 1 − 0 = 1. Result {2, 4}. 2 rows.",
+     "set": [
+      {
+       "id": "res",
+       "cells": [
+        2,
+        4
+       ]
+      },
+      {
+       "id": "q",
+       "text": "B EXCEPT ALL A"
+      },
+      {
+       "id": "calc",
+       "text": "2 rows",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "res"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.sql.s7.threevalued",
+   "title": "NULL makes a condition unknown; WHERE keeps only true",
+   "viewBox": [
+    0,
+    0,
+    400,
+    280
+   ],
+   "objects": [
+    {
+     "id": "T",
+     "kind": "grid",
+     "x": 40,
+     "y": 65,
+     "rows": 5,
+     "cols": 5,
+     "cw": 64,
+     "ch": 28,
+     "cells": [
+      [
+       "1",
+       "1",
+       "",
+       "",
+       ""
+      ],
+      [
+       "2",
+       "NULL",
+       "",
+       "",
+       ""
+      ],
+      [
+       "NULL",
+       "3",
+       "",
+       "",
+       ""
+      ],
+      [
+       "4",
+       "5",
+       "",
+       "",
+       ""
+      ],
+      [
+       "NULL",
+       "NULL",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "colLabels": [
+      "a",
+      "b",
+      "a>1",
+      "b=3",
+      "OR"
+     ],
+     "colTitle": "WHERE a > 1 OR b = 3"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 200,
+     "y": 245,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "legend",
+     "kind": "text",
+     "x": 200,
+     "y": 270,
+     "text": "T = true,  F = false,  U = unknown (NULL involved)",
+     "size": 12,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Five rows, two with NULLs. For each row we compute a > 1, then b = 3, then combine with OR.",
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ]
+       ],
+       "tone": "bad"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "NULL = missing value"
+     }
+    },
+    {
+     "caption": "a > 1: a comparison with NULL is unknown, not false. Row 3 (a = NULL) and row 5 give U.",
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         2
+        ],
+        [
+         4,
+         2
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "1",
+         "1",
+         "F",
+         "",
+         ""
+        ],
+        [
+         "2",
+         "NULL",
+         "T",
+         "",
+         ""
+        ],
+        [
+         "NULL",
+         "3",
+         "U",
+         "",
+         ""
+        ],
+        [
+         "4",
+         "5",
+         "T",
+         "",
+         ""
+        ],
+        [
+         "NULL",
+         "NULL",
+         "U",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "NULL > 1  is  U"
+      }
+     ]
+    },
+    {
+     "caption": "b = 3: same idea. Row 2 (b = NULL) and row 5 give U. Row 3 (b = 3) is true.",
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         3
+        ],
+        [
+         3,
+         3
+        ],
+        [
+         4,
+         3
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "1",
+         "1",
+         "F",
+         "F",
+         ""
+        ],
+        [
+         "2",
+         "NULL",
+         "T",
+         "U",
+         ""
+        ],
+        [
+         "NULL",
+         "3",
+         "U",
+         "T",
+         ""
+        ],
+        [
+         "4",
+         "5",
+         "T",
+         "F",
+         ""
+        ],
+        [
+         "NULL",
+         "NULL",
+         "U",
+         "U",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "NULL = 3  is  U"
+      }
+     ]
+    },
+    {
+     "caption": "Combine with OR. T OR U = T (one true is enough). F OR F = F. U OR U = U.",
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         4
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         3,
+         4
+        ],
+        [
+         4,
+         4
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "1",
+         "1",
+         "F",
+         "F",
+         "F"
+        ],
+        [
+         "2",
+         "NULL",
+         "T",
+         "U",
+         "T"
+        ],
+        [
+         "NULL",
+         "3",
+         "U",
+         "T",
+         "T"
+        ],
+        [
+         "4",
+         "5",
+         "T",
+         "F",
+         "T"
+        ],
+        [
+         "NULL",
+         "NULL",
+         "U",
+         "U",
+         "U"
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "T or U = T;   U or U = U"
+      }
+     ]
+    },
+    {
+     "caption": "WHERE keeps a row only if the condition is true. Rows 2, 3 and 4 pass. Row 1 (false) and row 5 (unknown) are dropped.",
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ],
+        [
+         3,
+         3
+        ],
+        [
+         3,
+         4
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "dim": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ],
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         4,
+         2
+        ],
+        [
+         4,
+         3
+        ],
+        [
+         4,
+         4
+        ]
+       ]
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "3 rows returned",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "db.sql.s8.cascade",
+   "title": "ON DELETE CASCADE follows the chain of children",
+   "viewBox": [
+    0,
+    0,
+    400,
+    290
+   ],
+   "objects": [
+    {
+     "id": "n1",
+     "kind": "node",
+     "x": 110,
+     "y": 60,
+     "label": "1",
+     "r": 15
+    },
+    {
+     "id": "n2",
+     "kind": "node",
+     "x": 60,
+     "y": 120,
+     "label": "2",
+     "r": 15
+    },
+    {
+     "id": "n6",
+     "kind": "node",
+     "x": 160,
+     "y": 120,
+     "label": "6",
+     "r": 15
+    },
+    {
+     "id": "n3",
+     "kind": "node",
+     "x": 30,
+     "y": 180,
+     "label": "3",
+     "r": 15
+    },
+    {
+     "id": "n4",
+     "kind": "node",
+     "x": 95,
+     "y": 180,
+     "label": "4",
+     "r": 15
+    },
+    {
+     "id": "n7",
+     "kind": "node",
+     "x": 160,
+     "y": 180,
+     "label": "7",
+     "r": 15
+    },
+    {
+     "id": "n5",
+     "kind": "node",
+     "x": 30,
+     "y": 240,
+     "label": "5",
+     "r": 15
+    },
+    {
+     "id": "n10",
+     "kind": "node",
+     "x": 95,
+     "y": 240,
+     "label": "10",
+     "r": 15
+    },
+    {
+     "id": "n8",
+     "kind": "node",
+     "x": 320,
+     "y": 60,
+     "label": "8",
+     "r": 15
+    },
+    {
+     "id": "n9",
+     "kind": "node",
+     "x": 320,
+     "y": 120,
+     "label": "9",
+     "r": 15
+    },
+    {
+     "id": "e2",
+     "kind": "arrow",
+     "from": "n2",
+     "to": "n1"
+    },
+    {
+     "id": "e3",
+     "kind": "arrow",
+     "from": "n3",
+     "to": "n2"
+    },
+    {
+     "id": "e4",
+     "kind": "arrow",
+     "from": "n4",
+     "to": "n2"
+    },
+    {
+     "id": "e5",
+     "kind": "arrow",
+     "from": "n5",
+     "to": "n3"
+    },
+    {
+     "id": "e6",
+     "kind": "arrow",
+     "from": "n6",
+     "to": "n1"
+    },
+    {
+     "id": "e7",
+     "kind": "arrow",
+     "from": "n7",
+     "to": "n6"
+    },
+    {
+     "id": "e9",
+     "kind": "arrow",
+     "from": "n9",
+     "to": "n8"
+    },
+    {
+     "id": "e10",
+     "kind": "arrow",
+     "from": "n10",
+     "to": "n4"
+    },
+    {
+     "id": "ddl",
+     "kind": "text",
+     "x": 200,
+     "y": 14,
+     "text": "parent REFERENCES t(id) ON DELETE CASCADE",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "cap",
+     "kind": "text",
+     "x": 285,
+     "y": 190,
+     "text": "arrow: child → parent",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 285,
+     "y": 235,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Table t(id, parent) forms two trees. Each row points to its parent through a foreign key with ON DELETE CASCADE. There are 10 rows.",
+     "highlight": [
+      "ddl"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "10 rows"
+     }
+    },
+    {
+     "caption": "DELETE FROM t WHERE id = 2. Row 2 is removed.",
+     "set": [
+      {
+       "id": "n2",
+       "tone": "bad"
+      },
+      {
+       "id": "calc",
+       "text": "deleted: 2"
+      }
+     ],
+     "dim": "n2",
+     "highlight": [
+      "n2"
+     ]
+    },
+    {
+     "caption": "Rows 3 and 4 have parent 2, so the cascade deletes them too.",
+     "set": [
+      {
+       "id": "n3",
+       "tone": "bad"
+      },
+      {
+       "id": "n4",
+       "tone": "bad"
+      },
+      {
+       "id": "calc",
+       "text": "deleted: 2, 3, 4"
+      }
+     ],
+     "dim": [
+      "n3",
+      "n4"
+     ],
+     "highlight": [
+      "e3",
+      "e4"
+     ]
+    },
+    {
+     "caption": "The cascade continues. Row 5 has parent 3 and row 10 has parent 4, so both go.",
+     "set": [
+      {
+       "id": "n5",
+       "tone": "bad"
+      },
+      {
+       "id": "n10",
+       "tone": "bad"
+      },
+      {
+       "id": "calc",
+       "text": "deleted: 2, 3, 4, 5, 10"
+      }
+     ],
+     "dim": [
+      "n5",
+      "n10"
+     ],
+     "highlight": [
+      "e5",
+      "e10"
+     ]
+    },
+    {
+     "caption": "Rows 1, 6, 7, 8 and 9 are not descendants of 2, so they stay. 4 rows were deleted by the cascade, 5 in total.",
+     "set": [
+      {
+       "id": "n1",
+       "tone": "good"
+      },
+      {
+       "id": "n6",
+       "tone": "good"
+      },
+      {
+       "id": "n7",
+       "tone": "good"
+      },
+      {
+       "id": "n8",
+       "tone": "good"
+      },
+      {
+       "id": "n9",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "5 rows remain",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "n1",
+      "n6",
+      "n7",
+      "n8",
+      "n9"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.sql.s9.anyall",
+   "title": "ALL means beat the maximum; ANY means beat the minimum",
+   "viewBox": [
+    0,
+    0,
+    400,
+    290
+   ],
+   "objects": [
+    {
+     "id": "bars",
+     "kind": "bar",
+     "x": 40,
+     "y": 60,
+     "w": 280,
+     "h": 140,
+     "values": [
+      35,
+      48,
+      52,
+      60,
+      75
+     ],
+     "labels": [
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+      "m5"
+     ],
+     "max": 80
+    },
+    {
+     "id": "lall",
+     "kind": "edge",
+     "x1": 40,
+     "y1": 116.0,
+     "x2": 330,
+     "y2": 116.0,
+     "dash": true
+    },
+    {
+     "id": "lany",
+     "kind": "edge",
+     "x1": 40,
+     "y1": 138.75,
+     "x2": 330,
+     "y2": 138.75,
+     "dash": true
+    },
+    {
+     "id": "tall",
+     "kind": "text",
+     "x": 335,
+     "y": 110.0,
+     "text": "ALL: 48",
+     "size": 12,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "tany",
+     "kind": "text",
+     "x": 335,
+     "y": 146.75,
+     "text": "ANY: 35",
+     "size": 12,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "q",
+     "kind": "text",
+     "x": 200,
+     "y": 14,
+     "text": "WHERE m > ALL (SELECT m FROM Marks WHERE m <= 50)",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 200,
+     "y": 255,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Marks = 35, 48, 52, 60, 75. The subquery picks the marks that are at most 50.",
+     "highlight": [
+      "bars"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "Marks: 35 48 52 60 75"
+     }
+    },
+    {
+     "caption": "The subquery returns {35, 48}.",
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        0,
+        1
+       ],
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "subquery set = {35, 48}"
+     }
+    },
+    {
+     "caption": "m > ALL (…) means m must beat every value in the set, so it must beat the largest one, 48. Marks 52, 60 and 75 qualify. COUNT = 3.",
+     "show": [
+      "lall",
+      "tall"
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        2,
+        3,
+        4
+       ],
+       "tone": "good"
+      },
+      "lall"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "> ALL → above the max (48): 3 rows"
+     }
+    },
+    {
+     "caption": "m > ANY (…) means beating at least one value, so beating the smallest, 35, is enough. Marks 48, 52, 60 and 75 qualify. COUNT = 4.",
+     "show": [
+      "lany",
+      "tany"
+     ],
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        1,
+        2,
+        3,
+        4
+       ],
+       "tone": "good"
+      },
+      "lany"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "> ANY → above the min (35): 4 rows"
+     }
+    },
+    {
+     "caption": "If the subquery were empty: > ALL is true for every row (nothing to beat), > ANY is false for every row (nothing beaten).",
+     "highlight": [
+      {
+       "id": "bars",
+       "tone": "mid"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "empty set: ALL → true,  ANY → false",
+      "tone": "mid"
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,3654 @@
+{
+  "topic_id": "ml.hier",
+  "title": "Hierarchical clustering",
+  "chapter_note": {
+    "about": "Hierarchical clustering builds a tree of clusters. Bottom-up, it starts with every point alone and repeatedly merges the two closest clusters, recording each merge in a dendrogram. This chapter covers the bottom-up and top-down views, distances and the closest pair, single, complete and average linkage, reading and cutting a dendrogram, and the chaining effect with its link to the minimum spanning tree.",
+    "concept_map": [
+      {
+        "atom_id": "h1",
+        "title": "Agglomerative versus divisive",
+        "one_line": "Bottom-up starts with n singletons and makes n − 1 merges."
+      },
+      {
+        "atom_id": "h2",
+        "title": "Distances and the closest pair",
+        "one_line": "Pick the metric, build the table, merge the smallest off-diagonal entry."
+      },
+      {
+        "atom_id": "h3",
+        "title": "Single linkage",
+        "one_line": "Cluster distance is the minimum cross pair. Update with the min."
+      },
+      {
+        "atom_id": "h4",
+        "title": "Complete linkage",
+        "one_line": "Cluster distance is the maximum cross pair. Update with the max."
+      },
+      {
+        "atom_id": "h5",
+        "title": "Average linkage",
+        "one_line": "Mean of all cross pairs. Weight old averages by cluster size."
+      },
+      {
+        "atom_id": "h6",
+        "title": "Dendrogram and cuts",
+        "one_line": "Height is the merge distance. A cut at h keeps merges at or below h."
+      },
+      {
+        "atom_id": "h7",
+        "title": "Chaining and the MST link",
+        "one_line": "Single chains. Complete is compact. Single heights equal MST weights."
+      }
+    ],
+    "gate_patterns": [
+      "Run single linkage on a five-point distance matrix and pick the dendrogram: merge the smallest entry, then update with the minimum. Asked in 2024 DA (Q42).",
+      "Single linkage uses the minimum cross-pair distance and complete linkage the maximum. Asked in 2025 DA (Q30).",
+      "First merge under a given metric: compute the pairwise Manhattan distances and take the smallest. Asked in 2026 DA (Q36). About 1.67 marks per DA paper."
+    ],
+    "simple": "Hierarchical clustering builds a family tree of your data. Every point starts alone. Then the two closest groups join, again and again, until there is one big group. How you measure the distance between two groups is called the linkage: the nearest pair (single), the farthest pair (complete) or the average of all pairs. Single linkage can make long snakes, and complete linkage makes tight blobs. To get actual clusters, cut the tree with a horizontal line, and count the branches it crosses. In the exam you work from a small table of distances and update it after each merge."
+  },
+  "cards": [
+    {
+      "atom_id": "h1",
+      "title": "Agglomerative versus divisive",
+      "simple": "Think of a class photo. Agglomerative clustering starts with every student standing alone. Then it keeps joining the two closest groups until everyone is in one big group. Divisive clustering does the opposite: it starts with the whole class together and keeps splitting it. Bottom-up is the version you meet in exams. With n students it needs exactly n − 1 joins, because every join turns two groups into one. The record of who joined whom, and how far apart they were, is called a dendrogram. In exam words: agglomerative clustering is bottom-up with n − 1 merges, and divisive clustering is top-down.",
+      "idea": "**Agglomerative** clustering starts with every point as its own cluster and repeatedly **merges** the two closest clusters. Every merge turns two clusters into one, so n points need exactly **n − 1** merges. **Divisive** clustering works top-down: it starts with one cluster and splits. The merge order is recorded as a tree called a **dendrogram**.",
+      "definition": "$$\\text{clusters left after } m \\text{ merges}=n-m,\\qquad \\text{merges to reach one cluster}=n-1$$\n\nSymbols: $n$ is the number of points and $m$ is the number of merges done so far. Bottom-up clustering needs no $k$ in advance: you read the clusters off the finished tree by cutting it.",
+      "intuition_full": "Counting is the easy part. At the start there are n clusters. A merge takes two clusters and puts them into one, so the count drops by exactly 1. To go from n clusters to 1 you need n − 1 drops, so n − 1 merges. After m merges there are n − m clusters. Divisive clustering runs the film backwards: one cluster at the start and n single points at the end, so a complete run makes n − 1 splits. Unlike k-means, hierarchical clustering needs no starting centroids, so the same data and the same linkage always give the same tree. It needs the full table of pairwise distances, which has about n²/2 entries, so it is slow for very large data. 'Closest clusters' needs a rule for the distance between two groups of points. The linkage cards give three: single, complete and average. For now, the distance between two clusters is the gap between their nearest points.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Six points on a line at A = 0, B = 1, C = 3, D = 7, E = 14, F = 17. Merge bottom-up, always joining the two clusters whose nearest points are closest. List the merges, the height (the gap) of each, and the number of clusters left after each merge.",
+          "steps": [
+            "Start: six single-point clusters. The gaps between neighbours are AB 1, BC 2, CD 4, DE 7, EF 3.",
+            "Merge 1: the smallest gap is A–B = 1. Merge them at height 1. Five clusters are left.",
+            "Merge 2: B to C is 2, now the smallest gap. C joins {A,B} at height 2. Four clusters are left.",
+            "Merge 3: E and F are 3 apart, the smallest gap now. Merge them at height 3. Three clusters are left.",
+            "Merge 4: C to D is 4. D joins {A,B,C} at height 4. Two clusters are left.",
+            "Merge 5: D to E is 7. The clusters {A,B,C,D} and {E,F} merge at height 7. One cluster is left, after 5 = 6 − 1 merges."
+          ],
+          "answer": "5 merges at heights 1, 2, 3, 4, 7. The cluster count falls 6, 5, 4, 3, 2, 1."
+        },
+        {
+          "level": "gate",
+          "setup": "Bottom-up clustering is run on 40 points and stopped when 6 clusters remain. How many merges were made? How many clusters remain after 25 merges? How many merges does the complete tree need?",
+          "steps": [
+            "Each merge removes one cluster. Going from 40 clusters to 6 removes 40 − 6 = 34 clusters, so 34 merges.",
+            "After 25 merges: 40 − 25 = 15 clusters.",
+            "The complete tree ends with 1 cluster: 40 − 1 = 39 merges."
+          ],
+          "answer": "34 merges to reach 6 clusters, 15 clusters after 25 merges, 39 merges in all."
+        },
+        {
+          "level": "twist",
+          "setup": "Top-down (divisive) clustering is run on 10 points and stopped when 4 clusters exist. How many splits were made? How many merges would bottom-up clustering need to reach 4 clusters from the same 10 points?",
+          "steps": [
+            "Divisive clustering starts with 1 cluster, and each split adds one cluster.",
+            "To reach 4 clusters: 4 − 1 = 3 splits.",
+            "Bottom-up starts with 10 clusters and each merge removes one. To reach 4 clusters: 10 − 4 = 6 merges.",
+            "Check: 3 + 6 = 9 = 10 − 1, the size of the whole tree."
+          ],
+          "answer": "3 splits top-down, 6 merges bottom-up. They add up to n − 1 = 9."
+        }
+      ],
+      "why": "Merge counts are quick marks, and the bottom-up picture is the base for the linkage cards. In GATE: which direction each method works, and how many merges or clusters there are at a given stage.",
+      "how": [
+        "Bottom-up: start with n clusters, one per point.",
+        "Each merge reduces the number of clusters by one.",
+        "After m merges, n − m clusters remain.",
+        "A full run needs n − 1 merges.",
+        "Top-down: start with 1 cluster. Each split adds one."
+      ],
+      "mistake": "Counting n merges instead of n − 1, or reading 'after m merges' as 'm clusters'. The last merge leaves one cluster, so a full run has n − 1 merges, and after m merges there are n − m clusters.",
+      "edge_cases": [
+        "One point (n = 1): no merges are needed.",
+        "Two points: exactly one merge.",
+        "Ties for the closest pair: either can merge first when the pairs do not overlap, and the tree is the same.",
+        "Stopping early gives the clusters left at that stage. Cutting the dendrogram gives the same result."
+      ],
+      "connections": [
+        "Foundations: Algebra. Counting merges is the subtraction n − m.",
+        "k-means: it needs k and a starting guess, while hierarchical clustering needs neither.",
+        "Dendrogram card: the tree records these merges and their heights."
+      ],
+      "check": [
+        {
+          "q": "Bottom-up clustering runs on 8 points until one cluster is left. How many merges?",
+          "a": "8 − 1 = 7."
+        },
+        {
+          "q": "After 5 merges on 9 points, how many clusters remain?",
+          "a": "9 − 5 = 4."
+        },
+        {
+          "q": "Does hierarchical clustering need a random starting guess like k-means?",
+          "a": "No. The same data and linkage always give the same tree."
+        }
+      ],
+      "asked": "Asked: no past paper isolates it. The 2024 DA Q42 and 2026 DA Q36 both start from the merge step.",
+      "scene": "ml.hier.merges",
+      "try": {
+        "id": "gen.ml.hier.001",
+        "label": "Where bottom-up clustering begins"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Six points on a line at A = 0, B = 1, C = 3, D = 7, E = 14, F = 17. Merge bottom-up, always joining the two clusters whose nearest points are closest. List the merges, the height (the gap) of each, and the number of clusters left after each merge.",
+        "steps": [
+          "Start: six single-point clusters. The gaps between neighbours are AB 1, BC 2, CD 4, DE 7, EF 3.",
+          "Merge 1: the smallest gap is A–B = 1. Merge them at height 1. Five clusters are left.",
+          "Merge 2: B to C is 2, now the smallest gap. C joins {A,B} at height 2. Four clusters are left.",
+          "Merge 3: E and F are 3 apart, the smallest gap now. Merge them at height 3. Three clusters are left.",
+          "Merge 4: C to D is 4. D joins {A,B,C} at height 4. Two clusters are left.",
+          "Merge 5: D to E is 7. The clusters {A,B,C,D} and {E,F} merge at height 7. One cluster is left, after 5 = 6 − 1 merges."
+        ],
+        "answer": "5 merges at heights 1, 2, 3, 4, 7. The cluster count falls 6, 5, 4, 3, 2, 1."
+      },
+      "what": "**Agglomerative** clustering starts with every point as its own cluster and repeatedly **merges** the two closest clusters. Every merge turns two clusters into one, so n points need exactly **n − 1** merges. **Divisive** clustering works top-down: it starts with one cluster and splits. The merge order is recorded as a tree called a **dendrogram**.",
+      "what_full": "**Agglomerative** clustering starts with every point as its own cluster and repeatedly **merges** the two closest clusters. Every merge turns two clusters into one, so n points need exactly **n − 1** merges. **Divisive** clustering works top-down: it starts with one cluster and splits. The merge order is recorded as a tree called a **dendrogram**.\n\n$$\\text{clusters left after } m \\text{ merges}=n-m,\\qquad \\text{merges to reach one cluster}=n-1$$\n\nSymbols: $n$ is the number of points and $m$ is the number of merges done so far. Bottom-up clustering needs no $k$ in advance: you read the clusters off the finished tree by cutting it.\n\n**Worked example.** Six points on a line at A = 0, B = 1, C = 3, D = 7, E = 14, F = 17. Merge bottom-up, always joining the two clusters whose nearest points are closest. List the merges, the height (the gap) of each, and the number of clusters left after each merge.\n\n1. Start: six single-point clusters. The gaps between neighbours are AB 1, BC 2, CD 4, DE 7, EF 3.\n2. Merge 1: the smallest gap is A–B = 1. Merge them at height 1. Five clusters are left.\n3. Merge 2: B to C is 2, now the smallest gap. C joins {A,B} at height 2. Four clusters are left.\n4. Merge 3: E and F are 3 apart, the smallest gap now. Merge them at height 3. Three clusters are left.\n5. Merge 4: C to D is 4. D joins {A,B,C} at height 4. Two clusters are left.\n6. Merge 5: D to E is 7. The clusters {A,B,C,D} and {E,F} merge at height 7. One cluster is left, after 5 = 6 − 1 merges.\n\n**Answer:** 5 merges at heights 1, 2, 3, 4, 7. The cluster count falls 6, 5, 4, 3, 2, 1.\n\n**Check yourself:** Bottom-up clustering runs on 8 points until one cluster is left. How many merges?\n\n*Answer:* 8 − 1 = 7.",
+      "trap": "Counting n merges instead of n − 1, or reading 'after m merges' as 'm clusters'. The last merge leaves one cluster, so a full run has n − 1 merges, and after m merges there are n − m clusters.",
+      "why_full": "Merge counts are quick marks, and the bottom-up picture is the base for the linkage cards. In GATE: which direction each method works, and how many merges or clusters there are at a given stage.\n\nAsked: no past paper isolates it. The 2024 DA Q42 and 2026 DA Q36 both start from the merge step."
+    },
+    {
+      "atom_id": "h2",
+      "title": "Distances and the closest pair",
+      "simple": "To decide who is closest, you first need a ruler. Euclidean distance is the straight-line distance, like a crow flying. Manhattan distance is the walking distance along a city grid: first across, then up. The two rulers can disagree about which pair is closest. Once you pick a ruler, write all the pair distances in a table. This is the distance matrix. The first merge is the smallest number in the table, ignoring the diagonal, because the diagonal is each point's distance to itself, which is zero. In exam words: compute the pairwise distances (L1 or L2), then merge the smallest off-diagonal entry.",
+      "idea": "Before merging you need a **distance** between points. **Euclidean** (L2) is the straight-line distance. **Manhattan** (L1) adds the gaps in each coordinate. Write all pair distances in a symmetric **distance matrix**, then merge the pair with the smallest **off-diagonal** entry. The diagonal is always 0 and means nothing.",
+      "definition": "$$d_2(p,q)=\\sqrt{\\sum_i (p_i-q_i)^2},\\qquad d_1(p,q)=\\sum_i |p_i-q_i|$$\n\nSymbols: $p$ and $q$ are two points and $p_i$ is coordinate $i$. The distance matrix has $d(p,q)$ in row $p$ and column $q$. It is symmetric and its diagonal is 0. For $n$ points there are $n(n-1)/2$ different pairs.",
+      "intuition_full": "Euclidean distance is the length of the straight line between two points. Manhattan distance is the length of a path that moves only along the axes, like a taxi in a city grid: add the gap in each coordinate. For two points that differ by (3, 4), the straight line is 5 but the taxi route is 7. Because the two rulers measure differently, they can disagree about which pair is closest, and then the first merge differs. Read the question for the metric. Next, build the table of all pairs. It is symmetric, because the distance from A to B equals the distance from B to A, so you only need half of it. Its diagonal is 0 because each point is at distance 0 from itself, and those zeros are never a candidate for a merge. Merge the smallest off-diagonal number. For 4 points there are 6 pairs, for 5 points 10 pairs, and n(n − 1)/2 in general.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Four points in the plane: P = (0, 0), Q = (3, 4), R = (8, 0), S = (14, 0). Find the closest pair under the Manhattan distance and under the Euclidean distance.",
+          "steps": [
+            "Four points, six pairs. Compute each pair under both rulers.",
+            "P–Q: the gaps are 3 and 4. Manhattan = 3 + 4 = 7. Euclidean = √(9 + 16) = 5.",
+            "R–S: the gaps are 6 and 0. Manhattan = 6 and Euclidean = 6.",
+            "The other pairs. Manhattan: P–R 8, Q–R 9, P–S 14, Q–S 15. Euclidean: P–R 8, Q–R √41 = 6.4, P–S 14, Q–S √137 = 11.7.",
+            "Smallest Manhattan distance: R–S = 6 (then P–Q = 7). Smallest Euclidean distance: P–Q = 5 (then R–S = 6)."
+          ],
+          "answer": "Manhattan: R and S merge first, at 6. Euclidean: P and Q merge first, at 5."
+        },
+        {
+          "level": "gate",
+          "setup": "Four points in 3-D: P1 = (0, 1, −3), P2 = (0, 4, −1), P3 = (0, 4, 3), P4 = (−3, 1, 3). Hierarchical clustering uses the Manhattan distance. Which pair merges first, and at what distance?",
+          "steps": [
+            "P1–P2: 0 + 3 + 2 = 5. P1–P3: 0 + 3 + 6 = 9. P1–P4: 3 + 0 + 6 = 9.",
+            "P2–P3: 0 + 0 + 4 = 4. P2–P4: 3 + 3 + 4 = 10. P3–P4: 3 + 3 + 0 = 6.",
+            "The smallest of the six is 4, for P2 and P3.",
+            "Under the Euclidean distance P1–P2 would win instead, with √13 ≈ 3.6 against √16 = 4 for P2–P3."
+          ],
+          "answer": "P2 and P3 merge first, at distance 4."
+        },
+        {
+          "level": "twist",
+          "setup": "Four objects A, B, C, D have these distances: AB 2, AC 5, AD 6, BC 4, BD 7, CD 2. Two entries tie for the smallest. Which pair merges first, and does it matter? What is the single-linkage distance between the two new clusters?",
+          "steps": [
+            "The smallest entry is 2, and it appears twice: A–B and C–D.",
+            "The two pairs share no point, so both merge at height 2, in either order.",
+            "The two new clusters are {A,B} and {C,D}. Their single-linkage distance is the smallest cross pair: min(AC 5, AD 6, BC 4, BD 7) = 4."
+          ],
+          "answer": "Both merge at height 2, and the order does not matter. The next merge is at 4."
+        }
+      ],
+      "why": "The first merge depends on the metric and the table, and a wrong first merge spoils every step after it. In GATE: compute pairwise Manhattan or Euclidean distances and find the first merge.",
+      "how": [
+        "Use the metric the question names (L1 or L2).",
+        "Compute the distance for every pair, n(n − 1)/2 of them.",
+        "Write them in a symmetric table and ignore the zero diagonal.",
+        "The smallest off-diagonal entry is the first merge.",
+        "With Euclidean distance, compare squared values to avoid roots."
+      ],
+      "mistake": "Taking a diagonal zero as the closest pair, or using Euclidean distance when the question says Manhattan. The diagonal compares a point with itself. Use the named metric on every pair.",
+      "edge_cases": [
+        "Squared Euclidean distances rank pairs the same way as Euclidean ones, so skip the root when you only compare.",
+        "Manhattan is never smaller than Euclidean. They are equal when only one coordinate differs.",
+        "A tie for the smallest entry: when the pairs do not overlap, both merge at that height.",
+        "In three dimensions, add a third gap term."
+      ],
+      "connections": [
+        "Foundations: Algebra. Absolute values, squares and square roots.",
+        "k-NN uses the same two distances to find neighbours.",
+        "k-means uses squared Euclidean distance. Hierarchical clustering lets you choose the metric."
+      ],
+      "check": [
+        {
+          "q": "What is the Manhattan distance between (1, 5) and (4, 1)?",
+          "a": "3 + 4 = 7."
+        },
+        {
+          "q": "What is the Euclidean distance between the same two points?",
+          "a": "√(9 + 16) = 5."
+        },
+        {
+          "q": "A distance table has 5 points. How many different pairs does it hold above the diagonal?",
+          "a": "5 × 4 / 2 = 10."
+        }
+      ],
+      "asked": "Asked: 2026 DA Q36 (first merge under the Manhattan distance for four 3-D points).",
+      "scene": "ml.hier.metric",
+      "try": {
+        "id": "gen.ml.hier.005",
+        "label": "Manhattan distance between two 3D points"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Four points in the plane: P = (0, 0), Q = (3, 4), R = (8, 0), S = (14, 0). Find the closest pair under the Manhattan distance and under the Euclidean distance.",
+        "steps": [
+          "Four points, six pairs. Compute each pair under both rulers.",
+          "P–Q: the gaps are 3 and 4. Manhattan = 3 + 4 = 7. Euclidean = √(9 + 16) = 5.",
+          "R–S: the gaps are 6 and 0. Manhattan = 6 and Euclidean = 6.",
+          "The other pairs. Manhattan: P–R 8, Q–R 9, P–S 14, Q–S 15. Euclidean: P–R 8, Q–R √41 = 6.4, P–S 14, Q–S √137 = 11.7.",
+          "Smallest Manhattan distance: R–S = 6 (then P–Q = 7). Smallest Euclidean distance: P–Q = 5 (then R–S = 6)."
+        ],
+        "answer": "Manhattan: R and S merge first, at 6. Euclidean: P and Q merge first, at 5."
+      },
+      "what": "Before merging you need a **distance** between points. **Euclidean** (L2) is the straight-line distance. **Manhattan** (L1) adds the gaps in each coordinate. Write all pair distances in a symmetric **distance matrix**, then merge the pair with the smallest **off-diagonal** entry. The diagonal is always 0 and means nothing.",
+      "what_full": "Before merging you need a **distance** between points. **Euclidean** (L2) is the straight-line distance. **Manhattan** (L1) adds the gaps in each coordinate. Write all pair distances in a symmetric **distance matrix**, then merge the pair with the smallest **off-diagonal** entry. The diagonal is always 0 and means nothing.\n\n$$d_2(p,q)=\\sqrt{\\sum_i (p_i-q_i)^2},\\qquad d_1(p,q)=\\sum_i |p_i-q_i|$$\n\nSymbols: $p$ and $q$ are two points and $p_i$ is coordinate $i$. The distance matrix has $d(p,q)$ in row $p$ and column $q$. It is symmetric and its diagonal is 0. For $n$ points there are $n(n-1)/2$ different pairs.\n\n**Worked example.** Four points in the plane: P = (0, 0), Q = (3, 4), R = (8, 0), S = (14, 0). Find the closest pair under the Manhattan distance and under the Euclidean distance.\n\n1. Four points, six pairs. Compute each pair under both rulers.\n2. P–Q: the gaps are 3 and 4. Manhattan = 3 + 4 = 7. Euclidean = √(9 + 16) = 5.\n3. R–S: the gaps are 6 and 0. Manhattan = 6 and Euclidean = 6.\n4. The other pairs. Manhattan: P–R 8, Q–R 9, P–S 14, Q–S 15. Euclidean: P–R 8, Q–R √41 = 6.4, P–S 14, Q–S √137 = 11.7.\n5. Smallest Manhattan distance: R–S = 6 (then P–Q = 7). Smallest Euclidean distance: P–Q = 5 (then R–S = 6).\n\n**Answer:** Manhattan: R and S merge first, at 6. Euclidean: P and Q merge first, at 5.\n\n**Check yourself:** What is the Manhattan distance between (1, 5) and (4, 1)?\n\n*Answer:* 3 + 4 = 7.",
+      "trap": "Taking a diagonal zero as the closest pair, or using Euclidean distance when the question says Manhattan. The diagonal compares a point with itself. Use the named metric on every pair.",
+      "why_full": "The first merge depends on the metric and the table, and a wrong first merge spoils every step after it. In GATE: compute pairwise Manhattan or Euclidean distances and find the first merge.\n\nAsked: 2026 DA Q36 (first merge under the Manhattan distance for four 3-D points)."
+    },
+    {
+      "atom_id": "h3",
+      "title": "Single linkage",
+      "simple": "Single linkage measures how far apart two groups are by their two closest members, like judging two villages by their nearest houses. One friendly pair is enough to call two groups close. At each step you join the two groups with the smallest such gap. In the table, the new group's row is just the smaller of the two old rows. Because one close pair is enough, a trail of close points can join into one long snake. In exam words: single linkage uses the minimum distance over cross pairs, d(A, B) = min d(a, b).",
+      "idea": "In **single linkage** the distance between two clusters is the **smallest** distance between a point in one and a point in the other. At each step, merge the two clusters with the smallest such distance. After a merge, the new cluster's distance to any other cluster is the **minimum** of the two old distances.",
+      "definition": "$$d(A,B)=\\min_{a\\in A,\\ b\\in B}d(a,b),\\qquad d(K,\\,I\\cup J)=\\min\\bigl(d(K,I),\\,d(K,J)\\bigr)$$\n\nSymbols: $A$, $B$, $K$, $I$, $J$ are clusters and $d(a,b)$ is the distance between two points. The second formula updates the table after clusters $I$ and $J$ merge: the new row is the smaller of the two old rows.",
+      "intuition_full": "One close pair is enough. If a point is near any member of a cluster, single linkage treats the whole cluster as near. That makes the update rule easy: the distance from a third cluster K to the merged cluster is the smaller of its distances to the two parts, because the closest pair runs through one part or the other. So you never need the original table again. Just take the element-wise minimum of the two rows. The merge heights never go down. The price is chaining: a path of close points can pull far-apart points into one cluster, as the twist example shows.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Five points A to E with these distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run single linkage and give the merge heights.",
+          "steps": [
+            "Five single-point clusters. The smallest entry in the table is B–D = 2.",
+            "Merge {B, D} at height 2. New distances by the min rule: A: min(3, 8) = 3. C: min(5, 12) = 5. E: min(9, 4) = 4.",
+            "The smallest entry is now A to {B,D} = 3. Merge {A,B,D} at height 3. New distances: C: min(8, 5, 12) = 5. E: min(10, 9, 4) = 4.",
+            "The smallest is E to {A,B,D} = 4. Merge {A,B,D,E} at height 4. C to that cluster: min(8, 5, 12, 6) = 5.",
+            "C joins last at height 5. The heights are 2, 3, 4, 5."
+          ],
+          "answer": "Merges: {B,D} at 2, then A at 3, then E at 4, then C at 5. The tree is a chain."
+        },
+        {
+          "level": "gate",
+          "setup": "Single linkage on five points with these distances: P1P2 2, P1P3 6, P1P4 7, P1P5 9, P2P3 4, P2P4 3, P2P5 4, P3P4 8, P3P5 5, P4P5 2. Give the merge heights in order, and the clusters when the dendrogram is cut at 3.5.",
+          "steps": [
+            "Two entries tie for the smallest: P1–P2 = 2 and P4–P5 = 2. The pairs do not overlap, so both merge at height 2.",
+            "Compare {P1,P2} with {P4,P5}: min(P1P4 7, P1P5 9, P2P4 3, P2P5 4) = 3. P3 to {P1,P2}: min(6, 4) = 4. P3 to {P4,P5}: min(8, 5) = 5.",
+            "The smallest is 3: merge {P1,P2} and {P4,P5} at height 3.",
+            "Last, P3 to the other four: min(6, 4, 8, 5) = 4. Merge at height 4.",
+            "Heights 2, 2, 3, 4. Cut at 3.5: keep the merges at 3 or lower. The clusters are {P1,P2,P4,P5} and {P3}."
+          ],
+          "answer": "Heights 2, 2, 3, 4. The cut at 3.5 gives 2 clusters: {P1,P2,P4,P5} and {P3}."
+        },
+        {
+          "level": "twist",
+          "setup": "Use the five-point table of the basic example. The points A and E are far apart: A–E = 10. At what height do A and E end up in the same cluster under single linkage?",
+          "steps": [
+            "A and E meet when E joins the cluster {A,B,D}.",
+            "E to {A,B,D} = min(A–E 10, B–E 9, D–E 4) = 4.",
+            "The pair D–E is close (4) and D is already inside the cluster, so E joins at height 4.",
+            "The distance A–E = 10 never mattered."
+          ],
+          "answer": "At height 4, although A and E are 10 apart. One close pair is enough. That is chaining."
+        }
+      ],
+      "why": "Single linkage is the linkage GATE has asked you to run. In GATE: run it on a distance matrix and choose the right dendrogram, or state that it uses the minimum.",
+      "how": [
+        "Find the smallest off-diagonal entry and merge those two clusters at that height.",
+        "Rewrite the table: the new cluster's distance to each other cluster is the min of the two old distances.",
+        "Repeat on the smaller table.",
+        "Record each height. They never decrease.",
+        "Read the tree, or cut it as the question asks."
+      ],
+      "mistake": "Swapping min and max (single is min, complete is max), or averaging the old entries. For single linkage keep the smaller of the two old distances, not the mean and not the larger one.",
+      "edge_cases": [
+        "Tied smallest entries: if the pairs do not overlap, merge both at that height. If they overlap, the tree shape can change but the heights stay the same.",
+        "Merge heights are non-decreasing.",
+        "With two clusters left, the last height is their single-linkage distance.",
+        "Single-linkage heights equal the minimum spanning tree edge weights (see the last card)."
+      ],
+      "connections": [
+        "Foundations: Algebra. Taking the smaller of two numbers.",
+        "Minimum spanning trees: Kruskal's algorithm gives the same heights.",
+        "Complete and average linkage cards: the same table with a different update rule."
+      ],
+      "check": [
+        {
+          "q": "C is 7 from A and 3 from B. A and B merge. What is the single-linkage distance from C to {A,B}?",
+          "a": "min(7, 3) = 3."
+        },
+        {
+          "q": "Which rule updates the table in single linkage: min, max or mean?",
+          "a": "Min."
+        },
+        {
+          "q": "Can a later merge in single linkage have a smaller height than an earlier one?",
+          "a": "No. The heights never decrease."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q42 (single linkage on a five-point matrix, choose the dendrogram) and 2025 DA Q30 (single linkage uses the minimum).",
+      "scene": "ml.hier.single",
+      "try": {
+        "id": "gen.ml.hier.007",
+        "label": "Single-linkage distance between {A,C} and B"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Five points A to E with these distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run single linkage and give the merge heights.",
+        "steps": [
+          "Five single-point clusters. The smallest entry in the table is B–D = 2.",
+          "Merge {B, D} at height 2. New distances by the min rule: A: min(3, 8) = 3. C: min(5, 12) = 5. E: min(9, 4) = 4.",
+          "The smallest entry is now A to {B,D} = 3. Merge {A,B,D} at height 3. New distances: C: min(8, 5, 12) = 5. E: min(10, 9, 4) = 4.",
+          "The smallest is E to {A,B,D} = 4. Merge {A,B,D,E} at height 4. C to that cluster: min(8, 5, 12, 6) = 5.",
+          "C joins last at height 5. The heights are 2, 3, 4, 5."
+        ],
+        "answer": "Merges: {B,D} at 2, then A at 3, then E at 4, then C at 5. The tree is a chain."
+      },
+      "what": "In **single linkage** the distance between two clusters is the **smallest** distance between a point in one and a point in the other. At each step, merge the two clusters with the smallest such distance. After a merge, the new cluster's distance to any other cluster is the **minimum** of the two old distances.",
+      "what_full": "In **single linkage** the distance between two clusters is the **smallest** distance between a point in one and a point in the other. At each step, merge the two clusters with the smallest such distance. After a merge, the new cluster's distance to any other cluster is the **minimum** of the two old distances.\n\n$$d(A,B)=\\min_{a\\in A,\\ b\\in B}d(a,b),\\qquad d(K,\\,I\\cup J)=\\min\\bigl(d(K,I),\\,d(K,J)\\bigr)$$\n\nSymbols: $A$, $B$, $K$, $I$, $J$ are clusters and $d(a,b)$ is the distance between two points. The second formula updates the table after clusters $I$ and $J$ merge: the new row is the smaller of the two old rows.\n\n**Worked example.** Five points A to E with these distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run single linkage and give the merge heights.\n\n1. Five single-point clusters. The smallest entry in the table is B–D = 2.\n2. Merge {B, D} at height 2. New distances by the min rule: A: min(3, 8) = 3. C: min(5, 12) = 5. E: min(9, 4) = 4.\n3. The smallest entry is now A to {B,D} = 3. Merge {A,B,D} at height 3. New distances: C: min(8, 5, 12) = 5. E: min(10, 9, 4) = 4.\n4. The smallest is E to {A,B,D} = 4. Merge {A,B,D,E} at height 4. C to that cluster: min(8, 5, 12, 6) = 5.\n5. C joins last at height 5. The heights are 2, 3, 4, 5.\n\n**Answer:** Merges: {B,D} at 2, then A at 3, then E at 4, then C at 5. The tree is a chain.\n\n**Check yourself:** C is 7 from A and 3 from B. A and B merge. What is the single-linkage distance from C to {A,B}?\n\n*Answer:* min(7, 3) = 3.",
+      "trap": "Swapping min and max (single is min, complete is max), or averaging the old entries. For single linkage keep the smaller of the two old distances, not the mean and not the larger one.",
+      "why_full": "Single linkage is the linkage GATE has asked you to run. In GATE: run it on a distance matrix and choose the right dendrogram, or state that it uses the minimum.\n\nAsked: 2024 DA Q42 (single linkage on a five-point matrix, choose the dendrogram) and 2025 DA Q30 (single linkage uses the minimum)."
+    },
+    {
+      "atom_id": "h4",
+      "title": "Complete linkage",
+      "simple": "Complete linkage measures how far apart two groups are by their two farthest members, like saying two villages are close only if every house in one is near every house in the other. So it is hard to call two groups close. At each step you join the two groups with the smallest such worst-case gap. In the table, the new group's row takes the larger of the two old entries. This builds tight, round groups, because nobody in a cluster can be far from anybody else. In exam words: complete linkage uses the maximum distance over cross pairs, d(A, B) = max d(a, b).",
+      "idea": "In **complete linkage** the distance between two clusters is the **largest** distance between a point in one and a point in the other. After a merge, the new cluster's distance to any other cluster is the **maximum** of the two old distances. The result is compact clusters: every pair inside a cluster is within the merge height.",
+      "definition": "$$d(A,B)=\\max_{a\\in A,\\ b\\in B}d(a,b),\\qquad d(K,\\,I\\cup J)=\\max\\bigl(d(K,I),\\,d(K,J)\\bigr)$$\n\nSymbols: the same as for single linkage. The second formula updates the table after $I$ and $J$ merge: the new row is the larger of the two old rows.",
+      "intuition_full": "Complete linkage asks for the worst case: two clusters are close only if even their farthest members are close. So a cluster can only grow if the newcomer is near everyone already inside. That keeps clusters tight: when two clusters merge at height h, every pair of points in the merged cluster is at distance at most h. This is the opposite of single linkage, where one close pair is enough. The price is sensitivity to outliers, because one far point inflates all the distances to its cluster, and the method may split a long, thin natural group. The update rule mirrors single linkage: the element-wise maximum of the two old rows.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The same five points as before, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run complete linkage and give the merge heights.",
+          "steps": [
+            "The smallest entry is B–D = 2. Merge {B, D} at height 2 (the first merge is the same for every linkage).",
+            "New distances by the max rule: A: max(3, 8) = 8. C: max(5, 12) = 12. E: max(9, 4) = 9. The smallest entry in the whole table is now C–E = 6.",
+            "Merge {C, E} at height 6. Note that A did not join {B,D}, even though A–B is only 3, because A–D is 8.",
+            "Next: A to {B,D} = 8, A to {C,E} = max(8, 10) = 10, and {B,D} to {C,E} = max(5, 12, 9, 4) = 12. The smallest is 8, so A joins {B,D} at height 8.",
+            "Last: {A,B,D} to {C,E} = max(8, 10, 5, 9, 12, 4) = 12. The heights are 2, 6, 8, 12."
+          ],
+          "answer": "Heights 2, 6, 8, 12: two compact groups {A,B,D} and {C,E} joined last."
+        },
+        {
+          "level": "gate",
+          "setup": "Points on a line at 8, 10, 14, 15, 20, with distance |x − y|. Run complete linkage. Give the merge heights, and say which cluster the point 20 joins.",
+          "steps": [
+            "The smallest gap is 14–15 = 1. Merge {14,15} at height 1. The next smallest is 8–10 = 2. Merge {8,10} at height 2.",
+            "Between those two clusters: max(|14−8|, |14−10|, |15−8|, |15−10|) = max(6, 4, 7, 5) = 7.",
+            "20 to {14,15}: max(|20−14|, |20−15|) = max(6, 5) = 6. That is smaller than 7, so 20 joins {14,15} at height 6.",
+            "Last: {8,10} to {14,15,20}. The farthest pair is 8 and 20, at 12. Merge at height 12.",
+            "The heights are 1, 2, 6, 12. Single linkage would give 1, 2, 4, 5."
+          ],
+          "answer": "Heights 1, 2, 6, 12. The point 20 joins {14, 15}."
+        },
+        {
+          "level": "twist",
+          "setup": "In the basic example, find the largest distance inside each cluster at the moment it forms, and compare the final height with the table.",
+          "steps": [
+            "{B,D} forms at 2. Its only pair is B–D = 2.",
+            "{C,E} forms at 6. Its only pair is C–E = 6.",
+            "{A,B,D} forms at 8. Its pairs are A–B 3, A–D 8, B–D 2. The largest is 8.",
+            "The last cluster {A,B,C,D,E} forms at 12, and the largest entry in the whole table is C–D = 12."
+          ],
+          "answer": "Every cluster's largest inside distance equals its merge height. The final height equals the biggest entry in the table, 12."
+        }
+      ],
+      "why": "Complete linkage is the counterpart of single linkage, and exams contrast them. In GATE: state that it uses the maximum distance, or run it on a small matrix and compare with single linkage.",
+      "how": [
+        "Find the smallest off-diagonal entry and merge those two clusters at that height.",
+        "Rewrite the table: the new cluster's distance to each other cluster is the max of the two old distances.",
+        "Repeat on the smaller table.",
+        "Record the heights. They never decrease.",
+        "Shortcut: the last height is the largest entry of the original table."
+      ],
+      "mistake": "Using the min instead of the max, or merging the closest pair of points without updating the table with the max. After a merge the new entry must be the larger of the two old ones. Complete means farthest.",
+      "edge_cases": [
+        "The first merge is the same for single, complete and average linkage.",
+        "A close pair of points may end up in a cluster late, as A and B did.",
+        "One outlier can inflate every distance to its cluster.",
+        "Ties: the same rule as for single linkage."
+      ],
+      "connections": [
+        "Foundations: Algebra. Taking the larger of two numbers.",
+        "Single linkage card: the same table with the other update rule.",
+        "k-means: complete linkage tends to give compact, round clusters like k-means does."
+      ],
+      "check": [
+        {
+          "q": "C is 7 from A and 3 from B. A and B merge. What is the complete-linkage distance from C to {A,B}?",
+          "a": "max(7, 3) = 7."
+        },
+        {
+          "q": "Which linkage uses the largest cross-pair distance?",
+          "a": "Complete linkage."
+        },
+        {
+          "q": "A table has largest entry 15. What is the height of the last complete-linkage merge?",
+          "a": "15."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q30 (single linkage uses the minimum, complete linkage uses the maximum).",
+      "scene": "ml.hier.complete",
+      "try": {
+        "id": "gen.ml.hier.008",
+        "label": "Complete-linkage distance between {A,C} and B"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "The same five points as before, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run complete linkage and give the merge heights.",
+        "steps": [
+          "The smallest entry is B–D = 2. Merge {B, D} at height 2 (the first merge is the same for every linkage).",
+          "New distances by the max rule: A: max(3, 8) = 8. C: max(5, 12) = 12. E: max(9, 4) = 9. The smallest entry in the whole table is now C–E = 6.",
+          "Merge {C, E} at height 6. Note that A did not join {B,D}, even though A–B is only 3, because A–D is 8.",
+          "Next: A to {B,D} = 8, A to {C,E} = max(8, 10) = 10, and {B,D} to {C,E} = max(5, 12, 9, 4) = 12. The smallest is 8, so A joins {B,D} at height 8.",
+          "Last: {A,B,D} to {C,E} = max(8, 10, 5, 9, 12, 4) = 12. The heights are 2, 6, 8, 12."
+        ],
+        "answer": "Heights 2, 6, 8, 12: two compact groups {A,B,D} and {C,E} joined last."
+      },
+      "what": "In **complete linkage** the distance between two clusters is the **largest** distance between a point in one and a point in the other. After a merge, the new cluster's distance to any other cluster is the **maximum** of the two old distances. The result is compact clusters: every pair inside a cluster is within the merge height.",
+      "what_full": "In **complete linkage** the distance between two clusters is the **largest** distance between a point in one and a point in the other. After a merge, the new cluster's distance to any other cluster is the **maximum** of the two old distances. The result is compact clusters: every pair inside a cluster is within the merge height.\n\n$$d(A,B)=\\max_{a\\in A,\\ b\\in B}d(a,b),\\qquad d(K,\\,I\\cup J)=\\max\\bigl(d(K,I),\\,d(K,J)\\bigr)$$\n\nSymbols: the same as for single linkage. The second formula updates the table after $I$ and $J$ merge: the new row is the larger of the two old rows.\n\n**Worked example.** The same five points as before, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run complete linkage and give the merge heights.\n\n1. The smallest entry is B–D = 2. Merge {B, D} at height 2 (the first merge is the same for every linkage).\n2. New distances by the max rule: A: max(3, 8) = 8. C: max(5, 12) = 12. E: max(9, 4) = 9. The smallest entry in the whole table is now C–E = 6.\n3. Merge {C, E} at height 6. Note that A did not join {B,D}, even though A–B is only 3, because A–D is 8.\n4. Next: A to {B,D} = 8, A to {C,E} = max(8, 10) = 10, and {B,D} to {C,E} = max(5, 12, 9, 4) = 12. The smallest is 8, so A joins {B,D} at height 8.\n5. Last: {A,B,D} to {C,E} = max(8, 10, 5, 9, 12, 4) = 12. The heights are 2, 6, 8, 12.\n\n**Answer:** Heights 2, 6, 8, 12: two compact groups {A,B,D} and {C,E} joined last.\n\n**Check yourself:** C is 7 from A and 3 from B. A and B merge. What is the complete-linkage distance from C to {A,B}?\n\n*Answer:* max(7, 3) = 7.",
+      "trap": "Using the min instead of the max, or merging the closest pair of points without updating the table with the max. After a merge the new entry must be the larger of the two old ones. Complete means farthest.",
+      "why_full": "Complete linkage is the counterpart of single linkage, and exams contrast them. In GATE: state that it uses the maximum distance, or run it on a small matrix and compare with single linkage.\n\nAsked: 2025 DA Q30 (single linkage uses the minimum, complete linkage uses the maximum)."
+    },
+    {
+      "atom_id": "h5",
+      "title": "Average linkage",
+      "simple": "Average linkage measures how far apart two groups are by looking at every pair with one member in each group and taking the typical distance. It is a fair middle path: not just the nearest pair, and not just the farthest. If group X has 2 people and group Y has 3, there are 6 cross pairs. Add the 6 distances and divide by 6. When groups were already merged, do not just average the old averages: bigger groups count for more. In exam words: average linkage is the mean of all |A|·|B| cross-pair distances, and the update weights the old distances by cluster size.",
+      "idea": "In **average linkage** the distance between two clusters is the **mean** of all cross-pair distances: add up the |A| × |B| distances between a point of A and a point of B, and divide by |A||B|. The value always lies between the single (min) and the complete (max) value. When you update, weight the old averages by the **cluster sizes**.",
+      "definition": "$$d(A,B)=\\frac{1}{|A||B|}\\sum_{a\\in A}\\sum_{b\\in B}d(a,b),\\qquad d(K,\\,I\\cup J)=\\frac{|I|\\,d(K,I)+|J|\\,d(K,J)}{|I|+|J|}$$\n\nSymbols: $|A|$ is the number of points in cluster $A$. The double sum runs over every pair with one point in each cluster. The second formula is the size-weighted update after $I$ and $J$ merge.",
+      "intuition_full": "A mean over all cross distances is a balanced judgement. One outlier no longer decides, as it does in complete linkage, and one near pair no longer decides, as it does in single linkage. The cost is bookkeeping. You can always go back to the original table and average every cross pair. That is slow but certain. Or you can use the update rule, which gives the same answer: the distance from K to the merged cluster is the size-weighted average of the two old distances. The weights matter. If I has two points and J has one, the answer is 2/3 of d(K, I) plus 1/3 of d(K, J), not a half-and-half mix. The first merge is the same for every linkage, because singletons have only one pair.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The same five points, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run average linkage and give the merge heights.",
+          "steps": [
+            "The smallest entry is B–D = 2. Every linkage agrees on the first merge.",
+            "Merge {B, D} at 2. New distances (the average of the cross pairs): A: (3 + 8) / 2 = 5.5. C: (5 + 12) / 2 = 8.5. E: (9 + 4) / 2 = 6.5.",
+            "The smallest entry now is A to {B,D} = 5.5 (the next is C–E = 6). Merge {A,B,D} at height 5.5.",
+            "New distances: C to {A,B,D} = (8 + 5 + 12) / 3 = 8.33. E to {A,B,D} = (10 + 9 + 4) / 3 = 7.67. C–E = 6 is smaller than both. Merge {C, E} at height 6.",
+            "Last: all six cross pairs between {A,B,D} and {C,E}: (8 + 10 + 5 + 9 + 12 + 4) / 6 = 48 / 6 = 8. The heights are 2, 5.5, 6, 8."
+          ],
+          "answer": "Heights 2, 5.5, 6, 8. Single gave 2, 3, 4, 5 and complete gave 2, 6, 8, 12."
+        },
+        {
+          "level": "gate",
+          "setup": "Points on a line at 3, 10, 15, 17, 24, with distance |x − y|. Run average linkage and give the merge heights.",
+          "steps": [
+            "The smallest gap is 15–17 = 2. Merge {15,17} at height 2.",
+            "Distances to {15,17}: from 10: (5 + 7) / 2 = 6. From 24: (9 + 7) / 2 = 8. From 3: (12 + 14) / 2 = 13. Between single points: 3–10 = 7. The smallest is 6, so 10 joins at height 6.",
+            "Now 24 to {10,15,17}: (14 + 9 + 7) / 3 = 10. And 3 to {10,15,17}: (7 + 12 + 14) / 3 = 11. 3–24 is 21. The smallest is 10, so 24 joins at height 10.",
+            "Last: 3 to {10,15,17,24}: (7 + 12 + 14 + 21) / 4 = 54 / 4 = 13.5.",
+            "The heights are 2, 6, 10, 13.5."
+          ],
+          "answer": "Heights 2, 6, 10, 13.5."
+        },
+        {
+          "level": "twist",
+          "setup": "In the basic example, after {B,D} forms, someone finds d(E, {A,B,D}) by averaging the two numbers d(E, A) = 10 and d(E, {B,D}) = 6.5. What is wrong, and what is the correct value?",
+          "steps": [
+            "The plain mean of 10 and 6.5 is 8.25. That treats A and {B,D} as equal in weight.",
+            "{B,D} holds 2 points and A holds 1, so the weights are 2 and 1: (1 × 10 + 2 × 6.5) / 3 = 23 / 3 = 7.67.",
+            "Check with all cross pairs: (A–E 10 + B–E 9 + D–E 4) / 3 = 23 / 3 = 7.67."
+          ],
+          "answer": "The correct value is 7.67, not 8.25. Weight the old averages by cluster size."
+        }
+      ],
+      "why": "Average linkage completes the trio of linkages, and the weighted update is a classic place to lose marks. In GATE: compute an average-linkage distance between two small clusters.",
+      "how": [
+        "Find the smallest off-diagonal entry and merge those two clusters.",
+        "For the new cluster, average all the original cross-pair distances to each other cluster.",
+        "Or use the size-weighted update of the two old averages.",
+        "Repeat and record the heights.",
+        "Sanity check: each value lies between the min and the max of its cross pairs."
+      ],
+      "mistake": "Averaging the earlier merge heights, or averaging two old averages without weights. Average the original cross-pair distances, or weight the old values by cluster size.",
+      "edge_cases": [
+        "The first merge is the same as for single and complete linkage.",
+        "The average always lies between the minimum and the maximum cross distance.",
+        "The weights are the numbers of points in the clusters, not the number of merges.",
+        "A tie for the smallest entry is handled as in the other linkages."
+      ],
+      "connections": [
+        "Foundations: Algebra. Weighted averages and fractions.",
+        "Probability: Descriptive statistics and moments covers means.",
+        "Single and complete linkage cards: the min and max versions of the same table."
+      ],
+      "check": [
+        {
+          "q": "Clusters {A,B} and {C} have cross distances A–C = 4 and B–C = 10. What is the average-linkage distance?",
+          "a": "(4 + 10) / 2 = 7."
+        },
+        {
+          "q": "Single-linkage distance 3 and complete-linkage distance 9 between two clusters. Can the average-linkage distance be 10?",
+          "a": "No. It lies between 3 and 9."
+        },
+        {
+          "q": "{P,Q} is 4 from R, and S is 10 from R. P, Q and S merge. What is the distance from R to {P,Q,S}?",
+          "a": "(2 × 4 + 1 × 10) / 3 = 6."
+        }
+      ],
+      "asked": "Asked: no past GATE DA paper has asked average linkage yet. It is the natural third variant after 2024 DA Q42 and 2025 DA Q30.",
+      "scene": "ml.hier.average",
+      "try": {
+        "id": "gen.ml.hier.009",
+        "label": "Average-linkage distance of two clusters"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "The same five points, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run average linkage and give the merge heights.",
+        "steps": [
+          "The smallest entry is B–D = 2. Every linkage agrees on the first merge.",
+          "Merge {B, D} at 2. New distances (the average of the cross pairs): A: (3 + 8) / 2 = 5.5. C: (5 + 12) / 2 = 8.5. E: (9 + 4) / 2 = 6.5.",
+          "The smallest entry now is A to {B,D} = 5.5 (the next is C–E = 6). Merge {A,B,D} at height 5.5.",
+          "New distances: C to {A,B,D} = (8 + 5 + 12) / 3 = 8.33. E to {A,B,D} = (10 + 9 + 4) / 3 = 7.67. C–E = 6 is smaller than both. Merge {C, E} at height 6.",
+          "Last: all six cross pairs between {A,B,D} and {C,E}: (8 + 10 + 5 + 9 + 12 + 4) / 6 = 48 / 6 = 8. The heights are 2, 5.5, 6, 8."
+        ],
+        "answer": "Heights 2, 5.5, 6, 8. Single gave 2, 3, 4, 5 and complete gave 2, 6, 8, 12."
+      },
+      "what": "In **average linkage** the distance between two clusters is the **mean** of all cross-pair distances: add up the |A| × |B| distances between a point of A and a point of B, and divide by |A||B|. The value always lies between the single (min) and the complete (max) value. When you update, weight the old averages by the **cluster sizes**.",
+      "what_full": "In **average linkage** the distance between two clusters is the **mean** of all cross-pair distances: add up the |A| × |B| distances between a point of A and a point of B, and divide by |A||B|. The value always lies between the single (min) and the complete (max) value. When you update, weight the old averages by the **cluster sizes**.\n\n$$d(A,B)=\\frac{1}{|A||B|}\\sum_{a\\in A}\\sum_{b\\in B}d(a,b),\\qquad d(K,\\,I\\cup J)=\\frac{|I|\\,d(K,I)+|J|\\,d(K,J)}{|I|+|J|}$$\n\nSymbols: $|A|$ is the number of points in cluster $A$. The double sum runs over every pair with one point in each cluster. The second formula is the size-weighted update after $I$ and $J$ merge.\n\n**Worked example.** The same five points, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Run average linkage and give the merge heights.\n\n1. The smallest entry is B–D = 2. Every linkage agrees on the first merge.\n2. Merge {B, D} at 2. New distances (the average of the cross pairs): A: (3 + 8) / 2 = 5.5. C: (5 + 12) / 2 = 8.5. E: (9 + 4) / 2 = 6.5.\n3. The smallest entry now is A to {B,D} = 5.5 (the next is C–E = 6). Merge {A,B,D} at height 5.5.\n4. New distances: C to {A,B,D} = (8 + 5 + 12) / 3 = 8.33. E to {A,B,D} = (10 + 9 + 4) / 3 = 7.67. C–E = 6 is smaller than both. Merge {C, E} at height 6.\n5. Last: all six cross pairs between {A,B,D} and {C,E}: (8 + 10 + 5 + 9 + 12 + 4) / 6 = 48 / 6 = 8. The heights are 2, 5.5, 6, 8.\n\n**Answer:** Heights 2, 5.5, 6, 8. Single gave 2, 3, 4, 5 and complete gave 2, 6, 8, 12.\n\n**Check yourself:** Clusters {A,B} and {C} have cross distances A–C = 4 and B–C = 10. What is the average-linkage distance?\n\n*Answer:* (4 + 10) / 2 = 7.",
+      "trap": "Averaging the earlier merge heights, or averaging two old averages without weights. Average the original cross-pair distances, or weight the old values by cluster size.",
+      "why_full": "Average linkage completes the trio of linkages, and the weighted update is a classic place to lose marks. In GATE: compute an average-linkage distance between two small clusters.\n\nAsked: no past GATE DA paper has asked average linkage yet. It is the natural third variant after 2024 DA Q42 and 2025 DA Q30."
+    },
+    {
+      "atom_id": "h6",
+      "title": "Dendrogram and cuts",
+      "simple": "A dendrogram is a family tree of the merges. The people (points) stand along the bottom. Each time two groups join, a horizontal bar connects them, and the height of the bar tells you how far apart the groups were when they joined. To get actual groups, cut the tree with a horizontal line at some height. Groups that joined below the line stay together, and everything that joins above the line is kept apart. Count the branches the line crosses to get the number of groups. A long stretch of the tree with no joins is a good place to cut. In exam words: the height is the merge distance, and a cut at h keeps the merges at or below h.",
+      "idea": "A **dendrogram** draws the merges as a tree. Each bar sits at the **height** equal to the distance of that merge. A horizontal **cut** at height h keeps the merges at or below h, and the branches the line crosses are the clusters. After m kept merges there are n − m clusters.",
+      "definition": "$$\\text{clusters at cut }h \\;=\\; n-\\#\\{\\text{merges with height}\\le h\\}$$\n\nSymbols: $n$ is the number of points. A merge is kept if its height is at most $h$. For single, complete and average linkage the heights never decrease, so the kept merges are the lowest ones.",
+      "intuition_full": "Think of the tree as a record played from the bottom up. Each bar says: at this distance, these two groups joined. Lower bars joined earlier because their groups were closer. Placing a horizontal line at height h freezes the film at distance h: everything that had joined by then is one cluster, and everything else is still separate. The number of branches crossing the line is the number of clusters. Because every merge reduces the cluster count by one, you can also count: n minus the number of bars below the line. A long vertical stretch with no bars means that the clusters stay the same over a wide range of cut heights, so that number of clusters is robust. A short stretch means the number of clusters is fragile. Remember that height is a distance, not a merge number, and the left-to-right order of leaves can be flipped without changing the tree.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Complete linkage on the five-point table gave merges {B,D} at 2, {C,E} at 6, A joining {B,D} at 8, and the last merge at 12. Draw the tree, cut it at h = 7 and at h = 10, and say where a cut is most stable.",
+          "steps": [
+            "Leaves at the bottom. Each merge is a bar at its distance: B,D at 2, C,E at 6, A joins at 8, the last at 12.",
+            "The height of a bar is the distance of that merge. It is not the number of the merge.",
+            "Cut at h = 7: the bars at 2 and 6 are kept, so 5 − 2 = 3 clusters: {A}, {B,D}, {C,E}. The line crosses three branches.",
+            "Cut at h = 10: the bars at 2, 6 and 8 are kept, so 5 − 3 = 2 clusters: {A,B,D} and {C,E}.",
+            "Any cut between 8 and 12 gives the same two clusters, a stretch of 4. Three clusters hold only between 6 and 8, a stretch of 2."
+          ],
+          "answer": "A cut at 7 gives 3 clusters and a cut at 10 gives 2 clusters. Two clusters is the more stable choice."
+        },
+        {
+          "level": "gate",
+          "setup": "A dendrogram on six points has merge heights 1, 2, 4, 9 and 10. How many clusters does a cut at h = 5 give? For which cut heights do you get exactly 2 clusters, and how long is that stretch? Which number of clusters has the widest stretch?",
+          "steps": [
+            "Cut at 5: the merges with height at most 5 are 1, 2 and 4, so 3 merges. Clusters = 6 − 3 = 3.",
+            "Exactly 2 clusters needs 4 merges kept: 1, 2, 4, 9 are kept and 10 is not. That means 9 ≤ h < 10, a stretch of length 1.",
+            "Exactly 3 clusters: 4 ≤ h < 9, a stretch of length 5. Exactly 4 clusters: 2 ≤ h < 4, length 2.",
+            "The widest stretch is for 3 clusters."
+          ],
+          "answer": "A cut at 5 gives 3 clusters. Exactly 2 clusters need 9 ≤ h < 10 (length 1). The widest stretch (length 5) gives 3 clusters."
+        },
+        {
+          "level": "twist",
+          "setup": "A dendrogram on 8 points has merge heights 1, 2, 2, 3, 6, 7 and 9. How many clusters does a cut at h = 6.5 give?",
+          "steps": [
+            "Merges with height at most 6.5: 1, 2, 2, 3 and 6. That is 5 merges.",
+            "Clusters = 8 − 5 = 3.",
+            "A common slip is to answer 5, the number of merges. The number of clusters is what is left."
+          ],
+          "answer": "3 clusters."
+        }
+      ],
+      "why": "Reading a dendrogram is how hierarchical clustering gives you clusters. In GATE: pick the dendrogram that matches a merge sequence, or count the clusters at a cut.",
+      "how": [
+        "Leaves at the bottom. Each merge is a bar at its linkage distance.",
+        "The height of a bar is the distance of the merge.",
+        "To cut at h, keep the merges with height at most h.",
+        "Clusters = n − (number of kept merges), or count the branches the cut crosses.",
+        "A wide gap between consecutive heights suggests a good number of clusters."
+      ],
+      "mistake": "Reading the height as the order of merging, or counting merges instead of clusters. The height is the distance. After m kept merges there are n − m clusters.",
+      "edge_cases": [
+        "A cut above the top bar gives 1 cluster. A cut below the lowest bar gives n clusters.",
+        "Merges at exactly the same height are all kept or all dropped.",
+        "Heights never decrease for single, complete and average linkage.",
+        "Flipping the left and right branches of the tree does not change it."
+      ],
+      "connections": [
+        "Foundations: Functions and graphs. Reading a vertical scale and a horizontal cut line.",
+        "Choosing k in k-means: a wide gap in a dendrogram plays the role of the elbow.",
+        "Linkage cards: they produce the heights drawn here."
+      ],
+      "check": [
+        {
+          "q": "A dendrogram on 7 points has heights 1, 3, 3, 5, 8, 9. How many clusters at h = 4?",
+          "a": "Merges at or below 4: 1, 3, 3, so 3 merges. 7 − 3 = 4 clusters."
+        },
+        {
+          "q": "True or false: the height of a bar is the number of the merge.",
+          "a": "False. It is the distance at which the merge happened."
+        },
+        {
+          "q": "How many clusters does a cut below the lowest bar give?",
+          "a": "n, one per point."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q42 (choose the dendrogram from the merge heights and the order of merges).",
+      "scene": "ml.hier.cuts",
+      "try": {
+        "id": "gen.ml.hier.004",
+        "label": "Meaning of the height in a dendrogram"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Complete linkage on the five-point table gave merges {B,D} at 2, {C,E} at 6, A joining {B,D} at 8, and the last merge at 12. Draw the tree, cut it at h = 7 and at h = 10, and say where a cut is most stable.",
+        "steps": [
+          "Leaves at the bottom. Each merge is a bar at its distance: B,D at 2, C,E at 6, A joins at 8, the last at 12.",
+          "The height of a bar is the distance of that merge. It is not the number of the merge.",
+          "Cut at h = 7: the bars at 2 and 6 are kept, so 5 − 2 = 3 clusters: {A}, {B,D}, {C,E}. The line crosses three branches.",
+          "Cut at h = 10: the bars at 2, 6 and 8 are kept, so 5 − 3 = 2 clusters: {A,B,D} and {C,E}.",
+          "Any cut between 8 and 12 gives the same two clusters, a stretch of 4. Three clusters hold only between 6 and 8, a stretch of 2."
+        ],
+        "answer": "A cut at 7 gives 3 clusters and a cut at 10 gives 2 clusters. Two clusters is the more stable choice."
+      },
+      "what": "A **dendrogram** draws the merges as a tree. Each bar sits at the **height** equal to the distance of that merge. A horizontal **cut** at height h keeps the merges at or below h, and the branches the line crosses are the clusters. After m kept merges there are n − m clusters.",
+      "what_full": "A **dendrogram** draws the merges as a tree. Each bar sits at the **height** equal to the distance of that merge. A horizontal **cut** at height h keeps the merges at or below h, and the branches the line crosses are the clusters. After m kept merges there are n − m clusters.\n\n$$\\text{clusters at cut }h \\;=\\; n-\\#\\{\\text{merges with height}\\le h\\}$$\n\nSymbols: $n$ is the number of points. A merge is kept if its height is at most $h$. For single, complete and average linkage the heights never decrease, so the kept merges are the lowest ones.\n\n**Worked example.** Complete linkage on the five-point table gave merges {B,D} at 2, {C,E} at 6, A joining {B,D} at 8, and the last merge at 12. Draw the tree, cut it at h = 7 and at h = 10, and say where a cut is most stable.\n\n1. Leaves at the bottom. Each merge is a bar at its distance: B,D at 2, C,E at 6, A joins at 8, the last at 12.\n2. The height of a bar is the distance of that merge. It is not the number of the merge.\n3. Cut at h = 7: the bars at 2 and 6 are kept, so 5 − 2 = 3 clusters: {A}, {B,D}, {C,E}. The line crosses three branches.\n4. Cut at h = 10: the bars at 2, 6 and 8 are kept, so 5 − 3 = 2 clusters: {A,B,D} and {C,E}.\n5. Any cut between 8 and 12 gives the same two clusters, a stretch of 4. Three clusters hold only between 6 and 8, a stretch of 2.\n\n**Answer:** A cut at 7 gives 3 clusters and a cut at 10 gives 2 clusters. Two clusters is the more stable choice.\n\n**Check yourself:** A dendrogram on 7 points has heights 1, 3, 3, 5, 8, 9. How many clusters at h = 4?\n\n*Answer:* Merges at or below 4: 1, 3, 3, so 3 merges. 7 − 3 = 4 clusters.",
+      "trap": "Reading the height as the order of merging, or counting merges instead of clusters. The height is the distance. After m kept merges there are n − m clusters.",
+      "why_full": "Reading a dendrogram is how hierarchical clustering gives you clusters. In GATE: pick the dendrogram that matches a merge sequence, or count the clusters at a cut.\n\nAsked: 2024 DA Q42 (choose the dendrogram from the merge heights and the order of merges)."
+    },
+    {
+      "atom_id": "h7",
+      "title": "Chaining and the MST link",
+      "simple": "Single linkage is like making friends through friends. If I know someone who knows someone, we end up in the same group, even if you and I have nothing in common. A string of close points can link two far-away groups into one long snake. That is chaining. Complete linkage is stricter: you join a group only if you are close to everybody in it, so groups stay compact. There is also a neat fact. The heights of the single-linkage tree are exactly the edge lengths of the minimum spanning tree, which is the cheapest set of links that connects every point. In exam words: single linkage chains, complete linkage gives compact clusters, and single-linkage merge heights equal the MST edge weights.",
+      "idea": "**Single linkage chains**: one close pair is enough to join clusters, so a path of close points becomes one long cluster. **Complete linkage** needs every pair to be close, so its clusters stay **compact**. The merge heights of single linkage are exactly the edge weights of the **minimum spanning tree**.",
+      "definition": "$$\\{\\text{single-linkage heights}\\}\\;=\\;\\{\\text{edge weights of a minimum spanning tree}\\}$$\n\nSymbols: the minimum spanning tree (MST) of the points is the cheapest set of $n-1$ edges that connects all of them, found by Kruskal's algorithm: sort the edges by weight and add each one unless it closes a cycle. The weights, in sorted order, are the single-linkage merge heights.",
+      "intuition_full": "Kruskal's algorithm and single linkage are the same procedure in two costumes. Kruskal takes the cheapest remaining edge that joins two different components. Single linkage takes the closest pair of clusters, and the closest pair of clusters is exactly the cheapest edge between two different components. So the edges Kruskal picks, in order, have the same weights as the single-linkage heights. That also explains chaining. The MST only needs a chain of short edges to connect distant points, and single linkage follows that chain. Complete linkage looks at the farthest pair instead, so it cannot be fooled by a chain: it needs every pair in a cluster to be within the merge height. The cost is the opposite weakness: one far outlier inflates all distances to its cluster.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The five points of the linkage cards, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Compare the single-linkage and complete-linkage trees, and compare the single-linkage heights with the minimum spanning tree.",
+          "steps": [
+            "Same table, two linkages. Heights on the same scale.",
+            "Single linkage: heights 2, 3, 4, 5. One cluster grows by taking one point at a time: B,D, then A, then E, then C. This staircase is a chain.",
+            "Kruskal on the same table picks B–D 2, A–B 3, D–E 4 and B–C 5. The MST weights, sorted, are 2, 3, 4, 5: exactly the single-linkage heights.",
+            "Complete linkage: heights 2, 6, 8, 12. It builds two compact groups, {A,B,D} and {C,E}, and joins them last.",
+            "Single needs one close pair to join clusters, so it chains. Complete needs every pair to be close, so its clusters stay compact."
+          ],
+          "answer": "Single: chain with heights 2, 3, 4, 5 (the MST weights). Complete: two compact groups, heights 2, 6, 8, 12."
+        },
+        {
+          "level": "gate",
+          "setup": "Take the five points P1 to P5 of the single-linkage GATE-level example (P1P2 2, P1P3 6, P1P4 7, P1P5 9, P2P3 4, P2P4 3, P2P5 4, P3P4 8, P3P5 5, P4P5 2). Find the total weight of a minimum spanning tree.",
+          "steps": [
+            "The single-linkage heights for this table are 2, 2, 3, 4.",
+            "The MST weights are the same list, so the total is 2 + 2 + 3 + 4 = 11.",
+            "Check with Kruskal: take P1–P2 (2), P4–P5 (2), P2–P4 (3), and then P2–P3 (4). A tree on five points has four edges.",
+            "Edges such as P2–P5 (4) would close a cycle and are skipped."
+          ],
+          "answer": "The minimum spanning tree has total weight 11."
+        },
+        {
+          "level": "twist",
+          "setup": "In the five-point table, compare the largest distance inside a cluster with the height of the cut. Cut the single-linkage tree at 4.5 and the complete-linkage tree at 7.",
+          "steps": [
+            "Single linkage, cut at 4.5: the merges at 2, 3 and 4 are kept. The clusters are {A,B,D,E} and {C}.",
+            "Inside {A,B,D,E} the pair A–E is 10 apart, far more than the cut 4.5. Chaining allowed it.",
+            "Complete linkage, cut at 7: the merges at 2 and 6 are kept. The clusters are {A}, {B,D} and {C,E}.",
+            "The largest distances inside them are 0, 2 and 6, all at most the cut 7."
+          ],
+          "answer": "Single linkage can hold a pair of 10 inside a cut of 4.5. Complete linkage keeps every inside distance within the cut."
+        }
+      ],
+      "why": "Statements comparing the linkages are common multiple-select items, and the MST link gives a fast way to total the heights. In GATE: chaining, compactness, and the minimum or maximum rule.",
+      "how": [
+        "Single linkage: one close pair joins clusters, so look for chains.",
+        "Complete linkage: every pair must be close, so clusters are compact.",
+        "MST link: single-linkage heights equal the MST edge weights, in increasing order.",
+        "To total the heights, run Kruskal: sort the edges and skip any that close a cycle.",
+        "State the weaknesses: chaining for single, outlier sensitivity for complete."
+      ],
+      "mistake": "Saying chaining is a weakness of complete linkage, or that single linkage gives compact clusters. Chaining belongs to single linkage. Complete linkage gives compact clusters.",
+      "edge_cases": [
+        "Chaining can be useful: single linkage follows long, thin or curved shapes that complete linkage would cut into pieces.",
+        "Complete linkage is sensitive to outliers.",
+        "Average linkage sits between the two.",
+        "The MST link holds for single linkage only."
+      ],
+      "connections": [
+        "Minimum spanning trees: Kruskal's algorithm produces the same weights as single linkage.",
+        "k-means: its clusters are convex, like the compact clusters of complete linkage.",
+        "Foundations: Algebra. Sorting and adding a short list of numbers."
+      ],
+      "check": [
+        {
+          "q": "Which linkage can produce long, snake-like clusters?",
+          "a": "Single linkage."
+        },
+        {
+          "q": "The MST of a data set has edge weights 2, 3, 4, 5. What are the single-linkage merge heights?",
+          "a": "2, 3, 4, 5."
+        },
+        {
+          "q": "Which linkage guarantees that every pair inside a cluster is within the merge height?",
+          "a": "Complete linkage."
+        }
+      ],
+      "asked": "Asked: statements on chaining and compactness appear in practice items. 2025 DA Q30 asks which distance single and complete linkage use.",
+      "scene": "ml.hier.chain",
+      "try": {
+        "id": "gen.ml.hier.010",
+        "label": "What chaining means in single linkage"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "The five points of the linkage cards, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Compare the single-linkage and complete-linkage trees, and compare the single-linkage heights with the minimum spanning tree.",
+        "steps": [
+          "Same table, two linkages. Heights on the same scale.",
+          "Single linkage: heights 2, 3, 4, 5. One cluster grows by taking one point at a time: B,D, then A, then E, then C. This staircase is a chain.",
+          "Kruskal on the same table picks B–D 2, A–B 3, D–E 4 and B–C 5. The MST weights, sorted, are 2, 3, 4, 5: exactly the single-linkage heights.",
+          "Complete linkage: heights 2, 6, 8, 12. It builds two compact groups, {A,B,D} and {C,E}, and joins them last.",
+          "Single needs one close pair to join clusters, so it chains. Complete needs every pair to be close, so its clusters stay compact."
+        ],
+        "answer": "Single: chain with heights 2, 3, 4, 5 (the MST weights). Complete: two compact groups, heights 2, 6, 8, 12."
+      },
+      "what": "**Single linkage chains**: one close pair is enough to join clusters, so a path of close points becomes one long cluster. **Complete linkage** needs every pair to be close, so its clusters stay **compact**. The merge heights of single linkage are exactly the edge weights of the **minimum spanning tree**.",
+      "what_full": "**Single linkage chains**: one close pair is enough to join clusters, so a path of close points becomes one long cluster. **Complete linkage** needs every pair to be close, so its clusters stay **compact**. The merge heights of single linkage are exactly the edge weights of the **minimum spanning tree**.\n\n$$\\{\\text{single-linkage heights}\\}\\;=\\;\\{\\text{edge weights of a minimum spanning tree}\\}$$\n\nSymbols: the minimum spanning tree (MST) of the points is the cheapest set of $n-1$ edges that connects all of them, found by Kruskal's algorithm: sort the edges by weight and add each one unless it closes a cycle. The weights, in sorted order, are the single-linkage merge heights.\n\n**Worked example.** The five points of the linkage cards, with distances: AB 3, AC 8, AD 8, AE 10, BC 5, BD 2, BE 9, CD 12, CE 6, DE 4. Compare the single-linkage and complete-linkage trees, and compare the single-linkage heights with the minimum spanning tree.\n\n1. Same table, two linkages. Heights on the same scale.\n2. Single linkage: heights 2, 3, 4, 5. One cluster grows by taking one point at a time: B,D, then A, then E, then C. This staircase is a chain.\n3. Kruskal on the same table picks B–D 2, A–B 3, D–E 4 and B–C 5. The MST weights, sorted, are 2, 3, 4, 5: exactly the single-linkage heights.\n4. Complete linkage: heights 2, 6, 8, 12. It builds two compact groups, {A,B,D} and {C,E}, and joins them last.\n5. Single needs one close pair to join clusters, so it chains. Complete needs every pair to be close, so its clusters stay compact.\n\n**Answer:** Single: chain with heights 2, 3, 4, 5 (the MST weights). Complete: two compact groups, heights 2, 6, 8, 12.\n\n**Check yourself:** Which linkage can produce long, snake-like clusters?\n\n*Answer:* Single linkage.",
+      "trap": "Saying chaining is a weakness of complete linkage, or that single linkage gives compact clusters. Chaining belongs to single linkage. Complete linkage gives compact clusters.",
+      "why_full": "Statements comparing the linkages are common multiple-select items, and the MST link gives a fast way to total the heights. In GATE: chaining, compactness, and the minimum or maximum rule.\n\nAsked: statements on chaining and compactness appear in practice items. 2025 DA Q30 asks which distance single and complete linkage use."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "ml.hier.merges",
+      "title": "Bottom-up: n points need n − 1 merges",
+      "viewBox": [
+        0,
+        0,
+        360,
+        285
+      ],
+      "objects": [
+        {
+          "id": "lA",
+          "kind": "node",
+          "x": 24.0,
+          "y": 217,
+          "r": 11,
+          "label": "A"
+        },
+        {
+          "id": "lB",
+          "kind": "node",
+          "x": 42.4,
+          "y": 217,
+          "r": 11,
+          "label": "B"
+        },
+        {
+          "id": "lC",
+          "kind": "node",
+          "x": 79.2,
+          "y": 217,
+          "r": 11,
+          "label": "C"
+        },
+        {
+          "id": "lD",
+          "kind": "node",
+          "x": 152.8,
+          "y": 217,
+          "r": 11,
+          "label": "D"
+        },
+        {
+          "id": "lE",
+          "kind": "node",
+          "x": 281.6,
+          "y": 217,
+          "r": 11,
+          "label": "E"
+        },
+        {
+          "id": "lF",
+          "kind": "node",
+          "x": 336.8,
+          "y": 217,
+          "r": 11,
+          "label": "F"
+        },
+        {
+          "id": "m0a",
+          "kind": "edge",
+          "x1": 24.0,
+          "y1": 205,
+          "x2": 24.0,
+          "y2": 185
+        },
+        {
+          "id": "m0b",
+          "kind": "edge",
+          "x1": 42.4,
+          "y1": 205,
+          "x2": 42.4,
+          "y2": 185
+        },
+        {
+          "id": "m0c",
+          "kind": "edge",
+          "x1": 24.0,
+          "y1": 185,
+          "x2": 42.4,
+          "y2": 185
+        },
+        {
+          "id": "m0h",
+          "kind": "text",
+          "x": 33.2,
+          "y": 197,
+          "text": "1",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m1a",
+          "kind": "edge",
+          "x1": 33.2,
+          "y1": 185,
+          "x2": 33.2,
+          "y2": 165
+        },
+        {
+          "id": "m1b",
+          "kind": "edge",
+          "x1": 79.2,
+          "y1": 205,
+          "x2": 79.2,
+          "y2": 165
+        },
+        {
+          "id": "m1c",
+          "kind": "edge",
+          "x1": 33.2,
+          "y1": 165,
+          "x2": 79.2,
+          "y2": 165
+        },
+        {
+          "id": "m1h",
+          "kind": "text",
+          "x": 56.2,
+          "y": 177,
+          "text": "2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m2a",
+          "kind": "edge",
+          "x1": 56.2,
+          "y1": 165,
+          "x2": 56.2,
+          "y2": 125
+        },
+        {
+          "id": "m2b",
+          "kind": "edge",
+          "x1": 152.8,
+          "y1": 205,
+          "x2": 152.8,
+          "y2": 125
+        },
+        {
+          "id": "m2c",
+          "kind": "edge",
+          "x1": 56.2,
+          "y1": 125,
+          "x2": 152.8,
+          "y2": 125
+        },
+        {
+          "id": "m2h",
+          "kind": "text",
+          "x": 104.5,
+          "y": 137,
+          "text": "4",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m3a",
+          "kind": "edge",
+          "x1": 281.6,
+          "y1": 205,
+          "x2": 281.6,
+          "y2": 145
+        },
+        {
+          "id": "m3b",
+          "kind": "edge",
+          "x1": 336.8,
+          "y1": 205,
+          "x2": 336.8,
+          "y2": 145
+        },
+        {
+          "id": "m3c",
+          "kind": "edge",
+          "x1": 281.6,
+          "y1": 145,
+          "x2": 336.8,
+          "y2": 145
+        },
+        {
+          "id": "m3h",
+          "kind": "text",
+          "x": 309.2,
+          "y": 157,
+          "text": "3",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m4a",
+          "kind": "edge",
+          "x1": 104.5,
+          "y1": 125,
+          "x2": 104.5,
+          "y2": 65
+        },
+        {
+          "id": "m4b",
+          "kind": "edge",
+          "x1": 309.20000000000005,
+          "y1": 145,
+          "x2": 309.20000000000005,
+          "y2": 65
+        },
+        {
+          "id": "m4c",
+          "kind": "edge",
+          "x1": 104.5,
+          "y1": 65,
+          "x2": 309.20000000000005,
+          "y2": 65
+        },
+        {
+          "id": "m4h",
+          "kind": "text",
+          "x": 206.9,
+          "y": 77,
+          "text": "7",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "cnt",
+          "kind": "text",
+          "x": 180,
+          "y": 30,
+          "text": "",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "accent"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Six points on a line at A = 0, B = 1, C = 3, D = 7, E = 14, F = 17. Bottom-up clustering starts with six clusters, one per point.",
+          "set": [
+            {
+              "id": "t",
+              "text": "6 clusters"
+            },
+            {
+              "id": "cnt",
+              "text": "6 clusters left"
+            }
+          ]
+        },
+        {
+          "caption": "Merge 1: the closest two clusters are A and B, 1 apart. Merge them at height 1. Five clusters are left.",
+          "set": [
+            {
+              "id": "t",
+              "text": "merge 1 at height 1  →  5 clusters"
+            },
+            {
+              "id": "cnt",
+              "text": "5 clusters left"
+            }
+          ],
+          "show": [
+            "m0a",
+            "m0b",
+            "m0c",
+            "m0h"
+          ],
+          "highlight": [
+            {
+              "id": "m0a",
+              "tone": "good"
+            },
+            {
+              "id": "m0b",
+              "tone": "good"
+            },
+            {
+              "id": "m0c",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Merge 2: B to C is 2, the smallest gap now. C joins {A,B} at height 2. Four clusters are left.",
+          "set": [
+            {
+              "id": "t",
+              "text": "merge 2 at height 2  →  4 clusters"
+            },
+            {
+              "id": "cnt",
+              "text": "4 clusters left"
+            }
+          ],
+          "show": [
+            "m1a",
+            "m1b",
+            "m1c",
+            "m1h"
+          ],
+          "highlight": [
+            {
+              "id": "m1a",
+              "tone": "good"
+            },
+            {
+              "id": "m1b",
+              "tone": "good"
+            },
+            {
+              "id": "m1c",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Merge 3: E and F are 3 apart, the smallest gap now. Merge them at height 3. Three clusters are left.",
+          "set": [
+            {
+              "id": "t",
+              "text": "merge 3 at height 3  →  3 clusters"
+            },
+            {
+              "id": "cnt",
+              "text": "3 clusters left"
+            }
+          ],
+          "show": [
+            "m3a",
+            "m3b",
+            "m3c",
+            "m3h"
+          ],
+          "highlight": [
+            {
+              "id": "m3a",
+              "tone": "good"
+            },
+            {
+              "id": "m3b",
+              "tone": "good"
+            },
+            {
+              "id": "m3c",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Merge 4: C to D is 4. D joins {A,B,C} at height 4. Two clusters are left.",
+          "set": [
+            {
+              "id": "t",
+              "text": "merge 4 at height 4  →  2 clusters"
+            },
+            {
+              "id": "cnt",
+              "text": "2 clusters left"
+            }
+          ],
+          "show": [
+            "m2a",
+            "m2b",
+            "m2c",
+            "m2h"
+          ],
+          "highlight": [
+            {
+              "id": "m2a",
+              "tone": "good"
+            },
+            {
+              "id": "m2b",
+              "tone": "good"
+            },
+            {
+              "id": "m2c",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Merge 5: D to E is 7. The two clusters {A,B,C,D} and {E,F} merge at height 7. One cluster is left, after 5 = 6 − 1 merges.",
+          "set": [
+            {
+              "id": "t",
+              "text": "merge 5 at height 7  →  1 cluster"
+            },
+            {
+              "id": "cnt",
+              "text": "1 cluster left"
+            }
+          ],
+          "show": [
+            "m4a",
+            "m4b",
+            "m4c",
+            "m4h"
+          ],
+          "highlight": [
+            {
+              "id": "m4a",
+              "tone": "good"
+            },
+            {
+              "id": "m4b",
+              "tone": "good"
+            },
+            {
+              "id": "m4c",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.hier.metric",
+      "title": "Manhattan and Euclidean distance can disagree",
+      "viewBox": [
+        0,
+        0,
+        360,
+        270
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 24,
+          "y": 185,
+          "unit": 21,
+          "xr": [
+            0,
+            15
+          ],
+          "yr": [
+            0,
+            5
+          ],
+          "xlabel": "x",
+          "ylabel": "y"
+        },
+        {
+          "id": "P",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            0,
+            0
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "lp",
+          "kind": "text",
+          "x": 11,
+          "y": 186,
+          "text": "P",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "accent"
+        },
+        {
+          "id": "Q",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            4
+          ],
+          "label": "Q",
+          "tone": "accent"
+        },
+        {
+          "id": "R",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            8,
+            0
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "lr",
+          "kind": "text",
+          "x": 192,
+          "y": 167,
+          "text": "R",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "mid"
+        },
+        {
+          "id": "S",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            14,
+            0
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "ls",
+          "kind": "text",
+          "x": 318,
+          "y": 167,
+          "text": "S",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "mid"
+        },
+        {
+          "id": "pq2",
+          "kind": "edge",
+          "x1": 24,
+          "y1": 185,
+          "x2": 87,
+          "y2": 101,
+          "tone": "accent"
+        },
+        {
+          "id": "pq1a",
+          "kind": "edge",
+          "x1": 24,
+          "y1": 185,
+          "x2": 87,
+          "y2": 185,
+          "tone": "bad",
+          "dash": true
+        },
+        {
+          "id": "pq1b",
+          "kind": "edge",
+          "x1": 87,
+          "y1": 185,
+          "x2": 87,
+          "y2": 101,
+          "tone": "bad",
+          "dash": true
+        },
+        {
+          "id": "rs",
+          "kind": "edge",
+          "x1": 192,
+          "y1": 180,
+          "x2": 318,
+          "y2": 180,
+          "tone": "mid"
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 180,
+          "y": 232,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 180,
+          "y": 252,
+          "text": "",
+          "size": 12,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Four points in the plane: P = (0, 0), Q = (3, 4), R = (8, 0) and S = (14, 0). Which pair do we merge first? It depends on the ruler.",
+          "set": [
+            {
+              "id": "t1",
+              "text": "P (0,0)   Q (3,4)   R (8,0)   S (14,0)"
+            },
+            {
+              "id": "t2",
+              "text": "which pair is closest?"
+            }
+          ]
+        },
+        {
+          "caption": "P to Q: the gaps are 3 across and 4 up. Manhattan distance adds the gaps: 3 + 4 = 7 (the dashed path). Euclidean distance is the straight line: √(9 + 16) = 5.",
+          "show": [
+            "pq2",
+            "pq1a",
+            "pq1b"
+          ],
+          "highlight": [
+            "pq2",
+            "pq1a",
+            "pq1b"
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "P–Q:  Manhattan 7,  Euclidean 5"
+            },
+            {
+              "id": "t2",
+              "text": "dashed: 3 + 4,  solid: √(3² + 4²)"
+            }
+          ]
+        },
+        {
+          "caption": "R to S: the gaps are 6 across and 0 up. Manhattan = 6 and Euclidean = 6. The two rulers agree here.",
+          "hide": [
+            "pq1a",
+            "pq1b"
+          ],
+          "show": "rs",
+          "highlight": "rs",
+          "set": [
+            {
+              "id": "t1",
+              "text": "R–S:  Manhattan 6,  Euclidean 6"
+            },
+            {
+              "id": "t2",
+              "text": "gaps 6 and 0"
+            }
+          ]
+        },
+        {
+          "caption": "The other four pairs are larger. Manhattan: P–R 8, Q–R 9, P–S 14, Q–S 15. Euclidean: P–R 8, Q–R 6.4, P–S 14, Q–S 11.7.",
+          "set": [
+            {
+              "id": "t1",
+              "text": "Manhattan: PR 8, QR 9, PS 14, QS 15"
+            },
+            {
+              "id": "t2",
+              "text": "Euclidean: PR 8, QR 6.4, PS 14, QS 11.7"
+            }
+          ]
+        },
+        {
+          "caption": "Smallest Manhattan distance: R–S = 6, against P–Q = 7. Smallest Euclidean distance: P–Q = 5, against R–S = 6. Different rulers merge different pairs first.",
+          "highlight": [
+            "rs",
+            "pq2"
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "Manhattan merges R, S first (6)"
+            },
+            {
+              "id": "t2",
+              "text": "Euclidean merges P, Q first (5)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.hier.single",
+      "title": "Single linkage on a five-point table",
+      "viewBox": [
+        0,
+        0,
+        360,
+        280
+      ],
+      "objects": [
+        {
+          "id": "mat",
+          "kind": "grid",
+          "x": 34,
+          "y": 50,
+          "rows": 5,
+          "cols": 5,
+          "cw": 28,
+          "ch": 26,
+          "cells": [
+            "",
+            3,
+            8,
+            8,
+            10,
+            "",
+            "",
+            5,
+            2,
+            9,
+            "",
+            "",
+            "",
+            12,
+            6,
+            "",
+            "",
+            "",
+            "",
+            4,
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "colLabels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
+        },
+        {
+          "id": "lA",
+          "kind": "node",
+          "x": 205,
+          "y": 227,
+          "r": 11,
+          "label": "A"
+        },
+        {
+          "id": "lB",
+          "kind": "node",
+          "x": 235,
+          "y": 227,
+          "r": 11,
+          "label": "B"
+        },
+        {
+          "id": "lD",
+          "kind": "node",
+          "x": 265,
+          "y": 227,
+          "r": 11,
+          "label": "D"
+        },
+        {
+          "id": "lE",
+          "kind": "node",
+          "x": 295,
+          "y": 227,
+          "r": 11,
+          "label": "E"
+        },
+        {
+          "id": "lC",
+          "kind": "node",
+          "x": 325,
+          "y": 227,
+          "r": 11,
+          "label": "C"
+        },
+        {
+          "id": "m0a",
+          "kind": "edge",
+          "x1": 235,
+          "y1": 215,
+          "x2": 235,
+          "y2": 163
+        },
+        {
+          "id": "m0b",
+          "kind": "edge",
+          "x1": 265,
+          "y1": 215,
+          "x2": 265,
+          "y2": 163
+        },
+        {
+          "id": "m0c",
+          "kind": "edge",
+          "x1": 235,
+          "y1": 163,
+          "x2": 265,
+          "y2": 163
+        },
+        {
+          "id": "m0h",
+          "kind": "text",
+          "x": 250.0,
+          "y": 175,
+          "text": "2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m1a",
+          "kind": "edge",
+          "x1": 250.0,
+          "y1": 163,
+          "x2": 250.0,
+          "y2": 137
+        },
+        {
+          "id": "m1b",
+          "kind": "edge",
+          "x1": 205,
+          "y1": 215,
+          "x2": 205,
+          "y2": 137
+        },
+        {
+          "id": "m1c",
+          "kind": "edge",
+          "x1": 250.0,
+          "y1": 137,
+          "x2": 205,
+          "y2": 137
+        },
+        {
+          "id": "m1h",
+          "kind": "text",
+          "x": 227.5,
+          "y": 149,
+          "text": "3",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m2a",
+          "kind": "edge",
+          "x1": 227.5,
+          "y1": 137,
+          "x2": 227.5,
+          "y2": 111
+        },
+        {
+          "id": "m2b",
+          "kind": "edge",
+          "x1": 295,
+          "y1": 215,
+          "x2": 295,
+          "y2": 111
+        },
+        {
+          "id": "m2c",
+          "kind": "edge",
+          "x1": 227.5,
+          "y1": 111,
+          "x2": 295,
+          "y2": 111
+        },
+        {
+          "id": "m2h",
+          "kind": "text",
+          "x": 261.2,
+          "y": 123,
+          "text": "4",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m3a",
+          "kind": "edge",
+          "x1": 261.25,
+          "y1": 111,
+          "x2": 261.25,
+          "y2": 85
+        },
+        {
+          "id": "m3b",
+          "kind": "edge",
+          "x1": 325,
+          "y1": 215,
+          "x2": 325,
+          "y2": 85
+        },
+        {
+          "id": "m3c",
+          "kind": "edge",
+          "x1": 261.25,
+          "y1": 85,
+          "x2": 325,
+          "y2": 85
+        },
+        {
+          "id": "m3h",
+          "kind": "text",
+          "x": 293.1,
+          "y": 97,
+          "text": "5",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "hd",
+          "kind": "text",
+          "x": 268,
+          "y": 24,
+          "text": "dendrogram",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "muted"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The table of distances for five points (only the upper half is shown). Each point starts as its own cluster. The smallest entry is B to D = 2.",
+          "highlight": [
+            {
+              "id": "mat",
+              "cells": [
+                8
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "5 clusters. smallest entry: B–D = 2"
+          }
+        },
+        {
+          "caption": "Merge B and D at height 2. A bar at height 2 joins their two lines.",
+          "show": [
+            "m0a",
+            "m0b",
+            "m0c",
+            "m0h"
+          ],
+          "highlight": [
+            {
+              "id": "m0a",
+              "tone": "good"
+            },
+            {
+              "id": "m0b",
+              "tone": "good"
+            },
+            {
+              "id": "m0c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                8
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "merge {B, D} at 2"
+          }
+        },
+        {
+          "caption": "Single linkage: the new distance is the minimum of the old ones. A to {B,D} = min(3, 8) = 3. This is now the smallest entry, so A joins at height 3.",
+          "show": [
+            "m1a",
+            "m1b",
+            "m1c",
+            "m1h"
+          ],
+          "highlight": [
+            {
+              "id": "m1a",
+              "tone": "good"
+            },
+            {
+              "id": "m1b",
+              "tone": "good"
+            },
+            {
+              "id": "m1c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                1,
+                3
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "d(A, {B,D}) = min(3, 8) = 3"
+          }
+        },
+        {
+          "caption": "E to {A,B,D} = min(10, 9, 4) = 4. It is the smallest, so E joins at height 4, even though A and E are 10 apart.",
+          "show": [
+            "m2a",
+            "m2b",
+            "m2c",
+            "m2h"
+          ],
+          "highlight": [
+            {
+              "id": "m2a",
+              "tone": "good"
+            },
+            {
+              "id": "m2b",
+              "tone": "good"
+            },
+            {
+              "id": "m2c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                4,
+                9,
+                19
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "d(E, {A,B,D}) = min(10, 9, 4) = 4"
+          }
+        },
+        {
+          "caption": "C to {A,B,D,E} = min(8, 5, 12, 6) = 5. C joins last, at height 5. The heights are 2, 3, 4, 5: a staircase, a chain.",
+          "show": [
+            "m3a",
+            "m3b",
+            "m3c",
+            "m3h"
+          ],
+          "highlight": [
+            {
+              "id": "m3a",
+              "tone": "good"
+            },
+            {
+              "id": "m3b",
+              "tone": "good"
+            },
+            {
+              "id": "m3c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                2,
+                7,
+                13,
+                14
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "d(C, rest) = min(8, 5, 12, 6) = 5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.hier.complete",
+      "title": "Complete linkage on the same table",
+      "viewBox": [
+        0,
+        0,
+        360,
+        280
+      ],
+      "objects": [
+        {
+          "id": "mat",
+          "kind": "grid",
+          "x": 34,
+          "y": 50,
+          "rows": 5,
+          "cols": 5,
+          "cw": 28,
+          "ch": 26,
+          "cells": [
+            "",
+            3,
+            8,
+            8,
+            10,
+            "",
+            "",
+            5,
+            2,
+            9,
+            "",
+            "",
+            "",
+            12,
+            6,
+            "",
+            "",
+            "",
+            "",
+            4,
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "colLabels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
+        },
+        {
+          "id": "lA",
+          "kind": "node",
+          "x": 205,
+          "y": 227,
+          "r": 11,
+          "label": "A"
+        },
+        {
+          "id": "lB",
+          "kind": "node",
+          "x": 235,
+          "y": 227,
+          "r": 11,
+          "label": "B"
+        },
+        {
+          "id": "lD",
+          "kind": "node",
+          "x": 265,
+          "y": 227,
+          "r": 11,
+          "label": "D"
+        },
+        {
+          "id": "lE",
+          "kind": "node",
+          "x": 295,
+          "y": 227,
+          "r": 11,
+          "label": "E"
+        },
+        {
+          "id": "lC",
+          "kind": "node",
+          "x": 325,
+          "y": 227,
+          "r": 11,
+          "label": "C"
+        },
+        {
+          "id": "m0a",
+          "kind": "edge",
+          "x1": 235,
+          "y1": 215,
+          "x2": 235,
+          "y2": 193
+        },
+        {
+          "id": "m0b",
+          "kind": "edge",
+          "x1": 265,
+          "y1": 215,
+          "x2": 265,
+          "y2": 193
+        },
+        {
+          "id": "m0c",
+          "kind": "edge",
+          "x1": 235,
+          "y1": 193,
+          "x2": 265,
+          "y2": 193
+        },
+        {
+          "id": "m0h",
+          "kind": "text",
+          "x": 250.0,
+          "y": 205,
+          "text": "2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m1a",
+          "kind": "edge",
+          "x1": 205,
+          "y1": 215,
+          "x2": 205,
+          "y2": 127
+        },
+        {
+          "id": "m1b",
+          "kind": "edge",
+          "x1": 250.0,
+          "y1": 193,
+          "x2": 250.0,
+          "y2": 127
+        },
+        {
+          "id": "m1c",
+          "kind": "edge",
+          "x1": 205,
+          "y1": 127,
+          "x2": 250.0,
+          "y2": 127
+        },
+        {
+          "id": "m1h",
+          "kind": "text",
+          "x": 227.5,
+          "y": 139,
+          "text": "8",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m2a",
+          "kind": "edge",
+          "x1": 295,
+          "y1": 215,
+          "x2": 295,
+          "y2": 149
+        },
+        {
+          "id": "m2b",
+          "kind": "edge",
+          "x1": 325,
+          "y1": 215,
+          "x2": 325,
+          "y2": 149
+        },
+        {
+          "id": "m2c",
+          "kind": "edge",
+          "x1": 295,
+          "y1": 149,
+          "x2": 325,
+          "y2": 149
+        },
+        {
+          "id": "m2h",
+          "kind": "text",
+          "x": 310.0,
+          "y": 161,
+          "text": "6",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m3a",
+          "kind": "edge",
+          "x1": 227.5,
+          "y1": 127,
+          "x2": 227.5,
+          "y2": 83
+        },
+        {
+          "id": "m3b",
+          "kind": "edge",
+          "x1": 310.0,
+          "y1": 149,
+          "x2": 310.0,
+          "y2": 83
+        },
+        {
+          "id": "m3c",
+          "kind": "edge",
+          "x1": 227.5,
+          "y1": 83,
+          "x2": 310.0,
+          "y2": 83
+        },
+        {
+          "id": "m3h",
+          "kind": "text",
+          "x": 268.8,
+          "y": 95,
+          "text": "12",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "hd",
+          "kind": "text",
+          "x": 268,
+          "y": 24,
+          "text": "dendrogram",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "muted"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The same table. The smallest entry is B to D = 2, so the first merge is the same as in single linkage.",
+          "highlight": [
+            {
+              "id": "mat",
+              "cells": [
+                8
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "5 clusters. smallest entry: B–D = 2"
+          }
+        },
+        {
+          "caption": "Merge B and D at height 2.",
+          "show": [
+            "m0a",
+            "m0b",
+            "m0c",
+            "m0h"
+          ],
+          "highlight": [
+            {
+              "id": "m0a",
+              "tone": "good"
+            },
+            {
+              "id": "m0b",
+              "tone": "good"
+            },
+            {
+              "id": "m0c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                8
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "merge {B, D} at 2"
+          }
+        },
+        {
+          "caption": "Complete linkage takes the maximum. A to {B,D} = max(3, 8) = 8, C to {B,D} = 12, E to {B,D} = 9. The smallest entry is now C to E = 6, so C and E merge at height 6.",
+          "show": [
+            "m2a",
+            "m2b",
+            "m2c",
+            "m2h"
+          ],
+          "highlight": [
+            {
+              "id": "m2a",
+              "tone": "good"
+            },
+            {
+              "id": "m2b",
+              "tone": "good"
+            },
+            {
+              "id": "m2c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                14
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "d(A,{B,D}) = 8,   d(C,E) = 6 is smallest"
+          }
+        },
+        {
+          "caption": "A to {B,D} = 8 is the smallest, since A to {C,E} = max(8, 10) = 10. A joins {B,D} at height 8, not at 3.",
+          "show": [
+            "m1a",
+            "m1b",
+            "m1c",
+            "m1h"
+          ],
+          "highlight": [
+            {
+              "id": "m1a",
+              "tone": "good"
+            },
+            {
+              "id": "m1b",
+              "tone": "good"
+            },
+            {
+              "id": "m1c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                1,
+                3
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "d(A, {B,D}) = max(3, 8) = 8"
+          }
+        },
+        {
+          "caption": "Last merge: {A,B,D} to {C,E} is the largest of the six cross distances 8, 10, 5, 9, 12, 4, which is 12. The heights are 2, 6, 8, 12.",
+          "show": [
+            "m3a",
+            "m3b",
+            "m3c",
+            "m3h"
+          ],
+          "highlight": [
+            {
+              "id": "m3a",
+              "tone": "good"
+            },
+            {
+              "id": "m3b",
+              "tone": "good"
+            },
+            {
+              "id": "m3c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                2,
+                4,
+                7,
+                9,
+                13,
+                19
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "max(8, 10, 5, 9, 12, 4) = 12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.hier.average",
+      "title": "Average linkage on the same table",
+      "viewBox": [
+        0,
+        0,
+        360,
+        280
+      ],
+      "objects": [
+        {
+          "id": "mat",
+          "kind": "grid",
+          "x": 34,
+          "y": 50,
+          "rows": 5,
+          "cols": 5,
+          "cw": 28,
+          "ch": 26,
+          "cells": [
+            "",
+            3,
+            8,
+            8,
+            10,
+            "",
+            "",
+            5,
+            2,
+            9,
+            "",
+            "",
+            "",
+            12,
+            6,
+            "",
+            "",
+            "",
+            "",
+            4,
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "colLabels": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
+        },
+        {
+          "id": "lA",
+          "kind": "node",
+          "x": 205,
+          "y": 227,
+          "r": 11,
+          "label": "A"
+        },
+        {
+          "id": "lB",
+          "kind": "node",
+          "x": 235,
+          "y": 227,
+          "r": 11,
+          "label": "B"
+        },
+        {
+          "id": "lD",
+          "kind": "node",
+          "x": 265,
+          "y": 227,
+          "r": 11,
+          "label": "D"
+        },
+        {
+          "id": "lE",
+          "kind": "node",
+          "x": 295,
+          "y": 227,
+          "r": 11,
+          "label": "E"
+        },
+        {
+          "id": "lC",
+          "kind": "node",
+          "x": 325,
+          "y": 227,
+          "r": 11,
+          "label": "C"
+        },
+        {
+          "id": "m0a",
+          "kind": "edge",
+          "x1": 235,
+          "y1": 215,
+          "x2": 235,
+          "y2": 183
+        },
+        {
+          "id": "m0b",
+          "kind": "edge",
+          "x1": 265,
+          "y1": 215,
+          "x2": 265,
+          "y2": 183
+        },
+        {
+          "id": "m0c",
+          "kind": "edge",
+          "x1": 235,
+          "y1": 183,
+          "x2": 265,
+          "y2": 183
+        },
+        {
+          "id": "m0h",
+          "kind": "text",
+          "x": 250.0,
+          "y": 195,
+          "text": "2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m1a",
+          "kind": "edge",
+          "x1": 205,
+          "y1": 215,
+          "x2": 205,
+          "y2": 127.0
+        },
+        {
+          "id": "m1b",
+          "kind": "edge",
+          "x1": 250.0,
+          "y1": 183,
+          "x2": 250.0,
+          "y2": 127.0
+        },
+        {
+          "id": "m1c",
+          "kind": "edge",
+          "x1": 205,
+          "y1": 127.0,
+          "x2": 250.0,
+          "y2": 127.0
+        },
+        {
+          "id": "m1h",
+          "kind": "text",
+          "x": 227.5,
+          "y": 139.0,
+          "text": "5.5",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m2a",
+          "kind": "edge",
+          "x1": 295,
+          "y1": 215,
+          "x2": 295,
+          "y2": 119
+        },
+        {
+          "id": "m2b",
+          "kind": "edge",
+          "x1": 325,
+          "y1": 215,
+          "x2": 325,
+          "y2": 119
+        },
+        {
+          "id": "m2c",
+          "kind": "edge",
+          "x1": 295,
+          "y1": 119,
+          "x2": 325,
+          "y2": 119
+        },
+        {
+          "id": "m2h",
+          "kind": "text",
+          "x": 310.0,
+          "y": 131,
+          "text": "6",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m3a",
+          "kind": "edge",
+          "x1": 227.5,
+          "y1": 127.0,
+          "x2": 227.5,
+          "y2": 87
+        },
+        {
+          "id": "m3b",
+          "kind": "edge",
+          "x1": 310.0,
+          "y1": 119,
+          "x2": 310.0,
+          "y2": 87
+        },
+        {
+          "id": "m3c",
+          "kind": "edge",
+          "x1": 227.5,
+          "y1": 87,
+          "x2": 310.0,
+          "y2": 87
+        },
+        {
+          "id": "m3h",
+          "kind": "text",
+          "x": 268.8,
+          "y": 99,
+          "text": "8",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "hd",
+          "kind": "text",
+          "x": 268,
+          "y": 24,
+          "text": "dendrogram",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "muted"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The same table. The first merge is the smallest entry, B to D = 2, for every linkage.",
+          "highlight": [
+            {
+              "id": "mat",
+              "cells": [
+                8
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "5 clusters. smallest entry: B–D = 2"
+          }
+        },
+        {
+          "caption": "Merge B and D at height 2.",
+          "show": [
+            "m0a",
+            "m0b",
+            "m0c",
+            "m0h"
+          ],
+          "highlight": [
+            {
+              "id": "m0a",
+              "tone": "good"
+            },
+            {
+              "id": "m0b",
+              "tone": "good"
+            },
+            {
+              "id": "m0c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                8
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "merge {B, D} at 2"
+          }
+        },
+        {
+          "caption": "Average linkage: A to {B,D} = (3 + 8) / 2 = 5.5. The others are larger: C = (5 + 12) / 2 = 8.5, E = (9 + 4) / 2 = 6.5. So A joins at height 5.5.",
+          "show": [
+            "m1a",
+            "m1b",
+            "m1c",
+            "m1h"
+          ],
+          "highlight": [
+            {
+              "id": "m1a",
+              "tone": "good"
+            },
+            {
+              "id": "m1b",
+              "tone": "good"
+            },
+            {
+              "id": "m1c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                1,
+                3
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "d(A, {B,D}) = (3 + 8) / 2 = 5.5"
+          }
+        },
+        {
+          "caption": "Now C to {A,B,D} = (8 + 5 + 12) / 3 = 8.33 and E to {A,B,D} = (10 + 9 + 4) / 3 = 7.67. C to E = 6 is smaller than both, so C and E merge at height 6.",
+          "show": [
+            "m2a",
+            "m2b",
+            "m2c",
+            "m2h"
+          ],
+          "highlight": [
+            {
+              "id": "m2a",
+              "tone": "good"
+            },
+            {
+              "id": "m2b",
+              "tone": "good"
+            },
+            {
+              "id": "m2c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                14
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "d(C, E) = 6 is the smallest"
+          }
+        },
+        {
+          "caption": "Last merge: average of all six cross distances = (8 + 10 + 5 + 9 + 12 + 4) / 6 = 48 / 6 = 8. The heights are 2, 5.5, 6, 8.",
+          "show": [
+            "m3a",
+            "m3b",
+            "m3c",
+            "m3h"
+          ],
+          "highlight": [
+            {
+              "id": "m3a",
+              "tone": "good"
+            },
+            {
+              "id": "m3b",
+              "tone": "good"
+            },
+            {
+              "id": "m3c",
+              "tone": "good"
+            },
+            {
+              "id": "mat",
+              "cells": [
+                2,
+                4,
+                7,
+                9,
+                13,
+                19
+              ],
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "48 / 6 = 8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.hier.cuts",
+      "title": "Dendrogram heights and cutting",
+      "viewBox": [
+        0,
+        0,
+        360,
+        315
+      ],
+      "objects": [
+        {
+          "id": "lA",
+          "kind": "node",
+          "x": 78,
+          "y": 247,
+          "r": 11,
+          "label": "A"
+        },
+        {
+          "id": "lB",
+          "kind": "node",
+          "x": 118,
+          "y": 247,
+          "r": 11,
+          "label": "B"
+        },
+        {
+          "id": "lD",
+          "kind": "node",
+          "x": 158,
+          "y": 247,
+          "r": 11,
+          "label": "D"
+        },
+        {
+          "id": "lE",
+          "kind": "node",
+          "x": 218,
+          "y": 247,
+          "r": 11,
+          "label": "E"
+        },
+        {
+          "id": "lC",
+          "kind": "node",
+          "x": 258,
+          "y": 247,
+          "r": 11,
+          "label": "C"
+        },
+        {
+          "id": "m0a",
+          "kind": "edge",
+          "x1": 118,
+          "y1": 235,
+          "x2": 118,
+          "y2": 207
+        },
+        {
+          "id": "m0b",
+          "kind": "edge",
+          "x1": 158,
+          "y1": 235,
+          "x2": 158,
+          "y2": 207
+        },
+        {
+          "id": "m0c",
+          "kind": "edge",
+          "x1": 118,
+          "y1": 207,
+          "x2": 158,
+          "y2": 207
+        },
+        {
+          "id": "m0h",
+          "kind": "text",
+          "x": 138.0,
+          "y": 219,
+          "text": "2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m1a",
+          "kind": "edge",
+          "x1": 78,
+          "y1": 235,
+          "x2": 78,
+          "y2": 123
+        },
+        {
+          "id": "m1b",
+          "kind": "edge",
+          "x1": 138.0,
+          "y1": 207,
+          "x2": 138.0,
+          "y2": 123
+        },
+        {
+          "id": "m1c",
+          "kind": "edge",
+          "x1": 78,
+          "y1": 123,
+          "x2": 138.0,
+          "y2": 123
+        },
+        {
+          "id": "m1h",
+          "kind": "text",
+          "x": 108.0,
+          "y": 135,
+          "text": "8",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m2a",
+          "kind": "edge",
+          "x1": 218,
+          "y1": 235,
+          "x2": 218,
+          "y2": 151
+        },
+        {
+          "id": "m2b",
+          "kind": "edge",
+          "x1": 258,
+          "y1": 235,
+          "x2": 258,
+          "y2": 151
+        },
+        {
+          "id": "m2c",
+          "kind": "edge",
+          "x1": 218,
+          "y1": 151,
+          "x2": 258,
+          "y2": 151
+        },
+        {
+          "id": "m2h",
+          "kind": "text",
+          "x": 238.0,
+          "y": 163,
+          "text": "6",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "m3a",
+          "kind": "edge",
+          "x1": 108.0,
+          "y1": 123,
+          "x2": 108.0,
+          "y2": 67
+        },
+        {
+          "id": "m3b",
+          "kind": "edge",
+          "x1": 238.0,
+          "y1": 151,
+          "x2": 238.0,
+          "y2": 67
+        },
+        {
+          "id": "m3c",
+          "kind": "edge",
+          "x1": 108.0,
+          "y1": 67,
+          "x2": 238.0,
+          "y2": 67
+        },
+        {
+          "id": "m3h",
+          "kind": "text",
+          "x": 173.0,
+          "y": 79,
+          "text": "12",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "y0",
+          "kind": "text",
+          "x": 30,
+          "y": 235,
+          "text": "0",
+          "size": 12,
+          "anchor": "end",
+          "tone": "muted"
+        },
+        {
+          "id": "y2",
+          "kind": "text",
+          "x": 30,
+          "y": 207,
+          "text": "2",
+          "size": 12,
+          "anchor": "end",
+          "tone": "muted"
+        },
+        {
+          "id": "y4",
+          "kind": "text",
+          "x": 30,
+          "y": 179,
+          "text": "4",
+          "size": 12,
+          "anchor": "end",
+          "tone": "muted"
+        },
+        {
+          "id": "y6",
+          "kind": "text",
+          "x": 30,
+          "y": 151,
+          "text": "6",
+          "size": 12,
+          "anchor": "end",
+          "tone": "muted"
+        },
+        {
+          "id": "y8",
+          "kind": "text",
+          "x": 30,
+          "y": 123,
+          "text": "8",
+          "size": 12,
+          "anchor": "end",
+          "tone": "muted"
+        },
+        {
+          "id": "y10",
+          "kind": "text",
+          "x": 30,
+          "y": 95,
+          "text": "10",
+          "size": 12,
+          "anchor": "end",
+          "tone": "muted"
+        },
+        {
+          "id": "y12",
+          "kind": "text",
+          "x": 30,
+          "y": 67,
+          "text": "12",
+          "size": 12,
+          "anchor": "end",
+          "tone": "muted"
+        },
+        {
+          "id": "axl",
+          "kind": "edge",
+          "x1": 38,
+          "y1": 235,
+          "x2": 38,
+          "y2": 67
+        },
+        {
+          "id": "cut7",
+          "kind": "edge",
+          "x1": 42,
+          "y1": 137,
+          "x2": 298,
+          "y2": 137,
+          "tone": "good",
+          "dash": true
+        },
+        {
+          "id": "c7",
+          "kind": "text",
+          "x": 292,
+          "y": 126,
+          "text": "cut 7",
+          "size": 12,
+          "anchor": "end",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "cut10",
+          "kind": "edge",
+          "x1": 42,
+          "y1": 95,
+          "x2": 298,
+          "y2": 95,
+          "tone": "bad",
+          "dash": true
+        },
+        {
+          "id": "c10",
+          "kind": "text",
+          "x": 292,
+          "y": 84,
+          "text": "cut 10",
+          "size": 12,
+          "anchor": "end",
+          "bold": true,
+          "tone": "bad"
+        },
+        {
+          "id": "gap",
+          "kind": "edge",
+          "x1": 314,
+          "y1": 67,
+          "x2": 314,
+          "y2": 123,
+          "tone": "good"
+        },
+        {
+          "id": "gt",
+          "kind": "text",
+          "x": 322,
+          "y": 95,
+          "text": "gap 4",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 296,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The dendrogram of complete linkage on the table of the last cards. Leaves are at the bottom. Each bar is a merge, drawn at the distance where it happened: B,D at 2, C,E at 6, A joins at 8, the last at 12.",
+          "show": [
+            "m0a",
+            "m0b",
+            "m0c",
+            "m0h",
+            "m1a",
+            "m1b",
+            "m1c",
+            "m1h",
+            "m2a",
+            "m2b",
+            "m2c",
+            "m2h",
+            "m3a",
+            "m3b",
+            "m3c",
+            "m3h",
+            "axl",
+            "y0",
+            "y2",
+            "y4",
+            "y6",
+            "y8",
+            "y10",
+            "y12"
+          ],
+          "set": {
+            "id": "t",
+            "text": "height = merge distance"
+          }
+        },
+        {
+          "caption": "The height of a bar is the linkage distance of that merge, not the number of the merge.",
+          "highlight": [
+            {
+              "id": "m0c",
+              "tone": "good"
+            },
+            {
+              "id": "m1c",
+              "tone": "good"
+            },
+            {
+              "id": "m2c",
+              "tone": "good"
+            },
+            {
+              "id": "m3c",
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "bars at 2, 6, 8, 12"
+          }
+        },
+        {
+          "caption": "Cut at h = 7: keep the merges at 7 or lower, the bars at 2 and 6. The line crosses three branches, so there are three clusters: {A}, {B,D} and {C,E}.",
+          "show": [
+            "cut7",
+            "c7"
+          ],
+          "highlight": [
+            "cut7"
+          ],
+          "set": {
+            "id": "t",
+            "text": "cut at 7:  3 clusters  {A} {B,D} {C,E}"
+          }
+        },
+        {
+          "caption": "Cut at h = 10: the bars at 2, 6 and 8 are kept. Two branches are crossed, so there are two clusters: {A,B,D} and {C,E}.",
+          "hide": [
+            "cut7",
+            "c7"
+          ],
+          "show": [
+            "cut10",
+            "c10"
+          ],
+          "highlight": [
+            "cut10"
+          ],
+          "set": {
+            "id": "t",
+            "text": "cut at 10:  2 clusters  {A,B,D} {C,E}"
+          }
+        },
+        {
+          "caption": "A long vertical stretch with no merge means a stable choice. Any cut between 8 and 12 gives the same two clusters, a stretch of 4. Three clusters hold only between 6 and 8, a stretch of 2.",
+          "show": [
+            "gap",
+            "gt"
+          ],
+          "highlight": [
+            "gap"
+          ],
+          "set": {
+            "id": "t",
+            "text": "cuts between 8 and 12 all give 2 clusters"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.hier.chain",
+      "title": "Chaining (single) against compact clusters (complete)",
+      "viewBox": [
+        0,
+        0,
+        360,
+        285
+      ],
+      "objects": [
+        {
+          "id": "lsA",
+          "kind": "node",
+          "x": 26,
+          "y": 227,
+          "r": 11,
+          "label": "A"
+        },
+        {
+          "id": "lsB",
+          "kind": "node",
+          "x": 56,
+          "y": 227,
+          "r": 11,
+          "label": "B"
+        },
+        {
+          "id": "lsD",
+          "kind": "node",
+          "x": 86,
+          "y": 227,
+          "r": 11,
+          "label": "D"
+        },
+        {
+          "id": "lsE",
+          "kind": "node",
+          "x": 116,
+          "y": 227,
+          "r": 11,
+          "label": "E"
+        },
+        {
+          "id": "lsC",
+          "kind": "node",
+          "x": 146,
+          "y": 227,
+          "r": 11,
+          "label": "C"
+        },
+        {
+          "id": "lcA",
+          "kind": "node",
+          "x": 206,
+          "y": 227,
+          "r": 11,
+          "label": "A"
+        },
+        {
+          "id": "lcB",
+          "kind": "node",
+          "x": 236,
+          "y": 227,
+          "r": 11,
+          "label": "B"
+        },
+        {
+          "id": "lcD",
+          "kind": "node",
+          "x": 266,
+          "y": 227,
+          "r": 11,
+          "label": "D"
+        },
+        {
+          "id": "lcE",
+          "kind": "node",
+          "x": 296,
+          "y": 227,
+          "r": 11,
+          "label": "E"
+        },
+        {
+          "id": "lcC",
+          "kind": "node",
+          "x": 326,
+          "y": 227,
+          "r": 11,
+          "label": "C"
+        },
+        {
+          "id": "s0a",
+          "kind": "edge",
+          "x1": 56,
+          "y1": 215,
+          "x2": 56,
+          "y2": 193
+        },
+        {
+          "id": "s0b",
+          "kind": "edge",
+          "x1": 86,
+          "y1": 215,
+          "x2": 86,
+          "y2": 193
+        },
+        {
+          "id": "s0c",
+          "kind": "edge",
+          "x1": 56,
+          "y1": 193,
+          "x2": 86,
+          "y2": 193
+        },
+        {
+          "id": "s0h",
+          "kind": "text",
+          "x": 71.0,
+          "y": 205,
+          "text": "2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "s1a",
+          "kind": "edge",
+          "x1": 71.0,
+          "y1": 193,
+          "x2": 71.0,
+          "y2": 182
+        },
+        {
+          "id": "s1b",
+          "kind": "edge",
+          "x1": 26,
+          "y1": 215,
+          "x2": 26,
+          "y2": 182
+        },
+        {
+          "id": "s1c",
+          "kind": "edge",
+          "x1": 71.0,
+          "y1": 182,
+          "x2": 26,
+          "y2": 182
+        },
+        {
+          "id": "s1h",
+          "kind": "text",
+          "x": 48.5,
+          "y": 194,
+          "text": "3",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "s2a",
+          "kind": "edge",
+          "x1": 48.5,
+          "y1": 182,
+          "x2": 48.5,
+          "y2": 171
+        },
+        {
+          "id": "s2b",
+          "kind": "edge",
+          "x1": 116,
+          "y1": 215,
+          "x2": 116,
+          "y2": 171
+        },
+        {
+          "id": "s2c",
+          "kind": "edge",
+          "x1": 48.5,
+          "y1": 171,
+          "x2": 116,
+          "y2": 171
+        },
+        {
+          "id": "s2h",
+          "kind": "text",
+          "x": 82.2,
+          "y": 183,
+          "text": "4",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "s3a",
+          "kind": "edge",
+          "x1": 82.25,
+          "y1": 171,
+          "x2": 82.25,
+          "y2": 160
+        },
+        {
+          "id": "s3b",
+          "kind": "edge",
+          "x1": 146,
+          "y1": 215,
+          "x2": 146,
+          "y2": 160
+        },
+        {
+          "id": "s3c",
+          "kind": "edge",
+          "x1": 82.25,
+          "y1": 160,
+          "x2": 146,
+          "y2": 160
+        },
+        {
+          "id": "s3h",
+          "kind": "text",
+          "x": 114.1,
+          "y": 172,
+          "text": "5",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "c0a",
+          "kind": "edge",
+          "x1": 236,
+          "y1": 215,
+          "x2": 236,
+          "y2": 193
+        },
+        {
+          "id": "c0b",
+          "kind": "edge",
+          "x1": 266,
+          "y1": 215,
+          "x2": 266,
+          "y2": 193
+        },
+        {
+          "id": "c0c",
+          "kind": "edge",
+          "x1": 236,
+          "y1": 193,
+          "x2": 266,
+          "y2": 193
+        },
+        {
+          "id": "c0h",
+          "kind": "text",
+          "x": 251.0,
+          "y": 205,
+          "text": "2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "c1a",
+          "kind": "edge",
+          "x1": 206,
+          "y1": 215,
+          "x2": 206,
+          "y2": 127
+        },
+        {
+          "id": "c1b",
+          "kind": "edge",
+          "x1": 251.0,
+          "y1": 193,
+          "x2": 251.0,
+          "y2": 127
+        },
+        {
+          "id": "c1c",
+          "kind": "edge",
+          "x1": 206,
+          "y1": 127,
+          "x2": 251.0,
+          "y2": 127
+        },
+        {
+          "id": "c1h",
+          "kind": "text",
+          "x": 228.5,
+          "y": 139,
+          "text": "8",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "c2a",
+          "kind": "edge",
+          "x1": 296,
+          "y1": 215,
+          "x2": 296,
+          "y2": 149
+        },
+        {
+          "id": "c2b",
+          "kind": "edge",
+          "x1": 326,
+          "y1": 215,
+          "x2": 326,
+          "y2": 149
+        },
+        {
+          "id": "c2c",
+          "kind": "edge",
+          "x1": 296,
+          "y1": 149,
+          "x2": 326,
+          "y2": 149
+        },
+        {
+          "id": "c2h",
+          "kind": "text",
+          "x": 311.0,
+          "y": 161,
+          "text": "6",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "c3a",
+          "kind": "edge",
+          "x1": 228.5,
+          "y1": 127,
+          "x2": 228.5,
+          "y2": 83
+        },
+        {
+          "id": "c3b",
+          "kind": "edge",
+          "x1": 311.0,
+          "y1": 149,
+          "x2": 311.0,
+          "y2": 83
+        },
+        {
+          "id": "c3c",
+          "kind": "edge",
+          "x1": 228.5,
+          "y1": 83,
+          "x2": 311.0,
+          "y2": 83
+        },
+        {
+          "id": "c3h",
+          "kind": "text",
+          "x": 269.8,
+          "y": 95,
+          "text": "12",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "h1",
+          "kind": "text",
+          "x": 86,
+          "y": 24,
+          "text": "single",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "accent"
+        },
+        {
+          "id": "h2",
+          "kind": "text",
+          "x": 266,
+          "y": 24,
+          "text": "complete",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "mid"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The same five points. On the left, single linkage. On the right, complete linkage. Both use the same heights scale.",
+          "show": [
+            "h1",
+            "h2"
+          ],
+          "set": {
+            "id": "t",
+            "text": "same table, two linkages"
+          }
+        },
+        {
+          "caption": "Single linkage heights: 2, 3, 4, 5. One cluster grows by taking one point at a time: B,D, then A, then E, then C. This staircase is a chain.",
+          "show": [
+            "s0a",
+            "s0b",
+            "s0c",
+            "s0h",
+            "s1a",
+            "s1b",
+            "s1c",
+            "s1h",
+            "s2a",
+            "s2b",
+            "s2c",
+            "s2h",
+            "s3a",
+            "s3b",
+            "s3c",
+            "s3h"
+          ],
+          "highlight": [
+            {
+              "id": "s0c",
+              "tone": "accent"
+            },
+            {
+              "id": "s1c",
+              "tone": "accent"
+            },
+            {
+              "id": "s2c",
+              "tone": "accent"
+            },
+            {
+              "id": "s3c",
+              "tone": "accent"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "single: heights 2, 3, 4, 5  (a chain)"
+          }
+        },
+        {
+          "caption": "The same table has a minimum spanning tree with edges B–D 2, A–B 3, D–E 4 and B–C 5. Sorted, the weights are 2, 3, 4, 5: exactly the single-linkage heights.",
+          "set": {
+            "id": "t",
+            "text": "MST weights 2, 3, 4, 5 = single heights"
+          }
+        },
+        {
+          "caption": "Complete linkage heights: 2, 6, 8, 12. It builds two compact groups, {A,B,D} and {C,E}, and joins them last.",
+          "show": [
+            "c0a",
+            "c0b",
+            "c0c",
+            "c0h",
+            "c1a",
+            "c1b",
+            "c1c",
+            "c1h",
+            "c2a",
+            "c2b",
+            "c2c",
+            "c2h",
+            "c3a",
+            "c3b",
+            "c3c",
+            "c3h"
+          ],
+          "highlight": [
+            {
+              "id": "c0c",
+              "tone": "mid"
+            },
+            {
+              "id": "c1c",
+              "tone": "mid"
+            },
+            {
+              "id": "c2c",
+              "tone": "mid"
+            },
+            {
+              "id": "c3c",
+              "tone": "mid"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "complete: heights 2, 6, 8, 12  (compact)"
+          }
+        },
+        {
+          "caption": "Single needs only one close pair to join clusters, so it chains. Complete needs every pair to be close, so its clusters stay compact.",
+          "highlight": [
+            "lsA",
+            "lsE",
+            "lsC",
+            "lcA",
+            "lcE",
+            "lcC"
+          ],
+          "set": {
+            "id": "t",
+            "text": "single chains, complete is compact"
+          }
+        }
+      ]
+    }
+  ]
+}

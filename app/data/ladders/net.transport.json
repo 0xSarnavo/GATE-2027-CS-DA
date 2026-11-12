@@ -1,0 +1,1670 @@
+{
+ "topic_id": "net.transport",
+ "blueprint": {
+  "atoms": [
+   {
+    "id": "t1",
+    "name": "Handshake, flags and teardown",
+    "one_line": "SYN, SYN+ACK, ACK; FIN-WAIT-1/2, TIME-WAIT; either end may close; RST aborts."
+   },
+   {
+    "id": "t2",
+    "name": "Sequence and ack numbers",
+    "one_line": "Numbers count bytes; ack is the next byte expected; SYN and FIN each consume one number, a bare ACK none."
+   },
+   {
+    "id": "t3",
+    "name": "Flow control and window",
+    "one_line": "Receiver window rwnd (16 bits, up to 65535 bytes, scale shift at most 14); sender window is min(cwnd, rwnd)."
+   },
+   {
+    "id": "t4",
+    "name": "Slow start and congestion avoidance",
+    "one_line": "cwnd doubles per RTT up to ssthresh, then adds one MSS per RTT; write cwnd as a row of rounds."
+   },
+   {
+    "id": "t5",
+    "name": "Reaction to loss",
+    "one_line": "Timeout: ssthresh = cwnd/2, cwnd = 1. Triple duplicate ACK (Reno): ssthresh = cwnd/2, cwnd = ssthresh."
+   },
+   {
+    "id": "t6",
+    "name": "RTT estimate and timeout",
+    "one_line": "EstimatedRTT = (1-alpha) Est + alpha Sample, alpha = 1/8; RTO = Est + 4 Dev."
+   },
+   {
+    "id": "t7",
+    "name": "Sequence space and wrap-around",
+    "one_line": "Space is 2^n bytes; wrap time = 2^n x 8 / bandwidth; bits needed >= log2(bytes per MSL)."
+   },
+   {
+    "id": "t8",
+    "name": "Socket API",
+    "one_line": "Server: socket, bind, listen, accept. Client: socket, connect (sends SYN). UDP connect only sets a peer."
+   },
+   {
+    "id": "t9",
+    "name": "Throughput and pipe",
+    "one_line": "Throughput = window / RTT; a full pipe needs window >= bandwidth x RTT."
+   }
+  ],
+  "patterns": [
+   {
+    "name": "Handshake and flags",
+    "years": [
+     "2021-CS2-q17",
+     "2024-CS1-q29",
+     "2025-CS1-q22",
+     "2026-CS1-q18",
+     "2017-CS1-q14",
+     "2008-CS-q17"
+    ],
+    "freq": 6,
+    "note": "Know the flags of each segment, the +1 on SYN, and the closing states."
+   },
+   {
+    "name": "Sequence-number size and wrap-around",
+    "years": [
+     "2018-CS-q35",
+     "2022-CS-q60",
+     "2023-CS-q50",
+     "2015-CS2-q34"
+    ],
+    "freq": 4,
+    "note": "Bytes per MSL or per wrap, convert bits to bytes; RTT is a distractor."
+   },
+   {
+    "name": "Slow start and AIMD arithmetic",
+    "years": [
+     "2018-CS-q24",
+     "2020-CS-q65",
+     "2024-CS2-q54",
+     "2026-CS1-q44",
+     "2026-CS2-q58",
+     "2008-CS-q56",
+     "2012-CS-q45",
+     "2014-CS1-q27"
+    ],
+    "freq": 8,
+    "note": "Write cwnd per round; cap doubling at ssthresh; halve ssthresh at a loss."
+   },
+   {
+    "name": "Socket API and connection behaviour",
+    "years": [
+     "2017-CS2-q18",
+     "2021-CS1-q54",
+     "2008-CS-q17",
+     "2008-CS-q59",
+     "2014-CS2-q24",
+     "2015-CS2-q20"
+    ],
+    "freq": 6,
+    "note": "Order of calls, UDP connect, what happens after crashes."
+   },
+   {
+    "name": "TCP versus UDP use",
+    "years": [
+     "2005-CS-q23",
+     "2008-CS-q14",
+     "2012-CS-q22",
+     "2013-CS-q12"
+    ],
+    "freq": 4,
+    "note": "Protocol-to-transport pairing and what TCP does for the application."
+   }
+  ],
+  "traps": [
+   "Dropping the factor of 8 when converting between bits per second and byte sequence numbers.",
+   "Using RTT instead of MSL for sequence-number size.",
+   "Acking X instead of X+1 for a SYN or FIN.",
+   "Letting cwnd double past ssthresh.",
+   "Treating a duplicate-ACK loss like a timeout (or the reverse).",
+   "Forgetting to halve the current cwnd, not the old ssthresh, at a loss.",
+   "Counting rounds from 1 when the first transmission is at time 0.",
+   "Using cwnd alone when rwnd is smaller."
+  ],
+  "hardest_pyq": "2023-CS-q50",
+  "summary_md": "**Payoff:** read a TCP trace and get window and sequence numbers right in under a minute.\n\n- **Numbers**: bytes carry sequence numbers; SYN and FIN take one each.\n- **Windows**: sender uses the smaller of cwnd and **rwnd**.\n- **Growth**: double to ssthresh, add one per round, halve on loss.\n\n$$\\text{wrap time}=\\frac{2^{n}\\times8}{\\text{bandwidth}}$$\n\nNext: try the Level 1 questions.",
+  "summary_full_md": "## Connection management\nTCP opens with a three-way handshake. The client sends SYN with its initial sequence number $X$. The server replies SYN+ACK with its own number $Y$ and ack $X+1$. The client sends ACK with seq $X+1$ and ack $Y+1$. SYN and FIN each consume one sequence number, so they are acked with number plus one. A pure ACK consumes none.\n\nClosing is per direction. The side that closes first goes FIN-WAIT-1, then FIN-WAIT-2 after its FIN is acked, then TIME-WAIT after it acks the peer's FIN, and waits twice the MSL. Either side may close first and both may close at once. RST aborts a connection. A rebooted server answers segments for unknown connections with RST.\n\n## Sequence and acknowledgement numbers\nTCP numbers bytes. A data segment with seq $s$ and $\\ell$ bytes is acked with $s+\\ell$ (next byte expected). Acks are cumulative. Duplicate ACKs repeat the same number when a later segment arrives out of order.\n\n## Flow control\nThe receiver advertises a window in a 16-bit field (at most 65535 bytes), scaled by $2^{shift}$ with shift at most 14. The sender may have at most $\\min(cwnd, rwnd)$ unacknowledged bytes. Throughput is at most window over RTT. To fill a link, the window must reach bandwidth times RTT.\n\n## Congestion control\nSlow start: cwnd grows by one MSS per ACK, so it doubles per RTT, until it reaches ssthresh. Congestion avoidance: one MSS per RTT. On a timeout, ssthresh becomes cwnd over 2 and cwnd becomes 1 MSS. On three duplicate ACKs in Reno, ssthresh becomes cwnd over 2 and cwnd becomes ssthresh (fast recovery). GATE uses the convention that doubling is capped at ssthresh.\n\nAlways write a row of per-round values and mark loss rounds. Count rounds from the right start: the first transmission is at time 0 (GATE 2026). Time to send segment $s$ in slow start is $\\lfloor\\log_2 s\\rfloor\\times RTT$.\n\n## RTT and timeout\n$EstimatedRTT=(1-\\alpha)\\,EstimatedRTT+\\alpha\\,SampleRTT$ with $\\alpha=1/8$, and $RTO=EstimatedRTT+4\\,DevRTT$. Karn's rule: do not sample retransmitted segments.\n\n## Sequence space and wrap-around\nThe space is $2^n$ bytes. Wrap time at bandwidth $B$ bits/s is $2^n\\times8/B$ (GATE 2018: 34 s at 1 Gbps). To avoid reuse within one maximum segment lifetime, $2^n$ must be at least bandwidth in bytes per second times the MSL (GATE 2022: 33 bits; GATE 2023: at least 31 bits). RTT is not involved.\n\n## Socket API\nServer: socket, bind, listen, accept. Client: socket, connect (the SYN leaves at connect). The kernel completes handshakes for queued connections before accept runs. A UDP socket may call connect to set one peer and may call it again to change the peer.\n\n## Syllabus note\nUDP, SMTP, FTP and DHCP appear in a few questions but are not named in the 2027 list. The socket API is named, and UDP connected sockets are socket-API behaviour."
+ },
+ "pyq_enrichment": [
+  {
+   "id": "2017-CS1-q14",
+   "difficulty": 2,
+   "quick_method": "- FIN sent, ACK **received**: client is in FIN-WAIT-2.",
+   "solution": "- After its **FIN** is acked, the client waits in FIN-WAIT-2.\n- TIME-WAIT comes after the **server's** FIN arrives.\n- **Answer: D**",
+   "explanation": "- FIN-WAIT-1 ends when the ACK **arrives**.",
+   "trap_note": "- Don't pick TIME-WAIT, do wait for the **server's** FIN first.",
+   "hints": [
+    "Which state follows sending FIN, before any reply?",
+    "What event moves the client on to TIME-WAIT?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Client calls close and sends FIN: state FIN-WAIT-1.\n2. Server's ACK arrives: state FIN-WAIT-2.\n3. In FIN-WAIT-2 the client waits for the server's own FIN.\n4. When that FIN arrives, the client acks it and enters TIME-WAIT.\nAnswer: D.",
+   "explanation_full": "LAST-ACK belongs to the passive closer, after it sends its own FIN. The ladder's L4 close question builds on this sequence.",
+   "trap_note_full": "TIME-WAIT is the last state and tempting because it is the 'waiting' one, but it begins only after the server's FIN."
+  },
+  {
+   "id": "2017-CS2-q18",
+   "difficulty": 2,
+   "quick_method": "- Connected UDP: one peer at a time, **reconnect** allowed.",
+   "solution": "- A connected UDP socket talks to **one** peer only.\n- **Calling** connect again just changes that peer.\n- **Answer: B**",
+   "explanation": "- **connect** on UDP only records the peer address.",
+   "trap_note": "- Don't treat connect as a **handshake**, do treat it as a filter.",
+   "hints": [
+    "Does UDP connect send any packet?",
+    "What happens when connect is called a second time?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "The syllabus names the socket API but not UDP; this question is about socket semantics.",
+   "solution_full": "1. I: a connected UDP socket sends to and receives from the one connected peer. It cannot talk to several peers at once. False.\n2. II: calling connect again on a UDP socket is allowed and replaces the peer. True.\nAnswer: B.",
+   "explanation_full": "TCP connect can only be called once successfully. UDP connect only sets a default destination and filters incoming datagrams.",
+   "trap_note_full": "Assuming UDP connect behaves like TCP connect makes II look false."
+  },
+  {
+   "id": "2018-CS-q24",
+   "difficulty": 2,
+   "quick_method": "- Per ACK plus one MSS; per RTT **doubling**.",
+   "solution": "- Slow start adds one MSS per **ACK**.\n- So cwnd doubles per **RTT**, not per ACK.\n- **Answer: C**",
+   "explanation": "- **Statement** iv is the only correct one.",
+   "trap_note": "- Don't say it **doubles** per ACK, do say per round trip.",
+   "hints": [
+    "How much does cwnd rise for each ACK in slow start?",
+    "How many ACKs come back in one RTT?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Per ACK: cwnd rises by 1 MSS, not 2 and not doubling. So (i) and (ii) are false.\n2. Per RTT: about cwnd ACKs arrive, so cwnd doubles. (iv) is true.\n3. Growth by 1 MSS per RTT is congestion avoidance. (iii) is false.\nAnswer: C.",
+   "explanation_full": "'Approximately doubles' reflects delayed ACKs and the exact increment per ACK.",
+   "trap_note_full": "(iii) describes congestion avoidance, which is the other phase."
+  },
+  {
+   "id": "2018-CS-q35",
+   "difficulty": 4,
+   "quick_method": "- Wrap time equals space in bits over **rate**.",
+   "solution": "- The space is $2^{32}$ bytes, that is 34.4 billion **bits**.\n- At one **gigabit** per second this is 34.4 s.\n- **Answer: 34**",
+   "explanation": "- The **initial** number 1234 does not matter.",
+   "trap_note": "- Don't drop the factor eight, do convert **bytes** to bits.",
+   "hints": [
+    "How many distinct byte numbers does a 32-bit field have?",
+    "The link rate counts bits, the sequence numbers count bytes."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Question image is garbled; text read from the extracted stem. Key range 34 to 35 includes 34.36.",
+   "solution_full": "1. The 32-bit sequence space holds $2^{32}$ bytes.\n2. In bits: $2^{32}\\times8=3.436\\times10^{10}$.\n3. At $10^9$ bit/s: $34.36$ s.\n4. Rounded to the closest integer: 34.",
+   "explanation_full": "The start value 1234 is a distraction. The same wrap time applies from any start. Ladder question 16 repeats it at 100 Mbps.",
+   "trap_note_full": "Forgetting the factor of eight gives 4.3 s."
+  },
+  {
+   "id": "2020-CS-q65",
+   "difficulty": 3,
+   "quick_method": "- Count ten **rounds** from 2 KB with a 32 KB cap.",
+   "solution": "- The cap is 32 KB, then growth is **two** KB per RTT.\n- After ten RTTs the **window** is 44 KB.\n- **Answer: 44**",
+   "explanation": "- **Doubling** stops at 32 KB, then +2 KB per round.",
+   "trap_note": "- Don't keep **doubling** after 32 KB, do add one MSS per round.",
+   "hints": [
+    "After how many RTTs does cwnd reach 32 KB?",
+    "60 ms over 6 ms is how many RTTs?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. 60 ms over 6 ms RTT is 10 round trips.\n2. Start 2 KB. After each RTT: 4, 8, 16, 32 (4 RTTs, the cap).\n3. Then +2 KB per RTT for 6 more: $32+12=44$ KB.\n4. Receiver window 50 KB is not reached.",
+   "explanation_full": "The 50 KB rwnd is a distractor here, but it would cap the window if the connection ran longer.",
+   "trap_note_full": "Doubling to 2048 KB or capping at 50 KB are the two wrong paths."
+  },
+  {
+   "id": "2021-CS1-q54",
+   "difficulty": 3,
+   "quick_method": "- Rebooted server forgets the connection and answers with **RST**.",
+   "solution": "- After a crash the server can still **listen** again.\n- The **client** may hang or get RST, but never a FIN.\n- **Answer: A, B, C**",
+   "explanation": "- No FIN: the new stack has no **connection** to close.",
+   "trap_note": "- Don't **expect** FIN after a crash, do expect RST.",
+   "hints": [
+    "What does a freshly booted host reply to a segment for an unknown connection?",
+    "Can a client without keepalive wait forever for data?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Official key missing in the questions file; cross-check file has none; our solve gives A, B, C.",
+   "solution_full": "1. A: with no keepalive and no data, a client waiting to read may wait indefinitely. Possible.\n2. B: after reboot the application can bind and listen on P again. Possible.\n3. C: the rebooted server has no such connection and answers with RST. Possible.\n4. D: a FIN needs an existing connection. Not possible.\nAnswer: A, B, C.",
+   "explanation_full": "TCP has no built-in liveness check unless keepalive is on. That is why dead peers can go unnoticed.",
+   "trap_note_full": "FIN is the normal-close signal. A host that lost its state sends a reset instead."
+  },
+  {
+   "id": "2021-CS2-q17",
+   "difficulty": 3,
+   "quick_method": "- SYN-ACK: own number Y, ack **X plus one**.",
+   "solution": "- **Server's** SYN-ACK has SYN=1 and ACK=1.\n- Its seq is Y and its **ack** is X+1.\n- **Answer: C**",
+   "explanation": "- The FIN bit **stays** zero.",
+   "trap_note": "- Don't **ack** X, do ack X plus one.",
+   "hints": [
+    "Which flags are set in the second handshake segment?",
+    "SYN consumes one sequence number."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. The server's reply has SYN = 1 (it starts its own side) and ACK = 1.\n2. Its sequence number is its own initial number Y.\n3. It acknowledges the client's SYN, which used number X, so ack = X+1.\n4. FIN = 0.\nAnswer: C.",
+   "explanation_full": "Option A has ACK=0. Option B has FIN=1. Option D has the off-by-one ack number X.",
+   "trap_note_full": "Ack X is the usual slip: a SYN consumes one sequence number, so the next expected is X+1."
+  },
+  {
+   "id": "2022-CS-q60",
+   "difficulty": 3,
+   "quick_method": "- Bytes in one MSL, then round **log two** up.",
+   "solution": "- 60 s of data is 7.5 billion **bytes**.\n- $\\log_2$ of that is 32.8, so 33 **bits**.\n- **Answer: 33**",
+   "explanation": "- One gigabit per second is 125 million **bytes** per second.",
+   "trap_note": "- Don't count **bits**, do count bytes.",
+   "hints": [
+    "How many bytes per second does 1 Gbps carry?",
+    "Take log base 2 and round up."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. $10^9/8=1.25\\times10^8$ bytes/s.\n2. In 60 s: $7.5\\times10^9$ bytes.\n3. $\\log_2(7.5\\times10^9)=32.8$.\n4. At least 33 bits.",
+   "explanation_full": "This is the 2018 wrap-time question's mirror image: that one gave bits and asked time, this gives time and asks bits.",
+   "trap_note_full": "Using bits instead of bytes gives 36 bits."
+  },
+  {
+   "id": "2023-CS-q50",
+   "difficulty": 4,
+   "quick_method": "- Minimum bits from rate times **MSL**; RTT is a distractor.",
+   "solution": "- Bytes in one MSL: 1.5 billion, needing at least 31 **bits**.\n- So 32, 34 and 36 are **valid**; 30 is not.\n- **Answer: B, C, D**",
+   "explanation": "- $2^{30}$ is only 1.07 **billion**.",
+   "trap_note": "- Don't use **RTT**, do use the MSL.",
+   "hints": [
+    "What is 100 Mbps in bytes per second, and how many bytes in 120 s?",
+    "Which lengths give a sequence space at least that big?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Question image is garbled; stem and options read from the text.",
+   "solution_full": "1. $100\\times10^6/8=1.25\\times10^7$ bytes/s.\n2. MSL 2 minutes $=120$ s: $1.5\\times10^9$ bytes.\n3. $2^{30}=1.07\\times10^9<1.5\\times10^9\\le2^{31}=2.1\\times10^9$, so at least 31 bits.\n4. Valid: 32, 34, 36.\nAnswer: B, C, D.",
+   "explanation_full": "The ladder's L4 question 23 is the same shape with different numbers.",
+   "trap_note_full": "The RTT of 150 ms might tempt a bandwidth-delay calculation, which sets the window size, not the sequence-number size."
+  },
+  {
+   "id": "2024-CS1-q29",
+   "difficulty": 2,
+   "quick_method": "- Random initial number; ack is **plus one**.",
+   "solution": "- The initial sequence number is chosen **randomly**.\n- The SYN-ACK **ack** is NP plus one.\n- **Answer: A, D**",
+   "explanation": "- SYN consumes one **sequence** number.",
+   "trap_note": "- Don't use zero or equal, do use **random** and plus one.",
+   "hints": [
+    "Is the starting sequence number always 0?",
+    "What does Q acknowledge in its SYN-ACK?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Question image is garbled; options read from the text.",
+   "solution_full": "1. A: ISNs are randomized (to resist guessing and old duplicates). True.\n2. B: not always 0. False.\n3. C: Q acks the SYN, which used number NP, so the ack is NP+1, not NP. False.\n4. D: ack = NP+1. True.\nAnswer: A, D.",
+   "explanation_full": "A fixed or zero ISN would let old duplicate segments of a previous connection be accepted.",
+   "trap_note_full": "C is the off-by-one slip: acks name the next expected number."
+  },
+  {
+   "id": "2024-CS2-q54",
+   "difficulty": 2,
+   "quick_method": "- Timeout: restart at one, **double** each round.",
+   "solution": "- After a timeout cwnd restarts at **one**.\n- **Rounds** then give 1, 2, 4: the third round has 4.\n- **Answer: 4**",
+   "explanation": "- ssthresh is 6, so doubling **continues** to 4.",
+   "trap_note": "- Don't halve to 6, do restart at one on a **timeout**.",
+   "hints": [
+    "What is cwnd right after a timeout?",
+    "How does it grow over the next two RTTs?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Timeout: $ssthresh=12/2=6$, $cwnd=1$.\n2. Round 1: 1 MSS. Round 2: 2 MSS. Round 3: 4 MSS.\n3. 4 is below ssthresh 6, so still slow start.",
+   "explanation_full": "The ladder's L4 question 19 extends this with a longer replay.",
+   "trap_note_full": "Setting cwnd to 6 treats the timeout like a duplicate-ACK event."
+  },
+  {
+   "id": "2025-CS1-q22",
+   "difficulty": 1,
+   "quick_method": "- Flags: **SYN**, then SYN+ACK, then ACK.",
+   "solution": "- P1 has SYN set; P2 has SYN **and** ACK.\n- P3 carries **ACK** only.\n- **Answer: B, D**",
+   "explanation": "- P2 carries the **server's** SYN and the ACK.",
+   "trap_note": "- Don't set SYN on P3, do **keep** it on P1 and P2.",
+   "hints": [
+    "Which packet is the first to carry an ACK?",
+    "Which packets start a sequence?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Question image is garbled; options read from the text.",
+   "solution_full": "1. P1 (client): SYN = 1.\n2. P2 (server): SYN = 1 and ACK = 1.\n3. P3 (client): SYN = 0, ACK = 1.\nTrue: B (P2 is SYN+ACK) and D (P1 has SYN).\nAnswer: B, D.",
+   "explanation_full": "Same handshake as the ladder's L1 question.",
+   "trap_note_full": "A says P3 has SYN=1 and ACK=1; C says P2 has SYN=0. Both break the handshake."
+  },
+  {
+   "id": "2026-CS1-q18",
+   "difficulty": 2,
+   "quick_method": "- Close is per direction; either end may send **FIN** first.",
+   "solution": "- Either side may start the **close**.\n- Both can even **close** at once.\n- **Answer: D**",
+   "explanation": "- **Handshake** uses three segments, not two.",
+   "trap_note": "- Don't force the **client** to close first, do allow either.",
+   "hints": [
+    "How many segments does the opening handshake use?",
+    "Is TCP half-duplex or full-duplex?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A: the open uses a three-way handshake. False.\n2. B: the server may close first. False.\n3. C: TCP is full-duplex. False.\n4. D: simultaneous close is allowed. True.\nAnswer: D.",
+   "explanation_full": "Simultaneous close ends in TIME-WAIT on both sides.",
+   "trap_note_full": "B sounds natural because clients usually close first in client-server programs."
+  },
+  {
+   "id": "2026-CS1-q44",
+   "difficulty": 4,
+   "quick_method": "- Round holding the segment equals floor of log **two**.",
+   "solution": "- Round $r$ sends $2^r$ **segments**, covering 1024 to 2047 in round 10.\n- **Segment** 2000 starts in round 10, at 10 ms.\n- **Answer: B**",
+   "explanation": "- **Rounds** start at time 0, 1 ms, 2 ms, ...",
+   "trap_note": "- Don't count **rounds** from one, do start at zero.",
+   "hints": [
+    "How many segments have been sent before round $r$?",
+    "Which round contains segment 2000?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Image checked: text matches (ssthresh 10000, RTT 1 ms, segment 2000).",
+   "solution_full": "1. Round 0 sends segment 1, round 1 sends 2 to 3, round $r$ sends $2^r$ to $2^{r+1}-1$.\n2. $2^{10}=1024\\le2000\\le2047$, so it is in round 10.\n3. Round 10 starts at $t=10$ ms, and ssthresh 10000 is far away, so no phase change.\nAnswer: B, 10 to 11 ms.",
+   "explanation_full": "Segments in a round are sent back to back, so 'starts' falls in $[10,11)$.",
+   "trap_note_full": "Counting rounds from one puts the segment at 11 ms, option C."
+  },
+  {
+   "id": "2026-CS2-q58",
+   "difficulty": 3,
+   "quick_method": "- Double from one MSS until you hit **ssthresh**.",
+   "solution": "- Cwnd rounds in KB: 2, 4, 8, 16 reaches the **threshold**.\n- So **congestion** avoidance starts after four rounds.\n- **Answer: 4**",
+   "explanation": "- **Threshold** 16 KB equals 8 MSS.",
+   "trap_note": "- Don't count the **receiver** window, do stop at ssthresh.",
+   "hints": [
+    "What is cwnd in KB in round 1?",
+    "In which round does cwnd equal 16 KB?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Question image is garbled; text read from the extracted stem.",
+   "solution_full": "1. Round 1: 2 KB. Round 2: 4. Round 3: 8. Round 4: 16.\n2. 16 KB equals ssthresh, so congestion avoidance starts after 4 rounds.\n3. The receiver window of 48 KB is not reached.",
+   "explanation_full": "If you count from round 0 you may answer 3. The key counts rounds of transmission, so 4.",
+   "trap_note_full": "Counting up to 48 KB, the receiver window, gives more rounds than needed."
+  },
+  {
+   "id": "2005-CS-q23",
+   "difficulty": 1,
+   "quick_method": "- Path choice is **IP**'s; transport protocol does not matter.",
+   "solution": "- Routing is a **network**-layer job.\n- So both TCP and UDP packets can take **different** paths.\n- **Answer: B**",
+   "explanation": "- TCP only **reorders** at the end.",
+   "trap_note": "- Don't tie path **choice** to TCP, do tie it to IP.",
+   "hints": [
+    "Which layer chooses a route for a packet?",
+    "Does TCP control the route?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Each IP packet is routed independently.\n2. TCP and UDP both ride on IP.\n3. So packets of the same session may take different paths under either.\nAnswer: B.",
+   "explanation_full": "TCP reassembles in order at the end. UDP delivers whatever arrives.",
+   "trap_note_full": "Option A assumes a connection fixes a path, as in virtual circuits."
+  },
+  {
+   "id": "2008-CS-q14",
+   "difficulty": 2,
+   "quick_method": "- TCP splits large data into **segments** itself.",
+   "solution": "- TCP **segments** whatever the application gives it.\n- So the **application** layer may pass any size.\n- **Answer: A**",
+   "explanation": "- **Segment** size is bounded by MSS, not by the app.",
+   "trap_note": "- Don't cap it at 64 KB, do let TCP **split** it.",
+   "hints": [
+    "Who breaks a big message into segments?",
+    "Is there a limit on what write() can pass?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. TCP is a byte stream: the application writes bytes, TCP chooses segment boundaries.\n2. So the application can hand over any amount.\nAnswer: A.",
+   "explanation_full": "The 64 KB limit applies to one IP datagram or one UDP datagram, not to a TCP stream.",
+   "trap_note_full": "Options B and C confuse the IP datagram limit with TCP's interface."
+  },
+  {
+   "id": "2008-CS-q17",
+   "difficulty": 1,
+   "quick_method": "- Only **connect** sends the SYN.",
+   "solution": "- connect() starts the **handshake**.\n- socket, bind and listen send **nothing**.\n- **Answer: D**",
+   "explanation": "- listen is **passive**: it waits for SYNs.",
+   "trap_note": "- Don't pick listen, do pick **connect**.",
+   "hints": [
+    "Which call is made by the client?",
+    "Which call changes nothing on the wire?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. socket(), bind() only set up local state.\n2. listen() makes the socket passive.\n3. connect() sends the SYN.\nAnswer: D.",
+   "explanation_full": "Matches ladder question 18.",
+   "trap_note_full": "listen() 'opens' the connection, which is why it misleads."
+  },
+  {
+   "id": "2008-CS-q56",
+   "difficulty": 1,
+   "quick_method": "- Slow start equals **exponential** growth.",
+   "solution": "- Slow start grows **exponentially**.\n- Each **RTT** doubles cwnd.\n- **Answer: D**",
+   "explanation": "- Linear growth is **congestion** avoidance.",
+   "trap_note": "- Don't say linear, do say **exponential**.",
+   "hints": [
+    "How much does cwnd gain per ACK?",
+    "How many ACKs return per RTT?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. One MSS is added per ACK.\n2. About cwnd ACKs arrive per RTT.\n3. So cwnd doubles each RTT: exponential growth.\nAnswer: D.",
+   "explanation_full": "Same as ladder question 3.",
+   "trap_note_full": "'Quadratically' sounds like a faster word but the growth is $2^k$."
+  },
+  {
+   "id": "2008-CS-q59",
+   "difficulty": 3,
+   "quick_method": "- Kernel finishes the handshake; **connect** returns.",
+   "solution": "- After listen the kernel completes handshakes in its **backlog**.\n- So connect returns **successfully** without accept.\n- **Answer: A**",
+   "explanation": "- accept only takes a finished **connection** off the queue.",
+   "trap_note": "- Don't wait for accept, do **remember** the backlog queue.",
+   "hints": [
+    "Who answers the SYN while the server process is preempted?",
+    "Does the handshake need the application's accept()?"
+   ],
+   "answer_check": "disagrees",
+   "answer_check_note": "Community key in the data says C (connect returns an error). Our analysis gives A: listen() makes the kernel complete handshakes and queue them (until the backlog is full). The official key is not in the data, so check before trusting either.",
+   "solution_full": "1. After listen(), the kernel answers SYNs itself and queues established connections.\n2. The client's connect() sees SYN-ACK and returns success, even though no accept() has run.\n3. An error or block happens only if the backlog is full or there is a network failure, which the question does not state.\nAnswer by our solve: A.",
+   "explanation_full": "This is the classic accept-queue behaviour, also the reason a 'listening' server can look busy to clients.",
+   "trap_note_full": "Option C would need a full backlog or a refused connection."
+  },
+  {
+   "id": "2012-CS-q22",
+   "difficulty": 1,
+   "quick_method": "- SMTP runs over **TCP**.",
+   "solution": "- E-mail rides on **TCP**.\n- SMTP is the **application** protocol, not the transport.\n- **Answer: C**",
+   "explanation": "- IP is the **network** layer.",
+   "trap_note": "- Don't **answer** SMTP, do answer TCP.",
+   "hints": [
+    "Is SMTP a transport protocol?",
+    "Which transport gives reliable delivery?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Mail needs reliable, ordered delivery.\n2. That is TCP.\n3. SMTP is an application-layer protocol that uses TCP.\nAnswer: C.",
+   "explanation_full": "See the app topic for protocol-to-transport pairs.",
+   "trap_note_full": "SMTP is the name students remember for e-mail, but the question asks for the transport protocol.",
+   "syllabus_note": "SMTP is not named in the 2027 syllabus; low priority."
+  },
+  {
+   "id": "2012-CS-q45",
+   "difficulty": 3,
+   "quick_method": "- Replay the rounds; the timeout halves **ssthresh** to five.",
+   "solution": "- Window runs 2, 4, 8, then 9, 10 and the **timeout** hits.\n- **Threshold** becomes 5, and round 10 ends at 7.\n- **Answer: C**",
+   "explanation": "- Round 5 had 10, so the new **threshold** is 5.",
+   "trap_note": "- Don't forget the first **threshold** of 8, do apply the timeout.",
+   "hints": [
+    "Write the window for transmissions 1 to 5.",
+    "After the timeout, replay slow start to the new threshold."
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Initial: 2, 4, 8 (hits ssthresh 8), then +1: 9, 10. The timeout occurs during transmission 5 when cwnd = 10.\n2. New $ssthresh=5$, cwnd = 1.\n3. Transmissions 6 to 10 start with 1, 2, 4, 5, 6. At the end of the tenth, cwnd = 7.\nAnswer: C.",
+   "explanation_full": "The 'end of the tenth' wording means the value after the tenth round's acks. The key treats this as 7.",
+   "trap_note_full": "Choosing 8 treats the timeout as a duplicate-ACK event or ignores it."
+  },
+  {
+   "id": "2013-CS-q12",
+   "difficulty": 1,
+   "quick_method": "- Speed-first apps use **UDP**; reliability-first use TCP.",
+   "solution": "- Real-time media and DNS use **UDP**.\n- File **transfer** and mail use TCP.\n- **Answer: C**",
+   "explanation": "- DNS queries are short single **exchanges**.",
+   "trap_note": "- Don't put DNS on TCP, do put it on **UDP**.",
+   "hints": [
+    "Which of the four needs reliability?",
+    "Which are one-shot request and reply?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Real-time multimedia: loss tolerated, delay not. UDP.\n2. File transfer: needs every byte. TCP.\n3. DNS: short query and reply. UDP.\n4. Email: reliable. TCP.\nAnswer: C.",
+   "explanation_full": "DNS falls back to TCP for large replies and zone transfers, but the default is UDP.",
+   "trap_note_full": "Option A reverses real-time and file transfer.",
+   "syllabus_note": "Only DNS is named in the 2027 syllabus; this is a combined recall question."
+  },
+  {
+   "id": "2014-CS1-q27",
+   "difficulty": 3,
+   "quick_method": "- Slow start to half, then linear: add the **RTTs**.",
+   "solution": "- Timeout halves the **threshold** to 16 KB.\n- **Three** RTTs reach it, then eight more reach 32 KB: 1100 ms.\n- **Answer: 1100**",
+   "explanation": "- 32 KB over 2 KB MSS is 16 **segments**.",
+   "trap_note": "- Don't double past 16 KB, do switch to +2 KB per **RTT**.",
+   "hints": [
+    "What are ssthresh and cwnd after the timeout?",
+    "How many RTTs does each phase take?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Key is missing in the questions data. Our solve gives 1100 ms; the commonly cited official answer is also 1100.",
+   "solution_full": "1. Timeout: $ssthresh=16$ KB, $cwnd=2$ KB.\n2. Slow start: 4, 8, 16 KB: 3 RTTs.\n3. Congestion avoidance: +2 KB per RTT from 16 to 32 KB: 8 RTTs.\n4. Total 11 RTTs $\\times100$ ms $=1100$ ms.",
+   "explanation_full": "Ladder question 26 uses the same method with a capped last doubling.",
+   "trap_note_full": "Counting 2, 4, 8, 16, 32 as a continuing slow start gives 500 ms."
+  },
+  {
+   "id": "2014-CS2-q24",
+   "difficulty": 1,
+   "quick_method": "- Active to passive: **listen**.",
+   "solution": "- Only **listen** converts the socket to passive.\n- bind sets the **address** only.\n- **Answer: C**",
+   "explanation": "- accept then returns **connections**.",
+   "trap_note": "- Don't **choose** bind, do choose listen.",
+   "hints": [
+    "Which call starts the connection queue?",
+    "Which call fixes the port?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. connect() makes an active open.\n2. bind() assigns the local address.\n3. listen() converts the socket to passive.\n4. accept() takes a connection.\nAnswer: C.",
+   "explanation_full": "Same as ladder question 4.",
+   "trap_note_full": "bind() is the most tempting because it is the call before listen."
+  },
+  {
+   "id": "2015-CS2-q20",
+   "difficulty": 1,
+   "quick_method": "- bind, then listen, then **accept**, then recv.",
+   "solution": "- Server order: **bind**, listen, accept, recv.\n- Each call **prepares** the next.\n- **Answer: B**",
+   "explanation": "- recv comes after a **connection** exists.",
+   "trap_note": "- Don't put **accept** before listen, do queue first.",
+   "hints": [
+    "Which call gives the socket an address?",
+    "Which call needs a connection to exist?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. bind: set the address.\n2. listen: start the queue.\n3. accept: take a connection.\n4. recv: read data from it.\nAnswer: B.",
+   "explanation_full": "The ladder's L3 question 18 includes socket() first.",
+   "trap_note_full": "Swapping listen and accept is the likely slip."
+  },
+  {
+   "id": "2015-CS2-q34",
+   "difficulty": 3,
+   "quick_method": "- Window bits over bandwidth, then shift cap **fourteen**.",
+   "solution": "- A 65535-byte **window** equals 524280 bits, covering 0.5 s of the link.\n- Past 500 ms scaling is needed; the **shift** caps at 14.\n- **Answer: C**",
+   "explanation": "- 65535 **bytes** times eight is 524280 bits.",
+   "trap_note": "- Don't use **shift** 16, do use 14.",
+   "hints": [
+    "What is the largest unscaled window in bits?",
+    "What is the maximum window-scale shift?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Max window $=65535$ bytes $=524{,}280$ bits.\n2. Link is full while $BW\\times RTT\\le524280$: $RTT\\le524280/1048560=0.5$ s.\n3. So $\\alpha=500$ ms.\n4. Maximum shift is 14: $\\beta=65535\\times2^{14}$.\nAnswer: C.",
+   "explanation_full": "Ladder question 28 repeats this with doubled bandwidth.",
+   "trap_note_full": "Option D uses shift 16, which RFC 7323 forbids."
+  }
+ ],
+ "ladder": [
+  {
+   "id": "gen.net.transport.001",
+   "level": 1,
+   "order_in_topic": 1,
+   "atoms": [
+    "t1"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "In TCP's three-way handshake, which segment has both the SYN flag and the ACK flag set?",
+   "options": [
+    {
+     "key": "A",
+     "text": "The first segment, client to server"
+    },
+    {
+     "key": "B",
+     "text": "The second segment, server to client"
+    },
+    {
+     "key": "C",
+     "text": "The third segment, client to server"
+    },
+    {
+     "key": "D",
+     "text": "None, since SYN and ACK are never set together"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "Segment 1 only asks to connect.",
+    "Segment 2 both accepts the request and asks to connect back.",
+    "Segment 3 only confirms."
+   ],
+   "solution": "- The server's reply accepts the client and starts its **own** side.\n- So the second **segment** is SYN plus ACK.\n- **Answer: B**",
+   "quick_method": "- Three segments: SYN, SYN+ACK, **ACK**.",
+   "trap_note": "- Don't ACK the first segment, do start at the **second**.",
+   "explanation": "- Each side needs its own SYN, and each SYN needs an **ACK**.",
+   "solution_full": "1. Segment 1 (client): SYN = 1, ACK = 0. It proposes a connection and an initial sequence number.\n2. Segment 2 (server): SYN = 1, ACK = 1. It acknowledges the client's SYN and sends its own.\n3. Segment 3 (client): SYN = 0, ACK = 1. It acknowledges the server's SYN.\n4. SYN and ACK together appear only in the second segment.",
+   "explanation_full": "This is the most-tested TCP fact: GATE 2021, 2024 and 2025 each asked about the flags or numbers in the three handshake segments. The server's SYN and its ACK of the client are merged into one segment to save a round trip.",
+   "trap_note_full": "Students sometimes say the first segment is SYN+ACK because 'ACK' sounds like part of any exchange. A segment can acknowledge only something already received, and nothing has been received before segment 1.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.002",
+   "level": 1,
+   "order_in_topic": 2,
+   "atoms": [
+    "t2"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "The acknowledgement number in a TCP segment tells the sender",
+   "options": [
+    {
+     "key": "A",
+     "text": "how many bytes the receiver has received so far"
+    },
+    {
+     "key": "B",
+     "text": "the sequence number of the last byte received"
+    },
+    {
+     "key": "C",
+     "text": "the sequence number of the next byte the receiver expects"
+    },
+    {
+     "key": "D",
+     "text": "the size of the receiver's buffer"
+    }
+   ],
+   "answer": "C",
+   "hints": [
+    "TCP numbers bytes, not segments.",
+    "An ACK is cumulative.",
+    "Is it the last byte received or the next one wanted?"
+   ],
+   "solution": "- TCP acks are **cumulative** and name the next wanted byte.\n- Ack 1001 means **bytes** up to 1000 arrived.\n- **Answer: C**",
+   "quick_method": "- Ack number equals last byte received plus **one**.",
+   "trap_note": "- Don't read **ack** as the last byte received, do add one.",
+   "explanation": "- The ack points forward to the next **byte** expected.",
+   "solution_full": "1. TCP numbers every byte of the stream.\n2. A cumulative ACK says 'everything before this number has arrived'.\n3. So the number is the next byte the receiver is waiting for.\n4. If bytes 1 to 1000 have arrived, the ack is 1001.",
+   "explanation_full": "The 'next expected' convention is why SYN and FIN, which consume one sequence number, are acknowledged with number plus one. It is also why a duplicate ACK repeats the same number when a later segment arrives out of order.",
+   "trap_note_full": "Option B (last byte received) is off by one. It is the most common mistake in handshake arithmetic: the SYN-ACK acks X+1, not X.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.003",
+   "level": 1,
+   "order_in_topic": 3,
+   "atoms": [
+    "t4"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "During TCP slow start with no loss, how does the congestion window cwnd change over successive round trips?",
+   "options": [
+    {
+     "key": "A",
+     "text": "It grows by 1 MSS per round trip"
+    },
+    {
+     "key": "B",
+     "text": "It doubles every round trip"
+    },
+    {
+     "key": "C",
+     "text": "It stays constant"
+    },
+    {
+     "key": "D",
+     "text": "It halves every round trip"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "Each ACK adds one MSS to cwnd.",
+    "In one round trip, cwnd segments are acked.",
+    "So how much does cwnd gain in one round trip?"
+   ],
+   "solution": "- Each ACK adds one MSS, and a round trip **brings** cwnd ACKs.\n- So the window **doubles** per round trip.\n- **Answer: B**",
+   "quick_method": "- Slow start: **exponential**, doubling per RTT.",
+   "trap_note": "- Don't say it adds one per round, do say it **doubles**.",
+   "explanation": "- Slow start is fast growth despite its **name**.",
+   "solution_full": "1. Slow start adds 1 MSS to cwnd for every ACK received.\n2. If cwnd = $n$ segments, $n$ ACKs return in about one RTT.\n3. So cwnd grows by $n$ MSS per RTT, which means $n \\to 2n$.\n4. After $k$ RTTs from 1 MSS: $2^k$ MSS.",
+   "explanation_full": "The name 'slow' is relative to sending a full window at once. GATE 2008 and 2018 asked this in words ('increases exponentially', 'doubles every RTT but not every ACK'). Careful: per ACK cwnd rises by 1 MSS, it does not double per ACK.",
+   "trap_note_full": "Linear growth (+1 per RTT) is congestion avoidance, not slow start. Don't confuse the two phases.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.004",
+   "level": 1,
+   "order_in_topic": 4,
+   "atoms": [
+    "t8"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Which socket API call marks a TCP server socket as ready to accept incoming connection requests?",
+   "options": [
+    {
+     "key": "A",
+     "text": "bind"
+    },
+    {
+     "key": "B",
+     "text": "listen"
+    },
+    {
+     "key": "C",
+     "text": "accept"
+    },
+    {
+     "key": "D",
+     "text": "connect"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "bind attaches an address, accept takes a finished connection.",
+    "Which call turns an active socket into a passive one?",
+    "Think of the call that sets the backlog queue."
+   ],
+   "solution": "- Only **listen** turns a socket into a passive one.\n- bind assigns the address; accept picks a queued **connection**.\n- **Answer: B**",
+   "quick_method": "- Server order: socket, bind, **listen**, accept.",
+   "trap_note": "- Don't use bind for **readiness**, do use listen.",
+   "explanation": "- Listen opens the **queue**, accept removes from it.",
+   "solution_full": "1. socket() creates an unconnected active socket.\n2. bind() attaches a local address and port.\n3. listen() converts it to a passive socket and starts a queue of incoming connections.\n4. accept() removes one connection from the queue and returns a new socket.\n5. So listen() is the call that marks the socket as ready.",
+   "explanation_full": "GATE 2014 and 2015 asked exactly this and the order of calls. The kernel completes the three-way handshake for queued connections even before accept() runs, which is why GATE 2008 asked whether connect() succeeds when the server has not called accept().",
+   "trap_note_full": "bind() sounds like 'make it available' but it only fixes the address. Without listen the kernel answers SYNs with RST.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.005",
+   "level": 1,
+   "order_in_topic": 5,
+   "atoms": [
+    "t3"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "What is the largest receiver window a TCP segment can advertise without the window-scale option?",
+   "options": [
+    {
+     "key": "A",
+     "text": "1500 bytes"
+    },
+    {
+     "key": "B",
+     "text": "65535 bytes"
+    },
+    {
+     "key": "C",
+     "text": "65536 segments"
+    },
+    {
+     "key": "D",
+     "text": "4294967295 bytes"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "The window field in the TCP header is 16 bits wide.",
+    "It counts bytes.",
+    "What is the largest 16-bit number?"
+   ],
+   "solution": "- The window field has 16 **bits** and counts bytes.\n- Its maximum value is 65535 **bytes**.\n- **Answer: B**",
+   "quick_method": "- 16-bit field gives at most 65535 **bytes** of window.",
+   "trap_note": "- Don't count the **window** in segments, do count bytes.",
+   "explanation": "- Window scaling multiplies the field by a **power** of two.",
+   "solution_full": "1. The advertised window is a 16-bit field in the TCP header.\n2. Largest value: $2^{16}-1=65535$.\n3. It is measured in bytes, not segments.\n4. The window-scale option shifts the value left by up to 14 bits to allow larger windows.",
+   "explanation_full": "The receiver window is the flow-control limit: the sender may have at most this many unacknowledged bytes in flight. On a fast long path, 64 KB is too small, which is why window scaling exists (GATE 2015).",
+   "trap_note_full": "1500 is the Ethernet MTU. 2^32 is the sequence-number space, not the window.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.006",
+   "level": 2,
+   "order_in_topic": 6,
+   "atoms": [
+    "t2"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A TCP sender sends a segment with sequence number $5000$ carrying $800$ bytes of data. It arrives intact and in order. What acknowledgement number does the receiver send? (answer in integer)",
+   "answer": "5800",
+   "hints": [
+    "The ack is the next byte expected.",
+    "The segment covers bytes 5000 to 5799.",
+    "What byte comes next?"
+   ],
+   "solution": "- Bytes 5000 to 5799 **arrived**, 800 in total.\n- The next byte **expected** is 5800.\n- **Answer: 5800**",
+   "quick_method": "- Ack equals sequence number plus data **length**.",
+   "trap_note": "- Don't add one, do add the data **length**.",
+   "explanation": "- Sequence numbers count **bytes**, not segments.",
+   "solution_full": "1. The segment starts at byte 5000 and holds 800 bytes: bytes 5000 to 5799.\n2. The receiver next expects byte $5000+800=5800$.\n3. So the ack number is 5800.",
+   "explanation_full": "For a data segment the ack is seq plus length. For SYN or FIN with no data it is seq plus 1, because each consumes one sequence number. GATE 2024 asked the handshake case with $N_Q=N_P+1$.",
+   "trap_note_full": "Adding 1 is the SYN rule. Data bytes each take a number, so add the length.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.007",
+   "level": 2,
+   "order_in_topic": 7,
+   "atoms": [
+    "t4"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A TCP connection starts slow start with $cwnd=1$ MSS and $ssthresh=16$ MSS. There is no loss. Rounds are numbered from 1 and round 1 uses $cwnd=1$. What is $cwnd$ (in MSS) in round 9? (answer in integer)",
+   "answer": "20",
+   "hints": [
+    "Slow start doubles each round until cwnd reaches ssthresh.",
+    "Rounds 1 to 5 give 1, 2, 4, 8, 16.",
+    "After that each round adds 1 MSS."
+   ],
+   "solution": "- Doubling gives 16 in round 5, which meets **ssthresh**.\n- Four more **rounds** add 4 MSS: 20.\n- **Answer: 20**",
+   "quick_method": "- Double to ssthresh, then add one per **round**.",
+   "trap_note": "- Don't keep **doubling** past ssthresh, do add one per round.",
+   "explanation": "- Ssthresh is where doubling ends and **linear** growth starts.",
+   "solution_full": "1. Rounds 1 to 5: cwnd = 1, 2, 4, 8, 16. At 16 it equals ssthresh, so slow start ends.\n2. Congestion avoidance adds 1 MSS per round: round 6 = 17, 7 = 18, 8 = 19, 9 = 20.\n3. cwnd in round 9 is 20 MSS.",
+   "explanation_full": "This is the 'phase change' arithmetic behind GATE 2020 and 2026. The convention used by GATE: doubling is capped at ssthresh, and once cwnd equals ssthresh the next round grows by one MSS. Always check which round the question asks for.",
+   "trap_note_full": "Doubling through round 9 gives 256. The threshold stops the exponential phase.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.008",
+   "level": 2,
+   "order_in_topic": 8,
+   "atoms": [
+    "t5"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A TCP Reno sender has $cwnd=20$ MSS when it detects loss. Which pair of outcomes is correct?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Timeout: ssthresh 10, cwnd 1. Triple duplicate ACK: ssthresh 10, cwnd 10."
+    },
+    {
+     "key": "B",
+     "text": "Timeout: ssthresh 10, cwnd 10. Triple duplicate ACK: ssthresh 10, cwnd 1."
+    },
+    {
+     "key": "C",
+     "text": "Both events: ssthresh 10, cwnd 1."
+    },
+    {
+     "key": "D",
+     "text": "Both events: ssthresh stays 20, cwnd halves."
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Both events halve ssthresh.",
+    "A timeout is the severe signal: restart from 1 MSS.",
+    "Triple duplicate ACKs mean packets still flow: fast recovery."
+   ],
+   "solution": "- Both events set ssthresh to half of **cwnd**.\n- Timeout **restarts** at 1; triple dup ACK resumes at ssthresh.\n- **Answer: A**",
+   "quick_method": "- Halve ssthresh always; **timeout** drops cwnd to one.",
+   "trap_note": "- Don't treat both alike, do keep cwnd at **ssthresh**.",
+   "explanation": "- Duplicate ACKs prove the network is still **delivering**.",
+   "solution_full": "1. Either loss signal sets $ssthresh=cwnd/2=10$.\n2. Timeout: the sender assumes heavy congestion, so $cwnd=1$ MSS and slow start restarts.\n3. Triple duplicate ACK (Reno): later segments are still arriving, so it fast-retransmits and sets $cwnd=ssthresh=10$, entering congestion avoidance.\n4. Tahoe treats both like a timeout, which is option C.",
+   "explanation_full": "GATE usually states the case outright. In 2012, 2014 and 2024 the loss event is a timeout, and cwnd goes to 1. If a question says only 'packet loss', it means timeout. If it says duplicate ACKs and Reno, use fast recovery.",
+   "trap_note_full": "Option C is TCP Tahoe. The question says Reno, which keeps the connection in congestion avoidance after a triple duplicate ACK.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.009",
+   "level": 2,
+   "order_in_topic": 9,
+   "atoms": [
+    "t6"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "TCP keeps $EstimatedRTT_{new}=(1-\\alpha)\\,EstimatedRTT_{old}+\\alpha\\,SampleRTT$ with $\\alpha=1/8$. If $EstimatedRTT_{old}=80$ ms and a new sample is $120$ ms, what is the new estimate in ms? (answer in integer)",
+   "answer": "85",
+   "hints": [
+    "Weights are 7/8 for old and 1/8 for new.",
+    "Compute 0.875 times 80, then 0.125 times 120.",
+    "Add the two parts."
+   ],
+   "solution": "- Old **part** is 70, new part is 15.\n- The estimate moves only one eighth toward the **sample**.\n- **Answer: 85**",
+   "quick_method": "- New estimate equals seven eighths old plus one eighth **sample**.",
+   "trap_note": "- Don't jump to the **sample**, do blend with weight alpha.",
+   "explanation": "- A single sample nudges the **average** only slightly.",
+   "solution_full": "1. $(1-\\tfrac18)\\times80=70$.\n2. $\\tfrac18\\times120=15$.\n3. $70+15=85$ ms.\n4. Equivalent: old + alpha times (sample minus old) $=80+\\tfrac18\\times40=85$.",
+   "explanation_full": "This is an exponentially weighted moving average. Smoothing stops one noisy sample from making the retransmission timer swing. The timeout is built on top of this estimate by adding a safety margin for variation.",
+   "trap_note_full": "Using the sample 120 directly makes the timer jumpy. Using the plain mean of 80 and 120 gives 100, which weights both equally.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.010",
+   "level": 2,
+   "order_in_topic": 10,
+   "atoms": [
+    "t7"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "TCP numbers every byte with a 32-bit sequence number. How many bytes can be sent before the sequence numbers start repeating?",
+   "options": [
+    {
+     "key": "A",
+     "text": "$2^{32}$ bytes"
+    },
+    {
+     "key": "B",
+     "text": "$2^{32}$ segments"
+    },
+    {
+     "key": "C",
+     "text": "$2^{31}$ bytes"
+    },
+    {
+     "key": "D",
+     "text": "$2^{16}$ bytes"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Sequence numbers count bytes, not segments.",
+    "A 32-bit field has $2^{32}$ values.",
+    "How many distinct byte numbers is that?"
+   ],
+   "solution": "- Every byte takes one **number** from a 32-bit space.\n- So $2^{32}$ **bytes** pass before numbers repeat.\n- **Answer: A**",
+   "quick_method": "- Sequence space equals two to the field **bits**, in bytes.",
+   "trap_note": "- Don't count segments, do count **bytes**.",
+   "explanation": "- Numbers are per **byte**, so the space is counted in bytes.",
+   "solution_full": "1. A 32-bit field has $2^{32}=4{,}294{,}967{,}296$ values.\n2. Each byte consumes one value.\n3. After $2^{32}$ bytes (4 GiB) the numbers wrap around.",
+   "explanation_full": "Wrap-around is only a problem if old segments could still be in the network when the numbers repeat. That is why GATE ties the sequence-number size to the bandwidth and to the maximum segment lifetime (2018, 2022, 2023).",
+   "trap_note_full": "Segments hold hundreds of bytes each, so a 'segment' count would multiply the answer by the MSS. Always check the unit.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.011",
+   "level": 2,
+   "order_in_topic": 11,
+   "atoms": [
+    "t9"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A TCP sender can have at most $50000$ bytes unacknowledged and the round-trip time is $100$ ms. Assuming the link is faster than needed, what is the maximum throughput in Mbps? (answer in integer)",
+   "answer": "4",
+   "hints": [
+    "In one RTT the sender sends one window.",
+    "Throughput is window divided by RTT.",
+    "Convert bytes to bits: times 8."
+   ],
+   "solution": "- One window of 400000 bits is sent per **RTT**.\n- 400000 **bits** over 0.1 s is 4 Mbps.\n- **Answer: 4**",
+   "quick_method": "- Throughput equals window over **RTT**.",
+   "trap_note": "- Don't forget **bytes** times eight, do convert to bits.",
+   "explanation": "- Bigger windows or shorter RTTs raise **throughput**.",
+   "solution_full": "1. Window $=50000$ bytes $=400{,}000$ bits.\n2. The sender fills the window and waits one RTT for acks.\n3. Throughput $=400000/0.1=4{,}000{,}000$ bit/s $=4$ Mbps.",
+   "explanation_full": "Window over RTT is the upper bound on throughput of any windowed protocol. When it is below the link rate, the window is the bottleneck. To keep a link full the window must be at least bandwidth times RTT (the next ladder step).",
+   "trap_note_full": "Leaving the answer in bytes per second (500000) skips the factor 8. The ask is Mbps.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.012",
+   "level": 3,
+   "order_in_topic": 12,
+   "atoms": [
+    "t1",
+    "t2"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A client starts a TCP connection with initial sequence number $8000$ and the server picks $2500$. What are the SYN flag, ACK flag, sequence number and acknowledgement number of the third segment of the handshake (client to server)?",
+   "options": [
+    {
+     "key": "A",
+     "text": "SYN=1, ACK=1, seq=8001, ack=2501"
+    },
+    {
+     "key": "B",
+     "text": "SYN=0, ACK=1, seq=8001, ack=2501"
+    },
+    {
+     "key": "C",
+     "text": "SYN=0, ACK=1, seq=8000, ack=2500"
+    },
+    {
+     "key": "D",
+     "text": "SYN=0, ACK=0, seq=8001, ack=2500"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "The SYN consumes one sequence number.",
+    "The server's SYN also consumes one.",
+    "The third segment carries only an ACK."
+   ],
+   "solution": "- The SYN used up one number, so the **client's** seq is 8001.\n- It acks the **server's** SYN: 2501.\n- **Answer: B**",
+   "quick_method": "- Third segment: ACK only, seq plus one, ack server plus **one**.",
+   "trap_note": "- Don't **reuse** 8000, do move on to 8001.",
+   "explanation": "- A SYN consumes one sequence **number**.",
+   "solution_full": "1. Client's SYN had seq 8000 and consumed one number, so the next client byte is 8001.\n2. The server's SYN had seq 2500 and consumed one, so the client acks 2501.\n3. The third segment has SYN = 0 and ACK = 1.\n4. So (SYN=0, ACK=1, seq=8001, ack=2501).",
+   "explanation_full": "GATE 2021 asked the second segment (SYN=1, SEQ=Y, ACK=1, ack X+1). The third completes it with seq X+1, ack Y+1. The first data byte of the client will also carry seq 8001, since the ACK segment carries no data and consumes no number.",
+   "trap_note_full": "Option C forgets that SYN consumes a number. Option A leaves SYN on in the third segment.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.013",
+   "level": 3,
+   "order_in_topic": 13,
+   "atoms": [
+    "t3",
+    "t4"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A sender starts with $cwnd=1$ MSS and $ssthresh=32$ MSS. The receiver advertises $rwnd=12$ MSS. There is no loss. What is the sender's usable window (in MSS) in round 5, where round 1 uses $cwnd=1$? (answer in integer)",
+   "answer": "12",
+   "hints": [
+    "Slow start doubles each round: what is cwnd in round 5?",
+    "The usable window is the smaller of cwnd and rwnd.",
+    "Compare the two."
+   ],
+   "solution": "- Slow **start** gives cwnd 16 in round 5.\n- The window is capped by **rwnd**, so 12.\n- **Answer: 12**",
+   "quick_method": "- Usable window equals the smaller of cwnd and **rwnd**.",
+   "trap_note": "- Don't use cwnd alone, do take the **minimum** with rwnd.",
+   "explanation": "- Flow control and congestion control both **limit** the sender.",
+   "solution_full": "1. Rounds 1 to 5: cwnd = 1, 2, 4, 8, 16.\n2. The receiver allows only 12 MSS outstanding.\n3. Usable window $=\\min(16,12)=12$ MSS.",
+   "explanation_full": "The receiver window is flow control (protect the receiver's buffer). The congestion window is congestion control (protect the network). The sender obeys both: $W=\\min(cwnd, rwnd)$. GATE 2020 gave rwnd 50 KB so that it never bound; here it does.",
+   "trap_note_full": "Reading the question as 'what is cwnd' gives 16. The usable window is what limits the sender.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.014",
+   "level": 3,
+   "order_in_topic": 14,
+   "atoms": [
+    "t5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A TCP Reno sender is in congestion avoidance with $cwnd=24$ MSS when three duplicate ACKs arrive. It fast-recovers, then sends the next two rounds without further loss. What is $cwnd$ (in MSS) at the start of the round after those two rounds? (answer in integer)",
+   "answer": "14",
+   "hints": [
+    "Reno halves: what are ssthresh and cwnd after the event?",
+    "The next rounds run in congestion avoidance.",
+    "Add 1 MSS for each round."
+   ],
+   "solution": "- After the event **ssthresh** and cwnd are both 12.\n- Two rounds of **congestion** avoidance add 2: 14.\n- **Answer: 14**",
+   "quick_method": "- Dup ACK sets both to half, then add one per **round**.",
+   "trap_note": "- Don't restart from 1, do **continue** from the half.",
+   "explanation": "- Reno stays in congestion **avoidance** after fast recovery.",
+   "solution_full": "1. Triple duplicate ACK: $ssthresh=24/2=12$ and $cwnd=12$.\n2. Cwnd equals ssthresh, so congestion avoidance applies: +1 per round.\n3. After 2 rounds: $12+2=14$.",
+   "explanation_full": "If the event were a timeout, cwnd would restart at 1. The point of fast recovery is to avoid that restart, since duplicate ACKs prove packets are still getting through.",
+   "trap_note_full": "Using 1 (timeout rule) gives 3 after 2 rounds. Reno's fast recovery keeps the window at half.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.015",
+   "level": 3,
+   "order_in_topic": 15,
+   "atoms": [
+    "t3",
+    "t9"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A link has bandwidth $10$ Mbps and round-trip time $80$ ms. Segments are $1000$ bytes. What is the smallest window (in segments) needed to keep the link fully utilised? (answer in integer)",
+   "answer": "100",
+   "hints": [
+    "The pipe holds bandwidth times RTT.",
+    "Convert bits to bytes.",
+    "Divide by the segment size."
+   ],
+   "solution": "- The pipe holds 10 Mbps times 0.08 s, which is 800000 **bits**.\n- That is 100000 bytes, or 100 **segments**.\n- **Answer: 100**",
+   "quick_method": "- Window equals bandwidth times RTT, over **segment** size.",
+   "trap_note": "- Don't leave the answer in **bits**, do convert to segments.",
+   "explanation": "- A window smaller than the pipe leaves the link **idle**.",
+   "solution_full": "1. Bandwidth-delay product $=10\\times10^6\\times0.08=800{,}000$ bits.\n2. In bytes: $800000/8=100{,}000$.\n3. Segments: $100000/1000=100$.\n4. With a smaller window the sender stops and waits for acks while the link idles.",
+   "explanation_full": "Utilisation is $\\min(1, W/(BW\\times RTT))$. The 16-bit window limit of 65535 bytes is below this pipe's 100000 bytes, so this link would need window scaling, the same link idea GATE 2015 tests with 500 ms.",
+   "trap_note_full": "Stopping at 800000 leaves the answer in bits. Using RTT 40 ms (one-way) halves the correct value.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.016",
+   "level": 3,
+   "order_in_topic": 16,
+   "atoms": [
+    "t7",
+    "t9"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A long-lived TCP session sends at $100$ Mbps ($10^8$ bits per second). The sequence number is 32 bits. What is the minimum time in seconds, rounded to the nearest integer, before a sequence number can be reused? (answer in integer)",
+   "answer": "344",
+   "hints": [
+    "The 32-bit space holds $2^{32}$ byte numbers.",
+    "Time = number of bits in the space divided by the rate.",
+    "Remember to multiply bytes by 8."
+   ],
+   "solution": "- The space is $2^{32}$ **bytes**, that is 34359738368 bits.\n- At $10^8$ bit/s that takes 343.6 **seconds**, which rounds to 344.\n- **Answer: 344**",
+   "quick_method": "- Wrap time equals space bytes times eight over **bandwidth**.",
+   "trap_note": "- Don't skip times eight, do convert **bytes** to bits.",
+   "explanation": "- Faster links wrap the **sequence** space sooner.",
+   "solution_full": "1. Sequence space $=2^{32}$ bytes $=2^{32}\\times8=3.436\\times10^{10}$ bits.\n2. Time $=3.436\\times10^{10}/10^8=343.6$ s.\n3. Rounded: 344 s.",
+   "explanation_full": "GATE 2018 asked this at 1 Gbps: $34.4$ s, answer 34. Dropping the factor 8 gives 43 s at 100 Mbps, which is the classic mistake. The second condition on wrap-around, the maximum segment lifetime, is the next ladder question.",
+   "trap_note_full": "Computing $2^{32}/10^8=42.9$ treats bits and bytes as the same. TCP numbers bytes, the link counts bits.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.017",
+   "level": 3,
+   "order_in_topic": 17,
+   "atoms": [
+    "t6"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "TCP uses $EstimatedRTT=(1-\\alpha)\\,EstimatedRTT+\\alpha\\,SampleRTT$ with $\\alpha=1/8$ and $RTO=EstimatedRTT+4\\times DevRTT$. The old estimate is $100$ ms, the new sample is $180$ ms and $DevRTT$ is $15$ ms. What is the RTO in ms? (answer in integer)",
+   "answer": "170",
+   "hints": [
+    "Update the estimate first.",
+    "Then add four times DevRTT.",
+    "Do not update DevRTT: it is given."
+   ],
+   "solution": "- New **estimate**: 7/8 of 100 plus 1/8 of 180, that is 110.\n- RTO is 110 plus four **times** 15, so 170.\n- **Answer: 170**",
+   "quick_method": "- Update the **estimate**, then add four deviations.",
+   "trap_note": "- Don't use the old **estimate**, do update first.",
+   "explanation": "- RTO adds a safety **margin** to the average.",
+   "solution_full": "1. $EstimatedRTT=0.875\\times100+0.125\\times180=87.5+22.5=110$ ms.\n2. Safety margin $=4\\times15=60$ ms.\n3. $RTO=110+60=170$ ms.",
+   "explanation_full": "A timeout shorter than the real RTT triggers needless retransmissions. A timeout much longer slows recovery. Adding four deviations covers almost all normal variation. Karn's rule says never use the sample from a retransmitted segment, since you cannot tell which transmission the ack answers.",
+   "trap_note_full": "Using the old estimate 100 gives 160. The updated estimate is what the formula needs.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.018",
+   "level": 3,
+   "order_in_topic": 18,
+   "atoms": [
+    "t8",
+    "t1"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Which of the following describes the correct order of calls on a TCP server, and which call on the client sends the first SYN?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Server: socket, bind, listen, accept. Client: connect sends the SYN."
+    },
+    {
+     "key": "B",
+     "text": "Server: socket, listen, bind, accept. Client: connect sends the SYN."
+    },
+    {
+     "key": "C",
+     "text": "Server: socket, bind, accept, listen. Client: socket sends the SYN."
+    },
+    {
+     "key": "D",
+     "text": "Server: bind, socket, listen, accept. Client: connect sends the SYN."
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "A socket must exist before it can be bound.",
+    "listen must precede accept.",
+    "Which call starts the handshake: creating the socket or connecting it?"
+   ],
+   "solution": "- Server order is socket, bind, listen, **accept**.\n- The **client's** connect() sends the first SYN.\n- **Answer: A**",
+   "quick_method": "- Create, name, open queue, **take** a connection.",
+   "trap_note": "- Don't swap **listen** and bind, do bind first.",
+   "explanation": "- Creating a socket sends nothing; **connect** triggers SYN.",
+   "solution_full": "1. socket() must come first: nothing else works without a descriptor.\n2. bind() sets the address and port.\n3. listen() opens the queue, and only then can accept() return connections.\n4. On the client, socket() just creates a descriptor. connect() triggers the three-way handshake, so the SYN leaves at connect().",
+   "explanation_full": "GATE 2008 asked 'which call sends SYN' (connect) and 2015 asked the server order (bind, listen, accept, recv). A client normally doesn't call bind, since the OS picks an ephemeral port.",
+   "trap_note_full": "Option B puts listen before bind: a socket with no address would be listening on nothing.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.019",
+   "level": 4,
+   "order_in_topic": 19,
+   "atoms": [
+    "t4",
+    "t5"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A TCP sender starts with $cwnd=1$ MSS and $ssthresh=16$ MSS. Doubling is capped at ssthresh and congestion avoidance adds 1 MSS per round. In round 9 a timeout occurs. Rounds are numbered from 1 and round 1 uses $cwnd=1$. What is $cwnd$ (in MSS) in round 15? (answer in integer)",
+   "answer": "11",
+   "hints": [
+    "Find cwnd in round 9 first (the value at the timeout).",
+    "On timeout ssthresh becomes half of that cwnd and cwnd restarts at 1 in round 10.",
+    "Then slow start to the new ssthresh, then +1 per round."
+   ],
+   "solution": "- Round 9 has cwnd 20, so the new **ssthresh** is 10.\n- Round 10 **restarts** at 1 and round 15 reaches 11.\n- **Answer: 11**",
+   "quick_method": "- Find cwnd at loss, halve it, restart, then replay **growth**.",
+   "trap_note": "- Don't reuse the old **threshold**, do halve cwnd at the loss.",
+   "explanation": "- The threshold moves with every **loss** event.",
+   "solution_full": "1. Rounds 1 to 5: 1, 2, 4, 8, 16. Rounds 6 to 9: 17, 18, 19, 20. Timeout in round 9 with cwnd 20.\n2. New $ssthresh=20/2=10$, $cwnd=1$.\n3. Round 10: 1, 11: 2, 12: 4, 13: 8, 14: 10 (capped at ssthresh), 15: 11.\n4. cwnd in round 15 is 11 MSS.",
+   "explanation_full": "This is the 2012 GATE question pattern (timeout during the fifth transmission, then ask for the window at the end of the tenth). Write the whole sequence as a row of numbers: it is the only reliable way to avoid off-by-one slips.",
+   "trap_note_full": "Using the old threshold 16 gives round 14 = 16 and round 15 = 17 after doubling from 8. The threshold must be halved at the loss.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.020",
+   "level": 4,
+   "order_in_topic": 20,
+   "atoms": [
+    "t4",
+    "t9"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A sender in slow start (no loss, ssthresh very large) has an RTT of $5$ ms. Segments are numbered from 1. The sender transmits round $r$ (from 0) as $2^r$ segments at time $5r$ ms. At what time (in ms) does the transmission of segment number $100$ start? (answer in integer)",
+   "answer": "30",
+   "hints": [
+    "Round r sends segments from $2^r$ to $2^{r+1}-1$.",
+    "Which round contains segment 100?",
+    "Multiply the round index by 5 ms."
+   ],
+   "solution": "- Round 6 carries **segments** 64 to 127, so it holds 100.\n- Round 6 **starts** at 6 times 5, that is 30 ms.\n- **Answer: 30**",
+   "quick_method": "- Find the round holding the segment, multiply by **RTT**.",
+   "trap_note": "- Don't halve repeatedly, do find the **round** from powers of two.",
+   "explanation": "- Rounds hold 1, 2, 4, 8, ... **segments**.",
+   "solution_full": "1. Round 0: segment 1. Round 1: 2 to 3. Round 2: 4 to 7. Round $r$: $2^r$ to $2^{r+1}-1$.\n2. $64\\le100\\le127$, so $r=6$.\n3. Start time $=6\\times5=30$ ms.",
+   "explanation_full": "This is the GATE 2026 question (segment 2000 with 1 ms RTT: round 10, so $10\\le t<11$). The cumulative count before round $r$ is $2^r-1$, so a segment $s$ lies in round $\\lfloor\\log_2 s\\rfloor$.",
+   "trap_note_full": "Counting rounds from 1 gives 7 rounds and 35 ms. The sender transmits its first segment at time 0, which is round 0.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.021",
+   "level": 4,
+   "order_in_topic": 21,
+   "atoms": [
+    "t4",
+    "t9"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A new TCP connection has $cwnd=1$ MSS and $ssthresh=32$ MSS. Each round sends $cwnd$ segments. Doubling is capped at ssthresh, congestion avoidance adds 1 MSS per round, and there is no loss. How many segments are sent in the first 8 rounds? (answer in integer)",
+   "answer": "130",
+   "hints": [
+    "List cwnd for rounds 1 to 8.",
+    "Slow start gives 1, 2, 4, 8, 16, 32.",
+    "Then congestion avoidance gives 33 and 34."
+   ],
+   "solution": "- Rounds 1 to 6 send 63 **segments** in all.\n- **Rounds** 7 and 8 add 67, so the total is 130.\n- **Answer: 130**",
+   "quick_method": "- Write cwnd per round, then **sum** the row.",
+   "trap_note": "- Don't **double** past 32, do add one per round.",
+   "explanation": "- Rounds after ssthresh grow by one, not by **doubling**.",
+   "solution_full": "1. Round cwnd: 1, 2, 4, 8, 16, 32, 33, 34.\n2. Slow start total: $1+2+4+8+16+32=63$.\n3. Congestion avoidance: $33+34=67$.\n4. Total $63+67=130$ segments.",
+   "explanation_full": "Once cwnd reaches ssthresh the growth switches from doubling to linear. The sum before the switch equals $2^k-1$. Mixing the two phases is what makes the question a 2-mark one.",
+   "trap_note_full": "Doubling through round 8 would give 255. Stopping the doubling at ssthresh is what cuts it to 130.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.022",
+   "level": 4,
+   "order_in_topic": 22,
+   "atoms": [
+    "t7"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "TCP data flows over a $10$ Gbps link. The maximum segment lifetime is $30$ s. What is the minimum number of bits in the sequence number field so the sequence space does not wrap during one MSL? (answer in integer)",
+   "answer": "36",
+   "hints": [
+    "Bytes sent in 30 s: bandwidth in bytes per second times 30.",
+    "$10\\times10^9/8=1.25\\times10^9$ bytes per second.",
+    "Take log base 2 and round up."
+   ],
+   "solution": "- In 30 s the link sends 37.5 billion **bytes**.\n- $\\log_2$ of that is 35.1, so 36 **bits**.\n- **Answer: 36**",
+   "quick_method": "- Bytes in one MSL, then round **log two** up.",
+   "trap_note": "- Don't use **bits** per second, do divide by eight.",
+   "explanation": "- Wrap must not occur within one **lifetime** of old segments.",
+   "solution_full": "1. Bytes per second $=10^{10}/8=1.25\\times10^9$.\n2. Bytes in 30 s $=3.75\\times10^{10}$.\n3. $\\log_2(3.75\\times10^{10})=35.1$.\n4. Round up: 36 bits.",
+   "explanation_full": "The same logic as GATE 2022 (1 Gbps, MSL 60 s: 33 bits). The requirement: the sequence space must exceed the number of bytes that could be sent in one MSL, so an old duplicate can't be mistaken for new data.",
+   "trap_note_full": "Using bits (not bytes) per second gives 38 bits. Rounding down to 35 would leave $2^{35}<3.75\\times10^{10}$.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.023",
+   "level": 4,
+   "order_in_topic": 23,
+   "atoms": [
+    "t7"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "A new byte-stream protocol runs over $100$ Mbps with a round-trip time of $200$ ms and a maximum segment lifetime of $40$ s. Which of the following are valid lengths for its sequence number field?",
+   "options": [
+    {
+     "key": "A",
+     "text": "28 bits"
+    },
+    {
+     "key": "B",
+     "text": "29 bits"
+    },
+    {
+     "key": "C",
+     "text": "30 bits"
+    },
+    {
+     "key": "D",
+     "text": "32 bits"
+    }
+   ],
+   "answer": "B,C,D",
+   "hints": [
+    "Only the rate and the MSL matter.",
+    "Bytes in one MSL: $12.5\\times10^6\\times40$.",
+    "Find the smallest n with $2^n$ above that, then check each option."
+   ],
+   "solution": "- Bytes in one MSL are 500 million, needing at least 29 **bits**.\n- **RTT** is a distractor, so 29, 30 and 32 qualify.\n- **Answer: B, C, D**",
+   "quick_method": "- Minimum bits from bandwidth times **MSL**; larger also works.",
+   "trap_note": "- Don't use **RTT**, do use the segment lifetime.",
+   "explanation": "- RTT does not set the sequence **size**.",
+   "solution_full": "1. Rate $=100\\times10^6/8=12.5\\times10^6$ bytes/s.\n2. Bytes in one MSL $=12.5\\times10^6\\times40=5\\times10^8$.\n3. $2^{28}=2.7\\times10^8<5\\times10^8\\le2^{29}=5.4\\times10^8$, so at least 29 bits.\n4. Any larger length also works: 30 and 32 are valid, 28 is not.",
+   "explanation_full": "This is GATE 2023's myTCP question (100 Mbps, 150 ms RTT, MSL 2 minutes: valid lengths 32, 34, 36, not 30). 'Valid' means at least the minimum. Longer fields waste header bits but never cause wrap-around trouble.",
+   "trap_note_full": "Using RTT in place of MSL gives 12.5e6 × 0.2 = 2.5e6 bytes, only 22 bits. RTT is irrelevant to wrap-around.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.024",
+   "level": 4,
+   "order_in_topic": 24,
+   "atoms": [
+    "t1"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "A TCP client performs an active close. Which of the following statements are correct?",
+   "options": [
+    {
+     "key": "A",
+     "text": "After the client's FIN is acknowledged, the client waits in FIN-WAIT-2 for the server's FIN"
+    },
+    {
+     "key": "B",
+     "text": "After receiving the server's FIN the client sends the final ACK and waits in TIME-WAIT for twice the MSL"
+    },
+    {
+     "key": "C",
+     "text": "The server may still send data after it has received the client's FIN"
+    },
+    {
+     "key": "D",
+     "text": "The client can free the connection immediately after the server's ACK, with no waiting"
+    }
+   ],
+   "answer": "A,B,C",
+   "hints": [
+    "TCP is full duplex: each direction closes on its own.",
+    "Which side waits at the end, and why?",
+    "What state is the client in after its FIN is acked?"
+   ],
+   "solution": "- Each direction closes alone: **half-close** is legal.\n- **Client** ends in TIME-WAIT, so only D is false.\n- **Answer: A, B, C**",
+   "quick_method": "- Four-segment close: FIN, ACK, FIN, **ACK**.",
+   "trap_note": "- Don't skip TIME-WAIT, do wait **twice** the MSL.",
+   "explanation": "- The side that closes first waits in **TIME-WAIT**.",
+   "solution_full": "1. A: the client sent FIN and got an ACK, so it is in FIN-WAIT-2 until the server's FIN arrives. True.\n2. B: the client acks the server's FIN and goes to TIME-WAIT for 2 MSL, so a lost last ACK can be re-sent. True.\n3. C: the server only knows the client has stopped sending. It can keep sending until it closes (CLOSE-WAIT). True.\n4. D: no, the client must wait in TIME-WAIT before the connection is freed. False.",
+   "explanation_full": "GATE 2017 asked which state waits for the server's FIN (FIN-WAIT-2). GATE 2026 asked that both sides can start closing at once (simultaneous close). TIME-WAIT also prevents old duplicates from a previous connection with the same ports from entering a new one.",
+   "trap_note_full": "D feels logical since the server has acked the FIN. The last ACK from the client can still be lost, and the server would resend its FIN.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.025",
+   "level": 4,
+   "order_in_topic": 25,
+   "atoms": [
+    "t2",
+    "t3"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A TCP receiver has acknowledged bytes up to $2000$ (ack number $2001$) and advertises a window of $6000$ bytes. The sender has already sent bytes up to $4000$ but not yet received acks for them. How many more bytes can it send right now? (answer in integer)",
+   "answer": "4000",
+   "hints": [
+    "The sender may have at most 6000 unacknowledged bytes.",
+    "Bytes in flight so far: sent up to 4000, acked up to 2000.",
+    "Window minus in-flight bytes."
+   ],
+   "solution": "- In flight: **bytes** 2001 to 4000, which is 2000.\n- The **window** allows 6000, so 4000 more.\n- **Answer: 4000**",
+   "quick_method": "- Extra bytes equal window minus bytes in **flight**.",
+   "trap_note": "- Don't ignore **bytes** in flight, do subtract them.",
+   "explanation": "- The window slides forward with each new **ack**.",
+   "solution_full": "1. The ack number 2001 means bytes up to 2000 are done.\n2. In flight: bytes 2001 to 4000, which is $4000-2000=2000$ bytes.\n3. The sender may have $6000$ outstanding bytes.\n4. It can send $6000-2000=4000$ more bytes (up to byte 8000).",
+   "explanation_full": "The right edge of the window is last ack plus window: $2000+6000=8000$. The sender may send anything up to byte 8000, and it has sent up to 4000. Both computations give 4000.",
+   "trap_note_full": "Answering 6000 treats the window as empty, forgetting the 2000 bytes already in flight.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.026",
+   "level": 5,
+   "order_in_topic": 26,
+   "atoms": [
+    "t4",
+    "t5"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A TCP connection has $cwnd=40$ KB when a timeout occurs. The MSS is $2$ KB and the RTT is $50$ ms. After the timeout the sender restarts at $1$ MSS. Doubling is capped at ssthresh and congestion avoidance adds 1 MSS per RTT. How long (in ms) does it take to get back to $cwnd=40$ KB? (answer in integer)",
+   "answer": "700",
+   "hints": [
+    "On timeout, ssthresh = 40/2 = 20 KB and cwnd = 2 KB.",
+    "Slow start: 2, 4, 8, 16, then it reaches 20 (the cap).",
+    "From 20 KB add 2 KB per RTT until 40 KB."
+   ],
+   "solution": "- Slow start takes 4 RTTs to reach the **cap** of 20 KB.\n- Then 10 **RTTs** add 20 KB more: 14 RTTs, 700 ms.\n- **Answer: 700**",
+   "quick_method": "- Phase one to ssthresh, phase two **linear**, add the RTTs.",
+   "trap_note": "- Don't use 40 KB as the **threshold**, do halve it.",
+   "explanation": "- Count rounds in each **phase** separately.",
+   "solution_full": "1. $ssthresh=40/2=20$ KB, $cwnd=2$ KB (1 MSS).\n2. After each RTT: 4, 8, 16, then capped at 20: that is 4 RTTs.\n3. Congestion avoidance: +2 KB per RTT. From 20 to 40 KB is $20/2=10$ RTTs.\n4. Total $4+10=14$ RTTs $=14\\times50=700$ ms.",
+   "explanation_full": "GATE 2014 asked the same with 32 KB, 100 ms and 2 KB MSS: threshold 16 KB is reached in 3 RTTs, then 8 RTTs of +2 KB reach 32 KB, 11 RTTs or 1100 ms. The recipe is identical. Check where the capped doubling lands: here 16 doubles to 32 but is capped at 20, so the fourth RTT ends at 20 exactly.",
+   "trap_note_full": "Letting cwnd double past ssthresh (to 32 KB) shortens the answer to 12 RTTs. The cap at ssthresh is the rule.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.027",
+   "level": 5,
+   "order_in_topic": 27,
+   "atoms": [
+    "t4",
+    "t5"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A Reno sender starts with $cwnd=1$ MSS and $ssthresh=32$ MSS. Doubling is capped at ssthresh and congestion avoidance adds 1 MSS per round. At the end of round 8 three duplicate ACKs arrive. At the end of round 12 a timeout occurs. Round 1 uses $cwnd=1$. What is $cwnd$ (in MSS) in round 19? (answer in integer)",
+   "answer": "12",
+   "hints": [
+    "Rounds 1 to 8: 1, 2, 4, 8, 16, 32, 33, 34. Apply the duplicate-ACK rule at the end of round 8.",
+    "Then rounds 9 to 12 grow by 1 each. Apply the timeout rule at the end of round 12.",
+    "Replay slow start to the new ssthresh, then add one per round."
+   ],
+   "solution": "- **After** the dup ACKs: 17 from round 9; round 12 has 20.\n- Timeout gives **ssthresh** 10; round 19 has 12.\n- **Answer: 12**",
+   "quick_method": "- Two losses: update ssthresh each time, then **replay**.",
+   "trap_note": "- Don't reuse **ssthresh** 32, do halve cwnd at each loss.",
+   "explanation": "- Each loss halves the window at that **moment**.",
+   "solution_full": "1. Rounds 1 to 8: 1, 2, 4, 8, 16, 32, 33, 34.\n2. Triple dup ACK at the end of round 8: $ssthresh=17$, $cwnd=17$. Rounds 9 to 12: 17, 18, 19, 20.\n3. Timeout at the end of round 12 (cwnd 20): $ssthresh=10$, $cwnd=1$.\n4. Rounds 13 to 19: 1, 2, 4, 8, 10 (cap), 11, 12.\n5. Round 19 has $cwnd=12$.",
+   "explanation_full": "Questions like this combine the 2012 and 2024 patterns. The scheme is mechanical: state is (cwnd, ssthresh), and each loss rewrites both. Build the row of round-by-round values and mark the loss rounds.",
+   "trap_note_full": "Keeping ssthresh at 17 after the timeout gives 17 at round 19. A timeout halves the current cwnd of 20 to 10.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.028",
+   "level": 5,
+   "order_in_topic": 28,
+   "atoms": [
+    "t3",
+    "t9"
+   ],
+   "type": "MCQ",
+   "marks": 2,
+   "stem": "A TCP connection has bandwidth $2097120$ bits/s. Let $\\alpha$ be the round-trip time (in ms, rounded to the nearest integer) beyond which the window-scale option is needed to keep the link full, and let $\\beta$ be the largest window possible with window scaling (maximum shift $14$). Which pair is correct?",
+   "options": [
+    {
+     "key": "A",
+     "text": "$\\alpha=125$ ms, $\\beta=65535\\times2^{14}$"
+    },
+    {
+     "key": "B",
+     "text": "$\\alpha=250$ ms, $\\beta=65535\\times2^{14}$"
+    },
+    {
+     "key": "C",
+     "text": "$\\alpha=250$ ms, $\\beta=65535\\times2^{16}$"
+    },
+    {
+     "key": "D",
+     "text": "$\\alpha=500$ ms, $\\beta=65535\\times2^{16}$"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "Without scaling the window is at most 65535 bytes.",
+    "The link stays full while bandwidth times RTT is at most that window.",
+    "The shift in the window-scale option is at most 14."
+   ],
+   "solution": "- Full pipe needs 65535 bytes: RTT is 524280 bits over the **rate**.\n- That is 0.25 s, and the **shift** limit is 14.\n- **Answer: B**",
+   "quick_method": "- Alpha is max window bits over **bandwidth**.",
+   "trap_note": "- Don't use **shift** 16, do cap it at 14.",
+   "explanation": "- The scale shift is at most **fourteen**.",
+   "solution_full": "1. Unscaled maximum window $=65535$ bytes $=524{,}280$ bits.\n2. The window covers the pipe while $BW\\times RTT\\le524280$, so $RTT\\le524280/2097120=0.25$ s.\n3. Beyond 250 ms the unscaled window is too small: $\\alpha=250$ ms.\n4. The window-scale shift is at most 14, so $\\beta=65535\\times2^{14}$.",
+   "explanation_full": "This is GATE 2015 with the bandwidth doubled (1048560 bits/s gave 500 ms). The shift limit is 14 and not 16 so that the scaled window stays below $2^{30}$, half the sequence space, a requirement for correct operation.",
+   "trap_note_full": "Option D is the original question's answer with the wrong shift. Option A halves alpha by treating 125 ms as one-way delay.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.029",
+   "level": 5,
+   "order_in_topic": 29,
+   "atoms": [
+    "t1",
+    "t2"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A TCP client opens a connection with initial sequence number $1000$. After the handshake it sends three data segments of $500$ bytes each, then closes with a FIN carrying no data. The server acknowledges the FIN. What acknowledgement number does the server's ACK carry? (answer in integer)",
+   "answer": "2502",
+   "hints": [
+    "The SYN consumes one sequence number.",
+    "Data bytes follow from 1001.",
+    "The FIN also consumes one number."
+   ],
+   "solution": "- SYN uses 1000. Data **starts** at 1001 and ends at 2500.\n- The FIN takes 2501, so the **ack** is 2502.\n- **Answer: 2502**",
+   "quick_method": "- SYN and FIN each use one number; data uses **bytes**.",
+   "trap_note": "- Don't **ack** 2501, do count the FIN.",
+   "explanation": "- Control flags occupy one sequence **number** each.",
+   "solution_full": "1. SYN has seq 1000 and consumes one number, so data starts at 1001.\n2. 3 segments of 500 bytes cover 1500 bytes: 1001 to 2500.\n3. The FIN has seq 2501 and consumes one number.\n4. The server acks the next expected number, $2501+1=2502$.",
+   "explanation_full": "Pure ACKs consume no sequence number, only SYN and FIN do. This is the question's trap: with data only the ack would be 2501. GATE asked the SYN+1 rule in 2021 and 2024.",
+   "trap_note_full": "Answering 2501 forgets that FIN is acked with seq plus 1.",
+   "verified": true
+  },
+  {
+   "id": "gen.net.transport.030",
+   "level": 5,
+   "order_in_topic": 30,
+   "atoms": [
+    "t1",
+    "t2"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Which of the following statements about TCP segments are correct?",
+   "options": [
+    {
+     "key": "A",
+     "text": "A segment with the RST flag set aborts the connection immediately"
+    },
+    {
+     "key": "B",
+     "text": "A SYN segment consumes one sequence number"
+    },
+    {
+     "key": "C",
+     "text": "A segment that carries only an ACK and no data consumes one sequence number"
+    },
+    {
+     "key": "D",
+     "text": "Both ends may send FIN at about the same time and the connection still closes cleanly"
+    }
+   ],
+   "answer": "A,B,D",
+   "hints": [
+    "Which flags take a sequence number?",
+    "What does a reset do?",
+    "Can both sides close at once?"
+   ],
+   "solution": "- SYN and FIN each take one **number**; a bare ACK takes none.\n- RST aborts; **simultaneous** close is legal.\n- **Answer: A, B, D**",
+   "quick_method": "- Only SYN and FIN consume a sequence **number**.",
+   "trap_note": "- Don't **count** a bare ACK, do count only SYN and FIN.",
+   "explanation": "- Pure ACKs are not **acknowledged** themselves.",
+   "solution_full": "1. RST: tells the other side to drop the connection immediately. True.\n2. SYN: takes one sequence number. True.\n3. A pure ACK with no data uses no sequence number (and is never itself acknowledged). False.\n4. Simultaneous close: each side sends FIN and acks the other's, ending in TIME-WAIT on both. True.",
+   "explanation_full": "GATE 2021 asked which behaviours are possible when a server crashes: waiting forever, being able to listen again after reboot, and receiving RST are possible. GATE 2026 tested simultaneous close. These flag-semantics questions are all in the TCP state machine.",
+   "trap_note_full": "Statement C feels natural since every segment 'has a number'. The sequence number field is present, but it advances only with data, SYN or FIN.",
+   "verified": true
+  }
+ ],
+ "flashcards": [
+  {
+   "front": "Handshake flags",
+   "back": "SYN; SYN+ACK; ACK. Only the second has both flags.",
+   "kind": "definition"
+  },
+  {
+   "front": "Ack number",
+   "back": "Seq plus data length, or seq plus 1 for SYN or FIN. It names the next byte expected.",
+   "kind": "formula"
+  },
+  {
+   "front": "What consumes a sequence number",
+   "back": "Data bytes, SYN and FIN. A pure ACK does not.",
+   "kind": "trap"
+  },
+  {
+   "front": "Close states",
+   "back": "FIN-WAIT-1, FIN-WAIT-2 (waiting for the peer's FIN), TIME-WAIT (2 MSL). Either end may close first.",
+   "kind": "definition"
+  },
+  {
+   "front": "Usable window",
+   "back": "$\\min(cwnd, rwnd)$. Throughput at most window over RTT.",
+   "kind": "formula"
+  },
+  {
+   "front": "Window field",
+   "back": "16 bits: at most 65535 bytes. Window scale shift at most 14.",
+   "kind": "definition"
+  },
+  {
+   "front": "Slow start",
+   "back": "cwnd doubles per RTT until ssthresh. One MSS per ACK.",
+   "kind": "definition"
+  },
+  {
+   "front": "Congestion avoidance",
+   "back": "One MSS per RTT once cwnd reaches ssthresh.",
+   "kind": "definition"
+  },
+  {
+   "front": "Timeout reaction",
+   "back": "ssthresh = cwnd/2, cwnd = 1 MSS, back to slow start.",
+   "kind": "formula"
+  },
+  {
+   "front": "Triple duplicate ACK (Reno)",
+   "back": "ssthresh = cwnd/2, cwnd = ssthresh, continue in congestion avoidance.",
+   "kind": "formula"
+  },
+  {
+   "front": "Wrap time",
+   "back": "$2^n\\times8/\\text{bandwidth}$ seconds for an n-bit sequence field.",
+   "kind": "formula"
+  },
+  {
+   "front": "Bits for MSL",
+   "back": "$n\\ge\\log_2(\\text{bytes per second}\\times\\text{MSL})$. RTT is irrelevant.",
+   "kind": "trap"
+  },
+  {
+   "front": "Pipe size",
+   "back": "Bandwidth times RTT. Window below it leaves the link idle.",
+   "kind": "formula"
+  },
+  {
+   "front": "Server socket order",
+   "back": "socket, bind, listen, accept. Client connect sends the SYN.",
+   "kind": "definition"
+  },
+  {
+   "front": "Round counting in slow start",
+   "back": "Round r (from 0) holds segments $2^r$ to $2^{r+1}-1$, starting at time $r\\times RTT$.",
+   "kind": "trap"
+  }
+ ]
+}

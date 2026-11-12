@@ -1,0 +1,3557 @@
+{
+ "topic_id": "cd.lexical_parsing",
+ "title": "Lexical analysis and parsing",
+ "chapter_note": {
+  "about": "Lexical analysis and parsing are the front end of a compiler, and almost every question in this chapter is a procedure. The lexer splits characters into tokens by longest match. The parser then reads the tokens top-down with an LL(1) table, built from FIRST and FOLLOW sets, or bottom-up with LR automata made of items, CLOSURE and GOTO. The chapter ends with how LR(0), SLR(1), LALR(1) and CLR(1) differ, and with precedence and associativity. Once each procedure is automatic, the questions are bookkeeping.",
+  "simple": "Before a computer can run your program, it has to read it, much as you read a sentence. First it groups letters into words (the lexer), then it checks the words fit the grammar (the parser), and the parser can work from the top down by predicting, or from the bottom up by gluing words into bigger pieces. Both ways use lists such as 'which letters can start this part' and 'which letters can come after it' to decide what to do next. Different parsers use different amounts of that information, and the more careful ones can handle more grammars. In exam words: tokens, FIRST and FOLLOW, LL(1), LR items, LR(0), SLR(1), LALR(1), CLR(1), precedence and associativity.",
+  "concept_map": [
+   {
+    "atom_id": "l1",
+    "title": "Phases, tokens and lexemes",
+    "one_line": "The lexer turns characters into tokens; a token is the category and a lexeme is the matched text."
+   },
+   {
+    "atom_id": "l2",
+    "title": "Longest-match tokenising",
+    "one_line": "Take the longest prefix any rule matches; ties go to the earlier rule; count tokens by scanning."
+   },
+   {
+    "atom_id": "l3",
+    "title": "Derivations, handles, reductions",
+    "one_line": "Top-down parsers trace a leftmost derivation; LR parsers trace a rightmost derivation backwards; reductions equal internal nodes."
+   },
+   {
+    "atom_id": "l4",
+    "title": "FIRST sets",
+    "one_line": "Terminals that can start a string; skip nullable symbols; add ε only if the whole right side can vanish."
+   },
+   {
+    "atom_id": "l5",
+    "title": "FOLLOW sets",
+    "one_line": "Terminals that can come next; $ for the start symbol; inherit from the parent for nullable tails."
+   },
+   {
+    "atom_id": "l6",
+    "title": "LL(1) table and conflicts",
+    "one_line": "Cell by FIRST, ε-rules by FOLLOW; left recursion, common prefixes and ambiguity all cause conflicts."
+   },
+   {
+    "atom_id": "l7",
+    "title": "LR(0) items, CLOSURE, GOTO",
+    "one_line": "Kernel plus closure; count items and states by following GOTO."
+   },
+   {
+    "atom_id": "l8",
+    "title": "LR(0) and SLR(1) conflicts",
+    "one_line": "LR(0) reduces everywhere; SLR(1) reduces only on FOLLOW; a clash means a shift and a reduce, or two reduces, share a terminal."
+   },
+   {
+    "atom_id": "l9",
+    "title": "LR(1), LALR(1), CLR(1)",
+    "one_line": "CLR(1) keeps exact lookaheads; LALR(1) merges equal cores and can add reduce-reduce conflicts."
+   },
+   {
+    "atom_id": "l10",
+    "title": "Precedence and associativity",
+    "one_line": "A deeper rule binds tighter; the recursion side sets associativity; evaluate level by level."
+   }
+  ],
+  "gate_patterns": [
+   "FIRST, FOLLOW and table cells: compute the sets with nullable chains, then fill the cell or test which option reproduces the sets (2017 CS1 Q17, 2019 CS Q29, 2021 CS1 Q41, 2024 CS1 Q38, 2024 CS2 Q40; 10 questions in all).",
+   "Classify a grammar as LL, SLR, LALR or CLR, or count the conflicts and the items in a GOTO set (2025 CS2 Q40, 2025 CS2 Q51, 2026 CS2 Q41, 2019 CS Q53, 2021 CS2 Q61, 2022 CS Q29; 12 questions in all).",
+   "Token counting by longest match, precedence and associativity, phases and parser-theory statements (2018 CS Q47, 2026 CS2 Q35, 2017 CS2 Q32, 2018 CS Q48, 2017 CS2 Q5). Weightage: about 3.1 marks per CS paper; 33 questions in 10 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "l1",
+   "title": "Phases, tokens and lexemes",
+   "simple": "A compiler reads your program the way you read a sentence. First it recognises words: it sees the letters 'area' and knows that is one word, a name, and sees '=' and knows that is an assignment sign. That step is the lexer, and each word it recognises is a token. Next the parser checks the words are arranged according to the grammar, like checking a sentence has a subject and a verb. Last the semantic analyser checks the sentence makes sense, for example that you are not adding a number to a word. In exam words: lexical analysis turns characters into tokens, syntax analysis turns tokens into a parse tree, and semantic analysis checks the tree.",
+   "idea": "A compiler's front end has three phases: **lexical analysis** turns characters into **tokens**, **syntax analysis** turns tokens into a **parse tree**, and **semantic analysis** checks meaning on the tree. A **lexeme** is the matched text, such as area, and its **token** is the category, such as id.",
+   "definition": "Lexical analyser (scanner): input a character stream, output a token stream. A token is a pair (category, lexeme), for example (id, area), (num, 4).\n\nSyntax analyser (parser): input tokens, output a parse tree, using the grammar. It reports syntax errors.\n\nSemantic analyser: input the parse tree plus the symbol table, output a checked, type-annotated tree. It reports undeclared names and type errors.\n\nLater phases: intermediate code generation, optimisation, target code generation. The symbol table is shared by all phases.",
+   "intuition_full": "Each phase works on a different level of structure and has its own class of errors. Characters are grouped into words by regular patterns, so the lexer is a finite automaton. Words are grouped into sentences by a context-free grammar, so the parser needs a stack. Meaning (types, declarations) depends on context that a grammar cannot express, so it is checked after parsing, on the tree. A token can stand for many lexemes: both w and area are tokens of category id. The parser only sees the category, never the actual text, which is why it cannot tell an undeclared name from a declared one.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Describe what each front-end phase produces for the statement area = w * 4; and which kind of error each phase reports.",
+     "steps": [
+      "A compiler works in phases. Take the statement area = w * 4; as a string of characters. The front end has three phases, each with its own input and output.",
+      "Lexical analysis groups characters into lexemes (the matched text) and labels each with a token (its category): area is id, = is assign, w is id, * is mul, 4 is num, ; is semi. Output: 6 tokens.",
+      "Syntax analysis reads the tokens and builds a parse tree using the grammar S → id = E ;, E → E * E | id | num.",
+      "Semantic analysis checks meaning on the tree: area and w must be declared, and w * 4 must have a type that fits the assignment. Output: a tree annotated with types.",
+      "Errors belong to phases. An illegal character is a lexical error, a missing ; or unbalanced bracket is a syntax error, and an undeclared variable or a type mismatch is a semantic error.",
+      "Remember the input and output of each phase: the lexer turns characters into tokens, the parser turns tokens into a tree, and the semantic analyser checks the tree. Later phases produce intermediate code and target code."
+     ],
+     "answer": "Lexer: 6 tokens (id, assign, id, mul, num, semi). Parser: a parse tree. Semantic analyser: a type-checked tree. Errors: lexical for illegal characters, syntax for bad structure, semantic for undeclared names and type mismatches."
+    },
+    {
+     "level": "gate",
+     "setup": "Which phase reports each of these? (i) a stray @ in the source  (ii) if (x > 3 { ... } with a missing )  (iii) int n; n = \"hello\";  (iv) a call to a function that was never declared",
+     "steps": [
+      "(i) @ is not part of any token pattern, so the scanner cannot form a token: lexical error.",
+      "(ii) Every token is valid, but the grammar requires a closing bracket: syntax error.",
+      "(iii) The tokens and structure are fine, but a string is assigned to an int: semantic error (type mismatch).",
+      "(iv) The grammar allows any identifier as a call, but the symbol table has no such function: semantic error."
+     ],
+     "answer": "(i) lexical, (ii) syntax, (iii) semantic, (iv) semantic."
+    },
+    {
+     "level": "twist",
+     "setup": "Count the tokens, the distinct token categories and the distinct lexemes in total = total * rate + 5;",
+     "steps": [
+      "Tokens in order: id(total), assign(=), id(total), mul(*), id(rate), plus(+), num(5), semi(;). That is 8 tokens.",
+      "Categories used: id, assign, mul, plus, num, semi. That is 6 distinct categories.",
+      "Lexemes: total, =, *, rate, +, 5, ;. The lexeme total occurs twice, so there are 7 distinct lexemes. A script run of the scanner agrees."
+     ],
+     "answer": "8 tokens, 6 categories, 7 distinct lexemes."
+    }
+   ],
+   "why": "Phase questions are cheap marks if you know each phase's input, output and error type. In GATE: match a phase to its input or output, or say which phase detects a given error.",
+   "how": [
+    "Write the phases in order: lexer, parser, semantic analyser, intermediate code, optimiser, target code.",
+    "For each phase note its input and its output.",
+    "For an error, ask: is a character illegal (lexical), is the structure wrong (syntax), or is the meaning wrong (semantic)?",
+    "To count tokens, scan left to right and group characters into the longest valid lexemes."
+   ],
+   "mistake": "Reporting a type error or an undeclared variable as a syntax error. The grammar cannot see types or declarations, so those are semantic. The opposite slip is to treat a missing bracket as a semantic error.",
+   "edge_cases": [
+    "Whitespace and comments are discarded by the lexer and produce no tokens.",
+    "The parser sees only token categories, so w and area look the same to it.",
+    "The symbol table is built during parsing and semantic analysis and used by later phases."
+   ],
+   "connections": [
+    "Longest-match tokenising (next card) says how the lexer splits characters.",
+    "Derivations and handles (card 3) explain how the parser builds the tree."
+   ],
+   "check": [
+    {
+     "q": "Which phase turns tokens into a parse tree?",
+     "a": "Syntax analysis (the parser)."
+    },
+    {
+     "q": "In x = y + 1;, how many tokens are there?",
+     "a": "6: x, =, y, +, 1, ;."
+    },
+    {
+     "q": "Is an undeclared variable a syntax error?",
+     "a": "No. It is a semantic error."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q5, 2018 CS Q18, 2021 CS2 Q13, 2023 CS Q11, 2024 CS2 Q21, 2025 CS1 Q12",
+   "try": {
+    "id": "gen.lp.001",
+    "label": "What kind of item is count in count = count + 1; (L1)"
+   },
+   "scene": "cd.lexical_parsing.l1.phases",
+   "example": {
+    "setup": "Describe what each front-end phase produces for the statement area = w * 4; and which kind of error each phase reports.",
+    "steps": [
+     "A compiler works in phases. Take the statement area = w * 4; as a string of characters. The front end has three phases, each with its own input and output.",
+     "Lexical analysis groups characters into lexemes (the matched text) and labels each with a token (its category): area is id, = is assign, w is id, * is mul, 4 is num, ; is semi. Output: 6 tokens.",
+     "Syntax analysis reads the tokens and builds a parse tree using the grammar S → id = E ;, E → E * E | id | num.",
+     "Semantic analysis checks meaning on the tree: area and w must be declared, and w * 4 must have a type that fits the assignment. Output: a tree annotated with types.",
+     "Errors belong to phases. An illegal character is a lexical error, a missing ; or unbalanced bracket is a syntax error, and an undeclared variable or a type mismatch is a semantic error.",
+     "Remember the input and output of each phase: the lexer turns characters into tokens, the parser turns tokens into a tree, and the semantic analyser checks the tree. Later phases produce intermediate code and target code."
+    ],
+    "answer": "Lexer: 6 tokens (id, assign, id, mul, num, semi). Parser: a parse tree. Semantic analyser: a type-checked tree. Errors: lexical for illegal characters, syntax for bad structure, semantic for undeclared names and type mismatches."
+   },
+   "what": "A compiler's front end has three phases: **lexical analysis** turns characters into **tokens**, **syntax analysis** turns tokens into a **parse tree**, and **semantic analysis** checks meaning on the tree. A **lexeme** is the matched text, such as area, and its **token** is the category, such as id.",
+   "what_full": "A compiler's front end has three phases: **lexical analysis** turns characters into **tokens**, **syntax analysis** turns tokens into a **parse tree**, and **semantic analysis** checks meaning on the tree. A **lexeme** is the matched text, such as area, and its **token** is the category, such as id.\n\nLexical analyser (scanner): input a character stream, output a token stream. A token is a pair (category, lexeme), for example (id, area), (num, 4).\n\nSyntax analyser (parser): input tokens, output a parse tree, using the grammar. It reports syntax errors.\n\nSemantic analyser: input the parse tree plus the symbol table, output a checked, type-annotated tree. It reports undeclared names and type errors.\n\nLater phases: intermediate code generation, optimisation, target code generation. The symbol table is shared by all phases.\n\n**Worked example.** Describe what each front-end phase produces for the statement area = w * 4; and which kind of error each phase reports.\n\n1. A compiler works in phases. Take the statement area = w * 4; as a string of characters. The front end has three phases, each with its own input and output.\n2. Lexical analysis groups characters into lexemes (the matched text) and labels each with a token (its category): area is id, = is assign, w is id, * is mul, 4 is num, ; is semi. Output: 6 tokens.\n3. Syntax analysis reads the tokens and builds a parse tree using the grammar S → id = E ;, E → E * E | id | num.\n4. Semantic analysis checks meaning on the tree: area and w must be declared, and w * 4 must have a type that fits the assignment. Output: a tree annotated with types.\n5. Errors belong to phases. An illegal character is a lexical error, a missing ; or unbalanced bracket is a syntax error, and an undeclared variable or a type mismatch is a semantic error.\n6. Remember the input and output of each phase: the lexer turns characters into tokens, the parser turns tokens into a tree, and the semantic analyser checks the tree. Later phases produce intermediate code and target code.\n\n**Answer:** Lexer: 6 tokens (id, assign, id, mul, num, semi). Parser: a parse tree. Semantic analyser: a type-checked tree. Errors: lexical for illegal characters, syntax for bad structure, semantic for undeclared names and type mismatches.",
+   "why_full": "Phase questions are cheap marks if you know each phase's input, output and error type. In GATE: match a phase to its input or output, or say which phase detects a given error.\n\nAsked: 2017 CS2 Q5, 2018 CS Q18, 2021 CS2 Q13, 2023 CS Q11, 2024 CS2 Q21, 2025 CS1 Q12",
+   "trap": "Reporting a type error or an undeclared variable as a syntax error. The grammar cannot see types or declarations, so those are semantic. The opposite slip is to treat a missing bracket as a semantic error."
+  },
+  {
+   "atom_id": "l2",
+   "title": "Longest-match tokenising",
+   "simple": "When you read a word aloud, you do not stop at the first letters that happen to make a word; you grab as many letters as still make sense together. A lexer does the same. At each point in the text it checks all its patterns and takes whichever one swallows the most characters. If two patterns swallow the same amount, it takes the one written first in the list. That is why 'iffy' is one name and not the word 'if' followed by 'fy'. Counting tokens means doing this by hand, left to right. In exam words: the scanner uses the longest match, breaks ties by rule order, and every token is counted once.",
+   "idea": "At each position the scanner tries every pattern and takes the **longest match**. If two patterns match the same length, the **earlier rule** wins. Then it continues right after the match. To count tokens, scan left to right applying this rule, and skip white space.",
+   "definition": "Maximal munch: from the current position i, let m be the longest prefix of the remaining input that any rule matches. Emit the token of the first rule (in list order) that matches exactly m, then move to i + |m|. If no rule matches any prefix, report a lexical error.\n\nConsequences: a keyword rule only wins over an identifier rule when the lexeme has the same length (for versus for1), a number rule cannot absorb letters, and an operator pair such as ++ or == is one token.",
+   "intuition_full": "Greedy matching is deterministic and fast: one scan, no backtracking needed in the usual cases. The tie rule makes keywords work: the keyword pattern and the identifier pattern both match do, and the keyword comes first in the list, so do is a keyword. If the identifier were listed first, keywords would never be recognised. The same greedy rule explains well-known surprises, such as a+++b being (a ++) + b, because ++ is longer than +. When counting tokens, write the lexemes with bars between them as you go. A letter after digits starts a new token, because the number pattern cannot absorb letters, and a decimal point is part of a number only if digits follow it according to the rule.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A scanner has the rules, in order: kw = for|do; id = [a-z][a-z0-9]*; num = [0-9]+; op = ==|=|<=|<; spaces are skipped. It takes the longest match, the earlier rule on a tie. Tokenise for1 do=x==9.",
+     "steps": [
+      "The rules are tried at the current position, and the scanner keeps the match with the most characters. If two rules match the same length, the earlier rule wins. Input: for1 do=x==9.",
+      "At position 0, kw matches for (3 characters) and id matches for1 (4 characters). The longest match is for1, so the token is id.",
+      "Skip the space. At do, kw matches 2 characters and id matches 2 characters. A tie, so the earlier rule wins: kw.",
+      "At =, the rule op could match == only if the next character were =. Here it is x, so op matches = (1 character).",
+      "At x, id matches x only, because the next character = cannot continue an identifier. Token: id.",
+      "At ==, op can match = (1 character) or == (2 characters). The longest wins: ==, one token, not two.",
+      "At 9, num matches 9. The input ends. Result: 6 tokens: id, kw, op, id, op, num."
+     ],
+     "answer": "for1 (id), do (kw), = (op), x (id), == (op), 9 (num): 6 tokens."
+    },
+    {
+     "level": "gate",
+     "setup": "With tokens identifier, the operators ++, + and =, and the semicolon, and the longest-match rule, how many tokens does i = j+++k; contain?",
+     "steps": [
+      "i is an identifier and = is an operator. That is 2 tokens.",
+      "At j the identifier is j. Then at +++ the scanner takes the longest match, ++, not +.",
+      "The remaining + is a token on its own, then k and ;. The sequence is i, =, j, ++, +, k, ;.",
+      "That is 7 tokens. A scan with a script gives the same list."
+     ],
+     "answer": "7 tokens. The scanner reads j+++k as j, ++, +, k."
+    },
+    {
+     "level": "twist",
+     "setup": "With rules id = [a-z][a-z0-9]* and num = [0-9]+, how many tokens do 7up and x1y2 give?",
+     "steps": [
+      "7up: the number rule matches 7 (1 character). The id rule cannot start with a digit. After 7 the scanner starts again at u: id matches up. Two tokens: num, id.",
+      "x1y2: the id rule matches x1y2 completely, since digits are allowed after the first letter. One token.",
+      "So a number cannot absorb letters, but an identifier can absorb digits."
+     ],
+     "answer": "7up gives 2 tokens (num, id), x1y2 gives 1 token (id)."
+    }
+   ],
+   "why": "Token counting is a regular GATE question and it is simply careful bookkeeping. In GATE: count the tokens of a code fragment, or give the token sequence for a string under a list of patterns.",
+   "how": [
+    "List the rules in order and note any keyword rule that overlaps with the identifier rule.",
+    "At each position find the longest match, then check ties and use the earlier rule.",
+    "Draw a bar after each token and move on, skipping white space.",
+    "Count the bars at the end."
+   ],
+   "mistake": "Taking the first rule that matches instead of the longest match, so for1 becomes the keyword for followed by the number 1. Another slip is to split == or ++ into two tokens, or to let a number swallow the letters that follow it.",
+   "edge_cases": [
+    "A string literal, for example \"a b\", is one token even when it contains spaces.",
+    "A comment or a run of white space produces no token.",
+    "When no rule matches at all, the scanner reports a lexical error."
+   ],
+   "connections": [
+    "The rules themselves are regular expressions, so the lexer is a DFA (finite automata chapter).",
+    "The parser consumes the token stream this card produces (phases card)."
+   ],
+   "check": [
+    {
+     "q": "Keyword rule listed before identifier. How is if tokenised, and how is iffy?",
+     "a": "if is a keyword (tie, earlier rule). iffy is one identifier (longer match)."
+    },
+    {
+     "q": "How many tokens in a >= b with a >= token?",
+     "a": "3: a, >=, b."
+    },
+    {
+     "q": "What does the scanner do on an illegal character?",
+     "a": "It reports a lexical error."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q47, 2026 CS2 Q35, 2000 CS Q1.18, 2023 CS Q19",
+   "try": {
+    "id": "gen.lp.007",
+    "label": "Output for iffy with an if rule and an identifier rule (L2)"
+   },
+   "scene": "cd.lexical_parsing.l2.munch",
+   "example": {
+    "setup": "A scanner has the rules, in order: kw = for|do; id = [a-z][a-z0-9]*; num = [0-9]+; op = ==|=|<=|<; spaces are skipped. It takes the longest match, the earlier rule on a tie. Tokenise for1 do=x==9.",
+    "steps": [
+     "The rules are tried at the current position, and the scanner keeps the match with the most characters. If two rules match the same length, the earlier rule wins. Input: for1 do=x==9.",
+     "At position 0, kw matches for (3 characters) and id matches for1 (4 characters). The longest match is for1, so the token is id.",
+     "Skip the space. At do, kw matches 2 characters and id matches 2 characters. A tie, so the earlier rule wins: kw.",
+     "At =, the rule op could match == only if the next character were =. Here it is x, so op matches = (1 character).",
+     "At x, id matches x only, because the next character = cannot continue an identifier. Token: id.",
+     "At ==, op can match = (1 character) or == (2 characters). The longest wins: ==, one token, not two.",
+     "At 9, num matches 9. The input ends. Result: 6 tokens: id, kw, op, id, op, num."
+    ],
+    "answer": "for1 (id), do (kw), = (op), x (id), == (op), 9 (num): 6 tokens."
+   },
+   "what": "At each position the scanner tries every pattern and takes the **longest match**. If two patterns match the same length, the **earlier rule** wins. Then it continues right after the match. To count tokens, scan left to right applying this rule, and skip white space.",
+   "what_full": "At each position the scanner tries every pattern and takes the **longest match**. If two patterns match the same length, the **earlier rule** wins. Then it continues right after the match. To count tokens, scan left to right applying this rule, and skip white space.\n\nMaximal munch: from the current position i, let m be the longest prefix of the remaining input that any rule matches. Emit the token of the first rule (in list order) that matches exactly m, then move to i + |m|. If no rule matches any prefix, report a lexical error.\n\nConsequences: a keyword rule only wins over an identifier rule when the lexeme has the same length (for versus for1), a number rule cannot absorb letters, and an operator pair such as ++ or == is one token.\n\n**Worked example.** A scanner has the rules, in order: kw = for|do; id = [a-z][a-z0-9]*; num = [0-9]+; op = ==|=|<=|<; spaces are skipped. It takes the longest match, the earlier rule on a tie. Tokenise for1 do=x==9.\n\n1. The rules are tried at the current position, and the scanner keeps the match with the most characters. If two rules match the same length, the earlier rule wins. Input: for1 do=x==9.\n2. At position 0, kw matches for (3 characters) and id matches for1 (4 characters). The longest match is for1, so the token is id.\n3. Skip the space. At do, kw matches 2 characters and id matches 2 characters. A tie, so the earlier rule wins: kw.\n4. At =, the rule op could match == only if the next character were =. Here it is x, so op matches = (1 character).\n5. At x, id matches x only, because the next character = cannot continue an identifier. Token: id.\n6. At ==, op can match = (1 character) or == (2 characters). The longest wins: ==, one token, not two.\n7. At 9, num matches 9. The input ends. Result: 6 tokens: id, kw, op, id, op, num.\n\n**Answer:** for1 (id), do (kw), = (op), x (id), == (op), 9 (num): 6 tokens.",
+   "why_full": "Token counting is a regular GATE question and it is simply careful bookkeeping. In GATE: count the tokens of a code fragment, or give the token sequence for a string under a list of patterns.\n\nAsked: 2018 CS Q47, 2026 CS2 Q35, 2000 CS Q1.18, 2023 CS Q19",
+   "trap": "Taking the first rule that matches instead of the longest match, so for1 becomes the keyword for followed by the number 1. Another slip is to split == or ++ into two tokens, or to let a number swallow the letters that follow it."
+  },
+  {
+   "atom_id": "l3",
+   "title": "Derivations, handles, reductions",
+   "simple": "A parser can read a sentence in two directions. Top-down, it starts from the whole sentence's type and breaks it into parts, always working on the leftmost unfinished part. Bottom-up, it starts from the words and keeps gluing them into bigger parts, like building with blocks from the ground up. Each time it glues a group of blocks into one bigger block, that is one reduction, and the group it glued is called the handle. At the end every bigger block it made corresponds to one inner node of the sentence's tree. In exam words: LL parsers follow a leftmost derivation, LR parsers follow a rightmost derivation in reverse, and the number of reductions equals the number of internal nodes of the parse tree.",
+   "idea": "A **top-down** parser builds the tree from the root and follows a **leftmost derivation**. A **bottom-up** (LR) parser builds it from the leaves with **shift** and **reduce** moves and follows a **rightmost derivation in reverse**. A **handle** is the right side of a rule that can be reduced at the top of the stack. Each reduction creates one internal node of the parse tree.",
+   "definition": "A sentential form is a string of terminals and variables derivable from S. In a rightmost derivation the rightmost variable is replaced each step. A handle of a right-sentential form γ is a rule A → β and a position such that replacing β by A gives the previous form of a rightmost derivation.\n\nShift-reduce parsing: shift moves the next input token onto the stack; reduce replaces the handle on top of the stack by its variable; accept when the stack holds the start symbol and the input is empty.\n\nCount facts: the number of reductions equals the number of internal nodes of the parse tree. A leftmost derivation expands variables from the left; an LR parser reduces in the order of the rightmost derivation reversed.",
+   "intuition_full": "The handle is always on top of the stack, never buried, because a rightmost derivation touches the rightmost variable and the parser reads left to right. The decision to shift or reduce is where the parser needs lookahead. In E + T with * coming next, reducing E + T would be wrong: the right operand T may still grow into T * id, and * binds tighter. That is how precedence is baked into the grammar and into the parser's decisions. Each reduction builds one node, so for a tree with k internal nodes there are exactly k reductions. Top-down parsing, in contrast, fixes the rule before seeing the input below it, so it must predict, which is where FIRST and FOLLOW come in.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Grammar: E → E + T | T and T → T * id | id. Show the shift-reduce parse of id + id * id and count the reductions.",
+     "steps": [
+      "A bottom-up parser keeps a stack and reads the input left to right. It either shifts the next token onto the stack or reduces a handle on top of the stack to a variable. Grammar: E → E + T | T, T → T * id | id. Input: id + id * id.",
+      "Shift id. The top id is a handle (the right side of T → id), so reduce to T. Then T is the right side of E → T, so reduce to E. Two reductions so far.",
+      "Shift + and shift id. The stack is E + id.",
+      "The top id is a handle for T → id. Reduce it. Now the stack is E + T, but the next input is *, so T * id can still grow: do not reduce E + T yet.",
+      "Shift * and shift id. The stack is E + T * id.",
+      "Reduce the handle T * id to T, then the handle E + T to E. That makes 5 reductions in total.",
+      "The input is used up and the stack holds E, so accept. The number of reductions equals the number of internal nodes of the parse tree (E, E, T, T, T), and the reductions in order are a rightmost derivation read backwards."
+     ],
+     "answer": "The parse makes 5 reductions: T → id, E → T, T → id, T → T * id, E → E + T. This equals the 5 internal nodes of the parse tree."
+    },
+    {
+     "level": "gate",
+     "setup": "Grammar S → a S b | c. In the right-sentential form a a S b b, what is the handle?",
+     "steps": [
+      "The form aaSbb occurs in the rightmost derivation S ⇒ aSb ⇒ aaSbb ⇒ aacbb. A handle is a right side of a rule whose reduction gives the previous form of the derivation.",
+      "The only rule whose right side can match here is S → aSb. In a a S b b it occurs as the second a, the S and the first b, which are positions 2 to 4.",
+      "Reducing positions 2 to 4 to S gives a S b, which is exactly the previous form S ⇒ aSb of the derivation. So this is the handle.",
+      "The leftmost a and the last b are not part of the handle."
+     ],
+     "answer": "The handle is aSb at positions 2 to 4, reduced by S → aSb."
+    },
+    {
+     "level": "twist",
+     "setup": "For the string id + id with E → E + T | T, T → id, list the leftmost and the rightmost derivations, and the order of reductions of an LR parser.",
+     "steps": [
+      "Leftmost: E ⇒ E + T ⇒ T + T ⇒ id + T ⇒ id + id. Four steps.",
+      "Rightmost: E ⇒ E + T ⇒ E + id ⇒ T + id ⇒ id + id. Also four steps, with the same rules in a different order.",
+      "An LR parser reverses the rightmost derivation: T → id for the left id, E → T, T → id for the right id, E → E + T. So four reductions, with the left id reduced first."
+     ],
+     "answer": "Leftmost: 4 steps. Rightmost: 4 steps. LR reductions: T → id, E → T, T → id, E → E + T."
+    }
+   ],
+   "why": "Handles and derivation order are the base of every LR and LL question, and 'number of reductions' is a direct count. In GATE: count reductions, say which derivation a parser uses, or identify the handle.",
+   "how": [
+    "For top-down parsing, write a leftmost derivation and note each rule used.",
+    "For bottom-up parsing, keep a stack and apply shift or reduce, always reducing the handle on top.",
+    "Count reductions: one per internal node of the parse tree.",
+    "To find a handle, find the rightmost phrase that reduces to a variable in the previous derivation step."
+   ],
+   "mistake": "Reducing too early, ignoring the next input symbol. In E + T followed by *, reducing E + T gives the wrong tree. Another slip is to say a bottom-up parser follows a leftmost derivation: it follows a rightmost derivation in reverse.",
+   "edge_cases": [
+    "The parser may shift several times before the first reduction.",
+    "A string of length n in a CNF grammar needs n - 1 binary reductions plus n terminal reductions, so 2n - 1.",
+    "The handle is always the topmost part of the stack."
+   ],
+   "connections": [
+    "LR items and states (card 7) are the machinery that decides shift or reduce.",
+    "Parse trees and derivations were introduced in the grammar chapter."
+   ],
+   "check": [
+    {
+     "q": "Which derivation does an LR parser trace?",
+     "a": "A rightmost derivation, in reverse."
+    },
+    {
+     "q": "A parse tree has 7 internal nodes. How many reductions?",
+     "a": "7."
+    },
+    {
+     "q": "What is a handle?",
+     "a": "The right side of a rule at the top of the stack that can be reduced to continue a rightmost derivation backwards."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q34, 2005 CS Q59, 2008 CS Q11, 2013 CS Q9, 2015 CS1 Q13",
+   "try": {
+    "id": "gen.lp.003",
+    "label": "Derivation followed by a top-down parser (L1)"
+   },
+   "scene": "cd.lexical_parsing.l3.handles",
+   "example": {
+    "setup": "Grammar: E → E + T | T and T → T * id | id. Show the shift-reduce parse of id + id * id and count the reductions.",
+    "steps": [
+     "A bottom-up parser keeps a stack and reads the input left to right. It either shifts the next token onto the stack or reduces a handle on top of the stack to a variable. Grammar: E → E + T | T, T → T * id | id. Input: id + id * id.",
+     "Shift id. The top id is a handle (the right side of T → id), so reduce to T. Then T is the right side of E → T, so reduce to E. Two reductions so far.",
+     "Shift + and shift id. The stack is E + id.",
+     "The top id is a handle for T → id. Reduce it. Now the stack is E + T, but the next input is *, so T * id can still grow: do not reduce E + T yet.",
+     "Shift * and shift id. The stack is E + T * id.",
+     "Reduce the handle T * id to T, then the handle E + T to E. That makes 5 reductions in total.",
+     "The input is used up and the stack holds E, so accept. The number of reductions equals the number of internal nodes of the parse tree (E, E, T, T, T), and the reductions in order are a rightmost derivation read backwards."
+    ],
+    "answer": "The parse makes 5 reductions: T → id, E → T, T → id, T → T * id, E → E + T. This equals the 5 internal nodes of the parse tree."
+   },
+   "what": "A **top-down** parser builds the tree from the root and follows a **leftmost derivation**. A **bottom-up** (LR) parser builds it from the leaves with **shift** and **reduce** moves and follows a **rightmost derivation in reverse**. A **handle** is the right side of a rule that can be reduced at the top of the stack. Each reduction creates one internal node of the parse tree.",
+   "what_full": "A **top-down** parser builds the tree from the root and follows a **leftmost derivation**. A **bottom-up** (LR) parser builds it from the leaves with **shift** and **reduce** moves and follows a **rightmost derivation in reverse**. A **handle** is the right side of a rule that can be reduced at the top of the stack. Each reduction creates one internal node of the parse tree.\n\nA sentential form is a string of terminals and variables derivable from S. In a rightmost derivation the rightmost variable is replaced each step. A handle of a right-sentential form γ is a rule A → β and a position such that replacing β by A gives the previous form of a rightmost derivation.\n\nShift-reduce parsing: shift moves the next input token onto the stack; reduce replaces the handle on top of the stack by its variable; accept when the stack holds the start symbol and the input is empty.\n\nCount facts: the number of reductions equals the number of internal nodes of the parse tree. A leftmost derivation expands variables from the left; an LR parser reduces in the order of the rightmost derivation reversed.\n\n**Worked example.** Grammar: E → E + T | T and T → T * id | id. Show the shift-reduce parse of id + id * id and count the reductions.\n\n1. A bottom-up parser keeps a stack and reads the input left to right. It either shifts the next token onto the stack or reduces a handle on top of the stack to a variable. Grammar: E → E + T | T, T → T * id | id. Input: id + id * id.\n2. Shift id. The top id is a handle (the right side of T → id), so reduce to T. Then T is the right side of E → T, so reduce to E. Two reductions so far.\n3. Shift + and shift id. The stack is E + id.\n4. The top id is a handle for T → id. Reduce it. Now the stack is E + T, but the next input is *, so T * id can still grow: do not reduce E + T yet.\n5. Shift * and shift id. The stack is E + T * id.\n6. Reduce the handle T * id to T, then the handle E + T to E. That makes 5 reductions in total.\n7. The input is used up and the stack holds E, so accept. The number of reductions equals the number of internal nodes of the parse tree (E, E, T, T, T), and the reductions in order are a rightmost derivation read backwards.\n\n**Answer:** The parse makes 5 reductions: T → id, E → T, T → id, T → T * id, E → E + T. This equals the 5 internal nodes of the parse tree.",
+   "why_full": "Handles and derivation order are the base of every LR and LL question, and 'number of reductions' is a direct count. In GATE: count reductions, say which derivation a parser uses, or identify the handle.\n\nAsked: 2020 CS Q34, 2005 CS Q59, 2008 CS Q11, 2013 CS Q9, 2015 CS1 Q13",
+   "trap": "Reducing too early, ignoring the next input symbol. In E + T followed by *, reducing E + T gives the wrong tree. Another slip is to say a bottom-up parser follows a leftmost derivation: it follows a rightmost derivation in reverse."
+  },
+  {
+   "atom_id": "l4",
+   "title": "FIRST sets",
+   "simple": "FIRST of a symbol is the list of letters a word built from that symbol could start with. You find it by looking at the first thing in each rule. If the first thing can disappear (be replaced by nothing), you have to look at the next thing too, and the next, until you reach something that cannot disappear. If everything in the rule can disappear, then the whole thing can disappear, and we write ε to say so. In exam words: FIRST(X) is the set of terminals that can begin a string derived from X, with ε included when X is nullable.",
+   "idea": "**FIRST(X)** is the set of terminals that can **begin** a string derived from X. For a rule X → Y1 Y2 …, add FIRST(Y1) without ε, and move on to Y2 only if Y1 can **vanish** (derive ε). Add ε to FIRST(X) only if **every** symbol on the right side can vanish.",
+   "definition": "FIRST(a) = {a} for a terminal a. For a variable X:\n\n- if X → ε is a rule, ε is in FIRST(X);\n- for X → Y1 Y2 … Yk: add FIRST(Y1) − {ε}; if ε is in FIRST(Y1) add FIRST(Y2) − {ε}, and so on; if ε is in every FIRST(Yi), add ε.\n\nFor a string α = Y1 … Yk the same rule gives FIRST(α). Iterate until no set changes. Left recursion adds nothing new by itself, but it can pass nullable symbols along.",
+   "intuition_full": "FIRST answers 'what could I see next if I expand this symbol?'. A nullable symbol is transparent: whatever follows it can also show through. That is why you keep reading right until you hit a symbol that cannot vanish, and why the empty string enters FIRST only when everything vanishes. Left recursion looks dangerous, since A → A c refers to itself, but it adds only what A already has, plus c when A is nullable. The sets are computed iteratively because a variable's set can depend on another set that is still growing, so repeat the rules until nothing changes.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Grammar: S → A B C, A → a A | ε, B → b | ε, C → c | ε. Compute FIRST(S), FIRST(A), FIRST(B) and FIRST(C).",
+     "steps": [
+      "FIRST(X) is the set of terminals that can begin a string derived from X. It contains ε when X can derive the empty string. We compute it for S → A B C, A → a A | ε, B → b | ε, C → c | ε.",
+      "A → a A starts with the terminal a, so a is in FIRST(A). A → ε adds ε. FIRST(A) = {a, ε}.",
+      "B → b gives b and B → ε gives ε: FIRST(B) = {b, ε}. In the same way FIRST(C) = {c, ε}.",
+      "S → A B C: take FIRST(A) without ε, which is {a}. A can vanish, so look at B and add {b}. B can vanish, so look at C and add {c}.",
+      "C can vanish too, so A B C can derive the empty string. Add ε. FIRST(S) = {a, b, c, ε}.",
+      "Check: S derives a (A → a A, then ε for the rest), b, c, and the empty string, but nothing starting with another letter. A search over all derived strings up to length 7 confirms exactly these first letters."
+     ],
+     "answer": "FIRST(A) = {a, ε}, FIRST(B) = {b, ε}, FIRST(C) = {c, ε}, FIRST(S) = {a, b, c, ε}."
+    },
+    {
+     "level": "gate",
+     "setup": "Grammar: A → A c | B and B → d | ε. Compute FIRST(A).",
+     "steps": [
+      "FIRST(B) = {d, ε}, because B → d starts with d and B → ε adds ε.",
+      "A → B contributes FIRST(B): d, and ε because B can vanish. So A is nullable.",
+      "A → A c begins with A, so it adds FIRST(A) without ε, which is {d}. Because A can vanish, the next symbol c can also come first: add c.",
+      "FIRST(A) = {d, c, ε}. A search over strings up to length 6 derived from A shows first letters c and d and the empty string."
+     ],
+     "answer": "FIRST(A) = {c, d, ε}. Left recursion plus a nullable start lets c show through."
+    },
+    {
+     "level": "twist",
+     "setup": "Grammar: S → A B, A → a | ε, B → ε. Compute FIRST(S).",
+     "steps": [
+      "FIRST(A) = {a, ε} and FIRST(B) = {ε}.",
+      "S → A B: add a from FIRST(A). A can vanish, so look at B. B has only ε, so nothing new is added from B.",
+      "Both A and B can vanish, so S can derive the empty string: add ε."
+     ],
+     "answer": "FIRST(S) = {a, ε}. Stopping at the nullable A would lose the ε."
+    }
+   ],
+   "why": "FIRST is the first ingredient of LL(1) tables and of lookahead computations, and set questions are the biggest parsing pattern. In GATE: compute FIRST for a grammar with nullable symbols, or check which option reproduces given sets.",
+   "how": [
+    "Mark the nullable variables first (those that can derive ε).",
+    "For each rule, add FIRST of the first symbol; if it is nullable, also add the next.",
+    "Add ε only if every symbol of a right side is nullable.",
+    "Repeat until no set changes. Check the left-recursive rules for nullable passing."
+   ],
+   "mistake": "Stopping at a nullable symbol, so the sets miss the terminals behind it, or adding ε when only some symbols of the right side are nullable. ε belongs in FIRST(X) only if the whole right side can vanish.",
+   "edge_cases": [
+    "FIRST of a terminal is the terminal itself.",
+    "ε is never in a FOLLOW set but may be in a FIRST set.",
+    "A variable that derives only ε has FIRST = {ε}."
+   ],
+   "connections": [
+    "FOLLOW sets (next card) use FIRST of the tail of a rule.",
+    "The LL(1) table (card 6) places a rule under FIRST of its right side."
+   ],
+   "check": [
+    {
+     "q": "Rule B → ε. What does it add to FIRST(B)?",
+     "a": "ε only."
+    },
+    {
+     "q": "A → B c with B nullable. Which terminals does FIRST(A) get?",
+     "a": "FIRST(B) without ε, and c."
+    },
+    {
+     "q": "Does ε ever appear in FOLLOW sets?",
+     "a": "No."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q17, 2019 CS Q29, 2021 CS1 Q41, 2024 CS1 Q38, 2024 CS2 Q40, 2025 CS1 Q46",
+   "try": {
+    "id": "gen.lp.004",
+    "label": "FIRST(A) for A → B c, B → d | ε (L1)"
+   },
+   "scene": "cd.lexical_parsing.l4.first",
+   "example": {
+    "setup": "Grammar: S → A B C, A → a A | ε, B → b | ε, C → c | ε. Compute FIRST(S), FIRST(A), FIRST(B) and FIRST(C).",
+    "steps": [
+     "FIRST(X) is the set of terminals that can begin a string derived from X. It contains ε when X can derive the empty string. We compute it for S → A B C, A → a A | ε, B → b | ε, C → c | ε.",
+     "A → a A starts with the terminal a, so a is in FIRST(A). A → ε adds ε. FIRST(A) = {a, ε}.",
+     "B → b gives b and B → ε gives ε: FIRST(B) = {b, ε}. In the same way FIRST(C) = {c, ε}.",
+     "S → A B C: take FIRST(A) without ε, which is {a}. A can vanish, so look at B and add {b}. B can vanish, so look at C and add {c}.",
+     "C can vanish too, so A B C can derive the empty string. Add ε. FIRST(S) = {a, b, c, ε}.",
+     "Check: S derives a (A → a A, then ε for the rest), b, c, and the empty string, but nothing starting with another letter. A search over all derived strings up to length 7 confirms exactly these first letters."
+    ],
+    "answer": "FIRST(A) = {a, ε}, FIRST(B) = {b, ε}, FIRST(C) = {c, ε}, FIRST(S) = {a, b, c, ε}."
+   },
+   "what": "**FIRST(X)** is the set of terminals that can **begin** a string derived from X. For a rule X → Y1 Y2 …, add FIRST(Y1) without ε, and move on to Y2 only if Y1 can **vanish** (derive ε). Add ε to FIRST(X) only if **every** symbol on the right side can vanish.",
+   "what_full": "**FIRST(X)** is the set of terminals that can **begin** a string derived from X. For a rule X → Y1 Y2 …, add FIRST(Y1) without ε, and move on to Y2 only if Y1 can **vanish** (derive ε). Add ε to FIRST(X) only if **every** symbol on the right side can vanish.\n\nFIRST(a) = {a} for a terminal a. For a variable X:\n\n- if X → ε is a rule, ε is in FIRST(X);\n- for X → Y1 Y2 … Yk: add FIRST(Y1) − {ε}; if ε is in FIRST(Y1) add FIRST(Y2) − {ε}, and so on; if ε is in every FIRST(Yi), add ε.\n\nFor a string α = Y1 … Yk the same rule gives FIRST(α). Iterate until no set changes. Left recursion adds nothing new by itself, but it can pass nullable symbols along.\n\n**Worked example.** Grammar: S → A B C, A → a A | ε, B → b | ε, C → c | ε. Compute FIRST(S), FIRST(A), FIRST(B) and FIRST(C).\n\n1. FIRST(X) is the set of terminals that can begin a string derived from X. It contains ε when X can derive the empty string. We compute it for S → A B C, A → a A | ε, B → b | ε, C → c | ε.\n2. A → a A starts with the terminal a, so a is in FIRST(A). A → ε adds ε. FIRST(A) = {a, ε}.\n3. B → b gives b and B → ε gives ε: FIRST(B) = {b, ε}. In the same way FIRST(C) = {c, ε}.\n4. S → A B C: take FIRST(A) without ε, which is {a}. A can vanish, so look at B and add {b}. B can vanish, so look at C and add {c}.\n5. C can vanish too, so A B C can derive the empty string. Add ε. FIRST(S) = {a, b, c, ε}.\n6. Check: S derives a (A → a A, then ε for the rest), b, c, and the empty string, but nothing starting with another letter. A search over all derived strings up to length 7 confirms exactly these first letters.\n\n**Answer:** FIRST(A) = {a, ε}, FIRST(B) = {b, ε}, FIRST(C) = {c, ε}, FIRST(S) = {a, b, c, ε}.",
+   "why_full": "FIRST is the first ingredient of LL(1) tables and of lookahead computations, and set questions are the biggest parsing pattern. In GATE: compute FIRST for a grammar with nullable symbols, or check which option reproduces given sets.\n\nAsked: 2017 CS1 Q17, 2019 CS Q29, 2021 CS1 Q41, 2024 CS1 Q38, 2024 CS2 Q40, 2025 CS1 Q46",
+   "trap": "Stopping at a nullable symbol, so the sets miss the terminals behind it, or adding ε when only some symbols of the right side are nullable. ε belongs in FIRST(X) only if the whole right side can vanish."
+  },
+  {
+   "atom_id": "l5",
+   "title": "FOLLOW sets",
+   "simple": "FOLLOW of a symbol is the list of letters that can show up right after it somewhere in a sentence. You find it by looking at every place where the symbol appears inside a rule and reading what comes next. If the symbol is the last thing in the rule, or everything after it can disappear, then whatever can follow the whole rule can follow the symbol too, so you borrow that list from the rule's left side. The very first symbol also gets the end-of-input mark. In exam words: FOLLOW(X) is the set of terminals that can come right after X; add $ for the start symbol and inherit FOLLOW(A) when X is at the end of A's rule.",
+   "idea": "**FOLLOW(B)** is the set of terminals that can come **right after B** in some derivation. For a rule A → α B β, add FIRST(β) without ε, and if β is empty or can vanish, also add **FOLLOW(A)**. The start symbol gets **$**, and FOLLOW never contains ε.",
+   "definition": "For every rule A → α B β:\n\n- add FIRST(β) − {ε} to FOLLOW(B);\n- if β is empty, or ε is in FIRST(β), add FOLLOW(A) to FOLLOW(B).\n\nAlso put $ in FOLLOW(S) for the start symbol S. Repeat until no set changes. FOLLOW sets contain terminals and $ only, never ε.",
+   "intuition_full": "FOLLOW looks at the context after a symbol, the way FIRST looks at what the symbol itself starts with. The inheritance rule is the heart of it: if B is the last symbol of A's rule, then whatever follows A also follows B, because B's text ends where A's text ends. If the tail after B can vanish, the same reasoning applies. The sets must be computed iteratively because FOLLOW(A) may still be growing when you copy it into FOLLOW(B). FOLLOW is used in LL(1) tables to place ε-rules and in SLR parsing to decide when to reduce.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Grammar: S → A B d, A → a A | ε, B → b C | ε, C → c C | e. Compute FOLLOW(S), FOLLOW(A), FOLLOW(B) and FOLLOW(C).",
+     "steps": [
+      "FOLLOW(X) is the set of terminals that can appear right after X in some derivation. FOLLOW sets never contain ε. We compute them for S → A B d, A → a A | ε, B → b C | ε, C → c C | e.",
+      "S is the start symbol, so $ (the end of the input) is in FOLLOW(S). S never appears on a right side, so nothing else is added.",
+      "S → A B d: after A comes B d. FIRST(B d) gives b (from B → b C), and B can vanish, so d can follow A too. FOLLOW(A) ⊇ {b, d}. After B comes d, so FOLLOW(B) ⊇ {d}.",
+      "A → a A: A is at the end of the right side, so FOLLOW(A) inherits FOLLOW(A): nothing new. B → b C: C is at the end, so FOLLOW(C) inherits FOLLOW(B) = {d}.",
+      "C → c C: C is at the end, so it inherits FOLLOW(C): nothing new. A full pass changes no set, so we stop.",
+      "Result: FOLLOW(S) = {$}, FOLLOW(A) = {b, d}, FOLLOW(B) = {d}, FOLLOW(C) = {d}. A search over all sentential forms up to length 10 finds exactly these next symbols."
+     ],
+     "answer": "FOLLOW(S) = {$}, FOLLOW(A) = {b, d}, FOLLOW(B) = {d}, FOLLOW(C) = {d}."
+    },
+    {
+     "level": "gate",
+     "setup": "Grammar: S → A a | b A c, A → d | ε. Compute FOLLOW(A).",
+     "steps": [
+      "A occurs in two places, and each occurrence contributes.",
+      "S → A a: A is followed by the terminal a, so a is in FOLLOW(A).",
+      "S → b A c: A is followed by the terminal c, so c is in FOLLOW(A).",
+      "A → d and A → ε contain no A on the right. So FOLLOW(A) = {a, c}. A search over sentential forms confirms it."
+     ],
+     "answer": "FOLLOW(A) = {a, c}."
+    },
+    {
+     "level": "twist",
+     "setup": "Grammar: S → a S b | ε. Compute FOLLOW(S).",
+     "steps": [
+      "S is the start symbol, so $ is in FOLLOW(S).",
+      "In S → a S b, S is followed by b, so b is in FOLLOW(S).",
+      "FOLLOW(S) = {b, $}. The ε rule adds nothing to FOLLOW."
+     ],
+     "answer": "FOLLOW(S) = {b, $}. The end marker $ comes from the start symbol, not from a rule."
+    }
+   ],
+   "why": "FOLLOW decides where ε-rules go in an LL(1) table and when an SLR parser reduces. In GATE: compute FOLLOW sets (often alongside FIRST), or use them to decide whether a table cell conflicts.",
+   "how": [
+    "Put $ in FOLLOW of the start symbol.",
+    "For each occurrence of B in a rule A → α B β, add FIRST(β) minus ε.",
+    "If β is empty or nullable, add FOLLOW(A) to FOLLOW(B).",
+    "Repeat until nothing changes, and never put ε in a FOLLOW set."
+   ],
+   "mistake": "Forgetting to pass FOLLOW(A) down through a nullable tail, or putting ε into a FOLLOW set. Another slip is to read FIRST of the whole right side instead of FIRST of what comes after B.",
+   "edge_cases": [
+    "A variable that appears only at the end of rules inherits entirely from its parents.",
+    "The start symbol can also appear on a right side, which adds more to its FOLLOW set.",
+    "FOLLOW(A) copies into FOLLOW(B) once, but you may need several passes if copies go in a cycle."
+   ],
+   "connections": [
+    "FIRST (previous card) supplies the FIRST(β) part.",
+    "FOLLOW(A) is used for ε-rules in the LL(1) table and for reductions in SLR(1)."
+   ],
+   "check": [
+    {
+     "q": "Which symbol is always in FOLLOW of the start symbol?",
+     "a": "$, the end of input."
+    },
+    {
+     "q": "A → α B at the end of a rule. What does B inherit?",
+     "a": "FOLLOW(A)."
+    },
+    {
+     "q": "Can ε be in FOLLOW(B)?",
+     "a": "No."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q17, 2019 CS Q29, 2021 CS1 Q41, 2024 CS1 Q38, 2024 CS2 Q40, 2025 CS1 Q46",
+   "try": {
+    "id": "gen.lp.005",
+    "label": "Which statements about FOLLOW sets are true (L1)"
+   },
+   "scene": "cd.lexical_parsing.l5.follow",
+   "example": {
+    "setup": "Grammar: S → A B d, A → a A | ε, B → b C | ε, C → c C | e. Compute FOLLOW(S), FOLLOW(A), FOLLOW(B) and FOLLOW(C).",
+    "steps": [
+     "FOLLOW(X) is the set of terminals that can appear right after X in some derivation. FOLLOW sets never contain ε. We compute them for S → A B d, A → a A | ε, B → b C | ε, C → c C | e.",
+     "S is the start symbol, so $ (the end of the input) is in FOLLOW(S). S never appears on a right side, so nothing else is added.",
+     "S → A B d: after A comes B d. FIRST(B d) gives b (from B → b C), and B can vanish, so d can follow A too. FOLLOW(A) ⊇ {b, d}. After B comes d, so FOLLOW(B) ⊇ {d}.",
+     "A → a A: A is at the end of the right side, so FOLLOW(A) inherits FOLLOW(A): nothing new. B → b C: C is at the end, so FOLLOW(C) inherits FOLLOW(B) = {d}.",
+     "C → c C: C is at the end, so it inherits FOLLOW(C): nothing new. A full pass changes no set, so we stop.",
+     "Result: FOLLOW(S) = {$}, FOLLOW(A) = {b, d}, FOLLOW(B) = {d}, FOLLOW(C) = {d}. A search over all sentential forms up to length 10 finds exactly these next symbols."
+    ],
+    "answer": "FOLLOW(S) = {$}, FOLLOW(A) = {b, d}, FOLLOW(B) = {d}, FOLLOW(C) = {d}."
+   },
+   "what": "**FOLLOW(B)** is the set of terminals that can come **right after B** in some derivation. For a rule A → α B β, add FIRST(β) without ε, and if β is empty or can vanish, also add **FOLLOW(A)**. The start symbol gets **$**, and FOLLOW never contains ε.",
+   "what_full": "**FOLLOW(B)** is the set of terminals that can come **right after B** in some derivation. For a rule A → α B β, add FIRST(β) without ε, and if β is empty or can vanish, also add **FOLLOW(A)**. The start symbol gets **$**, and FOLLOW never contains ε.\n\nFor every rule A → α B β:\n\n- add FIRST(β) − {ε} to FOLLOW(B);\n- if β is empty, or ε is in FIRST(β), add FOLLOW(A) to FOLLOW(B).\n\nAlso put $ in FOLLOW(S) for the start symbol S. Repeat until no set changes. FOLLOW sets contain terminals and $ only, never ε.\n\n**Worked example.** Grammar: S → A B d, A → a A | ε, B → b C | ε, C → c C | e. Compute FOLLOW(S), FOLLOW(A), FOLLOW(B) and FOLLOW(C).\n\n1. FOLLOW(X) is the set of terminals that can appear right after X in some derivation. FOLLOW sets never contain ε. We compute them for S → A B d, A → a A | ε, B → b C | ε, C → c C | e.\n2. S is the start symbol, so $ (the end of the input) is in FOLLOW(S). S never appears on a right side, so nothing else is added.\n3. S → A B d: after A comes B d. FIRST(B d) gives b (from B → b C), and B can vanish, so d can follow A too. FOLLOW(A) ⊇ {b, d}. After B comes d, so FOLLOW(B) ⊇ {d}.\n4. A → a A: A is at the end of the right side, so FOLLOW(A) inherits FOLLOW(A): nothing new. B → b C: C is at the end, so FOLLOW(C) inherits FOLLOW(B) = {d}.\n5. C → c C: C is at the end, so it inherits FOLLOW(C): nothing new. A full pass changes no set, so we stop.\n6. Result: FOLLOW(S) = {$}, FOLLOW(A) = {b, d}, FOLLOW(B) = {d}, FOLLOW(C) = {d}. A search over all sentential forms up to length 10 finds exactly these next symbols.\n\n**Answer:** FOLLOW(S) = {$}, FOLLOW(A) = {b, d}, FOLLOW(B) = {d}, FOLLOW(C) = {d}.",
+   "why_full": "FOLLOW decides where ε-rules go in an LL(1) table and when an SLR parser reduces. In GATE: compute FOLLOW sets (often alongside FIRST), or use them to decide whether a table cell conflicts.\n\nAsked: 2017 CS1 Q17, 2019 CS Q29, 2021 CS1 Q41, 2024 CS1 Q38, 2024 CS2 Q40, 2025 CS1 Q46",
+   "trap": "Forgetting to pass FOLLOW(A) down through a nullable tail, or putting ε into a FOLLOW set. Another slip is to read FIRST of the whole right side instead of FIRST of what comes after B."
+  },
+  {
+   "atom_id": "l6",
+   "title": "LL(1) table and conflicts",
+   "simple": "A top-down parser has to decide, using only the next letter of the input, which rule to use. The LL(1) table is a cheat sheet that says: for this variable and this next letter, use this rule. You fill it by asking, for each rule, which letters could start what that rule produces. If a rule can produce nothing, it also goes under the letters that can come after the variable. If any box on the cheat sheet ends up with two rules, the parser cannot decide, and we call that a conflict. In exam words: place A → α in M[A, a] for each a in FIRST(α), and for each a in FOLLOW(A) if α is nullable; a cell with two rules is a conflict.",
+   "idea": "The **LL(1) table** M[A, a] tells a top-down parser which rule to use for variable A and next token a. Put A → α under every terminal in **FIRST(α)**. If α can vanish, also put it under every terminal in **FOLLOW(A)**. A cell with **two rules** is a conflict, and then the grammar is not LL(1).",
+   "definition": "For each rule A → α: for every terminal a in FIRST(α), put the rule in M[A, a]. If ε is in FIRST(α), put the rule in M[A, b] for every b in FOLLOW(A) (including $).\n\nG is LL(1) if no cell contains two rules. Equivalent condition: for rules A → α | β, FIRST(α) and FIRST(β) are disjoint, at most one of α, β is nullable, and if β is nullable then FIRST(α) and FOLLOW(A) are disjoint.\n\nNot LL(1): left-recursive grammars, grammars with a common prefix, and ambiguous grammars. Left recursion removal and left factoring are needed, but an ambiguous grammar stays unusable.",
+   "intuition_full": "LL(1) parsing predicts: with one token of lookahead, the parser must know which rule applies. Three things break that. Left recursion (A → A a | b) makes both rules start with whatever A starts with, so the cell has both. A common prefix (S → a b | a c) makes both rules start with a. Ambiguity means two different parses exist for the same input, so some cell must hold two rules, as in the dangling else. The ε-rule is the subtle part: choosing ε means 'this variable produces nothing here', which is right exactly when the next token can follow the variable, so ε-rules are placed under FOLLOW. Always check that placement for overlaps with FIRST of the other rules.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Build the LL(1) table for the dangling-else grammar S → i E t S S′ | a, S′ → e S | ε, E → b, with FIRST(S′) = {e, ε} and FOLLOW(S′) = {e, $}. Find the conflicts.",
+     "steps": [
+      "Grammar (dangling else, with i = if E then, e = else): 1: S → i E t S S′, 2: S → a, 3: S′ → e S, 4: S′ → ε, 5: E → b. The sets below are computed from it. The LL(1) table has one cell per (variable, terminal).",
+      "Put each rule under FIRST of its right side. Rule 1 starts with i: M[S, i] = 1. Rule 2 starts with a: M[S, a] = 2. Rule 3 starts with e: M[S′, e] = 3. Rule 5 starts with b: M[E, b] = 5.",
+      "Rule 4, S′ → ε, derives ε, so it goes under FOLLOW(S′) = {e, $}: M[S′, e] gets 4 and M[S′, $] = 4.",
+      "The cell M[S′, e] now holds two rules, 3 and 4. When the next input is e, the parser cannot tell whether to expand S′ with else or to take ε.",
+      "A grammar is LL(1) exactly when no cell holds two rules. This table has 1 conflicting cell, so the grammar is not LL(1).",
+      "The cause is ambiguity: in i E t S e S the else could attach to the inner or the outer if. No rewriting by left-factoring or removing left recursion removes an ambiguity. Parsers resolve it by a rule, taking rule 3 (the nearest if) in the conflicting cell."
+     ],
+     "answer": "One conflict: M[S′, e] holds both S′ → e S and S′ → ε. The grammar is ambiguous and not LL(1)."
+    },
+    {
+     "level": "gate",
+     "setup": "Which of these are LL(1)? (a) A → A a | b   (b) A → b B, B → a B | ε   (c) S → a b | a c   (d) S → a B, B → b | c",
+     "steps": [
+      "(a) A → A a | b is left-recursive: both rules begin with b, so M[A, b] holds two rules. Not LL(1).",
+      "(b) It generates the same language, b a*. FIRST(a B) = {a} is disjoint from FOLLOW(B) = {$}, so there is no conflict. LL(1).",
+      "(c) Both rules start with a, so M[S, a] holds two rules. Not LL(1).",
+      "(d) Left-factored form of (c): S → a B, B → b | c. The cells M[B, b] and M[B, c] each hold one rule. LL(1)."
+     ],
+     "answer": "(b) and (d) are LL(1). (a) and (c) are not. Tables were built by script for all four."
+    },
+    {
+     "level": "twist",
+     "setup": "Is S → A a, A → a | ε LL(1)? The rule A → ε looks harmless.",
+     "steps": [
+      "FIRST(a) = {a}, so A → a goes in M[A, a].",
+      "A → ε is nullable: it goes under FOLLOW(A). FOLLOW(A) = {a}, since A is followed by a.",
+      "So M[A, a] holds both A → a and A → ε: a conflict. When the next token is a, the parser cannot say whether A produces a or nothing."
+     ],
+     "answer": "Not LL(1). A nullable rule needs FIRST of the other rules to be disjoint from FOLLOW(A)."
+    }
+   ],
+   "why": "LL(1) conflicts are tested both ways: fill the table, or say which grammar is LL(1). In GATE: decide whether a grammar is LL(1), find the cell that conflicts, or count the non-empty cells.",
+   "how": [
+    "Compute FIRST and FOLLOW for every variable.",
+    "For each rule put it under FIRST of its right side.",
+    "For nullable rules, put the rule under every terminal of FOLLOW(A), including $.",
+    "Scan for cells with two rules. None means LL(1)."
+   ],
+   "mistake": "Putting the ε-rule only under FIRST and not under FOLLOW, so the table seems conflict-free when it is not. The second slip is to believe that removing left recursion and left factoring fix every grammar: an ambiguous grammar stays ambiguous.",
+   "edge_cases": [
+    "Every LL(1) grammar is unambiguous.",
+    "A conflict-free table needs at most one rule per cell, but cells may be empty (syntax error).",
+    "Counting conflicts means counting cells, not rules."
+   ],
+   "connections": [
+    "The table uses FIRST and FOLLOW (previous two cards).",
+    "Bottom-up parsing (cards 7 to 9) handles more grammars, since every LL(1) grammar is LR(1)."
+   ],
+   "check": [
+    {
+     "q": "In which cells does an ε-rule A → ε go?",
+     "a": "In M[A, b] for every terminal b in FOLLOW(A)."
+    },
+    {
+     "q": "Is a left-recursive grammar ever LL(1)?",
+     "a": "No. Both rules start with the same terminals."
+    },
+    {
+     "q": "Can an ambiguous grammar be LL(1)?",
+     "a": "No."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q17, 2019 CS Q29, 2021 CS1 Q41, 2024 CS1 Q38, 2025 CS2 Q40, 2025 CS2 Q51",
+   "try": {
+    "id": "gen.lp.011",
+    "label": "When is A → α placed in M[A, a] (L2)"
+   },
+   "scene": "cd.lexical_parsing.l6.ll1",
+   "example": {
+    "setup": "Build the LL(1) table for the dangling-else grammar S → i E t S S′ | a, S′ → e S | ε, E → b, with FIRST(S′) = {e, ε} and FOLLOW(S′) = {e, $}. Find the conflicts.",
+    "steps": [
+     "Grammar (dangling else, with i = if E then, e = else): 1: S → i E t S S′, 2: S → a, 3: S′ → e S, 4: S′ → ε, 5: E → b. The sets below are computed from it. The LL(1) table has one cell per (variable, terminal).",
+     "Put each rule under FIRST of its right side. Rule 1 starts with i: M[S, i] = 1. Rule 2 starts with a: M[S, a] = 2. Rule 3 starts with e: M[S′, e] = 3. Rule 5 starts with b: M[E, b] = 5.",
+     "Rule 4, S′ → ε, derives ε, so it goes under FOLLOW(S′) = {e, $}: M[S′, e] gets 4 and M[S′, $] = 4.",
+     "The cell M[S′, e] now holds two rules, 3 and 4. When the next input is e, the parser cannot tell whether to expand S′ with else or to take ε.",
+     "A grammar is LL(1) exactly when no cell holds two rules. This table has 1 conflicting cell, so the grammar is not LL(1).",
+     "The cause is ambiguity: in i E t S e S the else could attach to the inner or the outer if. No rewriting by left-factoring or removing left recursion removes an ambiguity. Parsers resolve it by a rule, taking rule 3 (the nearest if) in the conflicting cell."
+    ],
+    "answer": "One conflict: M[S′, e] holds both S′ → e S and S′ → ε. The grammar is ambiguous and not LL(1)."
+   },
+   "what": "The **LL(1) table** M[A, a] tells a top-down parser which rule to use for variable A and next token a. Put A → α under every terminal in **FIRST(α)**. If α can vanish, also put it under every terminal in **FOLLOW(A)**. A cell with **two rules** is a conflict, and then the grammar is not LL(1).",
+   "what_full": "The **LL(1) table** M[A, a] tells a top-down parser which rule to use for variable A and next token a. Put A → α under every terminal in **FIRST(α)**. If α can vanish, also put it under every terminal in **FOLLOW(A)**. A cell with **two rules** is a conflict, and then the grammar is not LL(1).\n\nFor each rule A → α: for every terminal a in FIRST(α), put the rule in M[A, a]. If ε is in FIRST(α), put the rule in M[A, b] for every b in FOLLOW(A) (including $).\n\nG is LL(1) if no cell contains two rules. Equivalent condition: for rules A → α | β, FIRST(α) and FIRST(β) are disjoint, at most one of α, β is nullable, and if β is nullable then FIRST(α) and FOLLOW(A) are disjoint.\n\nNot LL(1): left-recursive grammars, grammars with a common prefix, and ambiguous grammars. Left recursion removal and left factoring are needed, but an ambiguous grammar stays unusable.\n\n**Worked example.** Build the LL(1) table for the dangling-else grammar S → i E t S S′ | a, S′ → e S | ε, E → b, with FIRST(S′) = {e, ε} and FOLLOW(S′) = {e, $}. Find the conflicts.\n\n1. Grammar (dangling else, with i = if E then, e = else): 1: S → i E t S S′, 2: S → a, 3: S′ → e S, 4: S′ → ε, 5: E → b. The sets below are computed from it. The LL(1) table has one cell per (variable, terminal).\n2. Put each rule under FIRST of its right side. Rule 1 starts with i: M[S, i] = 1. Rule 2 starts with a: M[S, a] = 2. Rule 3 starts with e: M[S′, e] = 3. Rule 5 starts with b: M[E, b] = 5.\n3. Rule 4, S′ → ε, derives ε, so it goes under FOLLOW(S′) = {e, $}: M[S′, e] gets 4 and M[S′, $] = 4.\n4. The cell M[S′, e] now holds two rules, 3 and 4. When the next input is e, the parser cannot tell whether to expand S′ with else or to take ε.\n5. A grammar is LL(1) exactly when no cell holds two rules. This table has 1 conflicting cell, so the grammar is not LL(1).\n6. The cause is ambiguity: in i E t S e S the else could attach to the inner or the outer if. No rewriting by left-factoring or removing left recursion removes an ambiguity. Parsers resolve it by a rule, taking rule 3 (the nearest if) in the conflicting cell.\n\n**Answer:** One conflict: M[S′, e] holds both S′ → e S and S′ → ε. The grammar is ambiguous and not LL(1).",
+   "why_full": "LL(1) conflicts are tested both ways: fill the table, or say which grammar is LL(1). In GATE: decide whether a grammar is LL(1), find the cell that conflicts, or count the non-empty cells.\n\nAsked: 2017 CS1 Q17, 2019 CS Q29, 2021 CS1 Q41, 2024 CS1 Q38, 2025 CS2 Q40, 2025 CS2 Q51",
+   "trap": "Putting the ε-rule only under FIRST and not under FOLLOW, so the table seems conflict-free when it is not. The second slip is to believe that removing left recursion and left factoring fix every grammar: an ambiguous grammar stays ambiguous."
+  },
+  {
+   "atom_id": "l7",
+   "title": "LR(0) items, CLOSURE, GOTO",
+   "simple": "Imagine reading a recipe with your finger on the step you are at. An item is a recipe step with a dot showing where your finger is. If your finger is just before a step that says 'make the sauce', you also have to consider all the ways to make the sauce, so you add those steps with the finger at their start. That adding is called closure. Moving your finger forward over one ingredient is called goto, and it leads to a new snapshot of where you might be, a state. Counting states means counting the distinct snapshots. In exam words: an LR(0) item is a rule with a dot; CLOSURE adds rules for the variable after the dot; GOTO moves the dot over a symbol and closes.",
+   "idea": "An **LR(0) item** is a rule with a dot, such as S → ( · L ). **CLOSURE** adds, for every variable right after a dot, that variable's rules with the dot at the start. **GOTO(I, X)** moves the dot over X in every item of I that allows it, then closes. Each distinct set of items is a **state** of the LR(0) automaton.",
+   "definition": "CLOSURE(I): start with I. While some item A → α · B β is in the set and B → γ is a rule, add B → · γ. Repeat until nothing is added.\n\nGOTO(I, X) = CLOSURE({ A → α X · β : A → α · X β is in I }).\n\nKernel items are the items whose dot is not at the start (plus S′ → · S in the first state). The canonical collection starts from I0 = CLOSURE({S′ → · S}) and keeps applying GOTO until no new set appears. The number of states is the number of distinct sets.",
+   "intuition_full": "An item records progress through one rule. A state records all the places the parser might be at once, since several rules can be live together. Closure is needed because being just before a variable means you could be starting any of its rules. GOTO is the transition on reading a symbol. Different paths can lead to the same set of items, which is why counting states means counting distinct sets, not distinct paths. A good counting habit is to follow the symbols one by one: from I0 take each symbol that has a dot before it, make the GOTO, and check whether it matches an earlier set. Loops are common: a state reached by a symbol often goes back to itself on the same symbol.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Augmented grammar: S′ → S, S → ( L ) | x, L → L , S | S. Compute I0 = CLOSURE({S′ → · S}) and GOTO(I0, '('), and count the items.",
+     "steps": [
+      "An item is a rule with a dot marking how much has been read. S → ( · L ) means that ( has been seen and an L is expected next. Grammar: S′ → S, S → ( L ) | x, L → L , S | S.",
+      "I0 = CLOSURE({S′ → · S}). Start with the kernel item S′ → · S.",
+      "The dot is before S, so add every rule of S with the dot at the start: S → · ( L ) and S → · x. Now no dot sits before an unseen variable, so I0 has 3 items.",
+      "GOTO(I0, '(') takes the items that have the dot just before ( and moves the dot over it. Only S → · ( L ) qualifies, giving the kernel S → ( · L ).",
+      "Close the kernel. The dot is before L, so add L → · L , S and L → · S.",
+      "In L → · S the dot is before S, so add S → · ( L ) and S → · x. The dot before L in L → · L , S adds nothing new. I1 has 1 + 2 + 2 = 5 items.",
+      "CLOSURE keeps adding rules until no new variable sits after a dot. GOTO moves the dot over one symbol and then closes. To count the states, apply GOTO for every symbol in every state and count the distinct sets: this grammar has 9."
+     ],
+     "answer": "I0 has 3 items. GOTO(I0, '(') has 5 items: S → ( · L ), L → · L , S, L → · S, S → · ( L ), S → · x. The full automaton has 9 states."
+    },
+    {
+     "level": "gate",
+     "setup": "How many states does the LR(0) automaton of S′ → S, S → a A | b A, A → c A | d have?",
+     "steps": [
+      "I0 = {S′ → · S, S → · a A, S → · b A}. Three items.",
+      "From I0: on S the set {S′ → S ·}; on a the set {S → a · A, A → · c A, A → · d}; on b the set {S → b · A, A → · c A, A → · d}.",
+      "From the a-state: on A, {S → a A ·}; on c, {A → c · A, A → · c A, A → · d}; on d, {A → d ·}. The b-state gives {S → b A ·} on A, and the same c-state and d-state on c and d.",
+      "From the c-state: on A, {A → c A ·}; on c, back to itself; on d, the same d-state. Counting distinct sets: I0, S, a, b, A after a, A after b, c, d, A after c = 9."
+     ],
+     "answer": "9 states. A script building the automaton agrees."
+    },
+    {
+     "level": "twist",
+     "setup": "In the same automaton, how many items are in GOTO(GOTO(GOTO(I0, a), c), c)?",
+     "steps": [
+      "GOTO(I0, a) = {S → a · A, A → · c A, A → · d}.",
+      "GOTO of that set on c moves the dot over c in A → · c A and closes. The result is {A → c · A, A → · c A, A → · d}: 3 items.",
+      "GOTO of this set on c moves the dot over c in A → · c A again. The kernel is A → c · A once more, so the set is the same. The state loops to itself.",
+      "So the third set equals the second one and has 3 items."
+     ],
+     "answer": "3 items. Repeated GOTOs often loop back to an earlier set."
+    }
+   ],
+   "why": "Counting items and states is the second biggest parsing pattern and is pure bookkeeping. In GATE: count the items in a GOTO or CLOSURE set, or the states of the LR(0) automaton.",
+   "how": [
+    "Start with the kernel S′ → · S and take the closure.",
+    "For each symbol that follows a dot, move the dot over it and close.",
+    "Compare each new set with the sets you already have before naming it as a new state.",
+    "Count items by listing them: kernel items plus closure items, each once."
+   ],
+   "mistake": "Counting a set twice because it was reached by two different paths, or forgetting to add the closure after moving the dot. Another slip is adding an item twice or leaving out S′ → · S.",
+   "edge_cases": [
+    "A state may be reached on several symbols, and different symbols give different states.",
+    "When the dot is at the end, the item is complete and creates no GOTO.",
+    "An item with ε on the right is written A → · and is complete at once."
+   ],
+   "connections": [
+    "The automaton built here feeds the LR(0) and SLR(1) tables (next card).",
+    "FIRST and FOLLOW appear again for SLR reductions and for LR(1) lookaheads."
+   ],
+   "check": [
+    {
+     "q": "Which item is the kernel of I0?",
+     "a": "S′ → · S, the augmented start rule."
+    },
+    {
+     "q": "When the dot is before a variable B, what does CLOSURE add?",
+     "a": "B → · γ for every rule B → γ."
+    },
+    {
+     "q": "Two paths lead to the same set of items. How many states?",
+     "a": "One state."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q53, 2021 CS2 Q61, 2022 CS Q29, 2024 CS2 Q65",
+   "try": {
+    "id": "gen.lp.009",
+    "label": "Items in a closure of E′ → · E (L2)"
+   },
+   "scene": "cd.lexical_parsing.l7.items",
+   "example": {
+    "setup": "Augmented grammar: S′ → S, S → ( L ) | x, L → L , S | S. Compute I0 = CLOSURE({S′ → · S}) and GOTO(I0, '('), and count the items.",
+    "steps": [
+     "An item is a rule with a dot marking how much has been read. S → ( · L ) means that ( has been seen and an L is expected next. Grammar: S′ → S, S → ( L ) | x, L → L , S | S.",
+     "I0 = CLOSURE({S′ → · S}). Start with the kernel item S′ → · S.",
+     "The dot is before S, so add every rule of S with the dot at the start: S → · ( L ) and S → · x. Now no dot sits before an unseen variable, so I0 has 3 items.",
+     "GOTO(I0, '(') takes the items that have the dot just before ( and moves the dot over it. Only S → · ( L ) qualifies, giving the kernel S → ( · L ).",
+     "Close the kernel. The dot is before L, so add L → · L , S and L → · S.",
+     "In L → · S the dot is before S, so add S → · ( L ) and S → · x. The dot before L in L → · L , S adds nothing new. I1 has 1 + 2 + 2 = 5 items.",
+     "CLOSURE keeps adding rules until no new variable sits after a dot. GOTO moves the dot over one symbol and then closes. To count the states, apply GOTO for every symbol in every state and count the distinct sets: this grammar has 9."
+    ],
+    "answer": "I0 has 3 items. GOTO(I0, '(') has 5 items: S → ( · L ), L → · L , S, L → · S, S → · ( L ), S → · x. The full automaton has 9 states."
+   },
+   "what": "An **LR(0) item** is a rule with a dot, such as S → ( · L ). **CLOSURE** adds, for every variable right after a dot, that variable's rules with the dot at the start. **GOTO(I, X)** moves the dot over X in every item of I that allows it, then closes. Each distinct set of items is a **state** of the LR(0) automaton.",
+   "what_full": "An **LR(0) item** is a rule with a dot, such as S → ( · L ). **CLOSURE** adds, for every variable right after a dot, that variable's rules with the dot at the start. **GOTO(I, X)** moves the dot over X in every item of I that allows it, then closes. Each distinct set of items is a **state** of the LR(0) automaton.\n\nCLOSURE(I): start with I. While some item A → α · B β is in the set and B → γ is a rule, add B → · γ. Repeat until nothing is added.\n\nGOTO(I, X) = CLOSURE({ A → α X · β : A → α · X β is in I }).\n\nKernel items are the items whose dot is not at the start (plus S′ → · S in the first state). The canonical collection starts from I0 = CLOSURE({S′ → · S}) and keeps applying GOTO until no new set appears. The number of states is the number of distinct sets.\n\n**Worked example.** Augmented grammar: S′ → S, S → ( L ) | x, L → L , S | S. Compute I0 = CLOSURE({S′ → · S}) and GOTO(I0, '('), and count the items.\n\n1. An item is a rule with a dot marking how much has been read. S → ( · L ) means that ( has been seen and an L is expected next. Grammar: S′ → S, S → ( L ) | x, L → L , S | S.\n2. I0 = CLOSURE({S′ → · S}). Start with the kernel item S′ → · S.\n3. The dot is before S, so add every rule of S with the dot at the start: S → · ( L ) and S → · x. Now no dot sits before an unseen variable, so I0 has 3 items.\n4. GOTO(I0, '(') takes the items that have the dot just before ( and moves the dot over it. Only S → · ( L ) qualifies, giving the kernel S → ( · L ).\n5. Close the kernel. The dot is before L, so add L → · L , S and L → · S.\n6. In L → · S the dot is before S, so add S → · ( L ) and S → · x. The dot before L in L → · L , S adds nothing new. I1 has 1 + 2 + 2 = 5 items.\n7. CLOSURE keeps adding rules until no new variable sits after a dot. GOTO moves the dot over one symbol and then closes. To count the states, apply GOTO for every symbol in every state and count the distinct sets: this grammar has 9.\n\n**Answer:** I0 has 3 items. GOTO(I0, '(') has 5 items: S → ( · L ), L → · L , S, L → · S, S → · ( L ), S → · x. The full automaton has 9 states.",
+   "why_full": "Counting items and states is the second biggest parsing pattern and is pure bookkeeping. In GATE: count the items in a GOTO or CLOSURE set, or the states of the LR(0) automaton.\n\nAsked: 2019 CS Q53, 2021 CS2 Q61, 2022 CS Q29, 2024 CS2 Q65",
+   "trap": "Counting a set twice because it was reached by two different paths, or forgetting to add the closure after moving the dot. Another slip is adding an item twice or leaving out S′ → · S."
+  },
+  {
+   "atom_id": "l8",
+   "title": "LR(0) and SLR(1) conflicts",
+   "simple": "Picture a robot at a crossroads that has two choices: take a step forward (shift) or tidy up what it has just built (reduce). A very careless robot, LR(0), tidies up whenever it can, whatever it sees next, so it often argues with itself when a step forward is also possible. A smarter robot, SLR(1), tidies up only when the next thing it sees is something that can legally come after the thing it is tidying. That one check often removes the argument. When the argument remains, the table has a conflict. In exam words: LR(0) puts a reduce in every terminal column, SLR(1) puts it only under FOLLOW of the left side, and a cell with two actions is a conflict.",
+   "idea": "In an **LR(0)** table a complete item A → α · reduces on **every** terminal, so it clashes with any shift in the same state. **SLR(1)** reduces only on **FOLLOW(A)**, which often removes the clash. A conflict is a table **cell** (state, terminal) holding two actions: shift-reduce or reduce-reduce.",
+   "definition": "From the LR(0) automaton build ACTION[state, terminal]:\n\n- item A → α · a β: shift a (go to GOTO(state, a));\n- complete item A → α ·, A ≠ S′: reduce by A → α, on every terminal for LR(0), on every terminal in FOLLOW(A) for SLR(1);\n- S′ → S ·: accept on $.\n\nA cell with two or more actions is a conflict. The grammar is LR(0) or SLR(1) when its table has none. Count conflicts per cell. An ambiguous grammar has a conflict in every LR variant.",
+   "intuition_full": "The LR(0) rule is blind to the next token, so it must reduce even when the token could never follow the left side. The SLR(1) rule uses FOLLOW as a cheap summary of what can come next, which is usually enough to separate shift from reduce, as in E → T · + E versus E → T ·, where + is not in FOLLOW(E). It can still be too coarse: FOLLOW(A) merges every context in which A appears, so a reduce may be allowed on a token that cannot follow A in this particular state. The more precise tools, LALR(1) and CLR(1), track context. When counting, be careful to count cells: one state with a clash on two terminals contributes two conflicts.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Grammar E → T + E | T, T → id. The state reached after T contains E → T · + E and E → T ·. Fill its LR(0) and SLR(1) action entries for the terminals id, + and $.",
+     "steps": [
+      "Grammar: E → T + E | T, T → id (rules 1: E → T + E, 2: E → T, 3: T → id). After reading T the parser is in a state with two items: E → T · + E, where the dot is before + (a shift item), and E → T ·, which is complete (ready to reduce).",
+      "LR(0) reduces a complete item on every terminal. Fill the entry r2 (reduce by E → T) under id, + and $.",
+      "The shift item adds s4 under +. The + column now holds both s4 and r2: a shift-reduce conflict in LR(0). The id and $ columns each have one entry.",
+      "SLR(1) reduces E → T only on terminals in FOLLOW(E). E occurs only as the start symbol and at the end of E → T + E, so FOLLOW(E) = {$}.",
+      "The SLR row has r2 only under $, s4 under +, and nothing under id. No cell holds two entries, so there is no conflict.",
+      "So the grammar is SLR(1) but not LR(0). Conflicts are counted per table cell (state, terminal), not per state."
+     ],
+     "answer": "LR(0): r2 under id and $, and both s4 and r2 under +, one conflicting cell. SLR(1): FOLLOW(E) = {$}, so r2 only under $, s4 under +, no conflict."
+    },
+    {
+     "level": "gate",
+     "setup": "Grammar S → A B, A → a A | a, B → b B | b. How many conflicting cells has the LR(0) table, and how many the SLR(1) table?",
+     "steps": [
+      "After reading a, one state holds A → a · A, A → a ·, A → · a A and A → · a. The complete item A → a · reduces on every terminal in LR(0), and the shift item shifts a. The cell for a has two actions: 1 conflict.",
+      "After reading b, the state holds B → b · B, B → b ·, B → · b B and B → · b. In LR(0) the cell for b has shift and reduce: 1 more conflict. LR(0) total: 2.",
+      "In SLR(1), A → a · reduces only on FOLLOW(A) = {b}, which does not include a, so the shift on a stands alone. B → b · reduces only on FOLLOW(B) = {$}, which does not include b.",
+      "So SLR(1) has no conflicts. A script that builds both tables gives 2 and 0."
+     ],
+     "answer": "LR(0): 2 conflicting cells. SLR(1): none. The grammar is SLR(1) but not LR(0)."
+    },
+    {
+     "level": "twist",
+     "setup": "Grammar S → A | B, A → a, B → a. How many conflict cells in LR(0), SLR(1), LALR(1) and CLR(1)?",
+     "steps": [
+      "After reading a, the state holds the two complete items A → a · and B → a ·. Whatever the next token, the parser cannot decide which rule to reduce by.",
+      "LR(0) reduces on every terminal, so both reductions sit in the cells for a and for $: 2 conflicting cells.",
+      "SLR(1): FOLLOW(A) = FOLLOW(B) = {$}, so both reduce on $ only: 1 conflicting cell.",
+      "LALR(1) and CLR(1) also see the same lookahead $ for both items: 1 conflicting cell. The grammar is ambiguous, since a has two parse trees, so no LR(k) parser can be conflict-free."
+     ],
+     "answer": "LR(0): 2, SLR(1): 1, LALR(1): 1, CLR(1): 1. Ambiguity gives a conflict in every LR variant."
+    }
+   ],
+   "why": "Conflict counting and classification are a regular GATE pattern. In GATE: say whether a grammar is LR(0), SLR(1), LALR(1) or CLR(1), or count the conflicting cells in a table.",
+   "how": [
+    "Build the LR(0) automaton and list the states with a complete item.",
+    "For LR(0), a complete item reduces on every terminal. For SLR(1), only on FOLLOW of the left side.",
+    "Look for shift-reduce clashes (a shift on a plus a reduce on a) and reduce-reduce clashes.",
+    "Count conflicting cells (state, terminal), and check ambiguity: an ambiguous grammar is in no LR class."
+   ],
+   "mistake": "Declaring an SLR(1) conflict because LR(0) has one. Check FOLLOW first. Another slip is to count states instead of cells, or to forget that an ambiguous grammar conflicts in every variant.",
+   "edge_cases": [
+    "A state with one complete item and no shift items never conflicts.",
+    "A reduce-reduce conflict needs two complete items in one state whose FOLLOW sets overlap.",
+    "Every SLR(1) grammar is LALR(1) and CLR(1), but not the reverse."
+   ],
+   "connections": [
+    "The item sets come from card 7.",
+    "LALR(1) and CLR(1) (next card) refine the lookahead so that fewer conflicts remain."
+   ],
+   "check": [
+    {
+     "q": "On which terminals does an SLR(1) parser reduce by A → α?",
+     "a": "Those in FOLLOW(A)."
+    },
+    {
+     "q": "A state has A → a · and B → a · and FOLLOW(A) ∩ FOLLOW(B) ≠ ∅. What conflict?",
+     "a": "A reduce-reduce conflict in SLR(1)."
+    },
+    {
+     "q": "Is every LR(0) grammar SLR(1)?",
+     "a": "Yes. If LR(0) has no conflict, SLR(1) has none either."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q40, 2025 CS2 Q51, 2026 CS2 Q41, 2003 CS Q57, 2005 CS Q60, 2010 CS Q38",
+   "try": {
+    "id": "gen.lp.010",
+    "label": "Shift-reduce conflict in the state after T (L2)"
+   },
+   "scene": "cd.lexical_parsing.l8.conflict",
+   "example": {
+    "setup": "Grammar E → T + E | T, T → id. The state reached after T contains E → T · + E and E → T ·. Fill its LR(0) and SLR(1) action entries for the terminals id, + and $.",
+    "steps": [
+     "Grammar: E → T + E | T, T → id (rules 1: E → T + E, 2: E → T, 3: T → id). After reading T the parser is in a state with two items: E → T · + E, where the dot is before + (a shift item), and E → T ·, which is complete (ready to reduce).",
+     "LR(0) reduces a complete item on every terminal. Fill the entry r2 (reduce by E → T) under id, + and $.",
+     "The shift item adds s4 under +. The + column now holds both s4 and r2: a shift-reduce conflict in LR(0). The id and $ columns each have one entry.",
+     "SLR(1) reduces E → T only on terminals in FOLLOW(E). E occurs only as the start symbol and at the end of E → T + E, so FOLLOW(E) = {$}.",
+     "The SLR row has r2 only under $, s4 under +, and nothing under id. No cell holds two entries, so there is no conflict.",
+     "So the grammar is SLR(1) but not LR(0). Conflicts are counted per table cell (state, terminal), not per state."
+    ],
+    "answer": "LR(0): r2 under id and $, and both s4 and r2 under +, one conflicting cell. SLR(1): FOLLOW(E) = {$}, so r2 only under $, s4 under +, no conflict."
+   },
+   "what": "In an **LR(0)** table a complete item A → α · reduces on **every** terminal, so it clashes with any shift in the same state. **SLR(1)** reduces only on **FOLLOW(A)**, which often removes the clash. A conflict is a table **cell** (state, terminal) holding two actions: shift-reduce or reduce-reduce.",
+   "what_full": "In an **LR(0)** table a complete item A → α · reduces on **every** terminal, so it clashes with any shift in the same state. **SLR(1)** reduces only on **FOLLOW(A)**, which often removes the clash. A conflict is a table **cell** (state, terminal) holding two actions: shift-reduce or reduce-reduce.\n\nFrom the LR(0) automaton build ACTION[state, terminal]:\n\n- item A → α · a β: shift a (go to GOTO(state, a));\n- complete item A → α ·, A ≠ S′: reduce by A → α, on every terminal for LR(0), on every terminal in FOLLOW(A) for SLR(1);\n- S′ → S ·: accept on $.\n\nA cell with two or more actions is a conflict. The grammar is LR(0) or SLR(1) when its table has none. Count conflicts per cell. An ambiguous grammar has a conflict in every LR variant.\n\n**Worked example.** Grammar E → T + E | T, T → id. The state reached after T contains E → T · + E and E → T ·. Fill its LR(0) and SLR(1) action entries for the terminals id, + and $.\n\n1. Grammar: E → T + E | T, T → id (rules 1: E → T + E, 2: E → T, 3: T → id). After reading T the parser is in a state with two items: E → T · + E, where the dot is before + (a shift item), and E → T ·, which is complete (ready to reduce).\n2. LR(0) reduces a complete item on every terminal. Fill the entry r2 (reduce by E → T) under id, + and $.\n3. The shift item adds s4 under +. The + column now holds both s4 and r2: a shift-reduce conflict in LR(0). The id and $ columns each have one entry.\n4. SLR(1) reduces E → T only on terminals in FOLLOW(E). E occurs only as the start symbol and at the end of E → T + E, so FOLLOW(E) = {$}.\n5. The SLR row has r2 only under $, s4 under +, and nothing under id. No cell holds two entries, so there is no conflict.\n6. So the grammar is SLR(1) but not LR(0). Conflicts are counted per table cell (state, terminal), not per state.\n\n**Answer:** LR(0): r2 under id and $, and both s4 and r2 under +, one conflicting cell. SLR(1): FOLLOW(E) = {$}, so r2 only under $, s4 under +, no conflict.",
+   "why_full": "Conflict counting and classification are a regular GATE pattern. In GATE: say whether a grammar is LR(0), SLR(1), LALR(1) or CLR(1), or count the conflicting cells in a table.\n\nAsked: 2025 CS2 Q40, 2025 CS2 Q51, 2026 CS2 Q41, 2003 CS Q57, 2005 CS Q60, 2010 CS Q38",
+   "trap": "Declaring an SLR(1) conflict because LR(0) has one. Check FOLLOW first. Another slip is to count states instead of cells, or to forget that an ambiguous grammar conflicts in every variant."
+  },
+  {
+   "atom_id": "l9",
+   "title": "LR(1), LALR(1), CLR(1)",
+   "simple": "Think of a parser's snapshot as a photo that also records what is expected to come next. The careful version, CLR, keeps one photo for every different 'what comes next' note, which gives a big album. The cheaper version, LALR, says that two photos that look the same except for the 'what comes next' notes can share one page, with the notes combined. That saves pages. The risk is that after combining notes, the page may now allow two different tidy-ups on the same next thing, which is a conflict that the careful album did not have. In exam words: CLR(1) states carry exact lookaheads; LALR(1) merges states with the same core, has as many states as LR(0), and can add reduce-reduce conflicts but never shift-reduce conflicts.",
+   "idea": "**CLR(1)** items carry an exact **lookahead**, and the automaton can be large. **LALR(1)** **merges** CLR(1) states with the same core (the same items without lookaheads) and unions their lookaheads, so it has as many states as LR(0). Merging never adds a shift-reduce conflict but can add a **reduce-reduce** conflict.",
+   "definition": "An LR(1) item is [A → α · β, a], with lookahead terminal a. CLOSURE adds [B → · γ, b] for each b in FIRST(β a). The CLR(1) automaton uses these items, and reduces by A → α · on exactly the lookahead a.\n\nLALR(1): merge every pair of states with the same core and union their lookaheads. The number of LALR(1) states equals the number of LR(0) states.\n\nPower order: LR(0) ⊂ SLR(1) ⊂ LALR(1) ⊂ CLR(1) (as grammar classes), and every LL(1) grammar is CLR(1). State order: LR(0) = SLR(1) = LALR(1) ≤ CLR(1). Merging can add reduce-reduce conflicts only.",
+   "intuition_full": "The core of a state decides the shifts, because shifts depend only on the dots, not on the lookaheads. So merging two states with the same core leaves all shifts as they were, and can never create a shift-reduce conflict that was not already there. Reductions, however, depend on lookaheads. After merging, a reduce item inherits the union of lookaheads from both states, so two different complete items, each reducing on a different token in the separate states, may now both reduce on the same token. That is the reduce-reduce conflict. In the usual grammar tests the merge is harmless when each merged state holds one complete item, and harmful when it holds two. CLR avoids the problem at the cost of more states.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Grammar S → A c A, A → a | b. Build the CLR(1) states with the reductions A → a and A → b, and show how LALR(1) merges them. Count the states of each.",
+     "steps": [
+      "Grammar S → A c A, A → a | b. A CLR(1) item carries an exact lookahead: the terminals that can follow this item in this particular context.",
+      "In I0 the first A comes from S → · A c A, so it is followed by c. Reading a gives I3 = {A → a ·, c}. Reading b gives I4 = {A → b ·, c}.",
+      "After A c, the second A is followed by $. Reading a gives I7 = {A → a ·, $}. Reading b gives I8 = {A → b ·, $}.",
+      "I3 and I7 have the same core A → a · but different lookaheads (c and $). So do I4 and I8. CLR(1) keeps each of them apart: 9 states in all.",
+      "LALR(1) merges states with the same core and takes the union of their lookaheads: {A → a ·, c/$} and {A → b ·, c/$}. The count drops from 9 to 7, the same as the LR(0) automaton.",
+      "Merging cannot create a shift-reduce conflict, because shifts depend only on the core. It can create a reduce-reduce conflict, when two complete items in a merged state get overlapping lookaheads. Here each merged state has one complete item, so no conflict appears."
+     ],
+     "answer": "CLR(1) has 9 states, LALR(1) merges {A → a ·} and {A → b ·} pairs to give 7 states, the same as LR(0). No conflicts arise."
+    },
+    {
+     "level": "gate",
+     "setup": "Grammar S → A a | b A c | d c | b d a, A → d. Is it SLR(1)? LALR(1)?",
+     "steps": [
+      "After reading d from the start, the state holds S → d · c and A → d ·. After b d it holds S → b d · a and A → d ·.",
+      "SLR(1): FOLLOW(A) = {a, c}. In the first state the reduce A → d · on c clashes with the shift of c. In the second the reduce on a clashes with the shift of a. That is 2 conflicting cells, so the grammar is not SLR(1).",
+      "LR(1) lookaheads are exact: in the first state A → d · has lookahead a (it comes from S → A a), and in the second it has lookahead c (from S → b A c). The shifts on c and a no longer collide with a reduce.",
+      "So the grammar is LALR(1) and CLR(1) but not SLR(1). A script that builds all tables confirms 2, 0 and 0 conflicts."
+     ],
+     "answer": "Not SLR(1) (2 conflicting cells). It is LALR(1) and CLR(1)."
+    },
+    {
+     "level": "twist",
+     "setup": "Grammar S → a A d | b B d | a B e | b A e, A → c, B → c. CLR(1) has 14 states and no conflict. What happens when LALR(1) merges?",
+     "steps": [
+      "After a c the state is {A → c ·, d; B → c ·, e}. After b c it is {B → c ·, d; A → c ·, e}.",
+      "These two states have the same core {A → c ·, B → c ·}, so LALR(1) merges them: both items now have the lookahead set {d, e}.",
+      "On d, the merged state can reduce by A → c or by B → c; on e likewise. That is 2 reduce-reduce conflict cells.",
+      "LALR(1) has 13 states and two conflicts, so the grammar is CLR(1) but not LALR(1)."
+     ],
+     "answer": "LALR(1) introduces 2 reduce-reduce conflicts. CLR(1) has none."
+    }
+   ],
+   "why": "The power order of the parser classes and the effect of merging are tested directly. In GATE: choose the true statement about LALR and CLR, decide which class a grammar belongs to, or count states.",
+   "how": [
+    "Remember: shifts depend on the core, reduces depend on the lookahead.",
+    "Build LR(1) states, find pairs with the same core, and merge them with unioned lookaheads.",
+    "After merging, check complete items in each merged state for overlapping lookaheads.",
+    "State counts: LR(0) = SLR(1) = LALR(1) ≤ CLR(1)."
+   ],
+   "mistake": "Believing LALR merging can add shift-reduce conflicts. It can only add reduce-reduce conflicts. Another slip is to give LALR as many states as CLR, or to forget that LALR has the same number of states as LR(0).",
+   "edge_cases": [
+    "If a CLR(1) grammar has no state with two same-core states, LALR(1) equals CLR(1).",
+    "Every LALR(1) grammar is CLR(1).",
+    "yacc and bison generate LALR(1) parsers."
+   ],
+   "connections": [
+    "SLR(1) uses FOLLOW as an approximate lookahead (previous card).",
+    "LL(1) grammars are a strict subset of LR(1) grammars."
+   ],
+   "check": [
+    {
+     "q": "How does the number of LALR(1) states compare with LR(0)?",
+     "a": "They are equal."
+    },
+    {
+     "q": "Can merging states create a shift-reduce conflict?",
+     "a": "No. It can only create a reduce-reduce conflict."
+    },
+    {
+     "q": "Which is the strongest class: SLR(1), LALR(1), CLR(1)?",
+     "a": "CLR(1)."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q6, 2019 CS Q13, 2021 CS1 Q15, 2022 CS Q13, 2024 CS1 Q26, 2026 CS1 Q28, 2025 CS2 Q40",
+   "try": {
+    "id": "gen.lp.006",
+    "label": "Ordering of parsers by power (L1)"
+   },
+   "scene": "cd.lexical_parsing.l9.lalr",
+   "example": {
+    "setup": "Grammar S → A c A, A → a | b. Build the CLR(1) states with the reductions A → a and A → b, and show how LALR(1) merges them. Count the states of each.",
+    "steps": [
+     "Grammar S → A c A, A → a | b. A CLR(1) item carries an exact lookahead: the terminals that can follow this item in this particular context.",
+     "In I0 the first A comes from S → · A c A, so it is followed by c. Reading a gives I3 = {A → a ·, c}. Reading b gives I4 = {A → b ·, c}.",
+     "After A c, the second A is followed by $. Reading a gives I7 = {A → a ·, $}. Reading b gives I8 = {A → b ·, $}.",
+     "I3 and I7 have the same core A → a · but different lookaheads (c and $). So do I4 and I8. CLR(1) keeps each of them apart: 9 states in all.",
+     "LALR(1) merges states with the same core and takes the union of their lookaheads: {A → a ·, c/$} and {A → b ·, c/$}. The count drops from 9 to 7, the same as the LR(0) automaton.",
+     "Merging cannot create a shift-reduce conflict, because shifts depend only on the core. It can create a reduce-reduce conflict, when two complete items in a merged state get overlapping lookaheads. Here each merged state has one complete item, so no conflict appears."
+    ],
+    "answer": "CLR(1) has 9 states, LALR(1) merges {A → a ·} and {A → b ·} pairs to give 7 states, the same as LR(0). No conflicts arise."
+   },
+   "what": "**CLR(1)** items carry an exact **lookahead**, and the automaton can be large. **LALR(1)** **merges** CLR(1) states with the same core (the same items without lookaheads) and unions their lookaheads, so it has as many states as LR(0). Merging never adds a shift-reduce conflict but can add a **reduce-reduce** conflict.",
+   "what_full": "**CLR(1)** items carry an exact **lookahead**, and the automaton can be large. **LALR(1)** **merges** CLR(1) states with the same core (the same items without lookaheads) and unions their lookaheads, so it has as many states as LR(0). Merging never adds a shift-reduce conflict but can add a **reduce-reduce** conflict.\n\nAn LR(1) item is [A → α · β, a], with lookahead terminal a. CLOSURE adds [B → · γ, b] for each b in FIRST(β a). The CLR(1) automaton uses these items, and reduces by A → α · on exactly the lookahead a.\n\nLALR(1): merge every pair of states with the same core and union their lookaheads. The number of LALR(1) states equals the number of LR(0) states.\n\nPower order: LR(0) ⊂ SLR(1) ⊂ LALR(1) ⊂ CLR(1) (as grammar classes), and every LL(1) grammar is CLR(1). State order: LR(0) = SLR(1) = LALR(1) ≤ CLR(1). Merging can add reduce-reduce conflicts only.\n\n**Worked example.** Grammar S → A c A, A → a | b. Build the CLR(1) states with the reductions A → a and A → b, and show how LALR(1) merges them. Count the states of each.\n\n1. Grammar S → A c A, A → a | b. A CLR(1) item carries an exact lookahead: the terminals that can follow this item in this particular context.\n2. In I0 the first A comes from S → · A c A, so it is followed by c. Reading a gives I3 = {A → a ·, c}. Reading b gives I4 = {A → b ·, c}.\n3. After A c, the second A is followed by $. Reading a gives I7 = {A → a ·, $}. Reading b gives I8 = {A → b ·, $}.\n4. I3 and I7 have the same core A → a · but different lookaheads (c and $). So do I4 and I8. CLR(1) keeps each of them apart: 9 states in all.\n5. LALR(1) merges states with the same core and takes the union of their lookaheads: {A → a ·, c/$} and {A → b ·, c/$}. The count drops from 9 to 7, the same as the LR(0) automaton.\n6. Merging cannot create a shift-reduce conflict, because shifts depend only on the core. It can create a reduce-reduce conflict, when two complete items in a merged state get overlapping lookaheads. Here each merged state has one complete item, so no conflict appears.\n\n**Answer:** CLR(1) has 9 states, LALR(1) merges {A → a ·} and {A → b ·} pairs to give 7 states, the same as LR(0). No conflicts arise.",
+   "why_full": "The power order of the parser classes and the effect of merging are tested directly. In GATE: choose the true statement about LALR and CLR, decide which class a grammar belongs to, or count states.\n\nAsked: 2017 CS2 Q6, 2019 CS Q13, 2021 CS1 Q15, 2022 CS Q13, 2024 CS1 Q26, 2026 CS1 Q28, 2025 CS2 Q40",
+   "trap": "Believing LALR merging can add shift-reduce conflicts. It can only add reduce-reduce conflicts. Another slip is to give LALR as many states as CLR, or to forget that LALR has the same number of states as LR(0)."
+  },
+  {
+   "atom_id": "l10",
+   "title": "Precedence and associativity",
+   "simple": "When you see 2 + 3 × 4 you know to do the multiplication first, because multiplication is stronger than addition. That strength order is called precedence. When two operators of the same strength sit side by side, like 8 − 4 − 2, you need a second rule saying which one goes first: left to right, or right to left. That is associativity. A grammar builds these rules in: the operators written deeper in the grammar are stronger, and a rule that repeats on the left makes left-to-right grouping. To evaluate, handle the strongest operators first, and break ties by the stated direction. In exam words: an operator defined deeper in the grammar binds tighter, left recursion gives left associativity and right recursion gives right associativity.",
+   "idea": "In an expression grammar, an operator defined at a **deeper** variable has **higher precedence**. A rule like E → E - T makes the operator **left associative**, while E → T ^ E makes it **right associative**. To evaluate, work from the highest-precedence operator down, and use each operator's associativity to order equal operators.",
+   "definition": "For E → E + T | T, T → T * F | F, F → id:\n\n- precedence: * is defined at T, below E, so * binds tighter than +;\n- associativity: the recursion E → E + T is on the left, so + is left associative; T → F ^ T is recursive on the right, so ^ is right associative;\n- an ambiguous rule such as E → E + E | E * E gives neither: the grammar is ambiguous and precedence must be declared separately.\n\nEvaluation: apply the highest level first; within a level, left-associative operators go left to right and right-associative ones right to left.",
+   "intuition_full": "The parse tree decides the grouping, and the grammar decides the tree. A variable lower in the derivation sits deeper in the tree, so its operator is applied before the operators above it: that is precedence. Left recursion makes the tree grow to the left (a left-leaning chain), so the leftmost operator is lowest in the tree and is applied first. Right recursion leans the tree the other way. When evaluating a printed expression, the safest method is to repeat three steps: find the highest-precedence operator present, pick the leftmost or rightmost occurrence according to its associativity, and replace that sub-expression by its value. Doing the same with the wrong associativity is the usual source of wrong answers.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Operators: - is lowest and left associative, * is next and left associative, ^ is highest and right associative. Evaluate 20 - 3 * 2 ^ 2 ^ 1 - 5.",
+     "steps": [
+      "Operator properties: ^ binds tightest and is right associative, * is next and left associative, - binds loosest and is left associative. Evaluate 20 - 3 * 2 ^ 2 ^ 1 - 5 level by level, highest level first.",
+      "Level ^, right associative: the rightmost ^ goes first. 2 ^ 1 = 2. The expression is now 20 - 3 * 2 ^ 2 - 5.",
+      "The remaining ^ is next: 2 ^ 2 = 4. The expression is now 20 - 3 * 4 - 5.",
+      "Level *: 3 * 4 = 12. The expression is now 20 - 12 - 5.",
+      "Level -, left associative: the leftmost - goes first. 20 - 12 = 8. The expression is now 8 - 5.",
+      "The last - gives 8 - 5 = 3. The value is 3.",
+      "Check the effect of associativity: if - were right associative, the last two would group as 12 - 5 = 7 first and the value would be 20 - 7 = 13, not 3."
+     ],
+     "answer": "The value is 3. Working: 2 ^ 1 = 2, 2 ^ 2 = 4, 3 * 4 = 12, 20 - 12 = 8, 8 - 5 = 3."
+    },
+    {
+     "level": "gate",
+     "setup": "Grammar: E → E # T | T, T → F @ T | F, F → n. Take # as subtraction and @ as division. Find the precedence and associativity and evaluate 40 # 24 @ 4 @ 2 # 3.",
+     "steps": [
+      "E → E # T recurses on the left, so # is left associative. T → F @ T recurses on the right, so @ is right associative. T is deeper than E, so @ binds tighter than #.",
+      "Evaluate @ first, right to left: 4 @ 2 = 2, then 24 @ 2 = 12. The expression is 40 # 12 # 3.",
+      "Then # left to right: 40 # 12 = 28, then 28 # 3 = 25.",
+      "If @ were left associative, (24 @ 4) @ 2 would be 3 and the answer would be 34. The associativity changes the result."
+     ],
+     "answer": "@ is higher and right associative, # is lower and left associative. The value is 25."
+    },
+    {
+     "level": "twist",
+     "setup": "Evaluate 8 - 4 - 2 under E → E - T | T (left), E → T - E | T (right), and E → E - E | T (ambiguous).",
+     "steps": [
+      "Left recursion: the tree is ((8 - 4) - 2) = 4 - 2 = 2.",
+      "Right recursion: the tree is (8 - (4 - 2)) = 8 - 2 = 6.",
+      "E → E - E: both trees are possible, so the grammar is ambiguous and the value is not determined by the grammar alone."
+     ],
+     "answer": "2 with left recursion, 6 with right recursion, undefined for the ambiguous grammar."
+    }
+   ],
+   "why": "Precedence and associativity questions test whether you read the grammar's structure and evaluate in the right order. In GATE: read operator properties from a grammar or a table and evaluate an expression, or pick the grammar that gives the stated properties.",
+   "how": [
+    "List the levels from the grammar: the deepest variable has the highest precedence.",
+    "Note each level's associativity from the side of the recursion.",
+    "Evaluate the highest level first. Inside a level, go left to right for left associativity and right to left for right associativity.",
+    "Replace each evaluated part by its value and repeat."
+   ],
+   "mistake": "Evaluating the operators from left to right regardless of precedence, or using the wrong direction inside a level. Another slip is to read the associativity from the operator's symbol rather than from the side of the recursion in the grammar.",
+   "edge_cases": [
+    "An unambiguous grammar fixes both precedence and associativity.",
+    "Unary minus often binds tighter than binary operators and is a separate level.",
+    "Parser generators use declared precedence to resolve the conflicts of an ambiguous grammar."
+   ],
+   "connections": [
+    "The same grammar structure shows up in LR parsing: a shift on * after E + T builds the higher level first (card 3).",
+    "Ambiguity from E → E + E was met in the grammar chapter."
+   ],
+   "check": [
+    {
+     "q": "In E → E + T | T, is + left or right associative?",
+     "a": "Left."
+    },
+    {
+     "q": "In E → T ^ E | T, is ^ left or right associative?",
+     "a": "Right."
+    },
+    {
+     "q": "Value of 2 * 3 + 4 * 5 with * above +?",
+     "a": "6 + 20 = 26."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q32, 2018 CS Q48, 2024 CS1 Q33, 2016 CS1 Q45, 2014 CS2 Q17, 2000 CS Q2.21",
+   "try": {
+    "id": "gen.lp.012",
+    "label": "Statement true for E → E + T | T, T → T * F | F (L2)"
+   },
+   "scene": "cd.lexical_parsing.l10.assoc",
+   "example": {
+    "setup": "Operators: - is lowest and left associative, * is next and left associative, ^ is highest and right associative. Evaluate 20 - 3 * 2 ^ 2 ^ 1 - 5.",
+    "steps": [
+     "Operator properties: ^ binds tightest and is right associative, * is next and left associative, - binds loosest and is left associative. Evaluate 20 - 3 * 2 ^ 2 ^ 1 - 5 level by level, highest level first.",
+     "Level ^, right associative: the rightmost ^ goes first. 2 ^ 1 = 2. The expression is now 20 - 3 * 2 ^ 2 - 5.",
+     "The remaining ^ is next: 2 ^ 2 = 4. The expression is now 20 - 3 * 4 - 5.",
+     "Level *: 3 * 4 = 12. The expression is now 20 - 12 - 5.",
+     "Level -, left associative: the leftmost - goes first. 20 - 12 = 8. The expression is now 8 - 5.",
+     "The last - gives 8 - 5 = 3. The value is 3.",
+     "Check the effect of associativity: if - were right associative, the last two would group as 12 - 5 = 7 first and the value would be 20 - 7 = 13, not 3."
+    ],
+    "answer": "The value is 3. Working: 2 ^ 1 = 2, 2 ^ 2 = 4, 3 * 4 = 12, 20 - 12 = 8, 8 - 5 = 3."
+   },
+   "what": "In an expression grammar, an operator defined at a **deeper** variable has **higher precedence**. A rule like E → E - T makes the operator **left associative**, while E → T ^ E makes it **right associative**. To evaluate, work from the highest-precedence operator down, and use each operator's associativity to order equal operators.",
+   "what_full": "In an expression grammar, an operator defined at a **deeper** variable has **higher precedence**. A rule like E → E - T makes the operator **left associative**, while E → T ^ E makes it **right associative**. To evaluate, work from the highest-precedence operator down, and use each operator's associativity to order equal operators.\n\nFor E → E + T | T, T → T * F | F, F → id:\n\n- precedence: * is defined at T, below E, so * binds tighter than +;\n- associativity: the recursion E → E + T is on the left, so + is left associative; T → F ^ T is recursive on the right, so ^ is right associative;\n- an ambiguous rule such as E → E + E | E * E gives neither: the grammar is ambiguous and precedence must be declared separately.\n\nEvaluation: apply the highest level first; within a level, left-associative operators go left to right and right-associative ones right to left.\n\n**Worked example.** Operators: - is lowest and left associative, * is next and left associative, ^ is highest and right associative. Evaluate 20 - 3 * 2 ^ 2 ^ 1 - 5.\n\n1. Operator properties: ^ binds tightest and is right associative, * is next and left associative, - binds loosest and is left associative. Evaluate 20 - 3 * 2 ^ 2 ^ 1 - 5 level by level, highest level first.\n2. Level ^, right associative: the rightmost ^ goes first. 2 ^ 1 = 2. The expression is now 20 - 3 * 2 ^ 2 - 5.\n3. The remaining ^ is next: 2 ^ 2 = 4. The expression is now 20 - 3 * 4 - 5.\n4. Level *: 3 * 4 = 12. The expression is now 20 - 12 - 5.\n5. Level -, left associative: the leftmost - goes first. 20 - 12 = 8. The expression is now 8 - 5.\n6. The last - gives 8 - 5 = 3. The value is 3.\n7. Check the effect of associativity: if - were right associative, the last two would group as 12 - 5 = 7 first and the value would be 20 - 7 = 13, not 3.\n\n**Answer:** The value is 3. Working: 2 ^ 1 = 2, 2 ^ 2 = 4, 3 * 4 = 12, 20 - 12 = 8, 8 - 5 = 3.",
+   "why_full": "Precedence and associativity questions test whether you read the grammar's structure and evaluate in the right order. In GATE: read operator properties from a grammar or a table and evaluate an expression, or pick the grammar that gives the stated properties.\n\nAsked: 2017 CS2 Q32, 2018 CS Q48, 2024 CS1 Q33, 2016 CS1 Q45, 2014 CS2 Q17, 2000 CS Q2.21",
+   "trap": "Evaluating the operators from left to right regardless of precedence, or using the wrong direction inside a level. Another slip is to read the associativity from the operator's symbol rather than from the side of the recursion in the grammar."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "cd.lexical_parsing.l1.phases",
+   "title": "Front-end phases on area = w * 4;",
+   "viewBox": [
+    0,
+    0,
+    360,
+    290
+   ],
+   "objects": [
+    {
+     "id": "raw",
+     "kind": "text",
+     "x": 180,
+     "y": 40,
+     "text": "area = w * 4;",
+     "size": 16,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "lex",
+     "kind": "array",
+     "x": 18,
+     "y": 26,
+     "cells": [
+      "area",
+      "=",
+      "w",
+      "*",
+      "4",
+      ";"
+     ],
+     "cw": 54,
+     "ch": 30,
+     "indices": false,
+     "label": "lexemes"
+    },
+    {
+     "id": "tok",
+     "kind": "array",
+     "x": 18,
+     "y": 80,
+     "cells": [
+      "id",
+      "assign",
+      "id",
+      "mul",
+      "num",
+      "semi"
+     ],
+     "cw": 54,
+     "ch": 30,
+     "indices": false,
+     "label": "tokens"
+    },
+    {
+     "id": "p0",
+     "kind": "box",
+     "x": 14,
+     "y": 128,
+     "w": 100,
+     "h": 30,
+     "label": "Lexer"
+    },
+    {
+     "id": "p1",
+     "kind": "box",
+     "x": 130,
+     "y": 128,
+     "w": 100,
+     "h": 30,
+     "label": "Parser"
+    },
+    {
+     "id": "p2",
+     "kind": "box",
+     "x": 246,
+     "y": 128,
+     "w": 100,
+     "h": 30,
+     "label": "Semantic"
+    },
+    {
+     "id": "a01",
+     "kind": "arrow",
+     "from": "p0",
+     "to": "p1"
+    },
+    {
+     "id": "a12",
+     "kind": "arrow",
+     "from": "p1",
+     "to": "p2"
+    },
+    {
+     "id": "pt",
+     "kind": "tree",
+     "x": 180,
+     "y": 186,
+     "root": {
+      "label": "S",
+      "children": [
+       {
+        "label": "id"
+       },
+       {
+        "label": "="
+       },
+       {
+        "label": "E",
+        "children": [
+         {
+          "label": "E",
+          "children": [
+           {
+            "label": "id",
+            "id": "tw"
+           }
+          ]
+         },
+         {
+          "label": "*"
+         },
+         {
+          "label": "E",
+          "children": [
+           {
+            "label": "num",
+            "id": "tn"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "label": ";"
+       }
+      ]
+     },
+     "dx": 30,
+     "dy": 30,
+     "r": 13
+    },
+    {
+     "id": "err",
+     "kind": "text",
+     "x": 180,
+     "y": 215,
+     "text": "lexical: an illegal character, such as #\nsyntax: a missing ; or an unbalanced bracket\nsemantic: w is undeclared, or int + string",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "io",
+     "kind": "text",
+     "x": 180,
+     "y": 215,
+     "text": "lexer: characters → tokens\nparser: tokens → parse tree\nsemantic: parse tree → checked tree\nlater: intermediate code → target code",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A compiler works in phases. Take the statement area = w * 4; as a string of characters. The front end has three phases, each with its own input and output.",
+     "hide": [
+      "lex",
+      "tok",
+      "pt",
+      "err",
+      "io"
+     ],
+     "highlight": [
+      "raw",
+      "p0",
+      "p1",
+      "p2"
+     ]
+    },
+    {
+     "caption": "Lexical analysis groups characters into lexemes (the matched text) and labels each with a token (its category): area is id, = is assign, w is id, * is mul, 4 is num, ; is semi. Output: 6 tokens.",
+     "hide": "raw",
+     "show": [
+      "lex",
+      "tok"
+     ],
+     "highlight": [
+      "p0",
+      "tok"
+     ]
+    },
+    {
+     "caption": "Syntax analysis reads the tokens and builds a parse tree using the grammar S → id = E ;, E → E * E | id | num.",
+     "hide": [
+      "lex",
+      "tok"
+     ],
+     "show": "pt",
+     "highlight": [
+      "p1",
+      "pt"
+     ]
+    },
+    {
+     "caption": "Semantic analysis checks meaning on the tree: area and w must be declared, and w * 4 must have a type that fits the assignment. Output: a tree annotated with types.",
+     "highlight": [
+      "p2",
+      "tw",
+      "tn"
+     ]
+    },
+    {
+     "caption": "Errors belong to phases. An illegal character is a lexical error, a missing ; or unbalanced bracket is a syntax error, and an undeclared variable or a type mismatch is a semantic error.",
+     "hide": "pt",
+     "show": "err",
+     "highlight": [
+      "err"
+     ]
+    },
+    {
+     "caption": "Remember the input and output of each phase: the lexer turns characters into tokens, the parser turns tokens into a tree, and the semantic analyser checks the tree. Later phases produce intermediate code and target code.",
+     "hide": "err",
+     "show": "io",
+     "highlight": [
+      "io"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l2.munch",
+   "title": "Scanning for1 do=x==9 with longest match",
+   "viewBox": [
+    0,
+    0,
+    360,
+    272
+   ],
+   "objects": [
+    {
+     "id": "rules",
+     "kind": "text",
+     "x": 180,
+     "y": 30,
+     "text": "kw: for|do     id: [a-z][a-z0-9]*\nnum: [0-9]+     op: ==|=|<=|<\nlongest match; tie: earlier rule",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "src",
+     "kind": "array",
+     "x": 12,
+     "y": 86,
+     "cells": [
+      "f",
+      "o",
+      "r",
+      "1",
+      " ",
+      "d",
+      "o",
+      "=",
+      "x",
+      "=",
+      "=",
+      "9"
+     ],
+     "cw": 28,
+     "ch": 32,
+     "indices": true
+    },
+    {
+     "id": "bx0",
+     "kind": "box",
+     "x": 11,
+     "y": 84,
+     "w": 114,
+     "h": 36,
+     "fill": false,
+     "tone": "accent"
+    },
+    {
+     "id": "bx1",
+     "kind": "box",
+     "x": 151,
+     "y": 84,
+     "w": 58,
+     "h": 36,
+     "fill": false,
+     "tone": "accent"
+    },
+    {
+     "id": "bx2",
+     "kind": "box",
+     "x": 207,
+     "y": 84,
+     "w": 30,
+     "h": 36,
+     "fill": false,
+     "tone": "accent"
+    },
+    {
+     "id": "bx3",
+     "kind": "box",
+     "x": 235,
+     "y": 84,
+     "w": 30,
+     "h": 36,
+     "fill": false,
+     "tone": "accent"
+    },
+    {
+     "id": "bx4",
+     "kind": "box",
+     "x": 263,
+     "y": 84,
+     "w": 58,
+     "h": 36,
+     "fill": false,
+     "tone": "accent"
+    },
+    {
+     "id": "bx5",
+     "kind": "box",
+     "x": 319,
+     "y": 84,
+     "w": 30,
+     "h": 36,
+     "fill": false,
+     "tone": "accent"
+    },
+    {
+     "id": "out",
+     "kind": "array",
+     "x": 18,
+     "y": 186,
+     "cells": [],
+     "cw": 54,
+     "ch": 30,
+     "slots": 6,
+     "indices": false,
+     "label": "tokens"
+    },
+    {
+     "id": "why",
+     "kind": "text",
+     "x": 180,
+     "y": 150,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 180,
+     "y": 250,
+     "text": "tokens so far: 0",
+     "size": 14,
+     "anchor": "middle",
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The rules are tried at the current position, and the scanner keeps the match with the most characters. If two rules match the same length, the earlier rule wins. Input: for1 do=x==9.",
+     "hide": [
+      "bx0",
+      "bx1",
+      "bx2",
+      "bx3",
+      "bx4",
+      "bx5"
+     ],
+     "highlight": [
+      "rules",
+      "src"
+     ]
+    },
+    {
+     "caption": "At position 0, kw matches for (3 characters) and id matches for1 (4 characters). The longest match is for1, so the token is id.",
+     "show": "bx0",
+     "push": {
+      "id": "out",
+      "value": "id"
+     },
+     "set": [
+      {
+       "id": "why",
+       "text": "for1: id (4) beats kw (3)"
+      },
+      {
+       "id": "cnt",
+       "text": "tokens so far: 1"
+      }
+     ],
+     "highlight": [
+      "bx0"
+     ]
+    },
+    {
+     "caption": "Skip the space. At do, kw matches 2 characters and id matches 2 characters. A tie, so the earlier rule wins: kw.",
+     "show": "bx1",
+     "push": {
+      "id": "out",
+      "value": "kw"
+     },
+     "set": [
+      {
+       "id": "why",
+       "text": "do: tie, earlier rule kw wins"
+      },
+      {
+       "id": "cnt",
+       "text": "tokens so far: 2"
+      }
+     ],
+     "highlight": [
+      "bx1"
+     ]
+    },
+    {
+     "caption": "At =, the rule op could match == only if the next character were =. Here it is x, so op matches = (1 character).",
+     "show": "bx2",
+     "push": {
+      "id": "out",
+      "value": "op"
+     },
+     "set": [
+      {
+       "id": "why",
+       "text": "=: only 1 character matches"
+      },
+      {
+       "id": "cnt",
+       "text": "tokens so far: 3"
+      }
+     ],
+     "highlight": [
+      "bx2"
+     ]
+    },
+    {
+     "caption": "At x, id matches x only, because the next character = cannot continue an identifier. Token: id.",
+     "show": "bx3",
+     "push": {
+      "id": "out",
+      "value": "id"
+     },
+     "set": [
+      {
+       "id": "why",
+       "text": "x: id (1 character)"
+      },
+      {
+       "id": "cnt",
+       "text": "tokens so far: 4"
+      }
+     ],
+     "highlight": [
+      "bx3"
+     ]
+    },
+    {
+     "caption": "At ==, op can match = (1 character) or == (2 characters). The longest wins: ==, one token, not two.",
+     "show": "bx4",
+     "push": {
+      "id": "out",
+      "value": "op"
+     },
+     "set": [
+      {
+       "id": "why",
+       "text": "==: op (2) beats op (1)"
+      },
+      {
+       "id": "cnt",
+       "text": "tokens so far: 5"
+      }
+     ],
+     "highlight": [
+      "bx4"
+     ]
+    },
+    {
+     "caption": "At 9, num matches 9. The input ends. Result: 6 tokens: id, kw, op, id, op, num.",
+     "show": "bx5",
+     "push": {
+      "id": "out",
+      "value": "num"
+     },
+     "set": [
+      {
+       "id": "why",
+       "text": "9: num"
+      },
+      {
+       "id": "cnt",
+       "text": "6 tokens",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "bx5",
+      "cnt"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l3.handles",
+   "title": "Shift-reduce parse of id + id * id",
+   "viewBox": [
+    0,
+    0,
+    360,
+    244
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "E → E + T | T      T → T * id | id",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "in",
+     "kind": "array",
+     "x": 20,
+     "y": 60,
+     "cells": [
+      "id",
+      "+",
+      "id",
+      "*",
+      "id",
+      "$"
+     ],
+     "cw": 40,
+     "ch": 32,
+     "indices": false,
+     "label": "input"
+    },
+    {
+     "id": "ip",
+     "kind": "pointer",
+     "array": "in",
+     "index": 0,
+     "side": "above"
+    },
+    {
+     "id": "stk",
+     "kind": "array",
+     "x": 290,
+     "y": 226,
+     "cells": [
+      "$"
+     ],
+     "cw": 50,
+     "ch": 26,
+     "dir": "up",
+     "slots": 6,
+     "indices": false,
+     "label": "stack"
+    },
+    {
+     "id": "act",
+     "kind": "text",
+     "x": 140,
+     "y": 135,
+     "text": "start",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "han",
+     "kind": "text",
+     "x": 140,
+     "y": 182,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 140,
+     "y": 218,
+     "text": "reductions: 0",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A bottom-up parser keeps a stack and reads the input left to right. It either shifts the next token onto the stack or reduces a handle on top of the stack to a variable. Grammar: E → E + T | T, T → T * id | id. Input: id + id * id.",
+     "highlight": [
+      "g",
+      "in"
+     ]
+    },
+    {
+     "caption": "Shift id. The top id is a handle (the right side of T → id), so reduce to T. Then T is the right side of E → T, so reduce to E. Two reductions so far.",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "$",
+        "E"
+       ]
+      },
+      {
+       "id": "act",
+       "text": "shift id, reduce T → id,\nreduce E → T"
+      },
+      {
+       "id": "han",
+       "text": "handles: id, then T"
+      },
+      {
+       "id": "cnt",
+       "text": "reductions: 2"
+      }
+     ],
+     "show": "ip",
+     "move": {
+      "id": "ip",
+      "index": 1
+     },
+     "highlight": [
+      {
+       "id": "stk",
+       "cells": [
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Shift + and shift id. The stack is E + id.",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "$",
+        "E",
+        "+",
+        "id"
+       ]
+      },
+      {
+       "id": "act",
+       "text": "shift +, shift id"
+      },
+      {
+       "id": "han",
+       "text": ""
+      }
+     ],
+     "move": {
+      "id": "ip",
+      "index": 3
+     },
+     "highlight": [
+      {
+       "id": "stk",
+       "cells": [
+        2,
+        3
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The top id is a handle for T → id. Reduce it. Now the stack is E + T, but the next input is *, so T * id can still grow: do not reduce E + T yet.",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "$",
+        "E",
+        "+",
+        "T"
+       ]
+      },
+      {
+       "id": "act",
+       "text": "reduce T → id"
+      },
+      {
+       "id": "han",
+       "text": "handle: id\n(next is *, so shift)"
+      },
+      {
+       "id": "cnt",
+       "text": "reductions: 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "stk",
+       "cells": [
+        3
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Shift * and shift id. The stack is E + T * id.",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "$",
+        "E",
+        "+",
+        "T",
+        "*",
+        "id"
+       ]
+      },
+      {
+       "id": "act",
+       "text": "shift *, shift id"
+      },
+      {
+       "id": "han",
+       "text": ""
+      }
+     ],
+     "move": {
+      "id": "ip",
+      "index": 5
+     },
+     "highlight": [
+      {
+       "id": "stk",
+       "cells": [
+        4,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Reduce the handle T * id to T, then the handle E + T to E. That makes 5 reductions in total.",
+     "set": [
+      {
+       "id": "stk",
+       "cells": [
+        "$",
+        "E"
+       ]
+      },
+      {
+       "id": "act",
+       "text": "reduce T → T * id,\nreduce E → E + T"
+      },
+      {
+       "id": "han",
+       "text": "handles: T * id, then E + T"
+      },
+      {
+       "id": "cnt",
+       "text": "reductions: 5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "stk",
+       "cells": [
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The input is used up and the stack holds E, so accept. The number of reductions equals the number of internal nodes of the parse tree (E, E, T, T, T), and the reductions in order are a rightmost derivation read backwards.",
+     "set": [
+      {
+       "id": "act",
+       "text": "accept",
+       "tone": "good"
+      },
+      {
+       "id": "han",
+       "text": "5 reductions = 5 internal nodes"
+      },
+      {
+       "id": "cnt",
+       "text": "reductions: 5",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "act",
+      "han"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l4.first",
+   "title": "Computing FIRST for a chain of nullable symbols",
+   "viewBox": [
+    0,
+    0,
+    360,
+    256
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "text",
+     "x": 180,
+     "y": 30,
+     "text": "S → A B C        A → a A | ε\nB → b | ε           C → c | ε",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "T",
+     "kind": "grid",
+     "x": 100,
+     "y": 90,
+     "rows": 4,
+     "cols": 1,
+     "cw": 200,
+     "ch": 30,
+     "rowLabels": [
+      "FIRST(S)",
+      "FIRST(A)",
+      "FIRST(B)",
+      "FIRST(C)"
+     ],
+     "cells": [
+      [
+       ""
+      ],
+      [
+       ""
+      ],
+      [
+       ""
+      ],
+      [
+       ""
+      ]
+     ]
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 238,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "FIRST(X) is the set of terminals that can begin a string derived from X. It contains ε when X can derive the empty string. We compute it for S → A B C, A → a A | ε, B → b | ε, C → c | ε.",
+     "highlight": [
+      "g",
+      "T"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "nullable: A, B, C"
+      }
+     ]
+    },
+    {
+     "caption": "A → a A starts with the terminal a, so a is in FIRST(A). A → ε adds ε. FIRST(A) = {a, ε}.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         ""
+        ],
+        [
+         "{a, ε}"
+        ],
+        [
+         ""
+        ],
+        [
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "B → b gives b and B → ε gives ε: FIRST(B) = {b, ε}. In the same way FIRST(C) = {c, ε}.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         ""
+        ],
+        [
+         "{a, ε}"
+        ],
+        [
+         "{b, ε}"
+        ],
+        [
+         "{c, ε}"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         3,
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "S → A B C: take FIRST(A) without ε, which is {a}. A can vanish, so look at B and add {b}. B can vanish, so look at C and add {c}.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "{a, b, c}"
+        ],
+        [
+         "{a, ε}"
+        ],
+        [
+         "{b, ε}"
+        ],
+        [
+         "{c, ε}"
+        ]
+       ]
+      },
+      {
+       "id": "note",
+       "text": "skip nullable symbols"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "C can vanish too, so A B C can derive the empty string. Add ε. FIRST(S) = {a, b, c, ε}.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "{a, b, c, ε}"
+        ],
+        [
+         "{a, ε}"
+        ],
+        [
+         "{b, ε}"
+        ],
+        [
+         "{c, ε}"
+        ]
+       ]
+      },
+      {
+       "id": "note",
+       "text": "all of A, B, C nullable: ε in FIRST(S)",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         0
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Check: S derives a (A → a A, then ε for the rest), b, c, and the empty string, but nothing starting with another letter. A search over all derived strings up to length 7 confirms exactly these first letters.",
+     "set": [
+      {
+       "id": "note",
+       "text": "brute force agrees",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "note"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l5.follow",
+   "title": "Computing FOLLOW with inheritance through the end of a rule",
+   "viewBox": [
+    0,
+    0,
+    360,
+    256
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "text",
+     "x": 180,
+     "y": 30,
+     "text": "S → A B d        A → a A | ε\nB → b C | ε       C → c C | e",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "T",
+     "kind": "grid",
+     "x": 100,
+     "y": 92,
+     "rows": 4,
+     "cols": 1,
+     "cw": 200,
+     "ch": 30,
+     "rowLabels": [
+      "FOLLOW(S)",
+      "FOLLOW(A)",
+      "FOLLOW(B)",
+      "FOLLOW(C)"
+     ],
+     "cells": [
+      [
+       ""
+      ],
+      [
+       ""
+      ],
+      [
+       ""
+      ],
+      [
+       ""
+      ]
+     ]
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 240,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "FOLLOW(X) is the set of terminals that can appear right after X in some derivation. FOLLOW sets never contain ε. We compute them for S → A B d, A → a A | ε, B → b C | ε, C → c C | e.",
+     "highlight": [
+      "g",
+      "T"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "rule: look at what comes after X"
+      }
+     ]
+    },
+    {
+     "caption": "S is the start symbol, so $ (the end of the input) is in FOLLOW(S). S never appears on a right side, so nothing else is added.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "{$}"
+        ],
+        [
+         ""
+        ],
+        [
+         ""
+        ],
+        [
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "S → A B d: after A comes B d. FIRST(B d) gives b (from B → b C), and B can vanish, so d can follow A too. FOLLOW(A) ⊇ {b, d}. After B comes d, so FOLLOW(B) ⊇ {d}.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "{$}"
+        ],
+        [
+         "{b, d}"
+        ],
+        [
+         "{d}"
+        ],
+        [
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "note",
+       "text": "A: FIRST(B d) − ε = {b, d}"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         2,
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "A → a A: A is at the end of the right side, so FOLLOW(A) inherits FOLLOW(A): nothing new. B → b C: C is at the end, so FOLLOW(C) inherits FOLLOW(B) = {d}.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "{$}"
+        ],
+        [
+         "{b, d}"
+        ],
+        [
+         "{d}"
+        ],
+        [
+         "{d}"
+        ]
+       ]
+      },
+      {
+       "id": "note",
+       "text": "C inherits FOLLOW(B)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         3,
+         0
+        ]
+       ]
+      },
+      {
+       "id": "T",
+       "cells": [
+        [
+         2,
+         0
+        ]
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "C → c C: C is at the end, so it inherits FOLLOW(C): nothing new. A full pass changes no set, so we stop.",
+     "set": [
+      {
+       "id": "note",
+       "text": "no change in a full pass: stop",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "note"
+     ]
+    },
+    {
+     "caption": "Result: FOLLOW(S) = {$}, FOLLOW(A) = {b, d}, FOLLOW(B) = {d}, FOLLOW(C) = {d}. A search over all sentential forms up to length 10 finds exactly these next symbols.",
+     "set": [
+      {
+       "id": "note",
+       "text": "checked against all derivations",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "T"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l6.ll1",
+   "title": "LL(1) table of the dangling-else grammar",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "text",
+     "x": 180,
+     "y": 24,
+     "text": "1: S → i E t S S'    2: S → a\n3: S' → e S    4: S' → ε    5: E → b",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "T",
+     "kind": "grid",
+     "x": 84,
+     "y": 90,
+     "rows": 3,
+     "cols": 6,
+     "cw": 44,
+     "ch": 30,
+     "colLabels": [
+      "a",
+      "b",
+      "e",
+      "i",
+      "t",
+      "$"
+     ],
+     "rowLabels": [
+      "S",
+      "S'",
+      "E"
+     ],
+     "cells": [
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     ]
+    },
+    {
+     "id": "ff",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "FIRST:  S {i, a}  S' {e, ε}  E {b}\nFOLLOW: S {e, $}  S' {e, $}  E {t}",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 252,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Grammar (dangling else, with i = if E then, e = else): 1: S → i E t S S′, 2: S → a, 3: S′ → e S, 4: S′ → ε, 5: E → b. The sets below are computed from it. The LL(1) table has one cell per (variable, terminal).",
+     "highlight": [
+      "g",
+      "ff"
+     ]
+    },
+    {
+     "caption": "Put each rule under FIRST of its right side. Rule 1 starts with i: M[S, i] = 1. Rule 2 starts with a: M[S, a] = 2. Rule 3 starts with e: M[S′, e] = 3. Rule 5 starts with b: M[E, b] = 5.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "2",
+         "",
+         "",
+         "1",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "3",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "5",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Rule 4, S′ → ε, derives ε, so it goes under FOLLOW(S′) = {e, $}: M[S′, e] gets 4 and M[S′, $] = 4.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "2",
+         "",
+         "",
+         "1",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "3,4",
+         "",
+         "",
+         "4"
+        ],
+        [
+         "",
+         "5",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         5
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The cell M[S′, e] now holds two rules, 3 and 4. When the next input is e, the parser cannot tell whether to expand S′ with else or to take ε.",
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         2
+        ]
+       ],
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "conflict in M[S′, e]",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "A grammar is LL(1) exactly when no cell holds two rules. This table has 1 conflicting cell, so the grammar is not LL(1).",
+     "set": [
+      {
+       "id": "note",
+       "text": "1 conflicting cell: not LL(1)",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      "note"
+     ]
+    },
+    {
+     "caption": "The cause is ambiguity: in i E t S e S the else could attach to the inner or the outer if. No rewriting by left-factoring or removing left recursion removes an ambiguity. Parsers resolve it by a rule, taking rule 3 (the nearest if) in the conflicting cell.",
+     "set": [
+      {
+       "id": "note",
+       "text": "ambiguous grammar: never LL(1)",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         2
+        ]
+       ],
+       "tone": "mid"
+      },
+      "note"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l7.items",
+   "title": "CLOSURE and GOTO on a bracket grammar",
+   "viewBox": [
+    0,
+    0,
+    360,
+    248
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "S' → S    S → ( L ) | x    L → L , S | S",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "b0",
+     "kind": "box",
+     "x": 14,
+     "y": 44,
+     "w": 150,
+     "h": 90
+    },
+    {
+     "id": "h0",
+     "kind": "text",
+     "x": 89,
+     "y": 58,
+     "text": "I0",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "a0",
+     "kind": "text",
+     "x": 24,
+     "y": 82,
+     "text": "S' → · S",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "b0t",
+     "kind": "text",
+     "x": 24,
+     "y": 102,
+     "text": "S → · ( L )",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "c0",
+     "kind": "text",
+     "x": 24,
+     "y": 122,
+     "text": "S → · x",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "b1",
+     "kind": "box",
+     "x": 196,
+     "y": 44,
+     "w": 150,
+     "h": 130
+    },
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 271,
+     "y": 58,
+     "text": "I1 = GOTO(I0, '(')",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "a1",
+     "kind": "text",
+     "x": 206,
+     "y": 82,
+     "text": "S → ( · L )",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "b1t",
+     "kind": "text",
+     "x": 206,
+     "y": 102,
+     "text": "L → · L , S",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 206,
+     "y": 122,
+     "text": "L → · S",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "d1",
+     "kind": "text",
+     "x": 206,
+     "y": 142,
+     "text": "S → · ( L )",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "e1",
+     "kind": "text",
+     "x": 206,
+     "y": 162,
+     "text": "S → · x",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "go",
+     "kind": "arrow",
+     "from": "b0",
+     "to": "b1",
+     "label": "("
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "rule",
+     "kind": "text",
+     "x": 180,
+     "y": 236,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "An item is a rule with a dot marking how much has been read. S → ( · L ) means that ( has been seen and an L is expected next. Grammar: S′ → S, S → ( L ) | x, L → L , S | S.",
+     "hide": [
+      "b0",
+      "h0",
+      "a0",
+      "b0t",
+      "c0",
+      "b1",
+      "h1",
+      "a1",
+      "b1t",
+      "c1",
+      "d1",
+      "e1",
+      "go"
+     ],
+     "highlight": [
+      "g"
+     ]
+    },
+    {
+     "caption": "I0 = CLOSURE({S′ → · S}). Start with the kernel item S′ → · S.",
+     "show": [
+      "b0",
+      "h0",
+      "a0"
+     ],
+     "highlight": [
+      "a0"
+     ]
+    },
+    {
+     "caption": "The dot is before S, so add every rule of S with the dot at the start: S → · ( L ) and S → · x. Now no dot sits before an unseen variable, so I0 has 3 items.",
+     "show": [
+      "b0t",
+      "c0"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "I0: 3 items"
+      }
+     ],
+     "highlight": [
+      "b0t",
+      "c0"
+     ]
+    },
+    {
+     "caption": "GOTO(I0, '(') takes the items that have the dot just before ( and moves the dot over it. Only S → · ( L ) qualifies, giving the kernel S → ( · L ).",
+     "show": [
+      "b1",
+      "h1",
+      "a1",
+      "go"
+     ],
+     "highlight": [
+      "go",
+      "a1",
+      "b0t"
+     ]
+    },
+    {
+     "caption": "Close the kernel. The dot is before L, so add L → · L , S and L → · S.",
+     "show": [
+      "b1t",
+      "c1"
+     ],
+     "highlight": [
+      "b1t",
+      "c1"
+     ]
+    },
+    {
+     "caption": "In L → · S the dot is before S, so add S → · ( L ) and S → · x. The dot before L in L → · L , S adds nothing new. I1 has 1 + 2 + 2 = 5 items.",
+     "show": [
+      "d1",
+      "e1"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "I0: 3 items    I1: 5 items"
+      }
+     ],
+     "highlight": [
+      "d1",
+      "e1"
+     ]
+    },
+    {
+     "caption": "CLOSURE keeps adding rules until no new variable sits after a dot. GOTO moves the dot over one symbol and then closes. To count the states, apply GOTO for every symbol in every state and count the distinct sets: this grammar has 9.",
+     "set": [
+      {
+       "id": "rule",
+       "text": "9 states in the LR(0) automaton",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "rule"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l8.conflict",
+   "title": "The same state in an LR(0) and an SLR(1) table",
+   "viewBox": [
+    0,
+    0,
+    360,
+    246
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "E → T + E | T       T → id",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "sb",
+     "kind": "box",
+     "x": 90,
+     "y": 28,
+     "w": 180,
+     "h": 58
+    },
+    {
+     "id": "i1",
+     "kind": "text",
+     "x": 180,
+     "y": 48,
+     "text": "E → T · + E",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "i2",
+     "kind": "text",
+     "x": 180,
+     "y": 70,
+     "text": "E → T ·",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "T",
+     "kind": "grid",
+     "x": 120,
+     "y": 130,
+     "rows": 2,
+     "cols": 3,
+     "cw": 70,
+     "ch": 34,
+     "colLabels": [
+      "id",
+      "+",
+      "$"
+     ],
+     "rowLabels": [
+      "LR(0)",
+      "SLR(1)"
+     ],
+     "cells": [
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ]
+     ]
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 228,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Grammar: E → T + E | T, T → id (rules 1: E → T + E, 2: E → T, 3: T → id). After reading T the parser is in a state with two items: E → T · + E, where the dot is before + (a shift item), and E → T ·, which is complete (ready to reduce).",
+     "highlight": [
+      "sb",
+      "i1",
+      "i2"
+     ]
+    },
+    {
+     "caption": "LR(0) reduces a complete item on every terminal. Fill the entry r2 (reduce by E → T) under id, + and $.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "r2",
+         "r2",
+         "r2"
+        ],
+        [
+         "",
+         "",
+         ""
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ]
+       ]
+      },
+      "i2"
+     ]
+    },
+    {
+     "caption": "The shift item adds s4 under +. The + column now holds both s4 and r2: a shift-reduce conflict in LR(0). The id and $ columns each have one entry.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "r2",
+         "s4,r2",
+         "r2"
+        ],
+        [
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "note",
+       "text": "LR(0): 1 conflicting cell",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         0,
+         1
+        ]
+       ],
+       "tone": "bad"
+      },
+      "i1"
+     ]
+    },
+    {
+     "caption": "SLR(1) reduces E → T only on terminals in FOLLOW(E). E occurs only as the start symbol and at the end of E → T + E, so FOLLOW(E) = {$}.",
+     "set": [
+      {
+       "id": "note",
+       "text": "FOLLOW(E) = {$}",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "note"
+     ]
+    },
+    {
+     "caption": "The SLR row has r2 only under $, s4 under +, and nothing under id. No cell holds two entries, so there is no conflict.",
+     "set": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         "r2",
+         "s4,r2",
+         "r2"
+        ],
+        [
+         "",
+         "s4",
+         "r2"
+        ]
+       ]
+      },
+      {
+       "id": "note",
+       "text": "SLR(1): 0 conflicting cells",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "T",
+       "cells": [
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "So the grammar is SLR(1) but not LR(0). Conflicts are counted per table cell (state, terminal), not per state.",
+     "set": [
+      {
+       "id": "note",
+       "text": "count cells, not states",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "note"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l9.lalr",
+   "title": "CLR(1) states and the LALR(1) merge",
+   "viewBox": [
+    0,
+    0,
+    360,
+    270
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "S → A c A      A → a | b",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "I3",
+     "kind": "box",
+     "x": 14,
+     "y": 40,
+     "w": 152,
+     "h": 32,
+     "label": "I3: A → a · , c"
+    },
+    {
+     "id": "I7",
+     "kind": "box",
+     "x": 194,
+     "y": 40,
+     "w": 152,
+     "h": 32,
+     "label": "I7: A → a · , $"
+    },
+    {
+     "id": "M1",
+     "kind": "box",
+     "x": 104,
+     "y": 92,
+     "w": 152,
+     "h": 32,
+     "label": "A → a · , c/$",
+     "tone": "good"
+    },
+    {
+     "id": "m1a",
+     "kind": "arrow",
+     "from": "I3",
+     "to": "M1"
+    },
+    {
+     "id": "m1b",
+     "kind": "arrow",
+     "from": "I7",
+     "to": "M1"
+    },
+    {
+     "id": "I4",
+     "kind": "box",
+     "x": 14,
+     "y": 150,
+     "w": 152,
+     "h": 32,
+     "label": "I4: A → b · , c"
+    },
+    {
+     "id": "I8",
+     "kind": "box",
+     "x": 194,
+     "y": 150,
+     "w": 152,
+     "h": 32,
+     "label": "I8: A → b · , $"
+    },
+    {
+     "id": "M2",
+     "kind": "box",
+     "x": 104,
+     "y": 202,
+     "w": 152,
+     "h": 32,
+     "label": "A → b · , c/$",
+     "tone": "good"
+    },
+    {
+     "id": "m2a",
+     "kind": "arrow",
+     "from": "I4",
+     "to": "M2"
+    },
+    {
+     "id": "m2b",
+     "kind": "arrow",
+     "from": "I8",
+     "to": "M2"
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 180,
+     "y": 258,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Grammar S → A c A, A → a | b. A CLR(1) item carries an exact lookahead: the terminals that can follow this item in this particular context.",
+     "hide": [
+      "I3",
+      "I7",
+      "M1",
+      "m1a",
+      "m1b",
+      "I4",
+      "I8",
+      "M2",
+      "m2a",
+      "m2b"
+     ],
+     "highlight": [
+      "g"
+     ]
+    },
+    {
+     "caption": "In I0 the first A comes from S → · A c A, so it is followed by c. Reading a gives I3 = {A → a ·, c}. Reading b gives I4 = {A → b ·, c}.",
+     "show": [
+      "I3",
+      "I4"
+     ],
+     "highlight": [
+      "I3",
+      "I4"
+     ]
+    },
+    {
+     "caption": "After A c, the second A is followed by $. Reading a gives I7 = {A → a ·, $}. Reading b gives I8 = {A → b ·, $}.",
+     "show": [
+      "I7",
+      "I8"
+     ],
+     "highlight": [
+      "I7",
+      "I8"
+     ]
+    },
+    {
+     "caption": "I3 and I7 have the same core A → a · but different lookaheads (c and $). So do I4 and I8. CLR(1) keeps each of them apart: 9 states in all.",
+     "set": [
+      {
+       "id": "cnt",
+       "text": "CLR(1): 9 states"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "I3",
+       "tone": "accent"
+      },
+      {
+       "id": "I7",
+       "tone": "accent"
+      },
+      {
+       "id": "I4",
+       "tone": "mid"
+      },
+      {
+       "id": "I8",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "LALR(1) merges states with the same core and takes the union of their lookaheads: {A → a ·, c/$} and {A → b ·, c/$}. The count drops from 9 to 7, the same as the LR(0) automaton.",
+     "show": [
+      "M1",
+      "M2",
+      "m1a",
+      "m1b",
+      "m2a",
+      "m2b"
+     ],
+     "dim": [
+      "I3",
+      "I7",
+      "I4",
+      "I8"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "LALR(1): 7 states",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "M1",
+      "M2"
+     ]
+    },
+    {
+     "caption": "Merging cannot create a shift-reduce conflict, because shifts depend only on the core. It can create a reduce-reduce conflict, when two complete items in a merged state get overlapping lookaheads. Here each merged state has one complete item, so no conflict appears.",
+     "set": [
+      {
+       "id": "cnt",
+       "text": "merge: no new S-R conflicts",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      "cnt"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cd.lexical_parsing.l10.assoc",
+   "title": "Evaluating 20 - 3 * 2 ^ 2 ^ 1 - 5 by precedence level",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "tbl",
+     "kind": "text",
+     "x": 180,
+     "y": 30,
+     "text": "lowest   -   left associative\nnext     *   left associative\nhighest  ^   right associative",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "ex",
+     "kind": "array",
+     "x": 15,
+     "y": 92,
+     "cells": [
+      20,
+      "-",
+      3,
+      "*",
+      2,
+      "^",
+      2,
+      "^",
+      1,
+      "-",
+      5
+     ],
+     "cw": 30,
+     "ch": 34,
+     "indices": false
+    },
+    {
+     "id": "eq",
+     "kind": "text",
+     "x": 180,
+     "y": 160,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 200,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Operator properties: ^ binds tightest and is right associative, * is next and left associative, - binds loosest and is left associative. Evaluate 20 - 3 * 2 ^ 2 ^ 1 - 5 level by level, highest level first.",
+     "highlight": [
+      "tbl",
+      "ex"
+     ]
+    },
+    {
+     "caption": "Level ^, right associative: the rightmost ^ goes first. 2 ^ 1 = 2. The expression is now 20 - 3 * 2 ^ 2 - 5.",
+     "set": [
+      {
+       "id": "ex",
+       "cells": [
+        20,
+        "-",
+        3,
+        "*",
+        2,
+        "^",
+        2,
+        "-",
+        5
+       ]
+      },
+      {
+       "id": "eq",
+       "text": "2 ^ 1 = 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ex",
+       "cells": [
+        6
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The remaining ^ is next: 2 ^ 2 = 4. The expression is now 20 - 3 * 4 - 5.",
+     "set": [
+      {
+       "id": "ex",
+       "cells": [
+        20,
+        "-",
+        3,
+        "*",
+        4,
+        "-",
+        5
+       ]
+      },
+      {
+       "id": "eq",
+       "text": "2 ^ 2 = 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ex",
+       "cells": [
+        4
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Level *: 3 * 4 = 12. The expression is now 20 - 12 - 5.",
+     "set": [
+      {
+       "id": "ex",
+       "cells": [
+        20,
+        "-",
+        12,
+        "-",
+        5
+       ]
+      },
+      {
+       "id": "eq",
+       "text": "3 * 4 = 12"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ex",
+       "cells": [
+        2
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Level -, left associative: the leftmost - goes first. 20 - 12 = 8. The expression is now 8 - 5.",
+     "set": [
+      {
+       "id": "ex",
+       "cells": [
+        8,
+        "-",
+        5
+       ]
+      },
+      {
+       "id": "eq",
+       "text": "20 - 12 = 8"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ex",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The last - gives 8 - 5 = 3. The value is 3.",
+     "set": [
+      {
+       "id": "ex",
+       "cells": [
+        3
+       ]
+      },
+      {
+       "id": "eq",
+       "text": "8 - 5 = 3"
+      },
+      {
+       "id": "res",
+       "text": "value: 3",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ex",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Check the effect of associativity: if - were right associative, the last two would group as 12 - 5 = 7 first and the value would be 20 - 7 = 13, not 3.",
+     "set": [
+      {
+       "id": "res",
+       "text": "right-assoc - would give\n20 - (12 - 5) = 13",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      "res"
+     ]
+    }
+   ]
+  }
+ ]
+}

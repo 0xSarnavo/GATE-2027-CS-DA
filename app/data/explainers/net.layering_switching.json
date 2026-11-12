@@ -1,0 +1,2863 @@
+{
+ "topic_id": "net.layering_switching",
+ "title": "Layering, switching and delays",
+ "chapter_note": {
+  "about": "A network moves data by splitting the job into layers, then moving packets across many links. This chapter starts with the five layers, the name of the data unit at each, and how many times a packet visits each layer on a path. It then compares circuit, packet and virtual-circuit switching. The rest is arithmetic on time: the four delays, the store-and-forward pipeline, the bottleneck link and bandwidth-delay product, and the queue that builds when traffic is heavy. A last small card counts switch ports. Most questions are one-line formulas, so unit conversion is where marks are lost.",
+  "simple": "Sending data across the Internet is like posting a parcel through several depots. Each layer of the software does one small job and wraps the parcel in its own label. Each hop takes time to load the parcel, time to drive it, and sometimes time waiting in a queue. If you cut a big parcel into small ones, the depots can work on different pieces at the same time and the job finishes sooner. The slowest road decides how fast a long stream can flow. In exam words: layers and PDUs, transmission and propagation delay, store-and-forward pipelining, bottleneck rate and bandwidth-delay product.",
+  "concept_map": [
+   {
+    "atom_id": "l1",
+    "title": "Layers and PDUs",
+    "one_line": "Message, segment, packet, frame, bits; each layer owns one scope."
+   },
+   {
+    "atom_id": "l2",
+    "title": "Layer visits per path",
+    "one_line": "k links give k + 1 network visits and 2k data link visits."
+   },
+   {
+    "atom_id": "l3",
+    "title": "Circuit, packet and virtual circuit",
+    "one_line": "Reserve a rate, share the links, or fix a route with a short label."
+   },
+   {
+    "atom_id": "l4",
+    "title": "The four delays",
+    "one_line": "Tt = L/R, Tp = d/s, plus processing and queuing."
+   },
+   {
+    "atom_id": "l5",
+    "title": "Store-and-forward and pipelining",
+    "one_line": "N packets over k links take (N + k - 1) Tt plus k Tp."
+   },
+   {
+    "atom_id": "l6",
+    "title": "Bottleneck and bandwidth-delay product",
+    "one_line": "The slowest link sets the rate; R x Tp bits are in flight."
+   },
+   {
+    "atom_id": "l7",
+    "title": "Queuing and traffic intensity",
+    "one_line": "La/R must stay below 1 or the queue grows without bound."
+   },
+   {
+    "atom_id": "l8",
+    "title": "Switch port counting",
+    "one_line": "n switches in a tree lose 2(n - 1) ports."
+   }
+  ],
+  "gate_patterns": [
+   "Layer functions, PDUs and visit counts: match a job to its layer, name the PDU, or count network and data link visits on a path (2025 CS1 Q16, 2018 CS Q23, 2013 CS Q14, 2012 CS Q10; 8 questions).",
+   "Delay sums and pipelines: transmission plus propagation for one link (2022 CS Q59, 2017 CS2 Q35, 2026 CS2 Q21), and (N + k - 1) packet times for store-and-forward (2024 CS1 Q36, 2012 CS Q44, 2015 CS3 Q36). One question asks for the best packet size (2005 CS Q73).",
+   "Switch counting is a one-formula question (2019 CS Q59). Weightage: about 1.0 marks per CS paper; 9 questions in 8 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "l1",
+   "title": "Layers and PDUs",
+   "simple": "Think of posting a gift. You write a note (the message). One helper puts it in a box marked with the room number it is for. Another puts that box in a bigger one with the city address. A last helper adds a sticker for just the next stop on the road. At the far end, each helper opens only their own layer. Every layer does one small job and ignores what the others do. In exam words: application message, transport segment, network packet, data link frame, physical bits are the PDUs (protocol data units) of the five layers.",
+   "idea": "Network software is split into **layers**, and each layer does exactly one job. On the way down, every layer wraps the data from the layer above with its own header. The wrapped unit has a different name at each layer: message, segment, packet, frame, and finally bits.",
+   "definition": "The five-layer Internet stack, top to bottom:\n\n**Application:** the data the programs exchange (HTTP, DNS). PDU = **message**.\n\n**Transport:** process to process, using **port numbers**, between the two end hosts only. PDU = **segment**.\n\n**Network:** host to host across many links, using **IP addresses** and routing. PDU = **packet** (datagram).\n\n**Data link:** one link at a time, using **MAC addresses**, framing and an error check. PDU = **frame**.\n\n**Physical:** bits as signals on the medium.\n\nA **PDU** (protocol data unit) is the chunk a layer hands to the layer below. Going down is **encapsulation** (add a header). Going up is **decapsulation** (strip it).",
+   "intuition_full": "Layering is a way to split a hard job into small jobs that can change independently. Ethernet can be replaced by Wi-Fi without touching TCP, because TCP only talks to the layer next to it through a fixed interface. Each layer talks, in its own header, to the same layer on the other machine. TCP's header is read only by the TCP of the receiver, and routers in between never look at it. This is why each layer's job is defined by its **scope**. Data link is one link, network is the whole path, transport is the two ends. Most matching questions are solved just by asking 'one link, whole path, or two ends?'. Headers add bytes at every step down, so the object that goes on the wire is always larger than the application data.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A browser gives the application layer a 100-byte message. TCP adds a 20-byte header, IP adds a 20-byte header, and Ethernet adds a 14-byte header plus a 4-byte trailer. Find the size at each layer and the number of bits sent.",
+     "steps": [
+      "The application layer holds the **message**: 100 bytes. This is the application PDU.",
+      "The transport layer adds a 20-byte TCP header: 100 + 20 = 120 bytes. This is a **segment**.",
+      "The network layer adds a 20-byte IP header: 120 + 20 = 140 bytes. This is a **packet** (also called a datagram).",
+      "The data link layer adds a 14-byte Ethernet header and a 4-byte trailer: 140 + 14 + 4 = 158 bytes. This is a **frame**.",
+      "The physical layer sends the frame as signals: 158 x 8 = 1264 bits.",
+      "The receiver strips the layers in reverse order. Each layer removes only its own header, so the 100-byte message comes out unchanged."
+     ],
+     "answer": "Message 100 B, segment 120 B, packet 140 B, frame 158 B, 1264 bits on the wire."
+    },
+    {
+     "level": "gate",
+     "setup": "Match each job to the layer that does it: (a) choose the next router for a packet, (b) split a stream into frames and add a CRC, (c) deliver data to one particular process using a port number, (d) turn bits into voltages or light. Also name the PDU each layer produces.",
+     "steps": [
+      "Ask for the **scope** of each job. Data link works on one link. Network works across many links. Transport works at the two end hosts only.",
+      "(a) choosing the next router is routing across links: **network** layer, PDU = packet.",
+      "(b) framing and CRC on one link: **data link** layer, PDU = frame.",
+      "(c) a port number names a process on a host: **transport** layer, PDU = segment.",
+      "(d) turning bits into signals: **physical** layer, PDU = bits. The application layer's PDU is the message."
+     ],
+     "answer": "(a) network, (b) data link, (c) transport, (d) physical. PDUs: message, segment, packet, frame, bits."
+    },
+    {
+     "level": "twist",
+     "setup": "An application sends only 1 byte. Over Ethernet, what is the frame size? (Ethernet needs at least 46 bytes of payload, so the card pads short payloads.)",
+     "steps": [
+      "Transport and network add headers: 1 + 20 + 20 = 41 bytes of payload for the frame.",
+      "Ethernet needs a payload of at least 46 bytes, and 41 < 46. The card pads with 46 - 41 = 5 bytes of filler.",
+      "Frame = 14 (header) + 46 (padded payload) + 4 (trailer) = 64 bytes. This is the minimum Ethernet frame size."
+     ],
+     "answer": "The frame is 64 bytes, and 5 of them are padding. Sizes always grow going down, but short payloads grow by padding too."
+    }
+   ],
+   "why": "Every other chapter (framing, routing, TCP) lives at one of these layers, and GATE tests recall of which layer owns which job. In GATE: match layer functions, protocols or PDUs, or recall header field widths (port 16 bits, MAC 48, TCP sequence 32).",
+   "how": [
+    "Ask the scope: one link (data link), whole path (network), two end processes (transport).",
+    "Recall the PDU names in order: message, segment, packet or datagram, frame, bits.",
+    "Put each protocol at its layer: HTTP and DNS application, TCP transport, IP and routing protocols network, Ethernet and PPP data link.",
+    "For sizes, add each layer's header as you go down. Never add headers of layers that sit above the one you are measuring."
+   ],
+   "mistake": "Putting error checking only at the data link layer, or only at transport. Both layers check, but the data link layer checks one hop at a time and TCP checks the whole path. Another slip is to treat 'packet' and 'frame' as the same word: a router discards the incoming frame and builds a new one.",
+   "edge_cases": [
+    "Routers have all three bottom layers (physical, data link, network) and never open the transport header.",
+    "A short payload can be padded, so frame size is not always payload plus headers (1-byte message gives a 64-byte Ethernet frame).",
+    "Low priority: UDP, ICMP, ARP and DHCP are not named in the 2027 syllabus. Know only that UDP is a transport protocol and ARP maps IP to MAC."
+   ],
+   "connections": [
+    "Layers 2 and 3 are the next cards and the whole data link chapter (net.datalink).",
+    "The IPv4 header and the TCP header are the 'network' and 'transport' boxes drawn here (net.ipv4, net.transport).",
+    "HTTP and DNS (net.app) are the application layer on top."
+   ],
+   "check": [
+    {
+     "q": "Which layer's PDU is a segment, and which layer's is a frame?",
+     "a": "Transport makes segments. Data link makes frames."
+    },
+    {
+     "q": "A 200-byte message goes down TCP (20 B), IP (20 B), Ethernet (14 B header, 4 B trailer). How big is the frame?",
+     "a": "200 + 20 + 20 + 14 + 4 = 258 bytes."
+    },
+    {
+     "q": "At which layer do port numbers live, and at which do MAC addresses live?",
+     "a": "Ports: transport. MAC addresses: data link."
+    }
+   ],
+   "asked": "Asked: 2025 CS1 Q16, 2018 CS Q23, 2004 CS Q15, 2007 CS Q70, 2012 CS Q10, 2014 CS3 Q23, 2003 CS Q28",
+   "try": {
+    "id": "gen.net.layering.001",
+    "label": "Try: which layer moves a frame between neighbours? (L1)"
+   },
+   "scene": "net.layering.l1.encap",
+   "example": {
+    "setup": "A browser gives the application layer a 100-byte message. TCP adds a 20-byte header, IP adds a 20-byte header, and Ethernet adds a 14-byte header plus a 4-byte trailer. Find the size at each layer and the number of bits sent.",
+    "steps": [
+     "The application layer holds the **message**: 100 bytes. This is the application PDU.",
+     "The transport layer adds a 20-byte TCP header: 100 + 20 = 120 bytes. This is a **segment**.",
+     "The network layer adds a 20-byte IP header: 120 + 20 = 140 bytes. This is a **packet** (also called a datagram).",
+     "The data link layer adds a 14-byte Ethernet header and a 4-byte trailer: 140 + 14 + 4 = 158 bytes. This is a **frame**.",
+     "The physical layer sends the frame as signals: 158 x 8 = 1264 bits.",
+     "The receiver strips the layers in reverse order. Each layer removes only its own header, so the 100-byte message comes out unchanged."
+    ],
+    "answer": "Message 100 B, segment 120 B, packet 140 B, frame 158 B, 1264 bits on the wire."
+   },
+   "what": "Network software is split into **layers**, and each layer does exactly one job. On the way down, every layer wraps the data from the layer above with its own header. The wrapped unit has a different name at each layer: message, segment, packet, frame, and finally bits.",
+   "what_full": "Network software is split into **layers**, and each layer does exactly one job. On the way down, every layer wraps the data from the layer above with its own header. The wrapped unit has a different name at each layer: message, segment, packet, frame, and finally bits.\n\nThe five-layer Internet stack, top to bottom:\n\n**Application:** the data the programs exchange (HTTP, DNS). PDU = **message**.\n\n**Transport:** process to process, using **port numbers**, between the two end hosts only. PDU = **segment**.\n\n**Network:** host to host across many links, using **IP addresses** and routing. PDU = **packet** (datagram).\n\n**Data link:** one link at a time, using **MAC addresses**, framing and an error check. PDU = **frame**.\n\n**Physical:** bits as signals on the medium.\n\nA **PDU** (protocol data unit) is the chunk a layer hands to the layer below. Going down is **encapsulation** (add a header). Going up is **decapsulation** (strip it).\n\n**Worked example.** A browser gives the application layer a 100-byte message. TCP adds a 20-byte header, IP adds a 20-byte header, and Ethernet adds a 14-byte header plus a 4-byte trailer. Find the size at each layer and the number of bits sent.\n\n1. The application layer holds the **message**: 100 bytes. This is the application PDU.\n2. The transport layer adds a 20-byte TCP header: 100 + 20 = 120 bytes. This is a **segment**.\n3. The network layer adds a 20-byte IP header: 120 + 20 = 140 bytes. This is a **packet** (also called a datagram).\n4. The data link layer adds a 14-byte Ethernet header and a 4-byte trailer: 140 + 14 + 4 = 158 bytes. This is a **frame**.\n5. The physical layer sends the frame as signals: 158 x 8 = 1264 bits.\n6. The receiver strips the layers in reverse order. Each layer removes only its own header, so the 100-byte message comes out unchanged.\n\n**Answer:** Message 100 B, segment 120 B, packet 140 B, frame 158 B, 1264 bits on the wire.",
+   "why_full": "Every other chapter (framing, routing, TCP) lives at one of these layers, and GATE tests recall of which layer owns which job. In GATE: match layer functions, protocols or PDUs, or recall header field widths (port 16 bits, MAC 48, TCP sequence 32).\n\nAsked: 2025 CS1 Q16, 2018 CS Q23, 2004 CS Q15, 2007 CS Q70, 2012 CS Q10, 2014 CS3 Q23, 2003 CS Q28",
+   "trap": "Putting error checking only at the data link layer, or only at transport. Both layers check, but the data link layer checks one hop at a time and TCP checks the whole path. Another slip is to treat 'packet' and 'frame' as the same word: a router discards the incoming frame and builds a new one."
+  },
+  {
+   "atom_id": "l2",
+   "title": "Layer visits per path",
+   "simple": "Imagine passing a parcel along a chain of couriers. Every courier takes it out of the old van's crate and reads the city on the label (the network job). Then they put it into a fresh crate for the next van (the data link job). The label inside never changes, but the crate is new every time. So the number of 'label readings' is the number of couriers, and the number of 'crate jobs' is two for every van ride, one to load and one to unload. In exam words: k links give k + 1 network layer visits and 2k data link visits, and each router builds a new frame.",
+   "idea": "A packet crosses several links on its way. Every device on the path reads the packet at the network layer. Every link needs a frame at both of its ends. So counting layer visits is just counting devices and links.",
+   "definition": "For a path with **k links** (so k - 1 routers between the two hosts):\n\n**Network layer visits = k + 1.** The source, the destination and every router run it once.\n\n**Data link layer visits = 2k.** Each link has a sender side and a receiver side.\n\nA **router** receives a frame, strips it, reads the packet, and builds a **new frame** for the next link. The IP packet stays the same (except TTL and checksum).\n\nA **switch** or hub works below the network layer. It does not add a network layer visit.",
+   "intuition_full": "The data link layer is hop by hop, so its work repeats on every link. The network layer is end to end, so its work repeats only on the devices that make routing decisions. A frame is addressed to one next hop with MAC addresses, so it cannot be reused on the next link. The router throws it away and builds another. The IP packet inside carries the final destination, so it travels unchanged. This explains the two formulas. Count devices for the network layer: k + 1, one more than the links because k links join k + 1 devices in a chain. Count link ends for the data link layer: two ends per link. Questions that add 'one router in the middle' only change k by one.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Host S sends a packet to host D through two routers R1 and R2 (path S, R1, R2, D). How many times does the packet visit the network layer and the data link layer?",
+     "steps": [
+      "S builds the packet at its network layer: **network visit 1**. It wraps it in a frame at its data link layer: **data link visit 1**.",
+      "Link 1 carries the frame to R1. R1's data link layer receives it (**DL 2**). R1's network layer reads the packet and picks the next hop (**network 2**). R1 builds a new frame for link 2 (**DL 3**).",
+      "R2 does the same: it receives (**DL 4**), routes (**network 3**) and sends a new frame (**DL 5**).",
+      "D's data link layer receives the frame (**DL 6**) and passes the packet up to its network layer (**network 4**).",
+      "Count: 3 links, so the network layer is visited k + 1 = 4 times and the data link layer 2k = 6 times."
+     ],
+     "answer": "Network layer 4 times, data link layer 6 times."
+    },
+    {
+     "level": "gate",
+     "setup": "S reaches D through three routers in a chain (S, R1, R2, R3, D). Find the network and data link visits, the number of different frames built, and how many times the IP header's destination address changes.",
+     "steps": [
+      "The chain has 5 devices and 4 links, so k = 4.",
+      "Network layer visits = k + 1 = 5 (S, R1, R2, R3, D).",
+      "Data link visits = 2k = 8 (each link has a sender side and a receiver side).",
+      "Each link carries its own frame: S builds one, and each of the 3 routers builds a fresh one. That is 4 frames, one per link, with new MAC addresses each time.",
+      "The IP source and destination addresses stay the same all the way. Routers only change fields such as TTL. The destination address changes 0 times."
+     ],
+     "answer": "Network 5, data link 8, 4 frames built, destination IP changes 0 times."
+    },
+    {
+     "level": "twist",
+     "setup": "S and D are on the same Ethernet segment, with a layer-2 switch between them (S, switch, D). How many network layer visits are there for one packet from S to D?",
+     "steps": [
+      "A switch works at the data link layer. It forwards the same frame by looking at the MAC address and does not open the IP packet.",
+      "The network layer runs only at S and D. So the packet visits it twice, which is k + 1 with k = 1 (the network layer sees one link, S to D, even though the cable has two segments).",
+      "A router in the same place would give 3 network visits, because it reads the IP header."
+     ],
+     "answer": "2 network layer visits. A switch (or hub) between S and D adds none; only a router does."
+    }
+   ],
+   "why": "This is a fast, sure mark: a recall question that needs only two formulas. In GATE: count the network and data link visits for S to D through routers, or judge statements about which device changes which address.",
+   "how": [
+    "Count the links k between the hosts, not the routers.",
+    "Network layer visits = k + 1. Data link layer visits = 2k.",
+    "MAC addresses change on every link. IP addresses (without NAT) never change.",
+    "Ignore layer-2 switches, hubs and repeaters. They add no network layer visit."
+   ],
+   "mistake": "Using k for the network visits and 2k for the data link visits mixes up the ends. A path with k links has k + 1 devices, so the network layer runs k + 1 times. A second slip is thinking a router only works at layer 3. It still receives and rebuilds a frame on every link.",
+   "edge_cases": [
+    "Two hosts on one link (k = 1): 2 network visits, 2 data link visits.",
+    "Counting 'routers between' instead of links: with r routers, k = r + 1, so network visits = r + 2 and data link visits = 2r + 2.",
+    "With NAT the IP source address is rewritten at the NAT router, so 'IP addresses never change' no longer holds on that hop."
+   ],
+   "connections": [
+    "The four delays (next cards) add up per link, so the same k appears in k Tt and k Tp.",
+    "IPv4 forwarding (net.ipv4) is what each network layer visit does: look up the destination and pick the next hop.",
+    "Frames and MAC addresses (net.datalink, MAC and switches card) are what changes at each data link visit."
+   ],
+   "check": [
+    {
+     "q": "A path has 5 links. How many network layer and data link layer visits?",
+     "a": "Network 6, data link 10."
+    },
+    {
+     "q": "A path S, R, D has one router. Which layer visits happen 3 times?",
+     "a": "Network layer: S, R and D are 3 visits (k + 1 with k = 2). Data link is 4."
+    },
+    {
+     "q": "Does the IP destination address change at a router?",
+     "a": "No. The router changes the frame's MAC addresses, not the IP destination."
+    }
+   ],
+   "asked": "Asked: 2013 CS Q14",
+   "try": {
+    "id": "gen.net.layering.008",
+    "label": "Try: count network and data link visits through one router (L2)"
+   },
+   "scene": "net.layering.l2.visits",
+   "example": {
+    "setup": "Host S sends a packet to host D through two routers R1 and R2 (path S, R1, R2, D). How many times does the packet visit the network layer and the data link layer?",
+    "steps": [
+     "S builds the packet at its network layer: **network visit 1**. It wraps it in a frame at its data link layer: **data link visit 1**.",
+     "Link 1 carries the frame to R1. R1's data link layer receives it (**DL 2**). R1's network layer reads the packet and picks the next hop (**network 2**). R1 builds a new frame for link 2 (**DL 3**).",
+     "R2 does the same: it receives (**DL 4**), routes (**network 3**) and sends a new frame (**DL 5**).",
+     "D's data link layer receives the frame (**DL 6**) and passes the packet up to its network layer (**network 4**).",
+     "Count: 3 links, so the network layer is visited k + 1 = 4 times and the data link layer 2k = 6 times."
+    ],
+    "answer": "Network layer 4 times, data link layer 6 times."
+   },
+   "what": "A packet crosses several links on its way. Every device on the path reads the packet at the network layer. Every link needs a frame at both of its ends. So counting layer visits is just counting devices and links.",
+   "what_full": "A packet crosses several links on its way. Every device on the path reads the packet at the network layer. Every link needs a frame at both of its ends. So counting layer visits is just counting devices and links.\n\nFor a path with **k links** (so k - 1 routers between the two hosts):\n\n**Network layer visits = k + 1.** The source, the destination and every router run it once.\n\n**Data link layer visits = 2k.** Each link has a sender side and a receiver side.\n\nA **router** receives a frame, strips it, reads the packet, and builds a **new frame** for the next link. The IP packet stays the same (except TTL and checksum).\n\nA **switch** or hub works below the network layer. It does not add a network layer visit.\n\n**Worked example.** Host S sends a packet to host D through two routers R1 and R2 (path S, R1, R2, D). How many times does the packet visit the network layer and the data link layer?\n\n1. S builds the packet at its network layer: **network visit 1**. It wraps it in a frame at its data link layer: **data link visit 1**.\n2. Link 1 carries the frame to R1. R1's data link layer receives it (**DL 2**). R1's network layer reads the packet and picks the next hop (**network 2**). R1 builds a new frame for link 2 (**DL 3**).\n3. R2 does the same: it receives (**DL 4**), routes (**network 3**) and sends a new frame (**DL 5**).\n4. D's data link layer receives the frame (**DL 6**) and passes the packet up to its network layer (**network 4**).\n5. Count: 3 links, so the network layer is visited k + 1 = 4 times and the data link layer 2k = 6 times.\n\n**Answer:** Network layer 4 times, data link layer 6 times.",
+   "why_full": "This is a fast, sure mark: a recall question that needs only two formulas. In GATE: count the network and data link visits for S to D through routers, or judge statements about which device changes which address.\n\nAsked: 2013 CS Q14",
+   "trap": "Using k for the network visits and 2k for the data link visits mixes up the ends. A path with k links has k + 1 devices, so the network layer runs k + 1 times. A second slip is thinking a router only works at layer 3. It still receives and rebuilds a frame on every link."
+  },
+  {
+   "atom_id": "l3",
+   "title": "Circuit, packet and virtual circuit",
+   "simple": "A phone call is like booking a lane on a motorway. You book it first, and then nobody else can use your lane, even when you are silent. That is circuit switching: fast and steady, but wasteful. Sending data as packets is like cars sharing the road: no booking, any gap gets used, but at rush hour you wait in a queue. A virtual circuit is a middle way: pick one route at the start and give every car a short ticket number, so the roads can find it quickly. In exam words: circuit switching reserves a path and rate with set-up, packet switching shares links, and a virtual circuit fixes the route with a short label.",
+   "idea": "There are three ways to move data through a network. **Circuit switching** reserves a path and a rate for the whole call. **Packet switching** cuts data into packets that share the links. A **virtual circuit** is packet switching with a fixed route chosen at set-up.",
+   "definition": "**Circuit switching:** set-up phase, then a reserved rate (TDM slots or FDM bands) for the call. No queuing once set up. Idle capacity is wasted. Time = set-up + bits / reserved rate.\n\n**Packet switching (datagram):** no set-up. Each packet carries the full destination address and is routed on its own. Links are shared, so packets may queue and may take different routes.\n\n**Virtual circuit (VC):** a set-up phase picks one route. Each packet carries a short **VC number** (label) instead of the full address, and every router on the route keeps a table entry for the circuit. Packets arrive in order.\n\n**TDM:** time divided into frames of n slots, one slot per user. **FDM:** the frequency band is split among users.",
+   "intuition_full": "The three schemes sit on one spectrum of 'how much do you promise in advance'. Circuit switching promises a rate and pays for it with idle capacity and a set-up delay. Packet switching promises nothing and gets the best use of the link, because a silent user takes no capacity. That is the point of statistical multiplexing, where the average load is far lower than the sum of the peak loads. The price of sharing is queues, which add delay and can overflow. A virtual circuit adds a little order to packet switching. The route is fixed, so a router can look up a short label instead of the full address and packets never reorder, but each router now holds state per circuit, and if a router on the route fails the circuit dies. Pick the scheme by asking: steady stream (voice) favours circuits, bursty data favours packets.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 1 Mbps link is shared by TDM (time-division multiplexing) into 8 equal slots, one per user. User A sets up a circuit (0.5 s) and sends 500,000 bits. Propagation is negligible. How long does A need in total?",
+     "steps": [
+      "Set-up comes first. The call asks for a circuit and the path is reserved. This takes 0.5 s and no data moves.",
+      "TDM cuts the link into frames of 8 slots. A owns one slot, so A's rate is 1,000,000 / 8 = 125,000 bit/s.",
+      "A's bits ride slot 0 of every frame. The other 7 slots are reserved for other users, even if they are silent.",
+      "Sending time = bits / rate = 500,000 / 125,000 = 4 s.",
+      "Total = set-up + sending = 0.5 + 4 = 4.5 s. Once set up there is no queuing, and delay per bit is fixed."
+     ],
+     "answer": "4.5 seconds."
+    },
+    {
+     "level": "gate",
+     "setup": "A message of 800,000 bits goes S to R to D, two links of 1 Mbps each, with no other traffic. In circuit switching each link is TDM-split into 5 channels and the call takes 0.1 s to set up. In packet switching the message is cut into 8 packets of 100,000 bits and sent store-and-forward on the full link. Ignore propagation. Compare the times.",
+     "steps": [
+      "Circuit: the call's rate is 1,000,000 / 5 = 200,000 bit/s on both links. Sending time = 800,000 / 200,000 = 4 s.",
+      "Circuit total = 0.1 + 4 = 4.1 s. The other four channels sit idle, but they stay reserved.",
+      "Packet: Tt = 100,000 / 1,000,000 = 0.1 s per packet per link.",
+      "Pipelined store-and-forward needs (N + k - 1) Tt = (8 + 2 - 1) x 0.1 = 0.9 s. There is no set-up and the packets may use the whole link.",
+      "Packet switching is faster here because nobody else uses the link. The gain comes from sharing: idle capacity is used."
+     ],
+     "answer": "Circuit 4.1 s, packet 0.9 s."
+    },
+    {
+     "level": "twist",
+     "setup": "A 10 Mbps link serves users who each need 1 Mbps when active, and each is active only 10% of the time. How many users can circuit switching support, and how risky is it to put 20 users on a packet-switched link?",
+     "steps": [
+      "Circuit switching reserves 1 Mbps per user for the whole call, so it supports 10 / 1 = 10 users.",
+      "With packet switching, a user takes capacity only when active. 20 users are active at the same time with a small probability.",
+      "The link overflows only if more than 10 of the 20 users are active together. Binomial with p = 0.1 gives P(more than 10 of 20) = 7.1 x 10^-7, almost never.",
+      "So packet switching supports twice as many users here. The price is that the rare overload creates queuing (and loss) instead of a refusal at set-up."
+     ],
+     "answer": "Circuit: 10 users. Packet: 20 users fit with overflow probability about 7 in ten million. This is the gain from statistical multiplexing."
+    }
+   ],
+   "why": "These words define the vocabulary of every delay question that follows. In GATE: decide which statements about circuit, datagram and VC networks are true, or compare transfer times when set-up and sharing matter.",
+   "how": [
+    "Circuit switching: time = set-up + bits / (link rate / number of channels).",
+    "Packet switching: use the pipeline formula (N + k - 1) Tt plus propagation, plus any queuing.",
+    "Statements: circuit has set-up and no queue; datagram has no set-up and may reorder; VC has set-up, short label and in-order delivery.",
+    "If the question says 'no other traffic', packet switching can use the whole link rate."
+   ],
+   "mistake": "Saying packet switching needs a set-up phase, or that a virtual circuit packet carries the full destination address. A datagram network has no set-up; a VC network has a set-up and short labels. Also, packet switching is not always faster: with heavy load, queues eat the gain.",
+   "edge_cases": [
+    "An unused TDM slot is still reserved, so it is lost to everyone else.",
+    "A virtual circuit is not a physical circuit. The route is fixed but the links are still shared and packets can queue.",
+    "Datagram packets of the same message can arrive out of order. VC packets cannot."
+   ],
+   "connections": [
+    "Store-and-forward and pipelining (l5) is the delay formula for packet switching.",
+    "Queuing (l7) is the price packet switching pays for sharing.",
+    "Forwarding by label in a VC is the idea behind the router table lookup in net.ipv4, with a short label instead of a longest prefix."
+   ],
+   "check": [
+    {
+     "q": "A link of 2 Mbps is TDM-split into 10 channels. What is each call's rate?",
+     "a": "2,000,000 / 10 = 200,000 bit/s."
+    },
+    {
+     "q": "Which needs a set-up phase: datagram network or virtual circuit network?",
+     "a": "A virtual circuit network. A datagram network has none."
+    },
+    {
+     "q": "Why can packet switching serve more users than circuit switching?",
+     "a": "Users are idle most of the time, and packet switching gives the idle capacity to whoever needs it."
+    }
+   ],
+   "asked": "Asked: no direct question in the blueprint; the ideas support the delay questions that follow.",
+   "try": {
+    "id": "gen.net.layering.003",
+    "label": "Try: which statement about circuit switching is correct? (L1)"
+   },
+   "scene": "net.layering.l3.tdm",
+   "example": {
+    "setup": "A 1 Mbps link is shared by TDM (time-division multiplexing) into 8 equal slots, one per user. User A sets up a circuit (0.5 s) and sends 500,000 bits. Propagation is negligible. How long does A need in total?",
+    "steps": [
+     "Set-up comes first. The call asks for a circuit and the path is reserved. This takes 0.5 s and no data moves.",
+     "TDM cuts the link into frames of 8 slots. A owns one slot, so A's rate is 1,000,000 / 8 = 125,000 bit/s.",
+     "A's bits ride slot 0 of every frame. The other 7 slots are reserved for other users, even if they are silent.",
+     "Sending time = bits / rate = 500,000 / 125,000 = 4 s.",
+     "Total = set-up + sending = 0.5 + 4 = 4.5 s. Once set up there is no queuing, and delay per bit is fixed."
+    ],
+    "answer": "4.5 seconds."
+   },
+   "what": "There are three ways to move data through a network. **Circuit switching** reserves a path and a rate for the whole call. **Packet switching** cuts data into packets that share the links. A **virtual circuit** is packet switching with a fixed route chosen at set-up.",
+   "what_full": "There are three ways to move data through a network. **Circuit switching** reserves a path and a rate for the whole call. **Packet switching** cuts data into packets that share the links. A **virtual circuit** is packet switching with a fixed route chosen at set-up.\n\n**Circuit switching:** set-up phase, then a reserved rate (TDM slots or FDM bands) for the call. No queuing once set up. Idle capacity is wasted. Time = set-up + bits / reserved rate.\n\n**Packet switching (datagram):** no set-up. Each packet carries the full destination address and is routed on its own. Links are shared, so packets may queue and may take different routes.\n\n**Virtual circuit (VC):** a set-up phase picks one route. Each packet carries a short **VC number** (label) instead of the full address, and every router on the route keeps a table entry for the circuit. Packets arrive in order.\n\n**TDM:** time divided into frames of n slots, one slot per user. **FDM:** the frequency band is split among users.\n\n**Worked example.** A 1 Mbps link is shared by TDM (time-division multiplexing) into 8 equal slots, one per user. User A sets up a circuit (0.5 s) and sends 500,000 bits. Propagation is negligible. How long does A need in total?\n\n1. Set-up comes first. The call asks for a circuit and the path is reserved. This takes 0.5 s and no data moves.\n2. TDM cuts the link into frames of 8 slots. A owns one slot, so A's rate is 1,000,000 / 8 = 125,000 bit/s.\n3. A's bits ride slot 0 of every frame. The other 7 slots are reserved for other users, even if they are silent.\n4. Sending time = bits / rate = 500,000 / 125,000 = 4 s.\n5. Total = set-up + sending = 0.5 + 4 = 4.5 s. Once set up there is no queuing, and delay per bit is fixed.\n\n**Answer:** 4.5 seconds.",
+   "why_full": "These words define the vocabulary of every delay question that follows. In GATE: decide which statements about circuit, datagram and VC networks are true, or compare transfer times when set-up and sharing matter.\n\nAsked: no direct question in the blueprint; the ideas support the delay questions that follow.",
+   "trap": "Saying packet switching needs a set-up phase, or that a virtual circuit packet carries the full destination address. A datagram network has no set-up; a VC network has a set-up and short labels. Also, packet switching is not always faster: with heavy load, queues eat the gain."
+  },
+  {
+   "atom_id": "l4",
+   "title": "The four delays",
+   "simple": "Sending a parcel has four waiting times. First you wait at the counter if others are ahead of you (queuing). Then the clerk looks at the address (processing). Then you load the parcel onto the van, and a bigger parcel takes longer to load (transmission). Finally the van drives to the other city, and a longer road takes longer (propagation). Loading time depends on the size of the parcel and how fast the loading belt is. Driving time depends only on distance and speed. In exam words: $T_t = L/R$, $T_p = d/s$, plus processing and queuing.",
+   "idea": "A packet is delayed in four ways at each hop. **Transmission** is the time to push the bits out. **Propagation** is the time for a bit to cross the wire. **Processing** is the router reading the header. **Queuing** is the wait behind other packets.",
+   "definition": "For one packet of **L** bits on a link of rate **R** bit/s and length **d** metres with signal speed **s** m/s:\n\n**Transmission delay** $T_t = L/R$. It grows with the packet size.\n\n**Propagation delay** $T_p = d/s$. It does not depend on the packet size. In fibre or copper, s is about $2 \\times 10^8$ m/s.\n\n**Processing delay:** header check and table look-up, usually microseconds or given as 0.\n\n**Queuing delay:** time waiting for the link. It depends on the traffic, and is 0 for an empty queue.\n\nTotal per hop = processing + queuing + $T_t$ + $T_p$.\n\nIn GATE, 1 kbps = 1000 bit/s, 1 Mbps = $10^6$ bit/s, unless the question says otherwise.",
+   "intuition_full": "Think of a long freight train leaving a station. The time it takes for the whole train to roll out of the station is the transmission delay: it depends on the length of the train and how fast the station can push it out. The time the front of the train takes to reach the next station is the propagation delay: it depends only on distance and the train's speed. A longer train takes longer to leave, but not longer to travel. These are different physical limits. Beginners add or drop the wrong one. A big file on a short fast link is dominated by $T_t$. A small packet on a satellite link is dominated by $T_p$. The last bit arrives $T_t + T_p$ after the first bit starts, because the first bit leaves at time 0, the last bit leaves at $T_t$, and then travels $T_p$.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A host sends a 1000-byte packet over a 8 Mbps link that is 2000 km long. The signal travels at 2 x 10^8 m/s. The queue is empty and processing is instant. Find the time from the first bit leaving to the last bit arriving.",
+     "steps": [
+      "Convert first: 1000 bytes = 8000 bits, 8 Mbps = 8,000,000 bit/s, 2000 km = 2,000,000 m.",
+      "Transmission delay $T_t = L/R = 8000 / 8{,}000{,}000 = 0.001$ s = **1 ms**. This is the time to push all the bits onto the wire.",
+      "Propagation delay $T_p = d/s = 2{,}000{,}000 / (2 \\times 10^8) = 0.01$ s = **10 ms**. This is the time one bit needs to cross the wire.",
+      "The last bit leaves the sender at 1 ms. It then travels for another 10 ms. Processing and queuing are 0 in this problem.",
+      "Total = $T_t + T_p$ = 1 + 10 = 11 ms."
+     ],
+     "answer": "11 ms."
+    },
+    {
+     "level": "gate",
+     "setup": "A sender transmits a 3 MB file (1 MB = 10^6 bytes) as one continuous stream over a 24 Mbps link to a receiver 4800 km away. Signal speed is 2 x 10^8 m/s. Find the time until the last bit arrives.",
+     "steps": [
+      "File = 3 x 10^6 x 8 = 24,000,000 bits. Rate = 24,000,000 bit/s.",
+      "$T_t = 24{,}000{,}000 / 24{,}000{,}000 = 1$ s.",
+      "Distance = 4800 km = 4,800,000 m, so $T_p = 4{,}800{,}000 / 200{,}000{,}000 = 0.024$ s.",
+      "Total = 1 + 0.024 = 1.024 s. Transmission dominates because the file is large; propagation matters only for small packets on long links."
+     ],
+     "answer": "1.024 s."
+    },
+    {
+     "level": "twist",
+     "setup": "The packet of the basic example arrives while 3 identical packets are already waiting in the router's output queue. What is the delay now?",
+     "steps": [
+      "Queuing delay: the 3 packets ahead must be sent first. Each takes $T_t$ = 1 ms, so the wait is 3 x 1 = 3 ms.",
+      "Then the packet itself needs 1 ms to be pushed out, and 10 ms to travel.",
+      "Total = queuing + transmission + propagation = 3 + 1 + 10 = 14 ms. Queuing is the only delay that depends on other traffic."
+     ],
+     "answer": "14 ms."
+    }
+   ],
+   "why": "Every network timing problem is built from these terms. In GATE: sum transmission and propagation for one link, or compare which one dominates.",
+   "how": [
+    "Convert to bits, bit/s and metres first. Bytes times 8, km times 1000.",
+    "Compute $T_t = L/R$ and $T_p = d/s$ separately.",
+    "Add queuing and processing only if the question gives them.",
+    "Check the answer's unit (ms or s) before giving the number."
+   ],
+   "mistake": "Forgetting to convert bytes to bits or km to metres, which is off by 8 or 1000. A second slip is to give only the propagation (or only the transmission) delay. The delay of one packet is both, added.",
+   "edge_cases": [
+    "A zero-length wire still has $T_t$: pushing the bits out still takes L/R.",
+    "A huge packet on a fast link may have $T_t$ larger than $T_p$. A tiny packet on a long link is the opposite.",
+    "If the question says 'the first bit', the time is only $T_p$ (plus processing), not $T_t$."
+   ],
+   "connections": [
+    "Store-and-forward (next card) repeats $T_t$ on every link, while $T_p$ adds up as k $T_p$.",
+    "Stop-and-wait and sliding window efficiency in net.datalink is built from the same $T_t$ and $T_p$.",
+    "Bandwidth-delay product (l6) is $R \\times T_p$, which mixes the two."
+   ],
+   "check": [
+    {
+     "q": "A 500-byte packet is sent at 4 Mbps. Find $T_t$.",
+     "a": "500 x 8 = 4000 bits. 4000 / 4,000,000 = 0.001 s = 1 ms."
+    },
+    {
+     "q": "Which delay depends on packet size: transmission or propagation?",
+     "a": "Transmission. Propagation depends only on distance and signal speed."
+    },
+    {
+     "q": "A link is 600 km long at 2 x 10^8 m/s. Find $T_p$.",
+     "a": "600,000 / 200,000,000 = 0.003 s = 3 ms."
+    }
+   ],
+   "asked": "Asked: 2017 CS2 Q35, 2022 CS Q59, 2026 CS2 Q21",
+   "try": {
+    "id": "gen.net.layering.004",
+    "label": "Try: which delay grows when the packet gets bigger? (L1)"
+   },
+   "scene": "net.layering.l4.delays",
+   "example": {
+    "setup": "A host sends a 1000-byte packet over a 8 Mbps link that is 2000 km long. The signal travels at 2 x 10^8 m/s. The queue is empty and processing is instant. Find the time from the first bit leaving to the last bit arriving.",
+    "steps": [
+     "Convert first: 1000 bytes = 8000 bits, 8 Mbps = 8,000,000 bit/s, 2000 km = 2,000,000 m.",
+     "Transmission delay $T_t = L/R = 8000 / 8{,}000{,}000 = 0.001$ s = **1 ms**. This is the time to push all the bits onto the wire.",
+     "Propagation delay $T_p = d/s = 2{,}000{,}000 / (2 \\times 10^8) = 0.01$ s = **10 ms**. This is the time one bit needs to cross the wire.",
+     "The last bit leaves the sender at 1 ms. It then travels for another 10 ms. Processing and queuing are 0 in this problem.",
+     "Total = $T_t + T_p$ = 1 + 10 = 11 ms."
+    ],
+    "answer": "11 ms."
+   },
+   "what": "A packet is delayed in four ways at each hop. **Transmission** is the time to push the bits out. **Propagation** is the time for a bit to cross the wire. **Processing** is the router reading the header. **Queuing** is the wait behind other packets.",
+   "what_full": "A packet is delayed in four ways at each hop. **Transmission** is the time to push the bits out. **Propagation** is the time for a bit to cross the wire. **Processing** is the router reading the header. **Queuing** is the wait behind other packets.\n\nFor one packet of **L** bits on a link of rate **R** bit/s and length **d** metres with signal speed **s** m/s:\n\n**Transmission delay** $T_t = L/R$. It grows with the packet size.\n\n**Propagation delay** $T_p = d/s$. It does not depend on the packet size. In fibre or copper, s is about $2 \\times 10^8$ m/s.\n\n**Processing delay:** header check and table look-up, usually microseconds or given as 0.\n\n**Queuing delay:** time waiting for the link. It depends on the traffic, and is 0 for an empty queue.\n\nTotal per hop = processing + queuing + $T_t$ + $T_p$.\n\nIn GATE, 1 kbps = 1000 bit/s, 1 Mbps = $10^6$ bit/s, unless the question says otherwise.\n\n**Worked example.** A host sends a 1000-byte packet over a 8 Mbps link that is 2000 km long. The signal travels at 2 x 10^8 m/s. The queue is empty and processing is instant. Find the time from the first bit leaving to the last bit arriving.\n\n1. Convert first: 1000 bytes = 8000 bits, 8 Mbps = 8,000,000 bit/s, 2000 km = 2,000,000 m.\n2. Transmission delay $T_t = L/R = 8000 / 8{,}000{,}000 = 0.001$ s = **1 ms**. This is the time to push all the bits onto the wire.\n3. Propagation delay $T_p = d/s = 2{,}000{,}000 / (2 \\times 10^8) = 0.01$ s = **10 ms**. This is the time one bit needs to cross the wire.\n4. The last bit leaves the sender at 1 ms. It then travels for another 10 ms. Processing and queuing are 0 in this problem.\n5. Total = $T_t + T_p$ = 1 + 10 = 11 ms.\n\n**Answer:** 11 ms.",
+   "why_full": "Every network timing problem is built from these terms. In GATE: sum transmission and propagation for one link, or compare which one dominates.\n\nAsked: 2017 CS2 Q35, 2022 CS Q59, 2026 CS2 Q21",
+   "trap": "Forgetting to convert bytes to bits or km to metres, which is off by 8 or 1000. A second slip is to give only the propagation (or only the transmission) delay. The delay of one packet is both, added."
+  },
+  {
+   "atom_id": "l5",
+   "title": "Store-and-forward and pipelining",
+   "simple": "A router is like a relay runner who must hold the whole baton before passing it on. If you send one big parcel through three runners, each runner has to wait for the entire parcel before moving, so the time triples. If you split it into small parcels, runner two starts carrying parcel one while runner one is still handing over parcel two. Now all the runners are busy at the same time and the whole job finishes much sooner. But every small parcel needs its own label, and too many labels waste time. In exam words: one packet takes k $T_t$, and N packets over k links take $(N + k - 1) T_t$ plus the propagation delays.",
+   "idea": "A **store-and-forward** router must receive a whole packet before it sends the first bit on. One big packet therefore pays the full transmission time on every link. Splitting the message into smaller packets lets the links work in parallel, like an assembly line.",
+   "definition": "For packets of transmission time $T_t$ on every link, over **k links** with store-and-forward routers:\n\n**One packet:** $k \\cdot T_t + k \\cdot T_p$ (plus any processing at the k - 1 routers).\n\n**N packets, pipelined:** $(N + k - 1) \\cdot T_t + k \\cdot T_p$.\n\nThe first packet needs k slots to reach the end. Each later packet then arrives one slot behind it.\n\n**Header overhead:** if each packet carries h bits of header and the message has M bits, then n packets give packet size $M/n + h$ and total time $(n + k - 1)(M/n + h)/R$. The best packet data size is $d = \\sqrt{M h/(k-1)}$.",
+   "intuition_full": "Draw a grid with one row per link and one column per time slot. Each packet appears as a diagonal: it sits on link 1 in slot j, link 2 in slot j + 1, and so on. A row is busy whenever it has a packet, so after k - 1 slots every link has something to send. The first packet needs k slots to travel the whole path. After that, one packet completes per slot, so N packets finish at slot N + k - 1. The formula has two parts: the N slots of the sender pushing out all packets, plus k - 1 slots of draining the pipe at the end. Smaller packets shrink the k - 1 drain part, since the slot is shorter. But if headers are added, smaller packets mean more total bits. Minimising the sum gives the square-root rule: the best data size grows with the message and the header, and shrinks as the path gets longer.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 12,000-bit message is cut into 6 packets of 2000 bits. The path has 3 links of 1 Mbps each, with 2 store-and-forward routers (S, R1, R2, D). Propagation and processing are negligible. Find the time for the whole message to reach D.",
+     "steps": [
+      "$T_t = L/R = 2000 / 10^6 = 2$ ms. Call 2 ms one **slot**. A router forwards a packet only after it has received all of it.",
+      "P1 needs one slot per link: it crosses link 1 in slot 1, link 2 in slot 2, link 3 in slot 3. One packet alone takes $k T_t$ = 3 x 2 = 6 ms.",
+      "While P1 is on link 2, the sender is already putting P2 on link 1. From slot 3 on, all three links are busy at once.",
+      "Link 1 is busy with a new packet in every slot, so it sends P6 in slot 6.",
+      "P6 still has to cross link 2 (slot 7) and link 3 (slot 8). The last packet arrives after $N + k - 1$ = 6 + 3 - 1 = 8 slots = 16 ms.",
+      "Compare: the whole message as one packet would cross 3 links at 12 ms each, 3 x 12 = 36 ms. Splitting saves 20 ms."
+     ],
+     "answer": "16 ms."
+    },
+    {
+     "level": "gate",
+     "setup": "A 4800-bit message goes over 3 links of 2 Mbps with store-and-forward routers, and each packet has a 200-bit header. Compare the total time when the message is sent as 1, 4, 8 or 16 equal packets. Ignore propagation.",
+     "steps": [
+      "Each packet holds 4800 / n data bits plus 200 header bits, so $T_t = (4800/n + 200)/(2 \\times 10^6)$ s. The total time is $(n + k - 1) T_t$ with k = 3.",
+      "n = 1: packet size 5000 bits, $T_t$ = 2.5 ms, time = (1 + 2) x 2.5 = 7.5 ms.",
+      "n = 4: packet size 1400 bits, $T_t$ = 0.7 ms, time = (4 + 2) x 0.7 = 4.2 ms.",
+      "n = 8: packet size 800 bits, $T_t$ = 0.4 ms, time = (8 + 2) x 0.4 = 4.0 ms.",
+      "n = 16: packet size 500 bits, $T_t$ = 0.25 ms, time = (16 + 2) x 0.25 = 4.5 ms.",
+      "The time falls and then rises: more packets pipeline better, but every packet repeats the 200-bit header. The best is near 8 packets here."
+     ],
+     "answer": "7.5 ms, 4.2 ms, 4.0 ms, 4.5 ms. More packets is not always faster."
+    },
+    {
+     "level": "twist",
+     "setup": "One packet with $T_t$ = 2 ms goes over 3 links, each with $T_p$ = 2 ms. Each of the 2 routers needs 1 ms to process the packet before forwarding it. Find the total delay.",
+     "steps": [
+      "The packet crosses 3 links, so it pays $T_t$ + $T_p$ three times: 3 x (2 + 2) = 12 ms.",
+      "Only the routers add processing. There are 2 routers (not 3, since S and D are hosts that do not forward), so 2 x 1 = 2 ms.",
+      "Total = 12 + 2 = 14 ms. Timeline: 2 (send) + 2 (travel) = 4 arrives at R1, +1 = 5, +2 = 7 sent, +2 = 9 at R2, +1 = 10, +2 = 12 sent, +2 = 14 at D."
+     ],
+     "answer": "14 ms. Processing is paid per router (2), transmission and propagation per link (3)."
+    }
+   ],
+   "why": "Pipelined delay is the most repeated calculation in this chapter. In GATE: find the time for N packets over a few links, compare 1, 10 and 20 packets with headers, or find the packet size that minimises the time.",
+   "how": [
+    "Compute $T_t$ of one packet on one link (with header if given).",
+    "Count links k (not routers) and packets N.",
+    "Use $(N + k - 1) T_t + k T_p$. If link rates differ, use the grid and follow the bottleneck.",
+    "Add router processing once per router, k - 1 times.",
+    "For the best packet size, minimise $(M/d + k - 1)(d + h)$, giving $d = \\sqrt{Mh/(k-1)}$."
+   ],
+   "mistake": "Multiplying the time of one link by k when many packets are pipelined, which gives k times the file time instead of N + k - 1 packet times. The opposite slip is to pipeline a single packet. A lone packet pays k $T_t$, because every router waits for it in full.",
+   "edge_cases": [
+    "N = 1: the formula gives k $T_t$, the single-packet result.",
+    "Links with different rates: the bottleneck link sets the pace. Build the grid with the real slot lengths.",
+    "Low priority: cut-through switches forward after reading only the header, so they skip the full-packet wait. GATE questions assume store-and-forward unless stated."
+   ],
+   "connections": [
+    "The four delays (l4) give $T_t$ and $T_p$.",
+    "Sliding window (net.datalink) keeps this same pipe full by sending w frames before waiting.",
+    "TCP congestion control (net.transport) is about how fast the sender may fill the pipe."
+   ],
+   "check": [
+    {
+     "q": "5 packets of 1 ms each cross 4 links, store-and-forward, no propagation. Total time?",
+     "a": "(5 + 4 - 1) x 1 = 8 ms."
+    },
+    {
+     "q": "One packet of 3 ms crosses 2 links with 1 ms propagation each. Total time?",
+     "a": "2 x (3 + 1) = 8 ms."
+    },
+    {
+     "q": "Why is splitting a message into more and more packets eventually slower?",
+     "a": "Every packet carries a header, so the total bits grow, and the extra header time outweighs the pipelining gain."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q36, 2012 CS Q44, 2014 CS2 Q26, 2015 CS3 Q36, 2005 CS Q73",
+   "try": {
+    "id": "gen.net.layering.009",
+    "label": "Try: one packet over 3 links with store-and-forward routers (L2)"
+   },
+   "scene": "net.layering.l5.pipe",
+   "example": {
+    "setup": "A 12,000-bit message is cut into 6 packets of 2000 bits. The path has 3 links of 1 Mbps each, with 2 store-and-forward routers (S, R1, R2, D). Propagation and processing are negligible. Find the time for the whole message to reach D.",
+    "steps": [
+     "$T_t = L/R = 2000 / 10^6 = 2$ ms. Call 2 ms one **slot**. A router forwards a packet only after it has received all of it.",
+     "P1 needs one slot per link: it crosses link 1 in slot 1, link 2 in slot 2, link 3 in slot 3. One packet alone takes $k T_t$ = 3 x 2 = 6 ms.",
+     "While P1 is on link 2, the sender is already putting P2 on link 1. From slot 3 on, all three links are busy at once.",
+     "Link 1 is busy with a new packet in every slot, so it sends P6 in slot 6.",
+     "P6 still has to cross link 2 (slot 7) and link 3 (slot 8). The last packet arrives after $N + k - 1$ = 6 + 3 - 1 = 8 slots = 16 ms.",
+     "Compare: the whole message as one packet would cross 3 links at 12 ms each, 3 x 12 = 36 ms. Splitting saves 20 ms."
+    ],
+    "answer": "16 ms."
+   },
+   "what": "A **store-and-forward** router must receive a whole packet before it sends the first bit on. One big packet therefore pays the full transmission time on every link. Splitting the message into smaller packets lets the links work in parallel, like an assembly line.",
+   "what_full": "A **store-and-forward** router must receive a whole packet before it sends the first bit on. One big packet therefore pays the full transmission time on every link. Splitting the message into smaller packets lets the links work in parallel, like an assembly line.\n\nFor packets of transmission time $T_t$ on every link, over **k links** with store-and-forward routers:\n\n**One packet:** $k \\cdot T_t + k \\cdot T_p$ (plus any processing at the k - 1 routers).\n\n**N packets, pipelined:** $(N + k - 1) \\cdot T_t + k \\cdot T_p$.\n\nThe first packet needs k slots to reach the end. Each later packet then arrives one slot behind it.\n\n**Header overhead:** if each packet carries h bits of header and the message has M bits, then n packets give packet size $M/n + h$ and total time $(n + k - 1)(M/n + h)/R$. The best packet data size is $d = \\sqrt{M h/(k-1)}$.\n\n**Worked example.** A 12,000-bit message is cut into 6 packets of 2000 bits. The path has 3 links of 1 Mbps each, with 2 store-and-forward routers (S, R1, R2, D). Propagation and processing are negligible. Find the time for the whole message to reach D.\n\n1. $T_t = L/R = 2000 / 10^6 = 2$ ms. Call 2 ms one **slot**. A router forwards a packet only after it has received all of it.\n2. P1 needs one slot per link: it crosses link 1 in slot 1, link 2 in slot 2, link 3 in slot 3. One packet alone takes $k T_t$ = 3 x 2 = 6 ms.\n3. While P1 is on link 2, the sender is already putting P2 on link 1. From slot 3 on, all three links are busy at once.\n4. Link 1 is busy with a new packet in every slot, so it sends P6 in slot 6.\n5. P6 still has to cross link 2 (slot 7) and link 3 (slot 8). The last packet arrives after $N + k - 1$ = 6 + 3 - 1 = 8 slots = 16 ms.\n6. Compare: the whole message as one packet would cross 3 links at 12 ms each, 3 x 12 = 36 ms. Splitting saves 20 ms.\n\n**Answer:** 16 ms.",
+   "why_full": "Pipelined delay is the most repeated calculation in this chapter. In GATE: find the time for N packets over a few links, compare 1, 10 and 20 packets with headers, or find the packet size that minimises the time.\n\nAsked: 2024 CS1 Q36, 2012 CS Q44, 2014 CS2 Q26, 2015 CS3 Q36, 2005 CS Q73",
+   "trap": "Multiplying the time of one link by k when many packets are pipelined, which gives k times the file time instead of N + k - 1 packet times. The opposite slip is to pipeline a single packet. A lone packet pays k $T_t$, because every router waits for it in full."
+  },
+  {
+   "atom_id": "l6",
+   "title": "Bottleneck and bandwidth-delay product",
+   "simple": "Imagine water flowing through three pipes joined end to end. One pipe is narrow. No matter how wide the others are, the water leaves at the speed of the narrow pipe. That narrow pipe is the bottleneck. Now think about how much water is inside a pipe at one moment. A long, wide pipe holds a lot. For a network link, the 'water' is bits, and the amount inside is the rate times the time a bit takes to cross. In exam words: streaming time is file size over the minimum link rate, and bits in flight are $R \\times T_p$ (the bandwidth-delay product).",
+   "idea": "A chain of links delivers data only as fast as its **slowest link**. Separately, a long fast link holds many bits at once. The **bandwidth-delay product** counts those bits: rate times one-way delay.",
+   "definition": "**Bottleneck rate:** $R_{min} = \\min(R_1, R_2, \\dots, R_k)$. For a large file streamed continuously, time $\\approx$ file bits $/ R_{min}$.\n\n**Bandwidth-delay product:** $\\text{BDP} = R \\times T_p$ bits in flight, one way. The round trip holds $R \\times RTT = 2 R T_p$.\n\nA sender must keep at least a BDP of data unacknowledged to keep the link busy. If its window is smaller, the link idles between windows.",
+   "intuition_full": "Rate tells you how fast bits enter a link. Delay tells you how long each bit stays on it. Multiply them and you get how many bits are inside the link at once, like length times width times the speed of flow. A fast link with a long delay, such as a satellite hop, holds a huge number of bits, and the sender must send that many before the first acknowledgement returns. For streaming, the narrow link decides the pace. Faster links before the bottleneck simply fill the router's buffer, as the twist shows. Faster links after the bottleneck are idle part of the time. The total streaming time is therefore file size over the minimum rate, plus small extras (propagation, the first packet's trip) that the question usually ignores or asks about separately.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A path has three links of 10, 4 and 6 Mbps. A 2 MB file (16 Mbit) is streamed over it. Then look at the 4 Mbps link, which has a one-way propagation delay of 30 ms: how many bits are on the wire at once?",
+     "steps": [
+      "The path has three links with rates 10, 4 and 6 Mbps, and a file of 16 Mbit to send.",
+      "A router cannot send bits out faster than they arrive, and cannot send faster than its output link. The slowest link, 4 Mbps, limits the whole path.",
+      "Streaming time is about file size / bottleneck rate = 16 Mbit / 4 Mbps = 4 s.",
+      "Now take the bottleneck link. Its one-way propagation delay is 30 ms, so bits stay on the wire for 30 ms.",
+      "Bandwidth-delay product = $R \\times T_p$ = 4,000,000 x 0.03 = 120,000 bits are in flight.",
+      "To keep this link busy, the sender must have at least 120,000 bits unacknowledged. A round trip doubles this to 240,000 bits."
+     ],
+     "answer": "Time about 4 s. Bits in flight on the 4 Mbps link: 120,000."
+    },
+    {
+     "level": "gate",
+     "setup": "A 90 MB file (1 MB = 8 x 10^6 bits) is sent over four links of 100, 20, 50 and 40 Mbps. Delays other than transmission are negligible and the transfer streams continuously. Then, for a 40 Mbps link with 25 ms one-way propagation and 1250-byte packets, how many packets fit on the wire?",
+     "steps": [
+      "File = 90 x 8 x 10^6 = 720 x 10^6 bits.",
+      "The slowest link is 20 Mbps, so time = 720 / 20 = 36 s.",
+      "Do not add the times of the links. Only the slowest sets the pace; the fast links are idle part of the time.",
+      "BDP of the 40 Mbps link = 40 x 10^6 x 0.025 = 1,000,000 bits.",
+      "One packet is 1250 x 8 = 10,000 bits, so 1,000,000 / 10,000 = 100 packets fit on the wire at once."
+     ],
+     "answer": "36 s for the file. 100 packets in flight on the 40 Mbps link."
+    },
+    {
+     "level": "twist",
+     "setup": "In a path of 10 Mbps then 4 Mbps, the 16 Mbit file is sent in one burst. How much data must the middle router buffer at its peak? (Ignore propagation.)",
+     "steps": [
+      "The sender needs 16 / 10 = 1.6 s to push the whole file out at 10 Mbps.",
+      "In those 1.6 s, the router can send only 4 x 1.6 = 6.4 Mbit on the 4 Mbps link.",
+      "The rest, 16 - 6.4 = 9.6 Mbit, is stored in the router. This is the peak, reached at t = 1.6 s.",
+      "The router drains it over another 9.6 / 4 = 2.4 s, so the transfer ends at 1.6 + 2.4 = 4 s, the same bottleneck-based time."
+     ],
+     "answer": "The router must buffer 9.6 Mbit at the peak. The total time is still 4 s."
+    }
+   ],
+   "why": "Bottleneck and BDP convert a path into one number. In GATE: find the transfer time of a file over unequal links, or find the window that keeps a link full.",
+   "how": [
+    "List the link rates, convert units, and pick the minimum.",
+    "Time = file bits / minimum rate, adding propagation only if asked.",
+    "For BDP, multiply rate by one-way propagation delay (or RTT for the round trip).",
+    "Divide by packet size in bits to get the number of packets in flight."
+   ],
+   "mistake": "Adding the transfer times of all links, which gives a much larger time than the real one. In a streamed transfer the links work at the same time, so only the slowest matters. A second slip is mixing bits and bytes in the BDP.",
+   "edge_cases": [
+    "A link faster than the one before it cannot raise the rate: it cannot send what has not arrived.",
+    "If the file is tiny, one packet crosses in $k T_t + k T_p$ and the bottleneck rule is only an approximation.",
+    "Bits in flight is a count at one instant. The link holds $R T_p$ bits only if the sender transmits continuously."
+   ],
+   "connections": [
+    "Sliding window efficiency (net.datalink): the window must cover the BDP to reach 100% utilisation.",
+    "TCP throughput limit window / RTT (net.transport) is the same BDP idea.",
+    "The four delays (l4) give the Tp used here."
+   ],
+   "check": [
+    {
+     "q": "Links of 5, 2 and 8 Mbps carry a 12 Mbit file. Time?",
+     "a": "12 / 2 = 6 s, set by the 2 Mbps link."
+    },
+    {
+     "q": "A 10 Mbps link has 50 ms one-way delay. BDP?",
+     "a": "10,000,000 x 0.05 = 500,000 bits."
+    },
+    {
+     "q": "Does a faster last link shorten a streamed transfer?",
+     "a": "No. The bottleneck earlier on still limits the rate."
+    }
+   ],
+   "asked": "Asked: 2026 CS2 Q21",
+   "try": {
+    "id": "gen.net.layering.010",
+    "label": "Try: bits on the wire for 100 Mbps and 20 ms (L2)"
+   },
+   "scene": "net.layering.l6.bottleneck",
+   "example": {
+    "setup": "A path has three links of 10, 4 and 6 Mbps. A 2 MB file (16 Mbit) is streamed over it. Then look at the 4 Mbps link, which has a one-way propagation delay of 30 ms: how many bits are on the wire at once?",
+    "steps": [
+     "The path has three links with rates 10, 4 and 6 Mbps, and a file of 16 Mbit to send.",
+     "A router cannot send bits out faster than they arrive, and cannot send faster than its output link. The slowest link, 4 Mbps, limits the whole path.",
+     "Streaming time is about file size / bottleneck rate = 16 Mbit / 4 Mbps = 4 s.",
+     "Now take the bottleneck link. Its one-way propagation delay is 30 ms, so bits stay on the wire for 30 ms.",
+     "Bandwidth-delay product = $R \\times T_p$ = 4,000,000 x 0.03 = 120,000 bits are in flight.",
+     "To keep this link busy, the sender must have at least 120,000 bits unacknowledged. A round trip doubles this to 240,000 bits."
+    ],
+    "answer": "Time about 4 s. Bits in flight on the 4 Mbps link: 120,000."
+   },
+   "what": "A chain of links delivers data only as fast as its **slowest link**. Separately, a long fast link holds many bits at once. The **bandwidth-delay product** counts those bits: rate times one-way delay.",
+   "what_full": "A chain of links delivers data only as fast as its **slowest link**. Separately, a long fast link holds many bits at once. The **bandwidth-delay product** counts those bits: rate times one-way delay.\n\n**Bottleneck rate:** $R_{min} = \\min(R_1, R_2, \\dots, R_k)$. For a large file streamed continuously, time $\\approx$ file bits $/ R_{min}$.\n\n**Bandwidth-delay product:** $\\text{BDP} = R \\times T_p$ bits in flight, one way. The round trip holds $R \\times RTT = 2 R T_p$.\n\nA sender must keep at least a BDP of data unacknowledged to keep the link busy. If its window is smaller, the link idles between windows.\n\n**Worked example.** A path has three links of 10, 4 and 6 Mbps. A 2 MB file (16 Mbit) is streamed over it. Then look at the 4 Mbps link, which has a one-way propagation delay of 30 ms: how many bits are on the wire at once?\n\n1. The path has three links with rates 10, 4 and 6 Mbps, and a file of 16 Mbit to send.\n2. A router cannot send bits out faster than they arrive, and cannot send faster than its output link. The slowest link, 4 Mbps, limits the whole path.\n3. Streaming time is about file size / bottleneck rate = 16 Mbit / 4 Mbps = 4 s.\n4. Now take the bottleneck link. Its one-way propagation delay is 30 ms, so bits stay on the wire for 30 ms.\n5. Bandwidth-delay product = $R \\times T_p$ = 4,000,000 x 0.03 = 120,000 bits are in flight.\n6. To keep this link busy, the sender must have at least 120,000 bits unacknowledged. A round trip doubles this to 240,000 bits.\n\n**Answer:** Time about 4 s. Bits in flight on the 4 Mbps link: 120,000.",
+   "why_full": "Bottleneck and BDP convert a path into one number. In GATE: find the transfer time of a file over unequal links, or find the window that keeps a link full.\n\nAsked: 2026 CS2 Q21",
+   "trap": "Adding the transfer times of all links, which gives a much larger time than the real one. In a streamed transfer the links work at the same time, so only the slowest matters. A second slip is mixing bits and bytes in the BDP."
+  },
+  {
+   "atom_id": "l7",
+   "title": "Queuing and traffic intensity",
+   "simple": "Think of a single till at a shop. If customers arrive more slowly than the cashier can serve them, the queue comes and goes. If they arrive faster, the queue just keeps growing, and the last person might wait all day. Even when the average is fine, a crowd arriving at the same moment makes a short queue, and each person waits for everyone ahead. For a router, the 'cashier' is the output link and the 'customers' are packets. In exam words: traffic intensity La/R must stay below 1, and queuing delay rises sharply as it nears 1.",
+   "idea": "A router's output link sends one packet at a time. Packets that arrive while it is busy **wait in a queue**. The queuing delay depends on how busy the link is, and it grows without limit when the load reaches the link's capacity.",
+   "definition": "With packet length **L** bits, link rate **R** bit/s and average arrival rate **a** packets per second:\n\n**Traffic intensity** $= L a / R$ (the fraction of time the link is busy, if it keeps up).\n\nIntensity **< 1**: the queue is stable. The delay rises as the intensity nears 1.\n\nIntensity **>= 1**: the queue grows without bound, so delay is unbounded and a finite buffer overflows (packet loss).\n\nService time of one packet $= L/R$. A packet that arrives behind $m$ queued packets waits about $m \\cdot L/R$.",
+   "intuition_full": "Queuing is the only delay that depends on other traffic. The other three delays are fixed by the packet and the link. If packets arrived on a perfect schedule, one every L/R seconds, nothing would ever wait, even at intensity 1. Real traffic is bursty, so some packets arrive in clumps. A clump of m packets means the last one waits (m - 1) service times. At low intensity the queue empties between clumps, so waits are short. Near intensity 1 there is almost no idle time to catch up, so a clump takes a long time to clear and the next clump arrives before it has. The delay-versus-intensity curve is therefore flat at first and then shoots up steeply. This is also the reason packet switching can lose packets: when the buffer is full, new packets are dropped.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A router's output link is 10 Mbps. Packets are 1500 bytes (12,000 bits) and arrive on average at 600 per second. Then 8 such packets arrive together in a burst at an empty queue. Find the traffic intensity and the average queuing delay in the burst.",
+     "steps": [
+      "Traffic intensity = L a / R = 12,000 x 600 / 10,000,000 = 0.72. It is below 1, so on average the queue drains.",
+      "Even so, packets can arrive together. A burst of 8 packets arrives at once at an empty queue. Sending one takes L/R = 12,000 / 10^7 = 1.2 ms.",
+      "The first packet finds the link idle: queuing delay 0.",
+      "The second waits for the first: 1.2 ms. The third waits 2.4 ms. The k-th waits (k - 1) x 1.2 ms.",
+      "The 8th waits 7 x 1.2 = 8.4 ms.",
+      "Average wait = (0 + 1.2 + 2.4 + ... + 8.4) / 8 = 3.5 x 1.2 = 4.2 ms."
+     ],
+     "answer": "Intensity 0.72. Average queuing delay in the burst 4.2 ms."
+    },
+    {
+     "level": "gate",
+     "setup": "A router link of 5 Mbps carries packets of 1250 bytes. Find (i) the time to send one packet, (ii) the highest arrival rate for which the queue stays stable, and (iii) the traffic intensity at 400 packets per second.",
+     "steps": [
+      "Packet = 1250 x 8 = 10,000 bits.",
+      "(i) Service time = L/R = 10,000 / 5,000,000 = 0.002 s = 2 ms.",
+      "(ii) The link can send 1 / 0.002 = 500 packets per second. The queue is stable only if the arrival rate a is below 500 per second, that is L a / R < 1.",
+      "(iii) At a = 400 per second, intensity = 10,000 x 400 / 5,000,000 = 0.8."
+     ],
+     "answer": "(i) 2 ms, (ii) below 500 packets/s, (iii) 0.8."
+    },
+    {
+     "level": "twist",
+     "setup": "On a link that serves 600 packets per second, packets arrive at 750 per second. What happens to the queue over 10 seconds?",
+     "steps": [
+      "Service rate = R / L = 600 packets per second (for example 7.2 Mbps with 12,000-bit packets). Intensity = 750 / 600 = 1.25.",
+      "The queue gains 750 - 600 = 150 packets every second.",
+      "After 10 s, 150 x 10 = 1500 packets are waiting, and the queue keeps growing. Delay is unbounded.",
+      "In a real router the buffer is finite, so packets are dropped once it fills. Intensity at or above 1 means loss."
+     ],
+     "answer": "Intensity 1.25, queue grows by 150 packets per second, 1500 after 10 s, until the buffer overflows."
+    }
+   ],
+   "why": "Queuing explains why packet networks lose packets and why the delay changes with load. In GATE it appears as a statement: which delays are fixed, which grow with traffic, and when does the queue become unbounded.",
+   "how": [
+    "Convert the packet to bits and find the service time L/R.",
+    "Intensity = L a / R. Compare it to 1.",
+    "For a burst of m packets at an empty queue, the k-th packet waits (k - 1) L/R.",
+    "Average wait over a burst of m is (m - 1)/2 x L/R."
+   ],
+   "mistake": "Thinking intensity just below 1 means no queue. The delay already climbs steeply near 1. The second slip is to treat queuing as a fixed number; it depends on the traffic and is the only one of the four delays that does.",
+   "edge_cases": [
+    "Intensity exactly 1 with random arrivals still gives a queue with unbounded average growth.",
+    "A burst of one packet has queuing delay 0.",
+    "Dropped packets are not delayed; they simply never arrive."
+   ],
+   "connections": [
+    "The four delays (l4) say queuing is the variable one.",
+    "Packet switching's price (l3) is exactly this queue.",
+    "TCP congestion control (net.transport) reacts when router queues fill and drop packets."
+   ],
+   "check": [
+    {
+     "q": "L = 8000 bits, R = 4 Mbps, a = 250 packets/s. Intensity?",
+     "a": "8000 x 250 / 4,000,000 = 0.5."
+    },
+    {
+     "q": "4 packets arrive together at an empty queue, 2 ms each. How long does the 4th wait?",
+     "a": "3 x 2 = 6 ms."
+    },
+    {
+     "q": "What happens to the queue if the intensity is above 1?",
+     "a": "It grows without bound, and a finite buffer overflows and drops packets."
+    }
+   ],
+   "asked": "Asked: no direct question in the blueprint; it appears as a true/false statement inside delay questions.",
+   "try": {
+    "id": "gen.net.layering.005",
+    "label": "Try: when the queue grows without bound (L1)"
+   },
+   "scene": "net.layering.l7.queue",
+   "example": {
+    "setup": "A router's output link is 10 Mbps. Packets are 1500 bytes (12,000 bits) and arrive on average at 600 per second. Then 8 such packets arrive together in a burst at an empty queue. Find the traffic intensity and the average queuing delay in the burst.",
+    "steps": [
+     "Traffic intensity = L a / R = 12,000 x 600 / 10,000,000 = 0.72. It is below 1, so on average the queue drains.",
+     "Even so, packets can arrive together. A burst of 8 packets arrives at once at an empty queue. Sending one takes L/R = 12,000 / 10^7 = 1.2 ms.",
+     "The first packet finds the link idle: queuing delay 0.",
+     "The second waits for the first: 1.2 ms. The third waits 2.4 ms. The k-th waits (k - 1) x 1.2 ms.",
+     "The 8th waits 7 x 1.2 = 8.4 ms.",
+     "Average wait = (0 + 1.2 + 2.4 + ... + 8.4) / 8 = 3.5 x 1.2 = 4.2 ms."
+    ],
+    "answer": "Intensity 0.72. Average queuing delay in the burst 4.2 ms."
+   },
+   "what": "A router's output link sends one packet at a time. Packets that arrive while it is busy **wait in a queue**. The queuing delay depends on how busy the link is, and it grows without limit when the load reaches the link's capacity.",
+   "what_full": "A router's output link sends one packet at a time. Packets that arrive while it is busy **wait in a queue**. The queuing delay depends on how busy the link is, and it grows without limit when the load reaches the link's capacity.\n\nWith packet length **L** bits, link rate **R** bit/s and average arrival rate **a** packets per second:\n\n**Traffic intensity** $= L a / R$ (the fraction of time the link is busy, if it keeps up).\n\nIntensity **< 1**: the queue is stable. The delay rises as the intensity nears 1.\n\nIntensity **>= 1**: the queue grows without bound, so delay is unbounded and a finite buffer overflows (packet loss).\n\nService time of one packet $= L/R$. A packet that arrives behind $m$ queued packets waits about $m \\cdot L/R$.\n\n**Worked example.** A router's output link is 10 Mbps. Packets are 1500 bytes (12,000 bits) and arrive on average at 600 per second. Then 8 such packets arrive together in a burst at an empty queue. Find the traffic intensity and the average queuing delay in the burst.\n\n1. Traffic intensity = L a / R = 12,000 x 600 / 10,000,000 = 0.72. It is below 1, so on average the queue drains.\n2. Even so, packets can arrive together. A burst of 8 packets arrives at once at an empty queue. Sending one takes L/R = 12,000 / 10^7 = 1.2 ms.\n3. The first packet finds the link idle: queuing delay 0.\n4. The second waits for the first: 1.2 ms. The third waits 2.4 ms. The k-th waits (k - 1) x 1.2 ms.\n5. The 8th waits 7 x 1.2 = 8.4 ms.\n6. Average wait = (0 + 1.2 + 2.4 + ... + 8.4) / 8 = 3.5 x 1.2 = 4.2 ms.\n\n**Answer:** Intensity 0.72. Average queuing delay in the burst 4.2 ms.",
+   "why_full": "Queuing explains why packet networks lose packets and why the delay changes with load. In GATE it appears as a statement: which delays are fixed, which grow with traffic, and when does the queue become unbounded.\n\nAsked: no direct question in the blueprint; it appears as a true/false statement inside delay questions.",
+   "trap": "Thinking intensity just below 1 means no queue. The delay already climbs steeply near 1. The second slip is to treat queuing as a fixed number; it depends on the traffic and is the only one of the four delays that does."
+  },
+  {
+   "atom_id": "l8",
+   "title": "Switch port counting",
+   "simple": "Think of power strips. A strip with 6 sockets seems to give 6 plugs. But if you plug one strip into another, the cable between them takes one socket on each. So two strips give 12 - 2 = 10 free sockets, not 12. Each extra strip adds its sockets but also eats two of them for the link to the rest. To plug in 20 devices you keep adding strips until the free sockets reach 20. In exam words: n switches in a tree use 2(n - 1) ports to link each other, so free ports = np - 2(n - 1).",
+   "idea": "A switch has a fixed number of ports. Joining switches with cables uses up ports, because a cable takes one port at each end. So the number of free ports for machines is less than the total.",
+   "definition": "For n switches with p ports each, joined in a **tree**:\n\nCables between switches $= n - 1$.\n\nPorts lost $= 2(n - 1)$ (two per cable).\n\n**Free ports $= np - 2(n - 1)$.**\n\nFind the smallest n with free ports $\\geq$ number of machines.\n\nIf extra cables are added for redundancy, each extra cable loses 2 more ports.",
+   "intuition_full": "A tree of n nodes always has n - 1 edges. Each switch is a node and each cable between switches is an edge. Every edge is plugged into two ports, so exactly 2(n - 1) ports go to the network itself and the rest go to machines. Because the lost ports grow more slowly than the total ports, adding switches does gain free ports: each new switch adds p ports and costs 2, a net gain of p - 2. For p = 2 there would be no gain, which is why you never build a tree of 2-port switches. You can also solve it directly: free ports $= n(p - 2) + 2$. For machines m, the answer is $\\lceil (m - 2)/(p - 2) \\rceil$.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "20 machines must be connected using 6-port switches, with no separate uplink port. The switches are joined in a tree. What is the minimum number of switches?",
+     "steps": [
+      "Start with 1 switch: 6 ports, none used for linking, so 6 free ports.",
+      "Add a second switch and join them with one cable. A cable uses one port on each switch, so 2 ports are lost: 12 - 2 = 10 free ports.",
+      "Three switches need 2 cables (4 ports lost): 18 - 4 = 14 free ports.",
+      "Four switches need 3 cables (6 ports lost): 24 - 6 = 18 free ports. That is less than 20, so more are needed.",
+      "Five switches need 4 cables (8 ports lost): 30 - 8 = 22 free ports, which is at least 20.",
+      "Formula: free ports $= 6n - 2(n - 1) = 4n + 2 \\geq 20$ gives $n \\geq 4.5$, so n = 5."
+     ],
+     "answer": "5 switches."
+    },
+    {
+     "level": "gate",
+     "setup": "50 PCs must be connected using 12-port switches with no uplink port, switches joined as a tree. Find the minimum number of switches.",
+     "steps": [
+      "n switches in a tree need n - 1 cables, and each cable uses 2 ports: $2(n - 1)$ ports are lost.",
+      "Free ports $= 12n - 2(n - 1) = 10n + 2$.",
+      "Need $10n + 2 \\geq 50$, so $n \\geq 4.8$, so n = 5.",
+      "Check: n = 4 gives 42 free ports, which is too few; n = 5 gives 52, which is enough."
+     ],
+     "answer": "5 switches."
+    },
+    {
+     "level": "twist",
+     "setup": "25 machines, 6-port switches. Compare a tree with a ring of switches (one extra redundant cable closes the ring).",
+     "steps": [
+      "Tree: free ports $= 6n - 2(n - 1) = 4n + 2 \\geq 25$ gives $n \\geq 5.75$, so 6 switches (26 free).",
+      "Ring: n switches need n cables, so $2n$ ports are lost. Free ports $= 6n - 2n = 4n \\geq 25$ gives $n \\geq 6.25$, so 7 switches (28 free).",
+      "The extra cable costs 2 more ports and, here, one more switch. Always check which topology the question states."
+     ],
+     "answer": "Tree needs 6 switches. Ring needs 7."
+    }
+   ],
+   "why": "A rare but regular 2-mark pattern whose answer is found with one formula. In GATE: the smallest number of switches that connects a given number of hosts.",
+   "how": [
+    "Write the free ports $= np - 2(n - 1)$.",
+    "Set it $\\geq$ the number of machines and solve for n.",
+    "Round n up to a whole number and check n and n - 1 by substitution.",
+    "If the topology is not a tree, count the actual cables."
+   ],
+   "mistake": "Dividing the machines by the ports per switch. For 15 machines and 8-port switches, 15 / 8 rounds up to 2, but the right answer is 3, because the ports lost to the switch links must be subtracted. A second slip is to use n instead of n - 1 for the cables.",
+   "edge_cases": [
+    "One switch needs no links, so all p ports are free.",
+    "Free ports $= n(p - 2) + 2$ is the same formula; it shows that 2-port switches never help.",
+    "A star of switches (one core, rest leaves) is still a tree with n - 1 cables."
+   ],
+   "connections": [
+    "Layer 2 switches forward by MAC address (net.datalink, MAC addresses and switches card).",
+    "A tree has no loops, which is what Ethernet bridging needs (spanning tree). Redundant links add loops.",
+    "Counting nodes and edges of a tree is the graph theory fact n - 1 edges (dm.graphs)."
+   ],
+   "check": [
+    {
+     "q": "3 switches of 8 ports in a tree. Free ports?",
+     "a": "24 - 2 x 2 = 20."
+    },
+    {
+     "q": "How many cables join n switches in a tree?",
+     "a": "n - 1."
+    },
+    {
+     "q": "Why do 2-port switches in a tree add no free ports?",
+     "a": "Each new switch adds 2 ports and costs 2 for its link, a net gain of 0."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q59",
+   "try": {
+    "id": "gen.net.layering.011",
+    "label": "Try: fewest 4-port switches for 8 machines (L2)"
+   },
+   "scene": "net.layering.l8.ports",
+   "example": {
+    "setup": "20 machines must be connected using 6-port switches, with no separate uplink port. The switches are joined in a tree. What is the minimum number of switches?",
+    "steps": [
+     "Start with 1 switch: 6 ports, none used for linking, so 6 free ports.",
+     "Add a second switch and join them with one cable. A cable uses one port on each switch, so 2 ports are lost: 12 - 2 = 10 free ports.",
+     "Three switches need 2 cables (4 ports lost): 18 - 4 = 14 free ports.",
+     "Four switches need 3 cables (6 ports lost): 24 - 6 = 18 free ports. That is less than 20, so more are needed.",
+     "Five switches need 4 cables (8 ports lost): 30 - 8 = 22 free ports, which is at least 20.",
+     "Formula: free ports $= 6n - 2(n - 1) = 4n + 2 \\geq 20$ gives $n \\geq 4.5$, so n = 5."
+    ],
+    "answer": "5 switches."
+   },
+   "what": "A switch has a fixed number of ports. Joining switches with cables uses up ports, because a cable takes one port at each end. So the number of free ports for machines is less than the total.",
+   "what_full": "A switch has a fixed number of ports. Joining switches with cables uses up ports, because a cable takes one port at each end. So the number of free ports for machines is less than the total.\n\nFor n switches with p ports each, joined in a **tree**:\n\nCables between switches $= n - 1$.\n\nPorts lost $= 2(n - 1)$ (two per cable).\n\n**Free ports $= np - 2(n - 1)$.**\n\nFind the smallest n with free ports $\\geq$ number of machines.\n\nIf extra cables are added for redundancy, each extra cable loses 2 more ports.\n\n**Worked example.** 20 machines must be connected using 6-port switches, with no separate uplink port. The switches are joined in a tree. What is the minimum number of switches?\n\n1. Start with 1 switch: 6 ports, none used for linking, so 6 free ports.\n2. Add a second switch and join them with one cable. A cable uses one port on each switch, so 2 ports are lost: 12 - 2 = 10 free ports.\n3. Three switches need 2 cables (4 ports lost): 18 - 4 = 14 free ports.\n4. Four switches need 3 cables (6 ports lost): 24 - 6 = 18 free ports. That is less than 20, so more are needed.\n5. Five switches need 4 cables (8 ports lost): 30 - 8 = 22 free ports, which is at least 20.\n6. Formula: free ports $= 6n - 2(n - 1) = 4n + 2 \\geq 20$ gives $n \\geq 4.5$, so n = 5.\n\n**Answer:** 5 switches.",
+   "why_full": "A rare but regular 2-mark pattern whose answer is found with one formula. In GATE: the smallest number of switches that connects a given number of hosts.\n\nAsked: 2019 CS Q59",
+   "trap": "Dividing the machines by the ports per switch. For 15 machines and 8-port switches, 15 / 8 rounds up to 2, but the right answer is 3, because the ports lost to the switch links must be subtracted. A second slip is to use n instead of n - 1 for the cables."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "net.layering.l1.encap",
+   "title": "A message wrapped layer by layer",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "lay0",
+     "kind": "text",
+     "x": 6,
+     "y": 36,
+     "text": "Application",
+     "size": 12.7,
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "lay1",
+     "kind": "text",
+     "x": 6,
+     "y": 76,
+     "text": "Transport",
+     "size": 12.7,
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "lay2",
+     "kind": "text",
+     "x": 6,
+     "y": 116,
+     "text": "Network",
+     "size": 12.7,
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "lay3",
+     "kind": "text",
+     "x": 6,
+     "y": 156,
+     "text": "Data link",
+     "size": 12.7,
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "lay4",
+     "kind": "text",
+     "x": 6,
+     "y": 196,
+     "text": "Physical",
+     "size": 12.7,
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "dat0",
+     "kind": "box",
+     "x": 190,
+     "y": 21,
+     "w": 64,
+     "h": 30,
+     "label": "100 B"
+    },
+    {
+     "id": "tcp1",
+     "kind": "box",
+     "x": 156,
+     "y": 61,
+     "w": 32,
+     "h": 30,
+     "label": "TCP",
+     "tone": "mid"
+    },
+    {
+     "id": "dat1",
+     "kind": "box",
+     "x": 190,
+     "y": 61,
+     "w": 64,
+     "h": 30,
+     "label": "100 B"
+    },
+    {
+     "id": "ip2",
+     "kind": "box",
+     "x": 128,
+     "y": 101,
+     "w": 26,
+     "h": 30,
+     "label": "IP",
+     "tone": "mid"
+    },
+    {
+     "id": "tcp2",
+     "kind": "box",
+     "x": 156,
+     "y": 101,
+     "w": 32,
+     "h": 30,
+     "label": "TCP",
+     "tone": "mid"
+    },
+    {
+     "id": "dat2",
+     "kind": "box",
+     "x": 190,
+     "y": 101,
+     "w": 64,
+     "h": 30,
+     "label": "100 B"
+    },
+    {
+     "id": "eth3",
+     "kind": "box",
+     "x": 92,
+     "y": 141,
+     "w": 34,
+     "h": 30,
+     "label": "Eth",
+     "tone": "mid"
+    },
+    {
+     "id": "ip3",
+     "kind": "box",
+     "x": 128,
+     "y": 141,
+     "w": 26,
+     "h": 30,
+     "label": "IP",
+     "tone": "mid"
+    },
+    {
+     "id": "tcp3",
+     "kind": "box",
+     "x": 156,
+     "y": 141,
+     "w": 32,
+     "h": 30,
+     "label": "TCP",
+     "tone": "mid"
+    },
+    {
+     "id": "dat3",
+     "kind": "box",
+     "x": 190,
+     "y": 141,
+     "w": 64,
+     "h": 30,
+     "label": "100 B"
+    },
+    {
+     "id": "fcs3",
+     "kind": "box",
+     "x": 256,
+     "y": 141,
+     "w": 34,
+     "h": 30,
+     "label": "FCS",
+     "tone": "mid"
+    },
+    {
+     "id": "bits",
+     "kind": "box",
+     "x": 92,
+     "y": 181,
+     "w": 198,
+     "h": 30,
+     "label": "1264 bits on the wire",
+     "dash": true
+    },
+    {
+     "id": "sz0",
+     "kind": "text",
+     "x": 298,
+     "y": 36,
+     "text": "100 B",
+     "size": 12.7,
+     "tone": "accent",
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "sz1",
+     "kind": "text",
+     "x": 298,
+     "y": 76,
+     "text": "120 B",
+     "size": 12.7,
+     "tone": "accent",
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "sz2",
+     "kind": "text",
+     "x": 298,
+     "y": 116,
+     "text": "140 B",
+     "size": 12.7,
+     "tone": "accent",
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "sz3",
+     "kind": "text",
+     "x": 298,
+     "y": 156,
+     "text": "158 B",
+     "size": 12.7,
+     "tone": "accent",
+     "bold": true,
+     "anchor": "start"
+    },
+    {
+     "id": "sz4",
+     "kind": "text",
+     "x": 298,
+     "y": 196,
+     "text": "x 8",
+     "size": 12.7,
+     "tone": "accent",
+     "bold": true,
+     "anchor": "start"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The application layer holds the **message**: 100 bytes. This is the application PDU.",
+     "show": [
+      "dat0",
+      "sz0"
+     ],
+     "highlight": [
+      {
+       "id": "dat0",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The transport layer adds a 20-byte TCP header: 100 + 20 = 120 bytes. This is a **segment**.",
+     "show": [
+      "tcp1",
+      "dat1",
+      "sz1"
+     ],
+     "highlight": [
+      {
+       "id": "tcp1",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The network layer adds a 20-byte IP header: 120 + 20 = 140 bytes. This is a **packet** (also called a datagram).",
+     "show": [
+      "ip2",
+      "tcp2",
+      "dat2",
+      "sz2"
+     ],
+     "highlight": [
+      {
+       "id": "ip2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The data link layer adds a 14-byte Ethernet header and a 4-byte trailer: 140 + 14 + 4 = 158 bytes. This is a **frame**.",
+     "show": [
+      "eth3",
+      "ip3",
+      "tcp3",
+      "dat3",
+      "fcs3",
+      "sz3"
+     ],
+     "highlight": [
+      {
+       "id": "eth3",
+       "tone": "good"
+      },
+      {
+       "id": "fcs3",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The physical layer sends the frame as signals: 158 x 8 = 1264 bits.",
+     "show": [
+      "bits",
+      "sz4"
+     ],
+     "highlight": [
+      {
+       "id": "bits",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The receiver strips the layers in reverse order. Each layer removes only its own header, so the 100-byte message comes out unchanged.",
+     "highlight": [
+      {
+       "id": "dat0",
+       "tone": "good"
+      },
+      {
+       "id": "dat1",
+       "tone": "good"
+      },
+      {
+       "id": "dat2",
+       "tone": "good"
+      },
+      {
+       "id": "dat3",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.layering.l2.visits",
+   "title": "Layer visits along S, R1, R2, D",
+   "viewBox": [
+    0,
+    0,
+    360,
+    216
+   ],
+   "objects": [
+    {
+     "id": "h0",
+     "kind": "text",
+     "x": 48,
+     "y": 30,
+     "text": "S",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 136,
+     "y": 30,
+     "text": "R1",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "h2",
+     "kind": "text",
+     "x": 224,
+     "y": 30,
+     "text": "R2",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "h3",
+     "kind": "text",
+     "x": 312,
+     "y": 30,
+     "text": "D",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "n0",
+     "kind": "box",
+     "x": 20,
+     "y": 48,
+     "w": 56,
+     "h": 28,
+     "label": "Net"
+    },
+    {
+     "id": "d0",
+     "kind": "box",
+     "x": 20,
+     "y": 92,
+     "w": 56,
+     "h": 28,
+     "label": "DL"
+    },
+    {
+     "id": "n1",
+     "kind": "box",
+     "x": 108,
+     "y": 48,
+     "w": 56,
+     "h": 28,
+     "label": "Net"
+    },
+    {
+     "id": "d1",
+     "kind": "box",
+     "x": 108,
+     "y": 92,
+     "w": 56,
+     "h": 28,
+     "label": "DL"
+    },
+    {
+     "id": "n2",
+     "kind": "box",
+     "x": 196,
+     "y": 48,
+     "w": 56,
+     "h": 28,
+     "label": "Net"
+    },
+    {
+     "id": "d2",
+     "kind": "box",
+     "x": 196,
+     "y": 92,
+     "w": 56,
+     "h": 28,
+     "label": "DL"
+    },
+    {
+     "id": "n3",
+     "kind": "box",
+     "x": 284,
+     "y": 48,
+     "w": 56,
+     "h": 28,
+     "label": "Net"
+    },
+    {
+     "id": "d3",
+     "kind": "box",
+     "x": 284,
+     "y": 92,
+     "w": 56,
+     "h": 28,
+     "label": "DL"
+    },
+    {
+     "id": "e0",
+     "kind": "arrow",
+     "from": "d0",
+     "to": "d1"
+    },
+    {
+     "id": "l0",
+     "kind": "text",
+     "x": 92,
+     "y": 140,
+     "text": "link 1",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "e1",
+     "kind": "arrow",
+     "from": "d1",
+     "to": "d2"
+    },
+    {
+     "id": "l1",
+     "kind": "text",
+     "x": 180,
+     "y": 140,
+     "text": "link 2",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "e2",
+     "kind": "arrow",
+     "from": "d2",
+     "to": "d3"
+    },
+    {
+     "id": "l2",
+     "kind": "text",
+     "x": 268,
+     "y": 140,
+     "text": "link 3",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "cnet",
+     "kind": "text",
+     "x": 180,
+     "y": 176,
+     "text": "network visits: 0",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "cdl",
+     "kind": "text",
+     "x": 180,
+     "y": 200,
+     "text": "data link visits: 0",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "S builds the packet at its network layer: **network visit 1**. It wraps it in a frame at its data link layer: **data link visit 1**.",
+     "set": [
+      {
+       "id": "cnet",
+       "text": "network visits: 1"
+      },
+      {
+       "id": "cdl",
+       "text": "data link visits: 1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "n0",
+       "tone": "good"
+      },
+      {
+       "id": "d0",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Link 1 carries the frame to R1. R1's data link layer receives it (**DL 2**). R1's network layer reads the packet and picks the next hop (**network 2**). R1 builds a new frame for link 2 (**DL 3**).",
+     "set": [
+      {
+       "id": "cnet",
+       "text": "network visits: 2"
+      },
+      {
+       "id": "cdl",
+       "text": "data link visits: 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d1",
+       "tone": "good"
+      },
+      {
+       "id": "n1",
+       "tone": "good"
+      },
+      {
+       "id": "e0",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "R2 does the same: it receives (**DL 4**), routes (**network 3**) and sends a new frame (**DL 5**).",
+     "set": [
+      {
+       "id": "cnet",
+       "text": "network visits: 3"
+      },
+      {
+       "id": "cdl",
+       "text": "data link visits: 5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d2",
+       "tone": "good"
+      },
+      {
+       "id": "n2",
+       "tone": "good"
+      },
+      {
+       "id": "e1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "D's data link layer receives the frame (**DL 6**) and passes the packet up to its network layer (**network 4**).",
+     "set": [
+      {
+       "id": "cnet",
+       "text": "network visits: 4"
+      },
+      {
+       "id": "cdl",
+       "text": "data link visits: 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d3",
+       "tone": "good"
+      },
+      {
+       "id": "n3",
+       "tone": "good"
+      },
+      {
+       "id": "e2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Count: 3 links, so the network layer is visited k + 1 = 4 times and the data link layer 2k = 6 times.",
+     "highlight": [
+      {
+       "id": "cnet",
+       "tone": "good"
+      },
+      {
+       "id": "cdl",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.layering.l3.tdm",
+   "title": "A circuit as reserved TDM slots",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "fr",
+     "kind": "array",
+     "x": 36,
+     "y": 86,
+     "cells": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+      "H"
+     ],
+     "cw": 36,
+     "ch": 30,
+     "indices": true,
+     "label": "one TDM frame, 8 slots"
+    },
+    {
+     "id": "fr2",
+     "kind": "array",
+     "x": 36,
+     "y": 156,
+     "cells": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+      "H"
+     ],
+     "cw": 36,
+     "ch": 30,
+     "indices": false,
+     "label": "next frame"
+    },
+    {
+     "id": "tm",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "time = 0",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "rt",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Set-up comes first. The call asks for a circuit and the path is reserved. This takes 0.5 s and no data moves.",
+     "set": [
+      {
+       "id": "tm",
+       "text": "set-up: 0.5 s"
+      }
+     ],
+     "show": [
+      "tm"
+     ],
+     "hide": [
+      "fr",
+      "fr2",
+      "rt"
+     ]
+    },
+    {
+     "caption": "TDM cuts the link into frames of 8 slots. A owns one slot, so A's rate is 1,000,000 / 8 = 125,000 bit/s.",
+     "show": [
+      "fr",
+      "rt"
+     ],
+     "set": [
+      {
+       "id": "rt",
+       "text": "125000 bit/s per slot"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "fr",
+       "tone": "accent",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "A's bits ride slot 0 of every frame. The other 7 slots are reserved for other users, even if they are silent.",
+     "show": [
+      "fr2"
+     ],
+     "dim": [
+      {
+       "id": "fr",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ]
+      },
+      {
+       "id": "fr2",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "fr",
+       "tone": "good",
+       "cells": [
+        0
+       ]
+      },
+      {
+       "id": "fr2",
+       "tone": "good",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Sending time = bits / rate = 500,000 / 125,000 = 4 s.",
+     "set": [
+      {
+       "id": "rt",
+       "text": "500000 / 125000 = 4 s"
+      }
+     ]
+    },
+    {
+     "caption": "Total = set-up + sending = 0.5 + 4 = 4.5 s. Once set up there is no queuing, and delay per bit is fixed.",
+     "set": [
+      {
+       "id": "tm",
+       "text": "0.5 + 4 = 4.5 s"
+      },
+      {
+       "id": "rt",
+       "text": ""
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tm",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.layering.l4.delays",
+   "title": "Transmission and propagation on one link",
+   "viewBox": [
+    0,
+    0,
+    360,
+    224
+   ],
+   "objects": [
+    {
+     "id": "A",
+     "kind": "box",
+     "x": 14,
+     "y": 30,
+     "w": 40,
+     "h": 32,
+     "label": "A"
+    },
+    {
+     "id": "Bx",
+     "kind": "box",
+     "x": 306,
+     "y": 30,
+     "w": 40,
+     "h": 32,
+     "label": "B"
+    },
+    {
+     "id": "lk",
+     "kind": "edge",
+     "from": "A",
+     "to": "Bx"
+    },
+    {
+     "id": "lkl",
+     "kind": "text",
+     "x": 180,
+     "y": 50,
+     "text": "2000 km",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "pk",
+     "kind": "box",
+     "x": 18,
+     "y": 70,
+     "w": 32,
+     "h": 18,
+     "label": "pkt",
+     "tone": "accent",
+     "fill": false
+    },
+    {
+     "id": "tl",
+     "kind": "array",
+     "x": 26,
+     "y": 136,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 28,
+     "ch": 30,
+     "indices": true,
+     "label": "time in ms"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Convert first: 1000 bytes = 8000 bits, 8 Mbps = 8,000,000 bit/s, 2000 km = 2,000,000 m.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "1000 B = 8000 bits"
+      }
+     ]
+    },
+    {
+     "caption": "Transmission delay $T_t = L/R = 8000 / 8{,}000{,}000 = 0.001$ s = **1 ms**. This is the time to push all the bits onto the wire.",
+     "set": [
+      {
+       "id": "tl",
+       "cells": [
+        "Tt",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "Tt = 8000 / 8e6 = 1 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tl",
+       "tone": "accent",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Propagation delay $T_p = d/s = 2{,}000{,}000 / (2 \\times 10^8) = 0.01$ s = **10 ms**. This is the time one bit needs to cross the wire.",
+     "set": [
+      {
+       "id": "tl",
+       "cells": [
+        "Tt",
+        "Tp",
+        "Tp",
+        "Tp",
+        "Tp",
+        "Tp",
+        "Tp",
+        "Tp",
+        "Tp",
+        "Tp",
+        "Tp"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "Tp = 2e6 / 2e8 = 10 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tl",
+       "tone": "mid",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The last bit leaves the sender at 1 ms. It then travels for another 10 ms. Processing and queuing are 0 in this problem.",
+     "move": [
+      {
+       "id": "pk",
+       "x": 266
+      }
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "queuing 0, processing 0"
+      }
+     ]
+    },
+    {
+     "caption": "Total = $T_t + T_p$ = 1 + 10 = 11 ms.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "1 + 10 = 11 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tl",
+       "tone": "good",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.layering.l5.pipe",
+   "title": "Six packets pipelined over three links",
+   "viewBox": [
+    0,
+    0,
+    360,
+    216
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 70,
+     "y": 56,
+     "rows": 3,
+     "cols": 8,
+     "cells": [
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 34,
+     "ch": 34,
+     "rowLabels": [
+      "link 1",
+      "link 2",
+      "link 3"
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+     ],
+     "colTitle": "time slot (2 ms each)"
+    },
+    {
+     "id": "cl",
+     "kind": "text",
+     "x": 180,
+     "y": 200,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "$T_t = L/R = 2000 / 10^6 = 2$ ms. Call 2 ms one **slot**. A router forwards a packet only after it has received all of it.",
+     "set": [
+      {
+       "id": "cl",
+       "text": "1 slot = 2000 / 10^6 = 2 ms"
+      }
+     ]
+    },
+    {
+     "caption": "P1 needs one slot per link: it crosses link 1 in slot 1, link 2 in slot 2, link 3 in slot 3. One packet alone takes $k T_t$ = 3 x 2 = 6 ms.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "P1",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "P1",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "P1",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "cl",
+       "text": "P1 alone: 3 slots = 6 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "While P1 is on link 2, the sender is already putting P2 on link 1. From slot 3 on, all three links are busy at once.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "P1",
+         "P2",
+         "P3",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "P1",
+         "P2",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "P1",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "cl",
+       "text": "from slot 3 all links busy"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "mid",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         2,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Link 1 is busy with a new packet in every slot, so it sends P6 in slot 6.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "P1",
+         "P2",
+         "P3",
+         "P4",
+         "P5",
+         "P6",
+         "",
+         ""
+        ],
+        [
+         "",
+         "P1",
+         "P2",
+         "P3",
+         "P4",
+         "P5",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "P1",
+         "P2",
+         "P3",
+         "P4",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "cl",
+       "text": "link 1 sends P6 in slot 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         5
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "P6 still has to cross link 2 (slot 7) and link 3 (slot 8). The last packet arrives after $N + k - 1$ = 6 + 3 - 1 = 8 slots = 16 ms.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "P1",
+         "P2",
+         "P3",
+         "P4",
+         "P5",
+         "P6",
+         "",
+         ""
+        ],
+        [
+         "",
+         "P1",
+         "P2",
+         "P3",
+         "P4",
+         "P5",
+         "P6",
+         ""
+        ],
+        [
+         "",
+         "",
+         "P1",
+         "P2",
+         "P3",
+         "P4",
+         "P5",
+         "P6"
+        ]
+       ]
+      },
+      {
+       "id": "cl",
+       "text": "6 + 3 - 1 = 8 slots = 16 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         2,
+         7
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Compare: the whole message as one packet would cross 3 links at 12 ms each, 3 x 12 = 36 ms. Splitting saves 20 ms.",
+     "set": [
+      {
+       "id": "cl",
+       "text": "one big packet: 3 x 12 = 36 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cl",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.layering.l6.bottleneck",
+   "title": "The slowest link sets the rate",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "b",
+     "kind": "bar",
+     "x": 30,
+     "y": 38,
+     "values": [
+      10,
+      4,
+      6
+     ],
+     "labels": [
+      "L1",
+      "L2",
+      "L3"
+     ],
+     "w": 190,
+     "h": 80,
+     "max": 10
+    },
+    {
+     "id": "cb",
+     "kind": "text",
+     "x": 290,
+     "y": 76,
+     "text": "Mbps",
+     "size": 12.7,
+     "tone": "muted"
+    },
+    {
+     "id": "cl",
+     "kind": "text",
+     "x": 180,
+     "y": 170,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "pipe",
+     "kind": "box",
+     "x": 30,
+     "y": 186,
+     "w": 300,
+     "h": 26,
+     "label": "L2 pipe: 4 Mbps x 30 ms"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The path has three links with rates 10, 4 and 6 Mbps, and a file of 16 Mbit to send.",
+     "show": [
+      "b",
+      "cb"
+     ],
+     "set": [
+      {
+       "id": "cl",
+       "text": "file = 16 Mbit"
+      }
+     ]
+    },
+    {
+     "caption": "A router cannot send bits out faster than they arrive, and cannot send faster than its output link. The slowest link, 4 Mbps, limits the whole path.",
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "bad",
+       "cells": [
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Streaming time is about file size / bottleneck rate = 16 Mbit / 4 Mbps = 4 s.",
+     "set": [
+      {
+       "id": "cl",
+       "text": "16 / 4 = 4 s"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "good",
+       "cells": [
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Now take the bottleneck link. Its one-way propagation delay is 30 ms, so bits stay on the wire for 30 ms.",
+     "show": [
+      "pipe"
+     ],
+     "set": [
+      {
+       "id": "cl",
+       "text": "link L2, Tp = 30 ms"
+      }
+     ]
+    },
+    {
+     "caption": "Bandwidth-delay product = $R \\times T_p$ = 4,000,000 x 0.03 = 120,000 bits are in flight.",
+     "set": [
+      {
+       "id": "cl",
+       "text": "4,000,000 x 0.03 = 120000 bits"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pipe",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "To keep this link busy, the sender must have at least 120,000 bits unacknowledged. A round trip doubles this to 240,000 bits.",
+     "set": [
+      {
+       "id": "cl",
+       "text": "round trip: 240000 bits"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pipe",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.layering.l7.queue",
+   "title": "A burst waiting behind each other",
+   "viewBox": [
+    0,
+    0,
+    360,
+    232
+   ],
+   "objects": [
+    {
+     "id": "q",
+     "kind": "array",
+     "x": 30,
+     "y": 60,
+     "cells": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "P7",
+      "P8"
+     ],
+     "cw": 36,
+     "ch": 30,
+     "indices": false,
+     "label": "burst of 8 packets at t = 0"
+    },
+    {
+     "id": "w",
+     "kind": "bar",
+     "x": 30,
+     "y": 128,
+     "values": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "P7",
+      "P8"
+     ],
+     "w": 288,
+     "h": 60,
+     "max": 8.4
+    },
+    {
+     "id": "cl",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "ct",
+     "kind": "text",
+     "x": 180,
+     "y": 222,
+     "text": "queuing delay of each packet (ms)",
+     "size": 12.7,
+     "tone": "muted"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Traffic intensity = L a / R = 12,000 x 600 / 10,000,000 = 0.72. It is below 1, so on average the queue drains.",
+     "set": [
+      {
+       "id": "cl",
+       "text": "intensity = La/R = 0.72"
+      }
+     ],
+     "show": [
+      "cl"
+     ]
+    },
+    {
+     "caption": "Even so, packets can arrive together. A burst of 8 packets arrives at once at an empty queue. Sending one takes L/R = 12,000 / 10^7 = 1.2 ms.",
+     "show": [
+      "q",
+      "w",
+      "ct"
+     ],
+     "set": [
+      {
+       "id": "cl",
+       "text": "each packet needs 1.2 ms"
+      }
+     ]
+    },
+    {
+     "caption": "The first packet finds the link idle: queuing delay 0.",
+     "set": [
+      {
+       "id": "w",
+       "values": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "q",
+       "tone": "good",
+       "cells": [
+        0
+       ]
+      },
+      {
+       "id": "w",
+       "tone": "good",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The second waits for the first: 1.2 ms. The third waits 2.4 ms. The k-th waits (k - 1) x 1.2 ms.",
+     "set": [
+      {
+       "id": "w",
+       "values": [
+        0,
+        1.2,
+        2.4,
+        0,
+        0,
+        0,
+        0,
+        0
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "q",
+       "tone": "mid",
+       "cells": [
+        1,
+        2
+       ]
+      },
+      {
+       "id": "w",
+       "tone": "mid",
+       "cells": [
+        1,
+        2
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The 8th waits 7 x 1.2 = 8.4 ms.",
+     "set": [
+      {
+       "id": "w",
+       "values": [
+        0,
+        1.2,
+        2.4,
+        3.6,
+        4.8,
+        6.0,
+        7.2,
+        8.4
+       ]
+      },
+      {
+       "id": "cl",
+       "text": "last waits 7 x 1.2 = 8.4 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "q",
+       "tone": "bad",
+       "cells": [
+        7
+       ]
+      },
+      {
+       "id": "w",
+       "tone": "bad",
+       "cells": [
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Average wait = (0 + 1.2 + 2.4 + ... + 8.4) / 8 = 3.5 x 1.2 = 4.2 ms.",
+     "set": [
+      {
+       "id": "cl",
+       "text": "average = 4.2 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cl",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.layering.l8.ports",
+   "title": "Counting free ports as switches are added",
+   "viewBox": [
+    0,
+    0,
+    360,
+    206
+   ],
+   "objects": [
+    {
+     "id": "s0",
+     "kind": "box",
+     "x": 14,
+     "y": 46,
+     "w": 56,
+     "h": 34,
+     "label": "S1"
+    },
+    {
+     "id": "s1",
+     "kind": "box",
+     "x": 82,
+     "y": 46,
+     "w": 56,
+     "h": 34,
+     "label": "S2"
+    },
+    {
+     "id": "s2",
+     "kind": "box",
+     "x": 150,
+     "y": 46,
+     "w": 56,
+     "h": 34,
+     "label": "S3"
+    },
+    {
+     "id": "s3",
+     "kind": "box",
+     "x": 218,
+     "y": 46,
+     "w": 56,
+     "h": 34,
+     "label": "S4"
+    },
+    {
+     "id": "s4",
+     "kind": "box",
+     "x": 286,
+     "y": 46,
+     "w": 56,
+     "h": 34,
+     "label": "S5"
+    },
+    {
+     "id": "k0",
+     "kind": "edge",
+     "from": "s0",
+     "to": "s1"
+    },
+    {
+     "id": "k1",
+     "kind": "edge",
+     "from": "s1",
+     "to": "s2"
+    },
+    {
+     "id": "k2",
+     "kind": "edge",
+     "from": "s2",
+     "to": "s3"
+    },
+    {
+     "id": "k3",
+     "kind": "edge",
+     "from": "s3",
+     "to": "s4"
+    },
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "6 ports per switch, tree of n switches",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "fp",
+     "kind": "text",
+     "x": 180,
+     "y": 118,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "nd",
+     "kind": "text",
+     "x": 180,
+     "y": 152,
+     "text": "need 20 free ports",
+     "size": 13,
+     "tone": "muted"
+    },
+    {
+     "id": "ct",
+     "kind": "text",
+     "x": 180,
+     "y": 190,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start with 1 switch: 6 ports, none used for linking, so 6 free ports.",
+     "show": [
+      "s0",
+      "fp",
+      "nd",
+      "hd"
+     ],
+     "set": [
+      {
+       "id": "fp",
+       "text": "n = 1: 6 free"
+      }
+     ]
+    },
+    {
+     "caption": "Add a second switch and join them with one cable. A cable uses one port on each switch, so 2 ports are lost: 12 - 2 = 10 free ports.",
+     "show": [
+      "s1",
+      "k0"
+     ],
+     "set": [
+      {
+       "id": "fp",
+       "text": "n = 2: 12 - 2 = 10 free"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "k0",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Three switches need 2 cables (4 ports lost): 18 - 4 = 14 free ports.",
+     "show": [
+      "s2",
+      "k1"
+     ],
+     "set": [
+      {
+       "id": "fp",
+       "text": "n = 3: 18 - 4 = 14 free"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "k1",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Four switches need 3 cables (6 ports lost): 24 - 6 = 18 free ports. That is less than 20, so more are needed.",
+     "show": [
+      "s3",
+      "k2",
+      "ct"
+     ],
+     "set": [
+      {
+       "id": "fp",
+       "text": "n = 4: 24 - 6 = 18 free"
+      },
+      {
+       "id": "ct",
+       "text": "18 < 20: too few",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "k2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Five switches need 4 cables (8 ports lost): 30 - 8 = 22 free ports, which is at least 20.",
+     "show": [
+      "s4",
+      "k3"
+     ],
+     "set": [
+      {
+       "id": "fp",
+       "text": "n = 5: 30 - 8 = 22 free"
+      },
+      {
+       "id": "ct",
+       "text": "22 >= 20: enough",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "k3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Formula: free ports $= 6n - 2(n - 1) = 4n + 2 \\geq 20$ gives $n \\geq 4.5$, so n = 5.",
+     "set": [
+      {
+       "id": "ct",
+       "text": "4n + 2 >= 20, n >= 4.5, n = 5",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ct",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

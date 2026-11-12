@@ -1,0 +1,3092 @@
+{
+ "topic_id": "algo.shortest",
+ "title": "Shortest paths",
+ "chapter_note": {
+  "about": "A shortest-path question gives a weighted graph and asks for the cheapest route from one vertex to the others. Every algorithm here repeats one move, relaxation: if going through u is cheaper, update d[v]. They differ only in the order they relax edges. This chapter covers that move, BFS for unit weights, Dijkstra, Bellman-Ford, the DAG shortcut and Floyd-Warshall. It ends with the traps: negative edges, ties, and changing the weights. Most questions are solved by naming the weight type first, then replaying the algorithm by hand.",
+  "simple": "Think of a road map where every road has a toll, and you want the cheapest way from home to every other town. The one trick is this: if you find a cheaper way to a town, you cross out the old price and write the new one. Different algorithms are just different orders of checking roads. When all tolls are 1, you walk outward ring by ring. When tolls are never negative, you always visit the cheapest unvisited town next, and if some tolls are negative you keep rechecking every road, round after round. A common trap is adding the same number to every toll: that punishes long routes more, so the best route can change.",
+  "concept_map": [
+   {
+    "atom_id": "s1",
+    "title": "Relaxation and distance",
+    "one_line": "If d[u] + w < d[v], set d[v] = d[u] + w; every algorithm is a smart order of this."
+   },
+   {
+    "atom_id": "s2",
+    "title": "Unit and 0-1 weights",
+    "one_line": "BFS for unit weights, a deque for 0-1 weights, both in O(V+E)."
+   },
+   {
+    "atom_id": "s3",
+    "title": "Dijkstra",
+    "one_line": "Settle the closest vertex each time; needs non-negative edges."
+   },
+   {
+    "atom_id": "s4",
+    "title": "Bellman-Ford",
+    "one_line": "Relax every edge V-1 times; one more improving round means a negative cycle."
+   },
+   {
+    "atom_id": "s5",
+    "title": "Shortest paths in a DAG",
+    "one_line": "Topological order, relax each edge once: Theta(V+E), negatives allowed."
+   },
+   {
+    "atom_id": "s6",
+    "title": "Floyd-Warshall",
+    "one_line": "All pairs; the outer loop is the allowed middle vertex; Theta(V^3)."
+   },
+   {
+    "atom_id": "s7",
+    "title": "Properties and traps",
+    "one_line": "Subpaths are optimal; potentials keep paths; adding a constant does not."
+   }
+  ],
+  "gate_patterns": [
+   "Pick the algorithm and complexity from the graph type: unit weights, DAG, dense, negative edges (2026 CS2 Q37, 2013 CS Q19, 2005 CS Q38, 2006 CS Q12, 2007 CS Q41).",
+   "Change the weights and ask what survives: add a constant, scale, square, or reweight with potentials (2017 CS1 Q26, 2025 CS2 Q37, 2020 CS Q50, 2025 CS1 Q18).",
+   "Replay Dijkstra (settle order, strict updates) or Bellman-Ford (k rounds = at most k edges, negative cycles) by hand (2004 CS Q44, 2012 CS Q40, 2008 CS Q45, 2009 CS Q13, 2026 CS1 Q41, 2010 CS Q51). Weightage: about 0.4 marks per CS paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "s1",
+   "title": "Relaxation and distance",
+   "simple": "You are planning trips between towns. For each town you keep a sticky note with the cheapest price you have found so far. At the start, only your home says 0 and every other note says \"unknown\". When you learn a road from town U to town V, you ask one question: is \"price at U plus this road\" cheaper than the note at V? If yes, cross out the note and write the new price. If not, leave it alone. A note only ever goes down, never up. In exam words: relaxing edge (u, v) with weight w means: if d[u] + w < d[v], set d[v] = d[u] + w.",
+   "idea": "Every shortest-path algorithm keeps a guess d[v] for the cost of reaching v. It starts at infinity for everyone except the source, which is 0. **Relaxing** an edge u to v asks one question: does going through u beat the guess for v? If yes, lower the guess. That single move is all the algorithms use. They differ only in the order they relax edges.",
+   "definition": "**Relax(u, v, w):** if $d[u]+w<d[v]$ then $d[v]\\leftarrow d[u]+w$.\n\n- $d[v]$ is the best cost found so far from the source to $v$. It never goes up.\n- $w$ is the weight of the edge from $u$ to $v$.\n- **Triangle inequality:** at the end, every edge satisfies $d[v]\\le d[u]+w$. If one edge breaks it, the values are not final.\n- The update is **strict** (<). A tie changes nothing.",
+   "intuition_full": "Think of d[v] as an upper bound that gets squeezed. At first it is infinity, which is a safe but useless bound. Each relaxation replaces it with the cost of a real path, so d[v] always equals the length of some actual route and never drops below the true distance. The algorithm is finished when no edge can squeeze any bound further. At that point d[v] is both an upper bound (a real path) and, by the triangle inequality along the best path, a lower bound. Hence it is exact. A second picture: a ball rolling down a staircase. Each relaxation is one step down; you stop when every step is flat. The only difference between Dijkstra, Bellman-Ford and the DAG method is the order in which they take steps, which decides how many steps are wasted.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Graph: S→A (6), S→B (2), B→A (3), A→C (7). Start with d[S] = 0, all others ∞. Relax the edges in the order S→A, S→B, B→A, A→C, then S→A once more.",
+     "steps": [
+      "Start: d[S] = 0 and every other distance is ∞ (unreached). Edges: S→A (6), S→B (2), B→A (3), A→C (7).",
+      "S→A: 0 + 6 = 6 < ∞, so d[A] = 6.",
+      "S→B: 0 + 2 = 2 < ∞, so d[B] = 2.",
+      "B→A: 2 + 3 = 5 < 6, so d[A] drops to 5. A shorter route through B was found.",
+      "A→C: 5 + 7 = 12 < ∞, so d[C] = 12.",
+      "S→A again: 0 + 6 = 6 is not less than 5, so nothing changes.",
+      "Every edge now satisfies d[v] ≤ d[u] + w, so no relaxation can help. These are the final distances."
+     ],
+     "answer": "d = (S 0, A 5, B 2, C 12). A was updated twice, and the last relaxation changed nothing."
+    },
+    {
+     "level": "gate",
+     "setup": "Edges: S→A (4), S→B (8), A→B (2), A→C (5), B→C (1). Someone claims the shortest distances from S are S = 0, A = 4, B = 7, C = 8. Can these be right?",
+     "steps": [
+      "Check the triangle inequality d[v] ≤ d[u] + w on every edge.",
+      "S→A: 4 ≤ 0 + 4. Fine. S→B: 7 ≤ 0 + 8. Fine.",
+      "A→B: 7 ≤ 4 + 2 = 6? No. 7 is bigger than 6, so B can be reached more cheaply through A.",
+      "One broken edge is enough: the claim is not a set of shortest distances.",
+      "Relaxing A→B gives d[B] = 6, and then B→C gives d[C] = 7. The true distances are 0, 4, 6, 7."
+     ],
+     "answer": "The claim is invalid. Edge A→B violates the triangle inequality. True values: A = 4, B = 6, C = 7."
+    },
+    {
+     "level": "twist",
+     "setup": "Edges: S→A (3), S→B (1), B→A (2). Relax S→A, S→B, then B→A. Does the route to A change?",
+     "steps": [
+      "S→A: d[A] = 0 + 3 = 3, reached through S.",
+      "S→B: d[B] = 1.",
+      "B→A: 1 + 2 = 3. This equals d[A] = 3, but 3 < 3 is false.",
+      "With the strict rule nothing is updated. A keeps its parent S, so the reported path is S→A."
+     ],
+     "answer": "d[A] = 3 either way. With strict < the path is S→A. If you wrongly used ≤, the parent would switch to B. Distances match but the printed path differs."
+    }
+   ],
+   "why": "It is the one move behind all shortest-path algorithms, so every question on this chapter is a question about relaxation order. In GATE: compute a distance after a few relaxations, or decide whether given values satisfy the triangle inequality (2007 CS Q41, 2004 CS Q44).",
+   "how": [
+    "Write d[source] = 0 and ∞ for the rest.",
+    "For edge u→v with weight w, compute the candidate d[u] + w.",
+    "Update only if the candidate is strictly smaller than d[v].",
+    "To test given distances, check d[v] ≤ d[u] + w on every edge; one failure rejects them."
+   ],
+   "mistake": "Updating d[v] without comparing first, or using ≤ so a tie changes the stored path. Also relaxing from an unreached vertex: ∞ plus a weight is still ∞, so skip it. Compare first, update only on a strictly smaller value.",
+   "edge_cases": [
+    "d[u] = ∞ → the candidate is ∞, so no update (even with a negative weight).",
+    "Tie in the candidate → no update, so the first path found is kept.",
+    "A relaxation can lower d[v] many times; the last value is not always the first one found.",
+    "Negative weight edge → fine for relaxation itself; trouble only comes from the algorithm that uses it."
+   ],
+   "connections": [
+    "Dijkstra, Bellman-Ford and the DAG method all call Relax; only the order differs.",
+    "Dynamic programming: relaxation is a Bellman update, and Floyd-Warshall (s6) is DP over middle vertices."
+   ],
+   "check": [
+    {
+     "q": "d[u] = 6, w(u,v) = 3, d[v] = 10. What is d[v] after relaxing u→v?",
+     "a": "6 + 3 = 9 < 10, so d[v] = 9."
+    },
+    {
+     "q": "d[u] = 6, w(u,v) = 4, d[v] = 10. What is d[v] after relaxing?",
+     "a": "6 + 4 = 10 is not < 10, so d[v] stays 10."
+    },
+    {
+     "q": "Final distances: d[P] = 0, d[Q] = 5, d[R] = 9 with edges P→Q (5), Q→R (3). Valid?",
+     "a": "No. 5 + 3 = 8 < 9, so d[R] could still drop to 8."
+    }
+   ],
+   "asked": "Asked: 2007 CS Q41, 2004 CS Q44, 2012 CS Q40",
+   "try": {
+    "id": "gen.algo.shortest.001",
+    "label": "Edge u→v has weight 4. Currently d[u] = 3 and d[v] = 9. After relaxing, what is d[v]? (L1)"
+   },
+   "scene": "algo.shortest.s1.relax",
+   "example": {
+    "setup": "Graph: S→A (6), S→B (2), B→A (3), A→C (7). Start with d[S] = 0, all others ∞. Relax the edges in the order S→A, S→B, B→A, A→C, then S→A once more.",
+    "steps": [
+     "Start: d[S] = 0 and every other distance is ∞ (unreached). Edges: S→A (6), S→B (2), B→A (3), A→C (7).",
+     "S→A: 0 + 6 = 6 < ∞, so d[A] = 6.",
+     "S→B: 0 + 2 = 2 < ∞, so d[B] = 2.",
+     "B→A: 2 + 3 = 5 < 6, so d[A] drops to 5. A shorter route through B was found.",
+     "A→C: 5 + 7 = 12 < ∞, so d[C] = 12.",
+     "S→A again: 0 + 6 = 6 is not less than 5, so nothing changes.",
+     "Every edge now satisfies d[v] ≤ d[u] + w, so no relaxation can help. These are the final distances."
+    ],
+    "answer": "d = (S 0, A 5, B 2, C 12). A was updated twice, and the last relaxation changed nothing."
+   },
+   "what": "Every shortest-path algorithm keeps a guess d[v] for the cost of reaching v. It starts at infinity for everyone except the source, which is 0. **Relaxing** an edge u to v asks one question: does going through u beat the guess for v? If yes, lower the guess. That single move is all the algorithms use. They differ only in the order they relax edges.",
+   "what_full": "Every shortest-path algorithm keeps a guess d[v] for the cost of reaching v. It starts at infinity for everyone except the source, which is 0. **Relaxing** an edge u to v asks one question: does going through u beat the guess for v? If yes, lower the guess. That single move is all the algorithms use. They differ only in the order they relax edges.\n\n**Relax(u, v, w):** if $d[u]+w<d[v]$ then $d[v]\\leftarrow d[u]+w$.\n\n- $d[v]$ is the best cost found so far from the source to $v$. It never goes up.\n- $w$ is the weight of the edge from $u$ to $v$.\n- **Triangle inequality:** at the end, every edge satisfies $d[v]\\le d[u]+w$. If one edge breaks it, the values are not final.\n- The update is **strict** (<). A tie changes nothing.\n\n**Worked example.** Graph: S→A (6), S→B (2), B→A (3), A→C (7). Start with d[S] = 0, all others ∞. Relax the edges in the order S→A, S→B, B→A, A→C, then S→A once more.\n\n1. Start: d[S] = 0 and every other distance is ∞ (unreached). Edges: S→A (6), S→B (2), B→A (3), A→C (7).\n2. S→A: 0 + 6 = 6 < ∞, so d[A] = 6.\n3. S→B: 0 + 2 = 2 < ∞, so d[B] = 2.\n4. B→A: 2 + 3 = 5 < 6, so d[A] drops to 5. A shorter route through B was found.\n5. A→C: 5 + 7 = 12 < ∞, so d[C] = 12.\n6. S→A again: 0 + 6 = 6 is not less than 5, so nothing changes.\n7. Every edge now satisfies d[v] ≤ d[u] + w, so no relaxation can help. These are the final distances.\n\n**Answer:** d = (S 0, A 5, B 2, C 12). A was updated twice, and the last relaxation changed nothing.",
+   "why_full": "It is the one move behind all shortest-path algorithms, so every question on this chapter is a question about relaxation order. In GATE: compute a distance after a few relaxations, or decide whether given values satisfy the triangle inequality (2007 CS Q41, 2004 CS Q44).\n\nAsked: 2007 CS Q41, 2004 CS Q44, 2012 CS Q40",
+   "trap": "Updating d[v] without comparing first, or using ≤ so a tie changes the stored path. Also relaxing from an unreached vertex: ∞ plus a weight is still ∞, so skip it. Compare first, update only on a strictly smaller value."
+  },
+  {
+   "atom_id": "s2",
+   "title": "Unit and 0-1 weights",
+   "simple": "Imagine a rumour spreading in a school. You tell your friends, they tell theirs, and so on. After one round of telling, you know everyone one step away from you. After two rounds, everyone two steps away. If every hop costs the same, \"how many rounds until someone hears it\" is exactly their distance from you. You can run this with a line of people waiting: take the first person, add all their new friends to the back of the line. In exam words: with unit weights, BFS with a queue gives shortest distances in O(V+E). With weights 0 and 1, use a deque, adding 0-weight neighbours to the front.",
+   "idea": "If every edge costs 1, the shortest distance is just the number of edges. **BFS** finds it: process vertices in a queue, and the first time you reach a vertex is its shortest distance. No priority queue is needed. If edges cost only 0 or 1, use a deque (a queue open at both ends): a 0-edge goes to the front, a 1-edge to the back.",
+   "definition": "**Unit weights:** run BFS from the source; set $d[v]=d[u]+1$ when $v$ is first seen. Time $O(V+E)$.\n\n**0-1 BFS:** keep a deque. On relaxing $u\\to v$ with weight $w\\in\\{0,1\\}$: if $d[u]+w<d[v]$, update $d[v]$ and push $v$ to the **front** if $w=0$, to the **back** if $w=1$. Time $O(V+E)$.\n\n- The deque always holds vertices whose distances differ by at most 1, in sorted order.",
+   "intuition_full": "BFS works because the queue holds vertices in order of distance: all distance-k vertices, then all distance-(k+1) vertices. Popping from the front always takes the smallest distance, which is exactly what Dijkstra needs a heap for. With unit weights the heap is unnecessary because the new distance d+1 is never smaller than anything already queued, so appending at the back keeps the order sorted. For 0-1 weights a 0-edge produces a vertex at the same distance as the current one, so it must go to the front to keep the order. A 1-edge produces d+1, which belongs at the back. So a deque plays the role of a two-level priority queue with levels d and d+1.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Unit weights, undirected edges: S-A, S-B, A-C, B-C, B-D, C-E. Run BFS from S.",
+     "steps": [
+      "Queue = [S], d[S] = 0.",
+      "Pop S. Unseen neighbours A and B get d = 1. Queue = [A, B].",
+      "Pop A. C is new: d[C] = 2. Queue = [B, C].",
+      "Pop B. C is already seen, so skip. D is new: d[D] = 2. Queue = [C, D].",
+      "Pop C. E is new: d[E] = 3. Queue = [D, E].",
+      "Pop D, then E. No unseen neighbours. Queue empty."
+     ],
+     "answer": "d = (S 0, A 1, B 1, C 2, D 2, E 3). C was reached first through A, at distance 2, and the second route changed nothing."
+    },
+    {
+     "level": "gate",
+     "setup": "Directed edges with weights 0 or 1: S→A (1), S→B (0), B→C (0), A→C (0), C→D (1), B→D (1). Run 0-1 BFS from S with a deque.",
+     "steps": [
+      "Deque = [S], d[S] = 0. Pop S.",
+      "S→A (1): d[A] = 1, push back. S→B (0): d[B] = 0, push front. Deque = [B, A].",
+      "Pop B. B→C (0): d[C] = 0, push front. B→D (1): d[D] = 1, push back. Deque = [C, A, D].",
+      "Pop C. C→D: 0 + 1 = 1 is not < 1, so no change. Deque = [A, D].",
+      "Pop A (d = 1). A→C: 1 + 0 = 1 is not < 0. Pop D. Done."
+     ],
+     "answer": "d = (S 0, B 0, C 0, A 1, D 1). One pass over the edges, O(V+E), and no heap."
+    },
+    {
+     "level": "twist",
+     "setup": "Edges: S→T (weight 3), S→M (1), M→T (1). Someone runs plain BFS from S. What does BFS say about T, and what is true?",
+     "steps": [
+      "BFS counts edges. T is one edge from S, so BFS puts T at level 1 via the direct edge.",
+      "But that edge costs 3. The route S→M→T costs 1 + 1 = 2.",
+      "BFS minimises the number of edges, not the total weight, so it is wrong here.",
+      "Fix: replace the weight-3 edge by a chain of 3 unit edges (two extra dummy vertices) and then BFS is correct. The direct route is then 3 steps and the two-hop route is 2 steps."
+     ],
+     "answer": "BFS gives 1 edge (cost 3). True shortest cost is 2. Plain BFS needs all weights equal to 1."
+    }
+   ],
+   "why": "When the weights are special, a simple queue beats Dijkstra in time and effort. In GATE: \"which algorithm is fastest for a unit-weight or 0-1-weight graph, and what is its time\" (2013 CS Q19, 2026 CS2 Q37).",
+   "how": [
+    "Look at the weights: all 1, or only 0 and 1?",
+    "All 1: BFS with a plain queue; first visit gives the distance.",
+    "0 and 1: deque; push 0-edge neighbours to the front, 1-edge to the back.",
+    "State the time: Θ(V+E) for both."
+   ],
+   "mistake": "Using Dijkstra by habit (correct but slower, O((V+E) log V)), or using plain BFS when the weights are not all equal. BFS counts edges. It is shortest-weight only when every edge weighs the same.",
+   "edge_cases": [
+    "Weights all equal to c (not 1) → BFS distance times c.",
+    "A 0-weight cycle → fine, the strict < update stops infinite loops.",
+    "Disconnected vertices → stay at ∞ and never enter the queue.",
+    "Weights 1 and 2 → split each 2-edge into two unit edges, then BFS."
+   ],
+   "connections": [
+    "BFS itself is the chapter algo.traversal (t2).",
+    "Dijkstra (s3) generalises this: a heap replaces the queue/deque when weights are arbitrary."
+   ],
+   "check": [
+    {
+     "q": "Unit graph path S-A-B-C. What does BFS give for d[C]?",
+     "a": "3 (three edges)."
+    },
+    {
+     "q": "In 0-1 BFS, where does a 0-weight neighbour go?",
+     "a": "To the front of the deque."
+    },
+    {
+     "q": "Time for BFS shortest paths on V vertices and E edges?",
+     "a": "Θ(V + E)."
+    }
+   ],
+   "asked": "Asked: 2013 CS Q19, 2026 CS2 Q37",
+   "try": {
+    "id": "gen.algo.shortest.002",
+    "label": "In a graph where every edge has weight 1, which algorithm finds all shortest distances fastest? (L1)"
+   },
+   "scene": "algo.shortest.s2.bfs",
+   "example": {
+    "setup": "Unit weights, undirected edges: S-A, S-B, A-C, B-C, B-D, C-E. Run BFS from S.",
+    "steps": [
+     "Queue = [S], d[S] = 0.",
+     "Pop S. Unseen neighbours A and B get d = 1. Queue = [A, B].",
+     "Pop A. C is new: d[C] = 2. Queue = [B, C].",
+     "Pop B. C is already seen, so skip. D is new: d[D] = 2. Queue = [C, D].",
+     "Pop C. E is new: d[E] = 3. Queue = [D, E].",
+     "Pop D, then E. No unseen neighbours. Queue empty."
+    ],
+    "answer": "d = (S 0, A 1, B 1, C 2, D 2, E 3). C was reached first through A, at distance 2, and the second route changed nothing."
+   },
+   "what": "If every edge costs 1, the shortest distance is just the number of edges. **BFS** finds it: process vertices in a queue, and the first time you reach a vertex is its shortest distance. No priority queue is needed. If edges cost only 0 or 1, use a deque (a queue open at both ends): a 0-edge goes to the front, a 1-edge to the back.",
+   "what_full": "If every edge costs 1, the shortest distance is just the number of edges. **BFS** finds it: process vertices in a queue, and the first time you reach a vertex is its shortest distance. No priority queue is needed. If edges cost only 0 or 1, use a deque (a queue open at both ends): a 0-edge goes to the front, a 1-edge to the back.\n\n**Unit weights:** run BFS from the source; set $d[v]=d[u]+1$ when $v$ is first seen. Time $O(V+E)$.\n\n**0-1 BFS:** keep a deque. On relaxing $u\\to v$ with weight $w\\in\\{0,1\\}$: if $d[u]+w<d[v]$, update $d[v]$ and push $v$ to the **front** if $w=0$, to the **back** if $w=1$. Time $O(V+E)$.\n\n- The deque always holds vertices whose distances differ by at most 1, in sorted order.\n\n**Worked example.** Unit weights, undirected edges: S-A, S-B, A-C, B-C, B-D, C-E. Run BFS from S.\n\n1. Queue = [S], d[S] = 0.\n2. Pop S. Unseen neighbours A and B get d = 1. Queue = [A, B].\n3. Pop A. C is new: d[C] = 2. Queue = [B, C].\n4. Pop B. C is already seen, so skip. D is new: d[D] = 2. Queue = [C, D].\n5. Pop C. E is new: d[E] = 3. Queue = [D, E].\n6. Pop D, then E. No unseen neighbours. Queue empty.\n\n**Answer:** d = (S 0, A 1, B 1, C 2, D 2, E 3). C was reached first through A, at distance 2, and the second route changed nothing.",
+   "why_full": "When the weights are special, a simple queue beats Dijkstra in time and effort. In GATE: \"which algorithm is fastest for a unit-weight or 0-1-weight graph, and what is its time\" (2013 CS Q19, 2026 CS2 Q37).\n\nAsked: 2013 CS Q19, 2026 CS2 Q37",
+   "trap": "Using Dijkstra by habit (correct but slower, O((V+E) log V)), or using plain BFS when the weights are not all equal. BFS counts edges. It is shortest-weight only when every edge weighs the same."
+  },
+  {
+   "atom_id": "s3",
+   "title": "Dijkstra",
+   "simple": "You stand at home with a list of towns and the price to reach each one. You always walk to the cheapest town on the list that you have not yet visited. Here is why that is safe: any other way to that town goes through some other unvisited town that costs at least as much, and then adds more. So the cheapest unvisited town cannot get cheaper. After arriving, you check the roads out of it and lower any price that improves. This only works if no road has a negative price, because a negative road could make a visited town cheaper later. In exam words: Dijkstra repeatedly settles the unsettled vertex with the smallest d, then relaxes its out-edges. It needs non-negative weights.",
+   "idea": "Dijkstra is greedy. Each round it picks the unsettled vertex with the smallest distance, locks it in as final, and relaxes its out-edges. A settled vertex can never be improved: every other route to it passes through a vertex that is at least as far, and weights are not negative. The cost depends on how you find the minimum: a plain array scan gives $O(V^2)$, a binary heap gives $O((V+E)\\log V)$.",
+   "definition": "**Dijkstra(source):**\n1. $d[source]=0$, all others $\\infty$; no vertex settled.\n2. Repeat: pick the unsettled $u$ with the smallest $d[u]$; mark it settled.\n3. For each edge $u\\to v$ with weight $w$: relax it (update $d[v]$ if $d[u]+w<d[v]$).\n\n- Requires every $w\\ge 0$.\n- Array: $O(V^2)$. Binary heap: $O((V+E)\\log V)$. Fibonacci heap: $O(E+V\\log V)$.",
+   "intuition_full": "Picture a flood of water spreading from the source at equal speed along pipes whose lengths are the weights. The first time water reaches a vertex is its shortest distance. Dijkstra simulates that flood by always advancing to the next vertex the water reaches. A new vertex is the one with the smallest tentative d. Why can it not be improved later? Suppose a cheaper route existed. It must leave the settled region through some other unsettled vertex x, with d[x] at least d[u] (since u had the smallest), and then continue with non-negative weights, so the total is at least d[u]. With a negative edge this argument breaks: the route could pick up a bonus after leaving the settled region. The heap is only a faster way to ask \"who is the smallest unsettled vertex?\".",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Directed graph: S→A (4), S→B (1), B→A (2), A→C (5), B→C (8), C→D (3), C→E (2), D→E (4). Run Dijkstra from S.",
+     "steps": [
+      "Start: d = (S 0, all others ∞). Nothing is settled yet.",
+      "Settle S (smallest, 0). Relax: d[A] = 4, d[B] = 1.",
+      "Settle B (1). Relax B→A: 1 + 2 = 3 < 4, so d[A] = 3. Relax B→C: 1 + 8 = 9, d[C] = 9.",
+      "Settle A (3). Relax A→C: 3 + 5 = 8 < 9, so d[C] = 8.",
+      "Settle C (8). Relax C→D: 8 + 3 = 11. Relax C→E: 8 + 2 = 10.",
+      "Settle E (10, smaller than D at 11). E has no out-edge.",
+      "Settle D (11). D→E gives 15, but E is settled and 15 is larger. Done."
+     ],
+     "answer": "Settle order S, B, A, C, E, D. Distances: S 0, B 1, A 3, C 8, E 10, D 11."
+    },
+    {
+     "level": "gate",
+     "setup": "Undirected graph: P-Q (3), P-R (6), Q-R (2), Q-T (7), R-T (3), R-U (5), T-U (1). Run Dijkstra from P. In what order are vertices settled, and what is d[U]?",
+     "steps": [
+      "Settle P (0). Relax: d[Q] = 3, d[R] = 6.",
+      "Settle Q (3). Q-R: 3 + 2 = 5 < 6, so d[R] = 5. Q-T: 3 + 7 = 10, d[T] = 10.",
+      "Settle R (5). R-T: 5 + 3 = 8 < 10, so d[T] = 8. R-U: 5 + 5 = 10, d[U] = 10.",
+      "Settle T (8). T-U: 8 + 1 = 9 < 10, so d[U] = 9.",
+      "Settle U (9). Done."
+     ],
+     "answer": "Order P, Q, R, T, U. d[U] = 9 along P-Q-R-T-U. The direct-looking R-U edge (10) lost to the longer route."
+    },
+    {
+     "level": "twist",
+     "setup": "Edges: S→A (3), S→B (4), A→C (5), B→C (−2). Does Dijkstra still work with the negative edge? Then add B→A (−2).",
+     "steps": [
+      "Settle S: d[A] = 3, d[B] = 4. Settle A (3): d[C] = 8. Settle B (4): relax B→C: 4 − 2 = 2 < 8, so d[C] = 2. C was not settled yet, so the update is allowed. Settle C. Correct: d[C] = 2.",
+      "Now add B→A (−2). B is settled at 4 and relaxes B→A: 4 − 2 = 2, but A was settled earlier at 3. Textbook Dijkstra never updates a settled vertex.",
+      "It reports d[A] = 3. The true shortest route is S→B→A with cost 4 − 2 = 2."
+     ],
+     "answer": "First graph: Dijkstra is accidentally right (C = 2). With B→A (−2) it reports d[A] = 3 but the truth is 2. A negative edge only breaks Dijkstra when it points into an already-settled vertex."
+    }
+   ],
+   "why": "It is the standard algorithm for non-negative weights and the most traced one in GATE. In GATE: replay the settle order and tie-breaking, name the running time for a graph shape, or judge a negative edge (2004 CS Q44, 2012 CS Q40, 2008 CS Q45, 2013 CS Q19).",
+   "how": [
+    "Set d[source] = 0, others ∞; nothing settled.",
+    "Pick the unsettled vertex with the smallest d; settle it.",
+    "Relax each out-edge of that vertex (strictly smaller only).",
+    "Repeat until all are settled; write the settle order as you go.",
+    "Time: array O(V²), heap O((V+E) log V)."
+   ],
+   "mistake": "Using Dijkstra with a negative edge, or updating a vertex that is already settled. A settled vertex is final, so a negative edge into it breaks the guarantee. If weights can be negative, use Bellman-Ford. Also: do not relax from an unsettled vertex.",
+   "edge_cases": [
+    "Negative edge that points into an unsettled vertex → can still give the right answer, but do not rely on it.",
+    "Ties for the smallest d → either may be settled first; the distances are the same, the settle order may differ.",
+    "Unreachable vertex → stays ∞ and is never settled with a real distance.",
+    "Dense graph (E ≈ V²) → the O(V²) array version beats the heap."
+   ],
+   "connections": [
+    "BFS (s2) is Dijkstra with unit weights and a plain queue.",
+    "Prim's MST (algo.mst) has the same shape but picks the cheapest edge into the tree, not the cheapest total distance."
+   ],
+   "check": [
+    {
+     "q": "Which vertex does Dijkstra settle next?",
+     "a": "The unsettled vertex with the smallest current d."
+    },
+    {
+     "q": "Dijkstra on V = 400, E = 79,000 (dense). Which implementation is better?",
+     "a": "The array version, O(V²) = 160,000, beats a heap's (V+E) log V of about 700,000."
+    },
+    {
+     "q": "Which data structure turns the O(V²) scan into O((V+E) log V)?",
+     "a": "A binary heap (priority queue) that returns the smallest unsettled d."
+    }
+   ],
+   "asked": "Asked: 2004 CS Q44, 2012 CS Q40, 2008 CS Q45, 2013 CS Q19",
+   "try": {
+    "id": "gen.algo.shortest.003",
+    "label": "Dijkstra's algorithm is guaranteed correct only when the graph has: (L1)"
+   },
+   "scene": "algo.shortest.s3.dijkstra",
+   "example": {
+    "setup": "Directed graph: S→A (4), S→B (1), B→A (2), A→C (5), B→C (8), C→D (3), C→E (2), D→E (4). Run Dijkstra from S.",
+    "steps": [
+     "Start: d = (S 0, all others ∞). Nothing is settled yet.",
+     "Settle S (smallest, 0). Relax: d[A] = 4, d[B] = 1.",
+     "Settle B (1). Relax B→A: 1 + 2 = 3 < 4, so d[A] = 3. Relax B→C: 1 + 8 = 9, d[C] = 9.",
+     "Settle A (3). Relax A→C: 3 + 5 = 8 < 9, so d[C] = 8.",
+     "Settle C (8). Relax C→D: 8 + 3 = 11. Relax C→E: 8 + 2 = 10.",
+     "Settle E (10, smaller than D at 11). E has no out-edge.",
+     "Settle D (11). D→E gives 15, but E is settled and 15 is larger. Done."
+    ],
+    "answer": "Settle order S, B, A, C, E, D. Distances: S 0, B 1, A 3, C 8, E 10, D 11."
+   },
+   "what": "Dijkstra is greedy. Each round it picks the unsettled vertex with the smallest distance, locks it in as final, and relaxes its out-edges. A settled vertex can never be improved: every other route to it passes through a vertex that is at least as far, and weights are not negative. The cost depends on how you find the minimum: a plain array scan gives $O(V^2)$, a binary heap gives $O((V+E)\\log V)$.",
+   "what_full": "Dijkstra is greedy. Each round it picks the unsettled vertex with the smallest distance, locks it in as final, and relaxes its out-edges. A settled vertex can never be improved: every other route to it passes through a vertex that is at least as far, and weights are not negative. The cost depends on how you find the minimum: a plain array scan gives $O(V^2)$, a binary heap gives $O((V+E)\\log V)$.\n\n**Dijkstra(source):**\n1. $d[source]=0$, all others $\\infty$; no vertex settled.\n2. Repeat: pick the unsettled $u$ with the smallest $d[u]$; mark it settled.\n3. For each edge $u\\to v$ with weight $w$: relax it (update $d[v]$ if $d[u]+w<d[v]$).\n\n- Requires every $w\\ge 0$.\n- Array: $O(V^2)$. Binary heap: $O((V+E)\\log V)$. Fibonacci heap: $O(E+V\\log V)$.\n\n**Worked example.** Directed graph: S→A (4), S→B (1), B→A (2), A→C (5), B→C (8), C→D (3), C→E (2), D→E (4). Run Dijkstra from S.\n\n1. Start: d = (S 0, all others ∞). Nothing is settled yet.\n2. Settle S (smallest, 0). Relax: d[A] = 4, d[B] = 1.\n3. Settle B (1). Relax B→A: 1 + 2 = 3 < 4, so d[A] = 3. Relax B→C: 1 + 8 = 9, d[C] = 9.\n4. Settle A (3). Relax A→C: 3 + 5 = 8 < 9, so d[C] = 8.\n5. Settle C (8). Relax C→D: 8 + 3 = 11. Relax C→E: 8 + 2 = 10.\n6. Settle E (10, smaller than D at 11). E has no out-edge.\n7. Settle D (11). D→E gives 15, but E is settled and 15 is larger. Done.\n\n**Answer:** Settle order S, B, A, C, E, D. Distances: S 0, B 1, A 3, C 8, E 10, D 11.",
+   "why_full": "It is the standard algorithm for non-negative weights and the most traced one in GATE. In GATE: replay the settle order and tie-breaking, name the running time for a graph shape, or judge a negative edge (2004 CS Q44, 2012 CS Q40, 2008 CS Q45, 2013 CS Q19).\n\nAsked: 2004 CS Q44, 2012 CS Q40, 2008 CS Q45, 2013 CS Q19",
+   "trap": "Using Dijkstra with a negative edge, or updating a vertex that is already settled. A settled vertex is final, so a negative edge into it breaks the guarantee. If weights can be negative, use Bellman-Ford. Also: do not relax from an unsettled vertex."
+  },
+  {
+   "atom_id": "s4",
+   "title": "Bellman-Ford",
+   "simple": "Some roads pay you money, so you cannot trust that the cheapest town so far is final. The safe plan is to be thorough. Walk through your whole list of roads and update prices wherever you find an improvement, then do the whole list again, and again. Every full pass fixes the cheapest price for routes with one more road. A trip never needs more than (number of towns minus 1) roads, so that many passes are enough. If prices still change on one extra pass, there is a loop that pays you more each time you go around it. In exam words: Bellman-Ford relaxes all edges V−1 times, O(VE). An improvement in round V shows a reachable negative cycle.",
+   "idea": "Bellman-Ford relaxes every edge, in some fixed order, and repeats that whole pass $V-1$ times. After round $k$, the distance of every vertex is at most the best path that uses $k$ edges. A shortest simple path has at most $V-1$ edges, so $V-1$ rounds are enough. One extra round that still improves something proves a negative cycle is reachable from the source. It handles negative edges, unlike Dijkstra, and costs $O(VE)$.",
+   "definition": "**Bellman-Ford(source):** set $d[source]=0$, others $\\infty$. Repeat $V-1$ times: for every edge $(u,v,w)$ in order, relax it.\n\n- **Negative cycle test:** run one more round. If any edge still relaxes, a negative cycle is reachable from the source.\n- After $k$ rounds, $d[v]\\le$ the best cost over paths with at most $k$ edges.\n- Time $O(VE)$. Space $O(V)$.",
+   "intuition_full": "Think of the shortest path as a chain of edges s → v1 → v2 → … → v. If the edges of the chain are relaxed in that order, one round is enough. We do not know the order, so we repeat everything: in round 1 the first edge of the chain is guaranteed to be final, in round 2 the second edge is, and so on. In the worst case the edge order is exactly backwards and each round fixes only one more step. That is why V−1 rounds are needed. A lucky order lets several steps happen in a single round, since edges later in the list use values updated earlier in the same list. A negative cycle is different: every trip around it lowers the totals again, so the values keep dropping forever, and round V will show it.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Edge list in this order: C→D (2), B→C (−4), A→B (3), S→A (5), S→B (7), A→C (6). Source S, 5 vertices, so up to 4 rounds.",
+     "steps": [
+      "Round 0: d = (S 0, A ∞, B ∞, C ∞, D ∞).",
+      "Round 1: C→D and B→C and A→B find nothing (their tails are ∞). S→A: d[A] = 5. S→B: d[B] = 7. A→C: 5 + 6 = 11, d[C] = 11.",
+      "Round 2: C→D: 11 + 2 = 13, d[D] = 13. B→C: 7 − 4 = 3 < 11, d[C] = 3. The rest do not improve.",
+      "Round 3: C→D: 3 + 2 = 5 < 13, d[D] = 5.",
+      "Round 4: no edge improves. Distances are final and there is no negative cycle."
+     ],
+     "answer": "d = (S 0, A 5, B 7, C 3, D 5). The best route to D is S→B→C→D (3 edges), found in round 3."
+    },
+    {
+     "level": "gate",
+     "setup": "Edges listed in this order: B→C (−1), A→B (3), S→A (2), S→C (10). Source S, 4 vertices. In how many rounds does at least one distance change? What are the final distances?",
+     "steps": [
+      "Round 1: B→C and A→B find nothing (tails ∞). S→A: d[A] = 2. S→C: d[C] = 10.",
+      "Round 2: B→C: B is ∞, skip. A→B: 2 + 3 = 5, d[B] = 5. S→A, S→C: nothing new.",
+      "Round 3: B→C: 5 − 1 = 4 < 10, d[C] = 4.",
+      "Round 4 (the extra check round): nothing changes, so no negative cycle."
+     ],
+     "answer": "Three rounds change something. Final: A = 2, B = 5, C = 4. The reversed edge order moves the information only one step per round, the worst case."
+    },
+    {
+     "level": "twist",
+     "setup": "Edges: S→A (1), A→B (−3), B→A (1). 3 vertices, so V − 1 = 2 rounds. Run 3 rounds. What happens?",
+     "steps": [
+      "Round 1: S→A: d[A] = 1. A→B: 1 − 3 = −2, d[B] = −2. B→A: −2 + 1 = −1 < 1, d[A] = −1.",
+      "Round 2: A→B: −1 − 3 = −4, d[B] = −4. B→A: −4 + 1 = −3, d[A] = −3.",
+      "Round 3 (the V-th round): A→B gives −6, still smaller. Distances keep falling.",
+      "A change in round V means a negative cycle A→B→A (cost −3 + 1 = −2) is reachable from S."
+     ],
+     "answer": "Negative cycle detected: distances in the cycle have no lower limit. Shortest paths are undefined for vertices that can reach it."
+    }
+   ],
+   "why": "It is the algorithm that tolerates negative edges, and \"k rounds\" questions test the exact meaning of a round. In GATE: how many rounds, what is d after k rounds, and what an extra improving round proves (2009 CS Q13, 2026 CS1 Q41, 2010 CS Q51).",
+   "how": [
+    "Write the edge list in the order given and set d[source] = 0.",
+    "One round = relax every edge once in list order, using the newest values.",
+    "After k rounds, paths with at most k edges are covered (and often more, if the order is lucky).",
+    "V−1 rounds are enough when there is no negative cycle.",
+    "One extra improving round = a reachable negative cycle."
+   ],
+   "mistake": "Believing it finds every negative cycle (only those reachable from the source), or believing d after k rounds is exactly the best k-edge path. Within a round, later edges use earlier updates, so a round can move more than one edge deep.",
+   "edge_cases": [
+    "A negative cycle that is unreachable from the source → never detected.",
+    "Early exit: if a whole round changes nothing, stop. The distances are final.",
+    "No negative edges → still correct, only slower than Dijkstra.",
+    "Undirected graph with a negative edge → counts as a negative cycle (go back and forth)."
+   ],
+   "connections": [
+    "Dynamic programming: Bellman-Ford is DP over the number of edges used (algo.dp).",
+    "Dijkstra (s3) is faster but needs non-negative weights; the DAG method (s5) is faster and allows negatives."
+   ],
+   "check": [
+    {
+     "q": "Graph has 9 vertices and no negative cycle. How many rounds guarantee correct distances?",
+     "a": "8 (V − 1)."
+    },
+    {
+     "q": "After round 2, what do we know about d[v]?",
+     "a": "It is at most the cost of the best path with at most 2 edges."
+    },
+    {
+     "q": "Time of Bellman-Ford with V vertices and E edges?",
+     "a": "O(VE)."
+    }
+   ],
+   "asked": "Asked: 2009 CS Q13, 2026 CS1 Q41, 2010 CS Q51",
+   "try": {
+    "id": "gen.algo.shortest.004",
+    "label": "What is the running time of Bellman-Ford on a graph with V vertices and E edges? (L1)"
+   },
+   "scene": "algo.shortest.s4.bellman",
+   "example": {
+    "setup": "Edge list in this order: C→D (2), B→C (−4), A→B (3), S→A (5), S→B (7), A→C (6). Source S, 5 vertices, so up to 4 rounds.",
+    "steps": [
+     "Round 0: d = (S 0, A ∞, B ∞, C ∞, D ∞).",
+     "Round 1: C→D and B→C and A→B find nothing (their tails are ∞). S→A: d[A] = 5. S→B: d[B] = 7. A→C: 5 + 6 = 11, d[C] = 11.",
+     "Round 2: C→D: 11 + 2 = 13, d[D] = 13. B→C: 7 − 4 = 3 < 11, d[C] = 3. The rest do not improve.",
+     "Round 3: C→D: 3 + 2 = 5 < 13, d[D] = 5.",
+     "Round 4: no edge improves. Distances are final and there is no negative cycle."
+    ],
+    "answer": "d = (S 0, A 5, B 7, C 3, D 5). The best route to D is S→B→C→D (3 edges), found in round 3."
+   },
+   "what": "Bellman-Ford relaxes every edge, in some fixed order, and repeats that whole pass $V-1$ times. After round $k$, the distance of every vertex is at most the best path that uses $k$ edges. A shortest simple path has at most $V-1$ edges, so $V-1$ rounds are enough. One extra round that still improves something proves a negative cycle is reachable from the source. It handles negative edges, unlike Dijkstra, and costs $O(VE)$.",
+   "what_full": "Bellman-Ford relaxes every edge, in some fixed order, and repeats that whole pass $V-1$ times. After round $k$, the distance of every vertex is at most the best path that uses $k$ edges. A shortest simple path has at most $V-1$ edges, so $V-1$ rounds are enough. One extra round that still improves something proves a negative cycle is reachable from the source. It handles negative edges, unlike Dijkstra, and costs $O(VE)$.\n\n**Bellman-Ford(source):** set $d[source]=0$, others $\\infty$. Repeat $V-1$ times: for every edge $(u,v,w)$ in order, relax it.\n\n- **Negative cycle test:** run one more round. If any edge still relaxes, a negative cycle is reachable from the source.\n- After $k$ rounds, $d[v]\\le$ the best cost over paths with at most $k$ edges.\n- Time $O(VE)$. Space $O(V)$.\n\n**Worked example.** Edge list in this order: C→D (2), B→C (−4), A→B (3), S→A (5), S→B (7), A→C (6). Source S, 5 vertices, so up to 4 rounds.\n\n1. Round 0: d = (S 0, A ∞, B ∞, C ∞, D ∞).\n2. Round 1: C→D and B→C and A→B find nothing (their tails are ∞). S→A: d[A] = 5. S→B: d[B] = 7. A→C: 5 + 6 = 11, d[C] = 11.\n3. Round 2: C→D: 11 + 2 = 13, d[D] = 13. B→C: 7 − 4 = 3 < 11, d[C] = 3. The rest do not improve.\n4. Round 3: C→D: 3 + 2 = 5 < 13, d[D] = 5.\n5. Round 4: no edge improves. Distances are final and there is no negative cycle.\n\n**Answer:** d = (S 0, A 5, B 7, C 3, D 5). The best route to D is S→B→C→D (3 edges), found in round 3.",
+   "why_full": "It is the algorithm that tolerates negative edges, and \"k rounds\" questions test the exact meaning of a round. In GATE: how many rounds, what is d after k rounds, and what an extra improving round proves (2009 CS Q13, 2026 CS1 Q41, 2010 CS Q51).\n\nAsked: 2009 CS Q13, 2026 CS1 Q41, 2010 CS Q51",
+   "trap": "Believing it finds every negative cycle (only those reachable from the source), or believing d after k rounds is exactly the best k-edge path. Within a round, later edges use earlier updates, so a round can move more than one edge deep."
+  },
+  {
+   "atom_id": "s5",
+   "title": "Shortest paths in a DAG",
+   "simple": "Picture a recipe with steps that must happen in order: you cannot ice the cake before baking it. If you line the steps up in that order, every arrow points forward. Now ask \"what is the cheapest way to get to each step?\" Go through the steps left to right. When you stand on a step, everything that could lead into it has already been checked, so its price is final. You never go back. Even negative costs are fine, because you only ever look forward. In exam words: in a DAG, process vertices in topological order and relax each out-edge once. Time Θ(V+E), and negative weights are allowed.",
+   "idea": "A DAG has no cycles, so you can line the vertices up so that every edge points left to right. This is a **topological order**. Walk through that order and relax each vertex's out-edges once. When you reach a vertex, every edge into it has already been relaxed, so its distance is final. No priority queue is needed and negative edges are fine. The cost is $\\Theta(V+E)$.",
+   "definition": "**DAG-shortest-paths(source):**\n1. Compute a topological order of the DAG.\n2. $d[source]=0$, others $\\infty$.\n3. For each vertex $u$ in topological order: for each edge $u\\to v$ with weight $w$, relax it.\n\n- Time $\\Theta(V+E)$ (the sort is also $\\Theta(V+E)$).\n- Negative weights allowed; there is no cycle, so no negative cycle.\n- For the **longest** path, negate the weights or use max instead of min.",
+   "intuition_full": "In Dijkstra we need a heap because we do not know which vertex is safe to settle next. In a DAG, the topological order answers that question for free: a vertex is safe once all its predecessors are done. This is the same idea as filling a DP table in dependency order: d[v] depends only on vertices before v, so computing them in order never needs a second look. Negative edges are harmless for the same reason. They were a problem for Dijkstra only because it settles a vertex before it has seen every incoming edge. Here a vertex is processed only after all of its incoming edges have been relaxed. Each edge is touched exactly once, which gives Θ(V+E). This is why longest path in a DAG is easy even though it is hard in general graphs.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "DAG with topological order P, Q, R, U, V, W. Edges: P→Q (2), P→R (5), Q→R (−3), Q→U (6), R→U (1), R→V (4), U→W (3), V→W (−2). Source P.",
+     "steps": [
+      "Topological order P, Q, R, U, V, W. Start with d[P] = 0 and everything else ∞.",
+      "Process P: d[Q] = 2, d[R] = 5.",
+      "Process Q: Q→R: 2 − 3 = −1 < 5, so d[R] = −1. Q→U: 2 + 6 = 8, d[U] = 8.",
+      "Process R (final at −1): R→U: −1 + 1 = 0 < 8, d[U] = 0. R→V: −1 + 4 = 3, d[V] = 3.",
+      "Process U: U→W: 0 + 3 = 3, d[W] = 3.",
+      "Process V: V→W: 3 − 2 = 1 < 3, d[W] = 1.",
+      "Process W: no out-edges. Done, each edge relaxed once."
+     ],
+     "answer": "d = (P 0, Q 2, R −1, U 0, V 3, W 1). 8 edges, 8 relaxations."
+    },
+    {
+     "level": "gate",
+     "setup": "DAG: S→X (3), S→Y (5), Y→X (−4), X→Z (2), Y→Z (6). Topological order S, Y, X, Z. Compare the topological method with textbook Dijkstra from S.",
+     "steps": [
+      "Topological method: process S: d[X] = 3, d[Y] = 5. Process Y: Y→X: 5 − 4 = 1 < 3, d[X] = 1. Y→Z: 5 + 6 = 11, d[Z] = 11.",
+      "Process X: X→Z: 1 + 2 = 3 < 11, d[Z] = 3. Result: X = 1, Y = 5, Z = 3.",
+      "Dijkstra: settle S. Smallest is X at 3, so X is settled at 3 (but the truth is 1). Relax X→Z: d[Z] = 5.",
+      "Settle Y (5). Y→X: X is settled, so Dijkstra leaves it at 3. Y→Z: 11 > 5. Dijkstra reports Z = 5."
+     ],
+     "answer": "Topological order: Z = 3 (correct). Dijkstra gives Z = 5 (wrong) because of the negative edge Y→X. On a DAG, use the topological method, not Dijkstra."
+    },
+    {
+     "level": "twist",
+     "setup": "DAG with topological order M, S, X, Y. Edges: M→S (2), M→X (9), S→X (1), X→Y (3), S→Y (7). The source is S, not the first vertex. What are the distances?",
+     "steps": [
+      "Set d[S] = 0. All others ∞, including M.",
+      "Process in order. M: its d is ∞, so skip its edges (∞ + 2 is not a real route).",
+      "Process S: S→X: 0 + 1 = 1, d[X] = 1. S→Y: 0 + 7 = 7, d[Y] = 7.",
+      "Process X: X→Y: 1 + 3 = 4 < 7, d[Y] = 4."
+     ],
+     "answer": "d = (M ∞, S 0, X 1, Y 4). M comes before the source in the order, so it can never be reached: it stays ∞."
+    }
+   ],
+   "why": "Many GATE questions ask which algorithm is best for a special graph. A DAG is the case where you beat Dijkstra and Bellman-Ford. In GATE: pick the algorithm and time for a DAG, or find a shortest/longest path with a negative edge (2026 CS2 Q37, 2013 CS Q19).",
+   "how": [
+    "Confirm the graph is a DAG and get a topological order (given or by DFS).",
+    "Set d[source] = 0, others ∞.",
+    "Go left to right; for each vertex relax its out-edges (skip if d is ∞).",
+    "Time Θ(V+E). For longest path, flip the comparison (or negate weights)."
+   ],
+   "mistake": "Reaching for Dijkstra because it is familiar. On a DAG with negative edges it can be wrong, and even on non-negative DAGs it is slower than needed. Also, starting the loop at the wrong place: vertices before the source in the order stay ∞.",
+   "edge_cases": [
+    "Source is not first in the order → earlier vertices stay ∞.",
+    "Several valid topological orders → all give the same distances.",
+    "Longest path in a DAG → same algorithm with max (Θ(V+E)); in a general graph it is NP-hard.",
+    "All-pairs on a DAG → run this V times, Θ(V(V+E))."
+   ],
+   "connections": [
+    "Topological order comes from DFS finish times (algo.traversal, t7).",
+    "DP: this is memoised recursion in dependency order (algo.dp); the DAG is the subproblem graph."
+   ],
+   "check": [
+    {
+     "q": "Time to find single-source shortest paths in a DAG?",
+     "a": "Θ(V + E)."
+    },
+    {
+     "q": "Is Dijkstra safe on a DAG with a negative edge?",
+     "a": "No. It can settle a vertex too early (see the gate example)."
+    },
+    {
+     "q": "How do you find the longest path in a DAG?",
+     "a": "Same topological pass but maximise (or negate the weights and take the shortest)."
+    }
+   ],
+   "asked": "Asked: 2026 CS2 Q37, 2013 CS Q19",
+   "try": {
+    "id": "gen.algo.shortest.008",
+    "label": "DAG with source S and a negative edge: what is the shortest distance from S to T? (L2)"
+   },
+   "scene": "algo.shortest.s5.dag",
+   "example": {
+    "setup": "DAG with topological order P, Q, R, U, V, W. Edges: P→Q (2), P→R (5), Q→R (−3), Q→U (6), R→U (1), R→V (4), U→W (3), V→W (−2). Source P.",
+    "steps": [
+     "Topological order P, Q, R, U, V, W. Start with d[P] = 0 and everything else ∞.",
+     "Process P: d[Q] = 2, d[R] = 5.",
+     "Process Q: Q→R: 2 − 3 = −1 < 5, so d[R] = −1. Q→U: 2 + 6 = 8, d[U] = 8.",
+     "Process R (final at −1): R→U: −1 + 1 = 0 < 8, d[U] = 0. R→V: −1 + 4 = 3, d[V] = 3.",
+     "Process U: U→W: 0 + 3 = 3, d[W] = 3.",
+     "Process V: V→W: 3 − 2 = 1 < 3, d[W] = 1.",
+     "Process W: no out-edges. Done, each edge relaxed once."
+    ],
+    "answer": "d = (P 0, Q 2, R −1, U 0, V 3, W 1). 8 edges, 8 relaxations."
+   },
+   "what": "A DAG has no cycles, so you can line the vertices up so that every edge points left to right. This is a **topological order**. Walk through that order and relax each vertex's out-edges once. When you reach a vertex, every edge into it has already been relaxed, so its distance is final. No priority queue is needed and negative edges are fine. The cost is $\\Theta(V+E)$.",
+   "what_full": "A DAG has no cycles, so you can line the vertices up so that every edge points left to right. This is a **topological order**. Walk through that order and relax each vertex's out-edges once. When you reach a vertex, every edge into it has already been relaxed, so its distance is final. No priority queue is needed and negative edges are fine. The cost is $\\Theta(V+E)$.\n\n**DAG-shortest-paths(source):**\n1. Compute a topological order of the DAG.\n2. $d[source]=0$, others $\\infty$.\n3. For each vertex $u$ in topological order: for each edge $u\\to v$ with weight $w$, relax it.\n\n- Time $\\Theta(V+E)$ (the sort is also $\\Theta(V+E)$).\n- Negative weights allowed; there is no cycle, so no negative cycle.\n- For the **longest** path, negate the weights or use max instead of min.\n\n**Worked example.** DAG with topological order P, Q, R, U, V, W. Edges: P→Q (2), P→R (5), Q→R (−3), Q→U (6), R→U (1), R→V (4), U→W (3), V→W (−2). Source P.\n\n1. Topological order P, Q, R, U, V, W. Start with d[P] = 0 and everything else ∞.\n2. Process P: d[Q] = 2, d[R] = 5.\n3. Process Q: Q→R: 2 − 3 = −1 < 5, so d[R] = −1. Q→U: 2 + 6 = 8, d[U] = 8.\n4. Process R (final at −1): R→U: −1 + 1 = 0 < 8, d[U] = 0. R→V: −1 + 4 = 3, d[V] = 3.\n5. Process U: U→W: 0 + 3 = 3, d[W] = 3.\n6. Process V: V→W: 3 − 2 = 1 < 3, d[W] = 1.\n7. Process W: no out-edges. Done, each edge relaxed once.\n\n**Answer:** d = (P 0, Q 2, R −1, U 0, V 3, W 1). 8 edges, 8 relaxations.",
+   "why_full": "Many GATE questions ask which algorithm is best for a special graph. A DAG is the case where you beat Dijkstra and Bellman-Ford. In GATE: pick the algorithm and time for a DAG, or find a shortest/longest path with a negative edge (2026 CS2 Q37, 2013 CS Q19).\n\nAsked: 2026 CS2 Q37, 2013 CS Q19",
+   "trap": "Reaching for Dijkstra because it is familiar. On a DAG with negative edges it can be wrong, and even on non-negative DAGs it is slower than needed. Also, starting the loop at the wrong place: vertices before the source in the order stay ∞."
+  },
+  {
+   "atom_id": "s6",
+   "title": "Floyd-Warshall",
+   "simple": "Say you want the cheapest trip between every pair of towns. Start with only the direct roads. Now allow one town, say Town 1, as a place you may stop on the way. For every pair, check: is going via Town 1 cheaper than what I had? Then also allow Town 2, then Town 3, and so on. Each time you allow one more stopover town, some pairs get cheaper. When every town is allowed, you have the best prices for every pair. In exam words: Floyd-Warshall is dynamic programming over the allowed intermediate vertices. d_k[i][j] = min(d_(k-1)[i][j], d_(k-1)[i][k] + d_(k-1)[k][j]). Time Θ(V³).",
+   "idea": "Floyd-Warshall finds the shortest distance between **every pair** of vertices. It builds a V by V table. Stage $k$ allows only vertices $1..k$ as middle stops. For each pair $(i, j)$, either keep the old value or go $i\\to k\\to j$. The loop over $k$ must be the **outer** loop. Time $\\Theta(V^3)$. Negative edges are fine, as long as there is no negative cycle.",
+   "definition": "Let $d_k[i][j]$ be the shortest $i\\to j$ distance using only vertices $1..k$ as intermediates.\n\n$d_k[i][j]=\\min\\bigl(d_{k-1}[i][j],\\; d_{k-1}[i][k]+d_{k-1}[k][j]\\bigr)$\n\n- $d_0$ is the edge-weight matrix (0 on the diagonal, $\\infty$ where there is no edge).\n- The answer is $d_V$. Time $\\Theta(V^3)$, space $\\Theta(V^2)$ with in-place updates.\n- A negative number on the diagonal ($d[i][i]<0$) reveals a negative cycle.",
+   "intuition_full": "The recurrence asks one yes/no question per pair at stage k: is the best path that may use vertex k better than the best path that may not? If it uses k, it uses k exactly once (a simple path), so it splits into i to k and k to j, and both halves use only vertices below k. That is why the table can be updated with the values from the previous stage. The outer loop is k because the whole table must finish stage k before stage k+1 starts. If you put k in an inner loop, you would use halves that are not yet at the right stage. Updating in place is safe: row k and column k do not change during stage k, since d[k][k] = 0. A picture: the table starts as a map of direct roads, and each stage adds one new \"airport\" that lets pairs fly through it.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Vertices 1 to 4. Edges: 1→2 (4), 1→4 (9), 2→3 (−2), 3→1 (3), 3→4 (1), 4→2 (5). Run Floyd-Warshall and report the matrix after each stage.",
+     "steps": [
+      "D0 is the edge matrix. Row 1: [0, 4, ∞, 9]; row 2: [∞, 0, −2, ∞]; row 3: [3, ∞, 0, 1]; row 4: [∞, 5, ∞, 0].",
+      "k = 1: only pairs through vertex 1 can change. 3→1→2: 3 + 4 = 7, so D[3][2] = 7. Nothing else improves.",
+      "k = 2: 1→2→3: 4 − 2 = 2, so D[1][3] = 2. 4→2→3: 5 − 2 = 3, so D[4][3] = 3.",
+      "k = 3: 1→3→4: 2 + 1 = 3 (was 9). 2→3→1: −2 + 3 = 1, 2→3→4: −2 + 1 = −1. 4→3→1: 3 + 3 = 6.",
+      "k = 4: only 3→4→2: 1 + 5 = 6 < 7, so D[3][2] = 6."
+     ],
+     "answer": "Final matrix: row 1 [0, 4, 2, 3], row 2 [1, 0, −2, −1], row 3 [3, 6, 0, 1], row 4 [6, 5, 3, 0]. Note D[3][2] went 7 at stage 1 but finished at 6."
+    },
+    {
+     "level": "gate",
+     "setup": "Four vertices. Edges: 1→2 (6), 1→3 (2), 2→4 (1), 3→2 (3), 3→4 (7), 4→1 (4). Floyd-Warshall runs with k outermost. What is D[1][4] after the k = 2 stage, and what is it at the end?",
+     "steps": [
+      "D0[1][4] = ∞ (no direct edge 1→4).",
+      "Stage 1 (via 1): nothing reaches 1 except 4→1. 4→1→2: 4 + 6 = 10, 4→1→3: 4 + 2 = 6. D[1][4] still ∞.",
+      "Stage 2 (via 2): 1→2→4: 6 + 1 = 7, so D[1][4] = 7. (Also 3→2→4: 3 + 1 = 4 < 7, so D[3][4] = 4.)",
+      "Stage 3 (via 3): 1→3→4: now D[3][4] = 4 after stage 2, so 2 + 4 = 6 < 7, D[1][4] = 6.",
+      "Stage 4 (via 4): can only shorten pairs whose best path goes through 4; D[1][4] stays 6."
+     ],
+     "answer": "After k = 2: D[1][4] = 7. At the end: 6 (path 1→3→2→4). Trap: reading the final value at an intermediate stage."
+    },
+    {
+     "level": "twist",
+     "setup": "Three vertices: 1→2 (2), 2→3 (−4), 3→1 (1). The cycle costs 2 − 4 + 1 = −1. Run Floyd-Warshall and look at the diagonal.",
+     "steps": [
+      "D0 diagonal is 0, 0, 0.",
+      "k = 1: 3→1→2: 1 + 2 = 3, D[3][2] = 3.",
+      "k = 2: 1→2→3: 2 − 4 = −2, D[1][3] = −2. 3→2→3: 3 − 4 = −1 < 0, so D[3][3] = −1.",
+      "k = 3: 1→3→1: −2 + 1 = −1, D[1][1] = −1. 2→3→2: −4 + 3 = −1, D[2][2] = −1. Even D[3][3] drops to −1 + (−1) = −2, since the loop is used twice."
+     ],
+     "answer": "The diagonal becomes (−1, −1, −2). A negative number on the diagonal means a negative cycle, and the off-diagonal values are no longer reliable."
+    }
+   ],
+   "why": "It is the all-pairs method, and it is a clean DP example. In GATE: the loop template, its running time and the matrix after stage k (2002 CS Q12, 2003 CS Q70).",
+   "how": [
+    "Write D0 as the edge matrix, 0 on the diagonal, ∞ for missing edges.",
+    "Stage k: for every pair (i, j) compare D[i][j] with D[i][k] + D[k][j].",
+    "Row k and column k never change in stage k.",
+    "After the last stage the matrix is the answer; a negative diagonal means a negative cycle."
+   ],
+   "mistake": "Reading the final value at an intermediate stage, or putting k in an inner loop. Stage k means vertices 1..k only. The intermediate vertex k must be the outermost loop, or the recurrence is no longer valid.",
+   "edge_cases": [
+    "Negative edges, no negative cycle → fine.",
+    "Negative cycle → some D[i][i] < 0.",
+    "Missing edge → ∞, and ∞ + anything stays ∞.",
+    "Undirected graph → symmetric matrix at every stage."
+   ],
+   "connections": [
+    "Dynamic programming over vertex subsets (algo.dp); same idea as matrix chain.",
+    "Compare with running Dijkstra from every vertex: O(V · E log V) is faster on sparse graphs."
+   ],
+   "check": [
+    {
+     "q": "Which loop of Floyd-Warshall is outermost?",
+     "a": "The intermediate vertex k."
+    },
+    {
+     "q": "Running time for V = 50?",
+     "a": "Θ(V³) = 125,000 basic steps."
+    },
+    {
+     "q": "In stage k, does row k change?",
+     "a": "No. D[k][j] cannot improve through k itself, since D[k][k] = 0."
+    }
+   ],
+   "asked": "Asked: 2002 CS Q12, 2003 CS Q70",
+   "try": {
+    "id": "gen.algo.shortest.005",
+    "label": "The Floyd-Warshall all-pairs algorithm follows which paradigm, and what is its time for n vertices? (L1)"
+   },
+   "scene": "algo.shortest.s6.floyd",
+   "example": {
+    "setup": "Vertices 1 to 4. Edges: 1→2 (4), 1→4 (9), 2→3 (−2), 3→1 (3), 3→4 (1), 4→2 (5). Run Floyd-Warshall and report the matrix after each stage.",
+    "steps": [
+     "D0 is the edge matrix. Row 1: [0, 4, ∞, 9]; row 2: [∞, 0, −2, ∞]; row 3: [3, ∞, 0, 1]; row 4: [∞, 5, ∞, 0].",
+     "k = 1: only pairs through vertex 1 can change. 3→1→2: 3 + 4 = 7, so D[3][2] = 7. Nothing else improves.",
+     "k = 2: 1→2→3: 4 − 2 = 2, so D[1][3] = 2. 4→2→3: 5 − 2 = 3, so D[4][3] = 3.",
+     "k = 3: 1→3→4: 2 + 1 = 3 (was 9). 2→3→1: −2 + 3 = 1, 2→3→4: −2 + 1 = −1. 4→3→1: 3 + 3 = 6.",
+     "k = 4: only 3→4→2: 1 + 5 = 6 < 7, so D[3][2] = 6."
+    ],
+    "answer": "Final matrix: row 1 [0, 4, 2, 3], row 2 [1, 0, −2, −1], row 3 [3, 6, 0, 1], row 4 [6, 5, 3, 0]. Note D[3][2] went 7 at stage 1 but finished at 6."
+   },
+   "what": "Floyd-Warshall finds the shortest distance between **every pair** of vertices. It builds a V by V table. Stage $k$ allows only vertices $1..k$ as middle stops. For each pair $(i, j)$, either keep the old value or go $i\\to k\\to j$. The loop over $k$ must be the **outer** loop. Time $\\Theta(V^3)$. Negative edges are fine, as long as there is no negative cycle.",
+   "what_full": "Floyd-Warshall finds the shortest distance between **every pair** of vertices. It builds a V by V table. Stage $k$ allows only vertices $1..k$ as middle stops. For each pair $(i, j)$, either keep the old value or go $i\\to k\\to j$. The loop over $k$ must be the **outer** loop. Time $\\Theta(V^3)$. Negative edges are fine, as long as there is no negative cycle.\n\nLet $d_k[i][j]$ be the shortest $i\\to j$ distance using only vertices $1..k$ as intermediates.\n\n$d_k[i][j]=\\min\\bigl(d_{k-1}[i][j],\\; d_{k-1}[i][k]+d_{k-1}[k][j]\\bigr)$\n\n- $d_0$ is the edge-weight matrix (0 on the diagonal, $\\infty$ where there is no edge).\n- The answer is $d_V$. Time $\\Theta(V^3)$, space $\\Theta(V^2)$ with in-place updates.\n- A negative number on the diagonal ($d[i][i]<0$) reveals a negative cycle.\n\n**Worked example.** Vertices 1 to 4. Edges: 1→2 (4), 1→4 (9), 2→3 (−2), 3→1 (3), 3→4 (1), 4→2 (5). Run Floyd-Warshall and report the matrix after each stage.\n\n1. D0 is the edge matrix. Row 1: [0, 4, ∞, 9]; row 2: [∞, 0, −2, ∞]; row 3: [3, ∞, 0, 1]; row 4: [∞, 5, ∞, 0].\n2. k = 1: only pairs through vertex 1 can change. 3→1→2: 3 + 4 = 7, so D[3][2] = 7. Nothing else improves.\n3. k = 2: 1→2→3: 4 − 2 = 2, so D[1][3] = 2. 4→2→3: 5 − 2 = 3, so D[4][3] = 3.\n4. k = 3: 1→3→4: 2 + 1 = 3 (was 9). 2→3→1: −2 + 3 = 1, 2→3→4: −2 + 1 = −1. 4→3→1: 3 + 3 = 6.\n5. k = 4: only 3→4→2: 1 + 5 = 6 < 7, so D[3][2] = 6.\n\n**Answer:** Final matrix: row 1 [0, 4, 2, 3], row 2 [1, 0, −2, −1], row 3 [3, 6, 0, 1], row 4 [6, 5, 3, 0]. Note D[3][2] went 7 at stage 1 but finished at 6.",
+   "why_full": "It is the all-pairs method, and it is a clean DP example. In GATE: the loop template, its running time and the matrix after stage k (2002 CS Q12, 2003 CS Q70).\n\nAsked: 2002 CS Q12, 2003 CS Q70",
+   "trap": "Reading the final value at an intermediate stage, or putting k in an inner loop. Stage k means vertices 1..k only. The intermediate vertex k must be the outermost loop, or the recurrence is no longer valid."
+  },
+  {
+   "atom_id": "s7",
+   "title": "Properties and traps",
+   "simple": "A cheapest trip is made of cheapest pieces: if your best trip to the beach passes through a town, the part up to that town is also a best trip. That is why all these algorithms work. Now the traps. If every toll is raised by the same amount, trips with many roads get hit harder than trips with few, so the best trip can change. But you can shift prices in a clever way: give every town a bonus number and adjust each road by (bonus at start minus bonus at end). Every complete trip from A to B then changes by the same amount, so the winner stays the winner. In exam words: subpaths of shortest paths are shortest; potentials w' = w + f(u) − f(v) preserve shortest paths; adding a constant does not.",
+   "idea": "Three facts keep appearing in GATE. **Optimal substructure:** every piece of a shortest path is itself a shortest path. **Potentials:** the new weight $w+f(u)-f(v)$ changes every path between the same two ends by the same amount, so shortest paths survive. **Adding a constant** to every edge does not preserve them, because paths with more edges gain more.",
+   "definition": "- **Subpath property:** if $s\\to\\dots\\to x\\to\\dots\\to t$ is shortest, then its $x\\to t$ part is a shortest $x\\to t$ path.\n- **Reweighting:** $w'(u,v)=w(u,v)+f(u)-f(v)$ for any function $f$ on vertices. Every $s\\to t$ path changes by exactly $f(s)-f(t)$, so shortest paths are unchanged.\n- **Adding $c$ to every edge** adds $c\\cdot(\\text{number of edges})$ to a path, so it can change the shortest path.\n- **Multiplying by $c>0$** preserves shortest paths. Squaring weights does not.",
+   "intuition_full": "Why does a potential telescope? A path s, v1, v2, …, t has edges (s,v1), (v1,v2), …, (vk,t). Add up the new weights: each f(vi) appears once with a plus (as the tail of the next edge) and once with a minus (as the head of the previous edge), so they cancel. Only f(s) at the start and −f(t) at the end survive. Every path between the same two ends changes by the same fixed amount, so their ranking does not move. Johnson's algorithm uses this to turn negative weights into non-negative ones and then run Dijkstra. A constant c per edge does not telescope: a path with 5 edges gains 5c and a path with 2 edges gains 2c, so long paths are punished more. Squaring or taking square roots changes how sums compare, because (a+b)² is not a²+b².",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Routes from S to T: a direct edge of weight 5, or the chain S→A→B→T with three edges of weight 1 each. Add 2 to every edge.",
+     "steps": [
+      "Original: direct = 5. Chain = 1 + 1 + 1 = 3. The chain is shorter.",
+      "Add 2 to every edge: direct becomes 7, each chain edge becomes 3.",
+      "New: direct = 7. Chain = 3 + 3 + 3 = 9.",
+      "The direct edge now wins. The chain had 3 edges, so it paid the extra 2 three times (6 in total); the direct route paid it once."
+     ],
+     "answer": "Before: chain wins (3 < 5). After +2: direct wins (7 < 9). Adding a constant changed the shortest path."
+    },
+    {
+     "level": "gate",
+     "setup": "Edges: S→A (3), S→B (7), A→B (2), A→T (8), B→T (1). Define f(S) = 0, f(A) = 2, f(B) = 4, f(T) = 5 and w'(u,v) = w + f(u) − f(v). Are the shortest S→T paths preserved?",
+     "steps": [
+      "New weights: S→A = 3 + 0 − 2 = 1. S→B = 7 + 0 − 4 = 3. A→B = 2 + 2 − 4 = 0. A→T = 8 + 2 − 5 = 5. B→T = 1 + 4 − 5 = 0.",
+      "Path S→A→B→T: original 3 + 2 + 1 = 6. New 1 + 0 + 0 = 1.",
+      "Path S→A→T: original 3 + 8 = 11. New 1 + 5 = 6. Path S→B→T: original 7 + 1 = 8. New 3 + 0 = 3.",
+      "Every path dropped by exactly f(T) − f(S) = 5: 6→1, 11→6, 8→3. The ranking is the same."
+     ],
+     "answer": "Yes. Shortest S→T path is S→A→B→T both before (cost 6) and after (cost 1 = 6 + f(S) − f(T))."
+    },
+    {
+     "level": "twist",
+     "setup": "Routes from S to T: a direct edge of weight 3, or the two-edge route S→M→T with weights 2 and 2. Does squaring all weights keep the shortest path?",
+     "steps": [
+      "Original: direct = 3. Two-edge route = 2 + 2 = 4. The direct edge is shorter.",
+      "Squared: direct = 9. Two-edge route = 4 + 4 = 8.",
+      "Now the two-edge route is shorter.",
+      "For comparison, doubling every weight gives direct = 6 and the two-edge route = 8: the order is kept."
+     ],
+     "answer": "Squaring changed the winner (3 < 4 became 9 > 8). Only positive scaling (and potentials) keep shortest paths."
+    }
+   ],
+   "why": "This is the reasoning part of the chapter, so it appears as true/false and multiple-select statements. In GATE: \"which transformations keep shortest paths\", MST versus shortest path, and edge-limited paths (2017 CS1 Q26, 2025 CS2 Q37, 2020 CS Q50, 2025 CS1 Q18).",
+   "how": [
+    "For a weight change, ask: does every path shift by the same amount?",
+    "Potentials w + f(u) − f(v): yes. Positive scaling: yes. Adding a constant, squaring: no.",
+    "MST ≠ shortest path tree: an MST path may be longer.",
+    "For \"at most k edges\", think Bellman-Ford rounds, not the unrestricted shortest path."
+   ],
+   "mistake": "Adding a constant to every weight to remove negatives and then running Dijkstra. The paths change, so the answer is wrong. To remove negatives safely, use potentials (Johnson's method).",
+   "edge_cases": [
+    "Adding a constant keeps the MST the same (every spanning tree has V − 1 edges) but not shortest paths.",
+    "Distinct edge weights → unique MST, but path sums can still tie.",
+    "Reweighting with potentials may create zero-weight edges; that is fine.",
+    "Subpath property fails for \"longest simple path\" in general graphs."
+   ],
+   "connections": [
+    "Johnson's algorithm = Bellman-Ford potentials + Dijkstra from every vertex.",
+    "MST vs shortest path trees: algo.mst (cut property) versus this chapter."
+   ],
+   "check": [
+    {
+     "q": "Add 10 to every edge weight. Which stays the same: the MST or the shortest paths?",
+     "a": "The MST stays (every spanning tree has V − 1 edges). Shortest paths can change."
+    },
+    {
+     "q": "A path of 4 edges changes by how much if every edge gets +3?",
+     "a": "By 12."
+    },
+    {
+     "q": "With w' = w + f(u) − f(v), how much does an s→t path change?",
+     "a": "By exactly f(s) − f(t)."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q26, 2025 CS2 Q37, 2020 CS Q50, 2025 CS1 Q18",
+   "try": {
+    "id": "gen.algo.shortest.010",
+    "label": "Directed graph S→A (2), S→B (3), B→A (−2): what does textbook Dijkstra report for A? (L2)"
+   },
+   "scene": "algo.shortest.s7.constant",
+   "example": {
+    "setup": "Routes from S to T: a direct edge of weight 5, or the chain S→A→B→T with three edges of weight 1 each. Add 2 to every edge.",
+    "steps": [
+     "Original: direct = 5. Chain = 1 + 1 + 1 = 3. The chain is shorter.",
+     "Add 2 to every edge: direct becomes 7, each chain edge becomes 3.",
+     "New: direct = 7. Chain = 3 + 3 + 3 = 9.",
+     "The direct edge now wins. The chain had 3 edges, so it paid the extra 2 three times (6 in total); the direct route paid it once."
+    ],
+    "answer": "Before: chain wins (3 < 5). After +2: direct wins (7 < 9). Adding a constant changed the shortest path."
+   },
+   "what": "Three facts keep appearing in GATE. **Optimal substructure:** every piece of a shortest path is itself a shortest path. **Potentials:** the new weight $w+f(u)-f(v)$ changes every path between the same two ends by the same amount, so shortest paths survive. **Adding a constant** to every edge does not preserve them, because paths with more edges gain more.",
+   "what_full": "Three facts keep appearing in GATE. **Optimal substructure:** every piece of a shortest path is itself a shortest path. **Potentials:** the new weight $w+f(u)-f(v)$ changes every path between the same two ends by the same amount, so shortest paths survive. **Adding a constant** to every edge does not preserve them, because paths with more edges gain more.\n\n- **Subpath property:** if $s\\to\\dots\\to x\\to\\dots\\to t$ is shortest, then its $x\\to t$ part is a shortest $x\\to t$ path.\n- **Reweighting:** $w'(u,v)=w(u,v)+f(u)-f(v)$ for any function $f$ on vertices. Every $s\\to t$ path changes by exactly $f(s)-f(t)$, so shortest paths are unchanged.\n- **Adding $c$ to every edge** adds $c\\cdot(\\text{number of edges})$ to a path, so it can change the shortest path.\n- **Multiplying by $c>0$** preserves shortest paths. Squaring weights does not.\n\n**Worked example.** Routes from S to T: a direct edge of weight 5, or the chain S→A→B→T with three edges of weight 1 each. Add 2 to every edge.\n\n1. Original: direct = 5. Chain = 1 + 1 + 1 = 3. The chain is shorter.\n2. Add 2 to every edge: direct becomes 7, each chain edge becomes 3.\n3. New: direct = 7. Chain = 3 + 3 + 3 = 9.\n4. The direct edge now wins. The chain had 3 edges, so it paid the extra 2 three times (6 in total); the direct route paid it once.\n\n**Answer:** Before: chain wins (3 < 5). After +2: direct wins (7 < 9). Adding a constant changed the shortest path.",
+   "why_full": "This is the reasoning part of the chapter, so it appears as true/false and multiple-select statements. In GATE: \"which transformations keep shortest paths\", MST versus shortest path, and edge-limited paths (2017 CS1 Q26, 2025 CS2 Q37, 2020 CS Q50, 2025 CS1 Q18).\n\nAsked: 2017 CS1 Q26, 2025 CS2 Q37, 2020 CS Q50, 2025 CS1 Q18",
+   "trap": "Adding a constant to every weight to remove negatives and then running Dijkstra. The paths change, so the answer is wrong. To remove negatives safely, use potentials (Johnson's method)."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "algo.shortest.s1.relax",
+   "title": "Relaxing edges one by one lowers d",
+   "viewBox": [
+    0,
+    0,
+    360,
+    265
+   ],
+   "objects": [
+    {
+     "id": "nS",
+     "kind": "node",
+     "x": 45,
+     "y": 95,
+     "label": "S",
+     "r": 16
+    },
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 190,
+     "y": 45,
+     "label": "A",
+     "r": 16
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 120,
+     "y": 160,
+     "label": "B",
+     "r": 16
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 310,
+     "y": 95,
+     "label": "C",
+     "r": 16
+    },
+    {
+     "id": "eSA",
+     "kind": "arrow",
+     "from": "nS",
+     "to": "nA",
+     "label": "6"
+    },
+    {
+     "id": "eSB",
+     "kind": "arrow",
+     "from": "nS",
+     "to": "nB",
+     "label": "2"
+    },
+    {
+     "id": "eBA",
+     "kind": "arrow",
+     "from": "nB",
+     "to": "nA",
+     "label": "3"
+    },
+    {
+     "id": "eAC",
+     "kind": "arrow",
+     "from": "nA",
+     "to": "nC",
+     "label": "7"
+    },
+    {
+     "id": "d",
+     "kind": "grid",
+     "x": 80,
+     "y": 205,
+     "rows": 1,
+     "cols": 4,
+     "cw": 52,
+     "ch": 30,
+     "cells": [
+      "0",
+      "∞",
+      "∞",
+      "∞"
+     ],
+     "colLabels": [
+      "S",
+      "A",
+      "B",
+      "C"
+     ],
+     "rowLabels": [
+      "d"
+     ]
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 255,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start: $d[S]=0$ and every other vertex is unreached ($\\infty$). Relaxing an edge asks: is the route through its tail shorter than what we have?",
+     "highlight": [
+      {
+       "id": "d",
+       "cells": [
+        0
+       ]
+      },
+      "nS"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "d[S] = 0, others = ∞"
+     }
+    },
+    {
+     "caption": "Relax $S\\to A$ (6): $0+6=6<\\infty$, so $d[A]$ drops to 6.",
+     "highlight": [
+      "eSA",
+      {
+       "id": "d",
+       "cells": [
+        1
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "6",
+        "∞",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "0 + 6 = 6 < ∞  → d[A] = 6"
+      }
+     ]
+    },
+    {
+     "caption": "Relax $S\\to B$ (2): $0+2=2<\\infty$, so $d[B]=2$.",
+     "highlight": [
+      "eSB",
+      {
+       "id": "d",
+       "cells": [
+        2
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "6",
+        "2",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "0 + 2 = 2 < ∞  → d[B] = 2"
+      }
+     ]
+    },
+    {
+     "caption": "Relax $B\\to A$ (3): $2+3=5<6$, a shorter route to $A$. Update: $d[A]=5$.",
+     "highlight": [
+      {
+       "id": "eBA",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "5",
+        "2",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "2 + 3 = 5 < 6  → d[A] = 5"
+      }
+     ]
+    },
+    {
+     "caption": "Relax $A\\to C$ (7): $5+7=12<\\infty$, so $d[C]=12$.",
+     "highlight": [
+      "eAC",
+      {
+       "id": "d",
+       "cells": [
+        3
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "5",
+        "2",
+        "12"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "5 + 7 = 12 < ∞  → d[C] = 12"
+      }
+     ]
+    },
+    {
+     "caption": "Relax $S\\to A$ again: $0+6=6$ is not less than 5, so nothing changes. Relaxation never raises a distance.",
+     "highlight": [
+      {
+       "id": "eSA",
+       "tone": "bad"
+      },
+      {
+       "id": "d",
+       "cells": [
+        1
+       ]
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "0 + 6 = 6 is not < 5  → no change"
+     }
+    },
+    {
+     "caption": "No edge can improve anything now, so every edge satisfies $d[v]\\le d[u]+w$. These are the true shortest distances.",
+     "highlight": [
+      {
+       "id": "d",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "d[v] ≤ d[u] + w on every edge",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "algo.shortest.s2.bfs",
+   "title": "BFS with a queue gives unit-weight distances",
+   "viewBox": [
+    0,
+    0,
+    360,
+    304
+   ],
+   "objects": [
+    {
+     "id": "nS",
+     "kind": "node",
+     "x": 40,
+     "y": 70,
+     "label": "S",
+     "r": 16
+    },
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 115,
+     "y": 30,
+     "label": "A",
+     "r": 16
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 115,
+     "y": 120,
+     "label": "B",
+     "r": 16
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 195,
+     "y": 70,
+     "label": "C",
+     "r": 16
+    },
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 195,
+     "y": 140,
+     "label": "D",
+     "r": 16
+    },
+    {
+     "id": "nE",
+     "kind": "node",
+     "x": 285,
+     "y": 70,
+     "label": "E",
+     "r": 16
+    },
+    {
+     "id": "eSA",
+     "kind": "edge",
+     "from": "nS",
+     "to": "nA"
+    },
+    {
+     "id": "eSB",
+     "kind": "edge",
+     "from": "nS",
+     "to": "nB"
+    },
+    {
+     "id": "eAC",
+     "kind": "edge",
+     "from": "nA",
+     "to": "nC"
+    },
+    {
+     "id": "eBC",
+     "kind": "edge",
+     "from": "nB",
+     "to": "nC"
+    },
+    {
+     "id": "eBD",
+     "kind": "edge",
+     "from": "nB",
+     "to": "nD"
+    },
+    {
+     "id": "eCE",
+     "kind": "edge",
+     "from": "nC",
+     "to": "nE"
+    },
+    {
+     "id": "q",
+     "kind": "array",
+     "x": 30,
+     "y": 190,
+     "cells": [
+      "S"
+     ],
+     "slots": 6,
+     "cw": 36,
+     "ch": 32,
+     "indices": false,
+     "label": "queue (front on the left)"
+    },
+    {
+     "id": "d",
+     "kind": "grid",
+     "x": 70,
+     "y": 255,
+     "rows": 1,
+     "cols": 6,
+     "cw": 40,
+     "ch": 30,
+     "cells": [
+      "0",
+      "∞",
+      "∞",
+      "∞",
+      "∞",
+      "∞"
+     ],
+     "colLabels": [
+      "S",
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+     ],
+     "rowLabels": [
+      "d"
+     ]
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 292,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Every edge costs 1, so distance = number of edges. Put $S$ in the queue with $d[S]=0$.",
+     "highlight": [
+      "nS",
+      "q"
+     ],
+     "set": [
+      {
+       "id": "nS",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "queue = [S]"
+      }
+     ]
+    },
+    {
+     "caption": "Pop $S$. Its unseen neighbours $A$ and $B$ get $d=0+1=1$ and join the queue.",
+     "pop": {
+      "id": "q",
+      "end": "front"
+     },
+     "push": [
+      {
+       "id": "q",
+       "value": "A"
+      },
+      {
+       "id": "q",
+       "value": "B"
+      }
+     ],
+     "highlight": [
+      "eSA",
+      "eSB"
+     ],
+     "set": [
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "∞",
+        "∞",
+        "∞"
+       ]
+      },
+      {
+       "id": "nA",
+       "tone": "good"
+      },
+      {
+       "id": "nB",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "pop S → push A, B"
+      }
+     ]
+    },
+    {
+     "caption": "Pop $A$. Neighbour $C$ is new: $d[C]=1+1=2$. Push it.",
+     "pop": {
+      "id": "q",
+      "end": "front"
+     },
+     "push": {
+      "id": "q",
+      "value": "C"
+     },
+     "highlight": [
+      "eAC",
+      "nA"
+     ],
+     "set": [
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "2",
+        "∞",
+        "∞"
+       ]
+      },
+      {
+       "id": "nC",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "pop A → push C"
+      }
+     ]
+    },
+    {
+     "caption": "Pop $B$. $C$ is already seen, so skip it. $D$ is new: $d[D]=2$.",
+     "pop": {
+      "id": "q",
+      "end": "front"
+     },
+     "push": {
+      "id": "q",
+      "value": "D"
+     },
+     "highlight": [
+      {
+       "id": "eBC",
+       "tone": "bad"
+      },
+      "eBD"
+     ],
+     "set": [
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "2",
+        "2",
+        "∞"
+       ]
+      },
+      {
+       "id": "nD",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "pop B → C seen, push D"
+      }
+     ]
+    },
+    {
+     "caption": "Pop $C$. $E$ is new: $d[E]=3$. Push it.",
+     "pop": {
+      "id": "q",
+      "end": "front"
+     },
+     "push": {
+      "id": "q",
+      "value": "E"
+     },
+     "highlight": [
+      "eCE",
+      "nC"
+     ],
+     "set": [
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "1",
+        "1",
+        "2",
+        "2",
+        "3"
+       ]
+      },
+      {
+       "id": "nE",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "pop C → push E"
+      }
+     ]
+    },
+    {
+     "caption": "Pop $D$, then $E$: no unseen neighbours, so the queue empties. The first time a vertex is seen is its shortest distance.",
+     "pop": [
+      {
+       "id": "q",
+       "end": "front"
+      },
+      {
+       "id": "q",
+       "end": "front"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "queue empty: d = 0 1 1 2 2 3",
+      "tone": "good"
+     }
+    }
+   ]
+  },
+  {
+   "id": "algo.shortest.s3.dijkstra",
+   "title": "Dijkstra settles the closest vertex each time",
+   "viewBox": [
+    0,
+    0,
+    360,
+    285
+   ],
+   "objects": [
+    {
+     "id": "nS",
+     "kind": "node",
+     "x": 30,
+     "y": 100,
+     "label": "S",
+     "r": 16
+    },
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 120,
+     "y": 45,
+     "label": "A",
+     "r": 16
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 120,
+     "y": 155,
+     "label": "B",
+     "r": 16
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 220,
+     "y": 100,
+     "label": "C",
+     "r": 16
+    },
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 320,
+     "y": 45,
+     "label": "D",
+     "r": 16
+    },
+    {
+     "id": "nE",
+     "kind": "node",
+     "x": 320,
+     "y": 155,
+     "label": "E",
+     "r": 16
+    },
+    {
+     "id": "eSA",
+     "kind": "arrow",
+     "from": "nS",
+     "to": "nA",
+     "label": "4"
+    },
+    {
+     "id": "eSB",
+     "kind": "arrow",
+     "from": "nS",
+     "to": "nB",
+     "label": "1"
+    },
+    {
+     "id": "eBA",
+     "kind": "arrow",
+     "from": "nB",
+     "to": "nA",
+     "label": "2"
+    },
+    {
+     "id": "eAC",
+     "kind": "arrow",
+     "from": "nA",
+     "to": "nC",
+     "label": "5"
+    },
+    {
+     "id": "eBC",
+     "kind": "arrow",
+     "from": "nB",
+     "to": "nC",
+     "label": "8"
+    },
+    {
+     "id": "eCD",
+     "kind": "arrow",
+     "from": "nC",
+     "to": "nD",
+     "label": "3"
+    },
+    {
+     "id": "eCE",
+     "kind": "arrow",
+     "from": "nC",
+     "to": "nE",
+     "label": "2"
+    },
+    {
+     "id": "eDE",
+     "kind": "arrow",
+     "from": "nD",
+     "to": "nE",
+     "label": "4"
+    },
+    {
+     "id": "d",
+     "kind": "grid",
+     "x": 50,
+     "y": 215,
+     "rows": 1,
+     "cols": 6,
+     "cw": 46,
+     "ch": 30,
+     "cells": [
+      "0",
+      "∞",
+      "∞",
+      "∞",
+      "∞",
+      "∞"
+     ],
+     "colLabels": [
+      "S",
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+     ],
+     "rowLabels": [
+      "d"
+     ]
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 268,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start: $d[S]=0$, all others $\\infty$. Nothing is settled yet.",
+     "highlight": [
+      "nS"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "settled: none"
+     }
+    },
+    {
+     "caption": "Settle $S$ (smallest unsettled, 0). Relax its edges: $d[A]=4$, $d[B]=1$.",
+     "highlight": [
+      "nS",
+      "eSA",
+      "eSB"
+     ],
+     "set": [
+      {
+       "id": "nS",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "4",
+        "1",
+        "∞",
+        "∞",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "settled: S"
+      }
+     ]
+    },
+    {
+     "caption": "Settle $B$ (smallest unsettled, 1). Relax: $1+2=3<4$ lowers $A$ to 3; $1+8=9$ sets $C$.",
+     "highlight": [
+      "nB",
+      {
+       "id": "eBA",
+       "tone": "good"
+      },
+      "eBC",
+      {
+       "id": "d",
+       "cells": [
+        1,
+        3
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "nB",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "3",
+        "1",
+        "9",
+        "∞",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "settled: S, B"
+      }
+     ]
+    },
+    {
+     "caption": "Settle $A$ (3). Relax $A\\to C$: $3+5=8<9$, so $C$ improves to 8.",
+     "highlight": [
+      "nA",
+      {
+       "id": "eAC",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "nA",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "3",
+        "1",
+        "8",
+        "∞",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "settled: S, B, A"
+      }
+     ]
+    },
+    {
+     "caption": "Settle $C$ (8). Relax: $8+3=11$ for $D$, $8+2=10$ for $E$.",
+     "highlight": [
+      "nC",
+      "eCD",
+      "eCE",
+      {
+       "id": "d",
+       "cells": [
+        4,
+        5
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "nC",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "3",
+        "1",
+        "8",
+        "11",
+        "10"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "settled: S, B, A, C"
+      }
+     ]
+    },
+    {
+     "caption": "Settle $E$ (10), which is closer than $D$ (11). $E$ has no outgoing edge.",
+     "highlight": [
+      "nE"
+     ],
+     "set": [
+      {
+       "id": "nE",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "settled: S, B, A, C, E"
+      }
+     ]
+    },
+    {
+     "caption": "Settle $D$ (11). Its edge $D\\to E$ cannot help: $E$ is already settled and 15 is larger anyway. Done.",
+     "highlight": [
+      "nD",
+      {
+       "id": "eDE",
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "nD",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "order: S, B, A, C, E, D",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.shortest.s4.bellman",
+   "title": "Bellman-Ford: relax every edge, round after round",
+   "viewBox": [
+    0,
+    0,
+    380,
+    215
+   ],
+   "objects": [
+    {
+     "id": "nS",
+     "kind": "node",
+     "x": 28,
+     "y": 100,
+     "label": "S",
+     "r": 16
+    },
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 88,
+     "y": 38,
+     "label": "A",
+     "r": 16
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 88,
+     "y": 162,
+     "label": "B",
+     "r": 16
+    },
+    {
+     "id": "nC",
+     "kind": "node",
+     "x": 152,
+     "y": 100,
+     "label": "C",
+     "r": 16
+    },
+    {
+     "id": "nD",
+     "kind": "node",
+     "x": 210,
+     "y": 100,
+     "label": "D",
+     "r": 16
+    },
+    {
+     "id": "eCD",
+     "kind": "arrow",
+     "from": "nC",
+     "to": "nD",
+     "label": "2"
+    },
+    {
+     "id": "eBC",
+     "kind": "arrow",
+     "from": "nB",
+     "to": "nC",
+     "label": "-4"
+    },
+    {
+     "id": "eAB",
+     "kind": "arrow",
+     "from": "nA",
+     "to": "nB",
+     "label": "3"
+    },
+    {
+     "id": "eSA",
+     "kind": "arrow",
+     "from": "nS",
+     "to": "nA",
+     "label": "5"
+    },
+    {
+     "id": "eSB",
+     "kind": "arrow",
+     "from": "nS",
+     "to": "nB",
+     "label": "7"
+    },
+    {
+     "id": "eAC",
+     "kind": "arrow",
+     "from": "nA",
+     "to": "nC",
+     "label": "6"
+    },
+    {
+     "id": "t",
+     "kind": "grid",
+     "x": 266,
+     "y": 48,
+     "rows": 5,
+     "cols": 5,
+     "cw": 22,
+     "ch": 26,
+     "cells": [
+      [
+       "0",
+       "∞",
+       "∞",
+       "∞",
+       "∞"
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "colLabels": [
+      "S",
+      "A",
+      "B",
+      "C",
+      "D"
+     ],
+     "rowLabels": [
+      "R0",
+      "R1",
+      "R2",
+      "R3",
+      "R4"
+     ]
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 190,
+     "y": 202,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Edge list order: C→D, B→C, A→B, S→A, S→B, A→C. Round 0: only $S$ is known.",
+     "highlight": [
+      "nS",
+      {
+       "id": "t",
+       "cells": [
+        [
+         0,
+         0
+        ]
+       ]
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "R0: d[S] = 0"
+     }
+    },
+    {
+     "caption": "Round 1, in list order: $S\\to A$ gives 5, $S\\to B$ gives 7, then $A\\to C$ gives $5+6=11$. $C\\to D$ and $B\\to C$ came earlier in the list, too soon to help.",
+     "highlight": [
+      "eSA",
+      "eSB",
+      "eAC"
+     ],
+     "set": [
+      {
+       "id": "t",
+       "cells": [
+        [
+         "0",
+         "∞",
+         "∞",
+         "∞",
+         "∞"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "11",
+         "∞"
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "R1: A=5, B=7, C=11"
+      }
+     ]
+    },
+    {
+     "caption": "Round 2: $C\\to D$ uses $C=11$, so $D=13$. Then $B\\to C$: $7-4=3<11$, so $C$ drops to 3.",
+     "highlight": [
+      "eCD",
+      {
+       "id": "eBC",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "t",
+       "cells": [
+        [
+         "0",
+         "∞",
+         "∞",
+         "∞",
+         "∞"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "11",
+         "∞"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "3",
+         "13"
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "R2: D=13, C=3"
+      }
+     ]
+    },
+    {
+     "caption": "Round 3: $C\\to D$ again: $3+2=5<13$, so $D=5$. The best route is $S\\to B\\to C\\to D$, three edges.",
+     "highlight": [
+      {
+       "id": "eCD",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "t",
+       "cells": [
+        [
+         "0",
+         "∞",
+         "∞",
+         "∞",
+         "∞"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "11",
+         "∞"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "3",
+         "13"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "3",
+         "5"
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "R3: D=5"
+      }
+     ]
+    },
+    {
+     "caption": "Round 4 ($V-1=4$): no edge improves anything. The distances are final. No negative cycle exists.",
+     "highlight": [
+      {
+       "id": "t",
+       "cells": [
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         4,
+         2
+        ],
+        [
+         4,
+         3
+        ],
+        [
+         4,
+         4
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "t",
+       "cells": [
+        [
+         "0",
+         "∞",
+         "∞",
+         "∞",
+         "∞"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "11",
+         "∞"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "3",
+         "13"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "3",
+         "5"
+        ],
+        [
+         "0",
+         "5",
+         "7",
+         "3",
+         "5"
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "R4: no change → done",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.shortest.s5.dag",
+   "title": "DAG: relax once in topological order",
+   "viewBox": [
+    0,
+    0,
+    360,
+    304
+   ],
+   "objects": [
+    {
+     "id": "nP",
+     "kind": "node",
+     "x": 35,
+     "y": 85,
+     "label": "P",
+     "r": 16
+    },
+    {
+     "id": "nQ",
+     "kind": "node",
+     "x": 110,
+     "y": 40,
+     "label": "Q",
+     "r": 16
+    },
+    {
+     "id": "nR",
+     "kind": "node",
+     "x": 110,
+     "y": 135,
+     "label": "R",
+     "r": 16
+    },
+    {
+     "id": "nU",
+     "kind": "node",
+     "x": 205,
+     "y": 40,
+     "label": "U",
+     "r": 16
+    },
+    {
+     "id": "nV",
+     "kind": "node",
+     "x": 205,
+     "y": 135,
+     "label": "V",
+     "r": 16
+    },
+    {
+     "id": "nW",
+     "kind": "node",
+     "x": 300,
+     "y": 85,
+     "label": "W",
+     "r": 16
+    },
+    {
+     "id": "ePQ",
+     "kind": "arrow",
+     "from": "nP",
+     "to": "nQ",
+     "label": "2"
+    },
+    {
+     "id": "ePR",
+     "kind": "arrow",
+     "from": "nP",
+     "to": "nR",
+     "label": "5"
+    },
+    {
+     "id": "eQR",
+     "kind": "arrow",
+     "from": "nQ",
+     "to": "nR",
+     "label": "-3"
+    },
+    {
+     "id": "eQU",
+     "kind": "arrow",
+     "from": "nQ",
+     "to": "nU",
+     "label": "6"
+    },
+    {
+     "id": "eRU",
+     "kind": "arrow",
+     "from": "nR",
+     "to": "nU",
+     "label": "1"
+    },
+    {
+     "id": "eRV",
+     "kind": "arrow",
+     "from": "nR",
+     "to": "nV",
+     "label": "4"
+    },
+    {
+     "id": "eUW",
+     "kind": "arrow",
+     "from": "nU",
+     "to": "nW",
+     "label": "3"
+    },
+    {
+     "id": "eVW",
+     "kind": "arrow",
+     "from": "nV",
+     "to": "nW",
+     "label": "-2"
+    },
+    {
+     "id": "ord",
+     "kind": "array",
+     "x": 60,
+     "y": 185,
+     "cells": [
+      "P",
+      "Q",
+      "R",
+      "U",
+      "V",
+      "W"
+     ],
+     "cw": 40,
+     "ch": 30,
+     "indices": false,
+     "label": "topological order"
+    },
+    {
+     "id": "d",
+     "kind": "grid",
+     "x": 60,
+     "y": 250,
+     "rows": 1,
+     "cols": 6,
+     "cw": 40,
+     "ch": 30,
+     "cells": [
+      "0",
+      "∞",
+      "∞",
+      "∞",
+      "∞",
+      "∞"
+     ],
+     "colLabels": [
+      "P",
+      "Q",
+      "R",
+      "U",
+      "V",
+      "W"
+     ],
+     "rowLabels": [
+      "d"
+     ]
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 292,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Topological order: P, Q, R, U, V, W. Every edge points to the right in this order. Start with $d[P]=0$.",
+     "highlight": [
+      "ord",
+      {
+       "id": "ord",
+       "cells": [
+        0
+       ]
+      },
+      "nP"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "process vertices left to right"
+     }
+    },
+    {
+     "caption": "Process $P$: $P\\to Q$ gives 2 and $P\\to R$ gives 5.",
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        0
+       ]
+      },
+      "ePQ",
+      "ePR"
+     ],
+     "set": [
+      {
+       "id": "nP",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "2",
+        "5",
+        "∞",
+        "∞",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "P done: Q=2, R=5"
+      }
+     ]
+    },
+    {
+     "caption": "Process $Q$: $Q\\to R$ is negative, $2-3=-1<5$, so $R=-1$. $Q\\to U$ gives $2+6=8$.",
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        1
+       ]
+      },
+      {
+       "id": "eQR",
+       "tone": "good"
+      },
+      "eQU"
+     ],
+     "set": [
+      {
+       "id": "nQ",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "2",
+        "-1",
+        "8",
+        "∞",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "Q done: R=-1, U=8"
+      }
+     ]
+    },
+    {
+     "caption": "Process $R$ (now final at $-1$): $R\\to U$ gives $-1+1=0<8$; $R\\to V$ gives $-1+4=3$.",
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        2
+       ]
+      },
+      {
+       "id": "eRU",
+       "tone": "good"
+      },
+      "eRV"
+     ],
+     "set": [
+      {
+       "id": "nR",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "2",
+        "-1",
+        "0",
+        "3",
+        "∞"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "R done: U=0, V=3"
+      }
+     ]
+    },
+    {
+     "caption": "Process $U$: $U\\to W$ gives $0+3=3$.",
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        3
+       ]
+      },
+      "eUW"
+     ],
+     "set": [
+      {
+       "id": "nU",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "2",
+        "-1",
+        "0",
+        "3",
+        "3"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "U done: W=3"
+      }
+     ]
+    },
+    {
+     "caption": "Process $V$: $V\\to W$ is $-2$, so $3-2=1<3$ and $W=1$.",
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        4
+       ]
+      },
+      {
+       "id": "eVW",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "nV",
+       "tone": "good"
+      },
+      {
+       "id": "d",
+       "cells": [
+        "0",
+        "2",
+        "-1",
+        "0",
+        "3",
+        "1"
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "V done: W=1"
+      }
+     ]
+    },
+    {
+     "caption": "Process $W$: no outgoing edges. Each edge was relaxed exactly once, so the total work is $\\Theta(V+E)$, with negative weights allowed.",
+     "highlight": [
+      {
+       "id": "ord",
+       "cells": [
+        5
+       ]
+      },
+      {
+       "id": "d",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "nW",
+       "tone": "good"
+      },
+      {
+       "id": "calc",
+       "text": "d = 0 2 -1 0 3 1",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.shortest.s6.floyd",
+   "title": "Floyd-Warshall: allow one more middle vertex each stage",
+   "viewBox": [
+    0,
+    0,
+    380,
+    245
+   ],
+   "objects": [
+    {
+     "id": "n1",
+     "kind": "node",
+     "x": 100,
+     "y": 30,
+     "label": "1",
+     "r": 16
+    },
+    {
+     "id": "n2",
+     "kind": "node",
+     "x": 100,
+     "y": 105,
+     "label": "2",
+     "r": 16
+    },
+    {
+     "id": "n3",
+     "kind": "node",
+     "x": 30,
+     "y": 175,
+     "label": "3",
+     "r": 16
+    },
+    {
+     "id": "n4",
+     "kind": "node",
+     "x": 170,
+     "y": 175,
+     "label": "4",
+     "r": 16
+    },
+    {
+     "id": "e12",
+     "kind": "arrow",
+     "from": "n1",
+     "to": "n2",
+     "label": "4"
+    },
+    {
+     "id": "e14",
+     "kind": "arrow",
+     "from": "n1",
+     "to": "n4",
+     "label": "9"
+    },
+    {
+     "id": "e23",
+     "kind": "arrow",
+     "from": "n2",
+     "to": "n3",
+     "label": "-2"
+    },
+    {
+     "id": "e31",
+     "kind": "arrow",
+     "from": "n3",
+     "to": "n1",
+     "label": "3"
+    },
+    {
+     "id": "e34",
+     "kind": "arrow",
+     "from": "n3",
+     "to": "n4",
+     "label": "1"
+    },
+    {
+     "id": "e42",
+     "kind": "arrow",
+     "from": "n4",
+     "to": "n2",
+     "label": "5"
+    },
+    {
+     "id": "m",
+     "kind": "matrix",
+     "x": 235,
+     "y": 55,
+     "values": [
+      [
+       "0",
+       "4",
+       "∞",
+       "9"
+      ],
+      [
+       "∞",
+       "0",
+       "-2",
+       "∞"
+      ],
+      [
+       "3",
+       "∞",
+       "0",
+       "1"
+      ],
+      [
+       "∞",
+       "5",
+       "∞",
+       "0"
+      ]
+     ],
+     "cw": 34,
+     "ch": 30,
+     "label": "D"
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 190,
+     "y": 232,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Stage 0: the matrix is the edge weights (0 on the diagonal, ∞ where there is no edge). Middle stops allowed: none.",
+     "highlight": [
+      "m"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "k = 0: direct edges only"
+     }
+    },
+    {
+     "caption": "Stage 1: allow vertex 1 in the middle. Only $3\\to1\\to2$ is new: $3+4=7$, so $D[3][2]$ becomes 7.",
+     "highlight": [
+      {
+       "id": "m",
+       "cells": [
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      "n1"
+     ],
+     "set": [
+      {
+       "id": "m",
+       "values": [
+        [
+         "0",
+         "4",
+         "∞",
+         "9"
+        ],
+        [
+         "∞",
+         "0",
+         "-2",
+         "∞"
+        ],
+        [
+         "3",
+         "7",
+         "0",
+         "1"
+        ],
+        [
+         "∞",
+         "5",
+         "∞",
+         "0"
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "k = 1: D[3][2] = 3 + 4 = 7"
+      }
+     ]
+    },
+    {
+     "caption": "Stage 2: allow vertex 2. Now $1\\to2\\to3$ is $4-2=2$ and $4\\to2\\to3$ is $5-2=3$.",
+     "highlight": [
+      {
+       "id": "m",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         3,
+         2
+        ]
+       ],
+       "tone": "good"
+      },
+      "n2"
+     ],
+     "set": [
+      {
+       "id": "m",
+       "values": [
+        [
+         "0",
+         "4",
+         "2",
+         "9"
+        ],
+        [
+         "∞",
+         "0",
+         "-2",
+         "∞"
+        ],
+        [
+         "3",
+         "7",
+         "0",
+         "1"
+        ],
+        [
+         "∞",
+         "5",
+         "3",
+         "0"
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "k = 2: D[1][3] = 2, D[4][3] = 3"
+      }
+     ]
+    },
+    {
+     "caption": "Stage 3: allow vertex 3. Many pairs improve: $2\\to3\\to1$ is 1, $2\\to3\\to4$ is $-1$, $4\\to3\\to1$ is 6, and $1\\to3\\to4$ is 3.",
+     "highlight": [
+      {
+       "id": "m",
+       "cells": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         3,
+         0
+        ]
+       ],
+       "tone": "good"
+      },
+      "n3"
+     ],
+     "set": [
+      {
+       "id": "m",
+       "values": [
+        [
+         "0",
+         "4",
+         "2",
+         "3"
+        ],
+        [
+         "1",
+         "0",
+         "-2",
+         "-1"
+        ],
+        [
+         "3",
+         "7",
+         "0",
+         "1"
+        ],
+        [
+         "6",
+         "5",
+         "3",
+         "0"
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "k = 3: four cells improve"
+      }
+     ]
+    },
+    {
+     "caption": "Stage 4: allow vertex 4. Only $3\\to4\\to2$ helps: $1+5=6<7$. The matrix is now every shortest distance.",
+     "highlight": [
+      {
+       "id": "m",
+       "cells": [
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      "n4"
+     ],
+     "set": [
+      {
+       "id": "m",
+       "values": [
+        [
+         "0",
+         "4",
+         "2",
+         "3"
+        ],
+        [
+         "1",
+         "0",
+         "-2",
+         "-1"
+        ],
+        [
+         "3",
+         "6",
+         "0",
+         "1"
+        ],
+        [
+         "6",
+         "5",
+         "3",
+         "0"
+        ]
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "k = 4: D[3][2] = 6. Final.",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.shortest.s7.constant",
+   "title": "Adding a constant changes the shortest path",
+   "viewBox": [
+    0,
+    0,
+    360,
+    274
+   ],
+   "objects": [
+    {
+     "id": "nS",
+     "kind": "node",
+     "x": 40,
+     "y": 70,
+     "label": "S",
+     "r": 16
+    },
+    {
+     "id": "nA",
+     "kind": "node",
+     "x": 130,
+     "y": 130,
+     "label": "A",
+     "r": 16
+    },
+    {
+     "id": "nB",
+     "kind": "node",
+     "x": 230,
+     "y": 130,
+     "label": "B",
+     "r": 16
+    },
+    {
+     "id": "nT",
+     "kind": "node",
+     "x": 320,
+     "y": 70,
+     "label": "T",
+     "r": 16
+    },
+    {
+     "id": "eST",
+     "kind": "arrow",
+     "from": "nS",
+     "to": "nT",
+     "label": "5"
+    },
+    {
+     "id": "eSA",
+     "kind": "arrow",
+     "from": "nS",
+     "to": "nA",
+     "label": "1"
+    },
+    {
+     "id": "eAB",
+     "kind": "arrow",
+     "from": "nA",
+     "to": "nB",
+     "label": "1"
+    },
+    {
+     "id": "eBT",
+     "kind": "arrow",
+     "from": "nB",
+     "to": "nT",
+     "label": "1"
+    },
+    {
+     "id": "bars",
+     "kind": "bar",
+     "x": 90,
+     "y": 170,
+     "w": 180,
+     "h": 60,
+     "values": [
+      5,
+      3
+     ],
+     "labels": [
+      "direct",
+      "chain"
+     ],
+     "max": 10
+    },
+    {
+     "id": "calc",
+     "kind": "text",
+     "x": 180,
+     "y": 262,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Two routes from $S$ to $T$: the direct edge (5), or the chain $S\\to A\\to B\\to T$ with three edges of 1.",
+     "highlight": [
+      "eST",
+      "eSA",
+      "eAB",
+      "eBT"
+     ],
+     "set": {
+      "id": "calc",
+      "text": "two routes S to T"
+     }
+    },
+    {
+     "caption": "Original lengths: direct = 5, chain = $1+1+1=3$. The chain wins.",
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "calc",
+      "text": "shortest = chain, length 3",
+      "tone": "good"
+     }
+    },
+    {
+     "caption": "Now add $+2$ to every edge. The direct edge becomes 7. Each chain edge becomes 3.",
+     "highlight": [
+      "eST",
+      "eSA",
+      "eAB",
+      "eBT"
+     ],
+     "set": [
+      {
+       "id": "eST",
+       "label": "7"
+      },
+      {
+       "id": "eSA",
+       "label": "3"
+      },
+      {
+       "id": "eAB",
+       "label": "3"
+      },
+      {
+       "id": "eBT",
+       "label": "3"
+      },
+      {
+       "id": "calc",
+       "text": "every edge gets +2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "New lengths: direct = 7, chain = $3+3+3=9$. The direct edge now wins. The chain paid the extra 2 three times, the direct edge only once.",
+     "highlight": [
+      {
+       "id": "bars",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "bars",
+       "values": [
+        7,
+        9
+       ]
+      },
+      {
+       "id": "calc",
+       "text": "shortest path changed: direct, length 7",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

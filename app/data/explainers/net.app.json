@@ -1,0 +1,3402 @@
+{
+ "topic_id": "net.app",
+ "title": "Application layer: DNS and HTTP",
+ "chapter_note": {
+  "about": "The application layer is where a user's request becomes network traffic. This chapter has two parts. DNS turns a name into an IP address by walking a tree of servers, from the root down to the authoritative server, and records and caches control what is stored. HTTP then fetches the page: it is a stateless request-response protocol over TCP, and its cost is counted in round trips. Non-persistent, persistent, pipelined and parallel fetching give different RTT counts. The last cards put DNS and HTTP on a timeline, and show how caches shorten it. Almost every question is a counting exercise.",
+  "simple": "Before a browser can show a page, it has to find the server's address by asking a chain of directory servers, each one pointing to the next. Then it opens a connection and asks for the page. The page names more things to fetch, such as images, and there are several ways to fetch them: one connection each, one connection for all, or many at once. Each way costs a different number of round trips. Caches remember answers, so that the next request is faster. In exam words: DNS hierarchy and counting, records and TTL, HTTP, persistent and parallel connections, page timeline, caching.",
+  "concept_map": [
+   {
+    "atom_id": "d1",
+    "title": "DNS hierarchy",
+    "one_line": "Read the name right to left; root and TLD refer, the authoritative server answers."
+   },
+   {
+    "atom_id": "d2",
+    "title": "DNS query counting",
+    "one_line": "One query-response pair per server walked; caches let the walk start lower."
+   },
+   {
+    "atom_id": "d3",
+    "title": "Records and caching",
+    "one_line": "A, NS, CNAME, MX records, each with a TTL."
+   },
+   {
+    "atom_id": "d4",
+    "title": "HTTP basics",
+    "one_line": "Stateless request-response; cookies add state; status codes 200, 301, 304, 404."
+   },
+   {
+    "atom_id": "d5",
+    "title": "Non-persistent HTTP",
+    "one_line": "A new connection per object: 2 RTT each."
+   },
+   {
+    "atom_id": "d6",
+    "title": "Persistent HTTP and pipelining",
+    "one_line": "One handshake per server; pipelining sends the requests together."
+   },
+   {
+    "atom_id": "d7",
+    "title": "Parallel connections",
+    "one_line": "ceil(n / p) batches after the base file."
+   },
+   {
+    "atom_id": "d8",
+    "title": "Timeline of a page load",
+    "one_line": "DNS, SYN, GET base, GET objects; a second host repeats the chain."
+   },
+   {
+    "atom_id": "d9",
+    "title": "Caching",
+    "one_line": "Average = hit share x hit time + miss share x miss time; 304 for an unchanged object."
+   }
+  ],
+  "gate_patterns": [
+   "HTTP connections and page-load RTTs: count RTTs for non-persistent, persistent, pipelined and parallel fetching, often together with DNS (2020 CS Q35, 2023 CS Q52, 2026 CS1 Q19, 2015 CS1 Q17; 4 questions).",
+   "DNS resolution counting: query-response pairs for a name, with or without a cache (2022 CS Q35, 2023 CS Q52).",
+   "Order of packets in a page load: DNS, SYN, GET base, GET objects (2024 CS1 Q16, 2016 CS2 Q25), plus recall of protocols and transports. Weightage: about 0.8 marks per CS paper; 9 questions in 7 years."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "d1",
+   "title": "DNS hierarchy",
+   "simple": "Think of the way a big postal system sorts a letter. The country office only looks at the country and sends it to the right state office. The state office sends it to the right town office, and the town office sends it to the right street. Nobody has the full list of every house. DNS works like this for web names: a name like www.uni.ac.in is read from the end, and each level only knows the next level down. In exam words: root, TLD and authoritative servers, referrals as NS records, and the authoritative server holds the final A record.",
+   "idea": "**DNS** turns a name into an IP address using a tree of servers. A name is read **right to left**. The root knows the top-level domains, each domain knows its sub-domains, and the **authoritative server** of the last domain knows the host.",
+   "definition": "**Root servers:** know the servers of every top-level domain (TLD), such as com, org, in.\n\n**TLD servers:** know the servers of the domains below them (ac.in, org.in, ...).\n\n**Authoritative server:** holds the actual records for a zone, including the A record of its hosts.\n\n**Referral:** a reply that does not hold the answer but names the next servers to ask (NS records).\n\n**Reading a name:** www.uni.ac.in is walked as root, in, ac.in, uni.ac.in, then the host www.\n\n**Local resolver:** the server a host asks; it does the walk on the host's behalf.\n\nDNS queries normally use port 53. (UDP is not named in the 2027 syllabus; just know that DNS uses short query and reply messages.)",
+   "intuition_full": "No single machine can hold every name, so DNS divides the job. Each part of the tree, called a zone, is run by whoever owns that part. The root only needs to know about a few hundred TLDs. A TLD only needs to know the organisations that register under it. An organisation runs its own authoritative servers for its own hosts, and can change them without asking anybody else. The cost is that finding a name takes a walk down the tree, one referral per level. Caching removes most of the walk in practice (cards d2 and d3). The key reading skill is to read the name backwards: the label closest to the root is the last one. A host label such as www is not a zone; it is an entry inside the authoritative server of the domain to its right.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A resolver needs the IP address of www.uni.ac.in. Read the name and say, in order, which servers lead to the answer, and which of them gives a referral and which gives the final answer.",
+     "steps": [
+      "A name is read from right to left: **in**, then **ac**, then **uni**, then the host **www**. The DNS tree has the same shape: root at the top, then the top-level domain (TLD) in, then ac, then uni.",
+      "The **root servers** know the servers for each TLD. Asked about www.uni.ac.in, a root server gives a **referral**: NS records naming the servers of in.",
+      "The **in servers** do not know the host, but know who runs ac.in. They refer the resolver to the servers of ac.in.",
+      "The **ac.in servers** refer the resolver on to the **authoritative** servers for uni.ac.in.",
+      "The authoritative server for uni.ac.in holds the **A record** of www.uni.ac.in and returns the IP address. Referrals come from the upper levels; only the authoritative server gives the final answer."
+     ],
+     "answer": "Root (refers to in), in (refers to ac.in), ac.in (refers to uni.ac.in), uni.ac.in (answers with the A record)."
+    },
+    {
+     "level": "gate",
+     "setup": "Which statements are true? (a) Root servers store the A records of all hosts. (b) A TLD server returns NS records for the next level. (c) The authoritative server for a zone holds the final A record for hosts in it. (d) A DNS name is read left to right when walking down the tree.",
+     "steps": [
+      "(a) False. Root servers hold only referrals to the TLD servers, not every host.",
+      "(b) True. A TLD server (in, com, org) answers with NS records pointing to the servers of the zone below it.",
+      "(c) True. The authoritative server for a zone has the final A (or AAAA) record.",
+      "(d) False. The name is written left to right (host first) but the tree is walked **right to left**: root, TLD, domain, host."
+     ],
+     "answer": "(b) and (c) are true."
+    },
+    {
+     "level": "twist",
+     "setup": "One server is the authoritative server for both ac.in and uni.ac.in. How many servers does the walk for www.uni.ac.in visit now?",
+     "steps": [
+      "Normally the walk is root, in, ac.in, uni.ac.in: 4 servers.",
+      "The server for ac.in is also the server for uni.ac.in, so when asked it can answer directly instead of giving a referral to a different server.",
+      "The walk is root, in, then that one server: 3 queries. The number of levels in the name has not changed; the number of different servers has."
+     ],
+     "answer": "3 servers (and so 3 query-response pairs)."
+    }
+   ],
+   "why": "DNS recall and counting questions are a small but regular part of the application layer. In GATE: which server gives the final answer, and how many servers are walked.",
+   "how": [
+    "Split the name into labels and read it right to left.",
+    "Each domain label adds one level: root, TLD, then each lower domain.",
+    "The host label (www) is looked up in the authoritative server of the last domain.",
+    "Referrals are NS records; the final answer is an A record."
+   ],
+   "mistake": "Thinking the root or TLD servers hold the A record of the host. They only give referrals. Another slip is to read the name left to right, so the host's own server is asked first.",
+   "edge_cases": [
+    "One server may serve several levels, which shortens the walk.",
+    "Low priority: SMTP mail uses the MX record from DNS. SMTP, POP and IMAP are not named in the 2027 syllabus.",
+    "A name with a trailing dot (www.uni.ac.in.) is fully qualified; the dot stands for the root."
+   ],
+   "connections": [
+    "Counting the query-response pairs is the next card (d2).",
+    "Record types such as A, NS, CNAME, MX are in d3.",
+    "The page load timeline (d8) puts a DNS lookup before the TCP handshake."
+   ],
+   "check": [
+    {
+     "q": "In which order are the labels of www.uni.ac.in walked?",
+     "a": "Right to left: root, in, ac.in, uni.ac.in, then the host www."
+    },
+    {
+     "q": "Which server gives the final answer?",
+     "a": "The authoritative server of the last domain (uni.ac.in)."
+    },
+    {
+     "q": "Does a root server return an A record for www.uni.ac.in?",
+     "a": "No. It returns a referral to the in servers."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q35, 2007 CS Q20",
+   "try": {
+    "id": "gen.net.app.001",
+    "label": "Try: which DNS server holds the final answer (L1)"
+   },
+   "scene": "net.app.d1.tree",
+   "example": {
+    "setup": "A resolver needs the IP address of www.uni.ac.in. Read the name and say, in order, which servers lead to the answer, and which of them gives a referral and which gives the final answer.",
+    "steps": [
+     "A name is read from right to left: **in**, then **ac**, then **uni**, then the host **www**. The DNS tree has the same shape: root at the top, then the top-level domain (TLD) in, then ac, then uni.",
+     "The **root servers** know the servers for each TLD. Asked about www.uni.ac.in, a root server gives a **referral**: NS records naming the servers of in.",
+     "The **in servers** do not know the host, but know who runs ac.in. They refer the resolver to the servers of ac.in.",
+     "The **ac.in servers** refer the resolver on to the **authoritative** servers for uni.ac.in.",
+     "The authoritative server for uni.ac.in holds the **A record** of www.uni.ac.in and returns the IP address. Referrals come from the upper levels; only the authoritative server gives the final answer."
+    ],
+    "answer": "Root (refers to in), in (refers to ac.in), ac.in (refers to uni.ac.in), uni.ac.in (answers with the A record)."
+   },
+   "what": "**DNS** turns a name into an IP address using a tree of servers. A name is read **right to left**. The root knows the top-level domains, each domain knows its sub-domains, and the **authoritative server** of the last domain knows the host.",
+   "what_full": "**DNS** turns a name into an IP address using a tree of servers. A name is read **right to left**. The root knows the top-level domains, each domain knows its sub-domains, and the **authoritative server** of the last domain knows the host.\n\n**Root servers:** know the servers of every top-level domain (TLD), such as com, org, in.\n\n**TLD servers:** know the servers of the domains below them (ac.in, org.in, ...).\n\n**Authoritative server:** holds the actual records for a zone, including the A record of its hosts.\n\n**Referral:** a reply that does not hold the answer but names the next servers to ask (NS records).\n\n**Reading a name:** www.uni.ac.in is walked as root, in, ac.in, uni.ac.in, then the host www.\n\n**Local resolver:** the server a host asks; it does the walk on the host's behalf.\n\nDNS queries normally use port 53. (UDP is not named in the 2027 syllabus; just know that DNS uses short query and reply messages.)\n\n**Worked example.** A resolver needs the IP address of www.uni.ac.in. Read the name and say, in order, which servers lead to the answer, and which of them gives a referral and which gives the final answer.\n\n1. A name is read from right to left: **in**, then **ac**, then **uni**, then the host **www**. The DNS tree has the same shape: root at the top, then the top-level domain (TLD) in, then ac, then uni.\n2. The **root servers** know the servers for each TLD. Asked about www.uni.ac.in, a root server gives a **referral**: NS records naming the servers of in.\n3. The **in servers** do not know the host, but know who runs ac.in. They refer the resolver to the servers of ac.in.\n4. The **ac.in servers** refer the resolver on to the **authoritative** servers for uni.ac.in.\n5. The authoritative server for uni.ac.in holds the **A record** of www.uni.ac.in and returns the IP address. Referrals come from the upper levels; only the authoritative server gives the final answer.\n\n**Answer:** Root (refers to in), in (refers to ac.in), ac.in (refers to uni.ac.in), uni.ac.in (answers with the A record).",
+   "why_full": "DNS recall and counting questions are a small but regular part of the application layer. In GATE: which server gives the final answer, and how many servers are walked.\n\nAsked: 2022 CS Q35, 2007 CS Q20",
+   "trap": "Thinking the root or TLD servers hold the A record of the host. They only give referrals. Another slip is to read the name left to right, so the host's own server is asked first."
+  },
+  {
+   "atom_id": "d2",
+   "title": "DNS query counting",
+   "simple": "Imagine looking for a person in a huge company with no directory. You ask the front desk, and they say 'try the sales floor'. You ask the sales floor, and they say 'try Team B'. You ask Team B, and they say 'try Raj's desk', and at Raj's desk you finally get the phone number. Each question and answer is one pair. If you wrote down where the sales floor is last time, you can skip the front desk next time. In exam words: one query-response pair per server in iterative mode, and caches let the resolver start lower in the tree.",
+   "idea": "In **iterative** resolution the local resolver itself asks each server in turn and follows each referral. It exchanges **one query-response pair per server** it asks. Cached server addresses let it skip the upper levels.",
+   "definition": "**Pairs for a name with d domain labels** (www.dept.uni.ac.in has d = 4): $d + 1$, one for the root and one for each domain level.\n\n**With a cache:** start at the deepest zone whose servers are cached, then count one pair per level from there down.\n\n**Recursive query:** the host asks the resolver and waits; that is one pair between host and resolver, and the resolver does the iterative walk.\n\nCached records stay valid until their TTL runs out (card d3).\n\nCount only pairs with DNS servers unless the question counts the host's query too.",
+   "intuition_full": "The count follows the depth of the name. Every level of the tree is a different server, so each level costs one question. The host label (www) does not add a level: it is answered by the last server. The cache is what makes DNS fast in practice. After the first lookup, the resolver knows the servers of every zone on the path, so the next name under the same domain needs only one pair, and a name under the same TLD can skip the root. Questions on this topic always come with a cache state, so first write down which zones the resolver knows. Then, for each new name, find the deepest known zone on its path and count from there. Iterative queries put the work on the resolver, while recursive queries put it on the server asked. The hosts normally ask recursively and the resolver walks iteratively.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A local resolver uses iterative queries to find the IP address of www.dept.uni.ac.in. Nothing is cached. How many query-response pairs does it exchange with DNS servers?",
+     "steps": [
+      "The name has the domain labels dept, uni, ac, in, and the host www. Each domain level has its own server, plus the root. The resolver asks root first. Reply: a referral to the servers of **in**. **Pair 1.**",
+      "It asks the in server. Reply: a referral to ac.in. **Pair 2.**",
+      "It asks the ac.in server. Reply: a referral to uni.ac.in. **Pair 3.**",
+      "It asks the uni.ac.in server. Reply: a referral to dept.uni.ac.in. **Pair 4.**",
+      "It asks the dept.uni.ac.in server, which is authoritative. Reply: the A record of www. **Pair 5.**",
+      "There is one pair per server walked: root plus the 4 domain labels = 5. The query from the user's host to the resolver is not a pair with a DNS server."
+     ],
+     "answer": "5 query-response pairs."
+    },
+    {
+     "level": "gate",
+     "setup": "The resolver starts with an empty cache and resolves, in order, www.dept.uni.ac.in, then mail.dept.uni.ac.in, then www.other.co.in. All records stay valid in the cache. How many query-response pairs does it exchange in total?",
+     "steps": [
+      "First name: nothing cached, so 5 pairs (root, in, ac.in, uni.ac.in, dept.uni.ac.in). The resolver now caches the servers of all five zones.",
+      "Second name: mail.dept.uni.ac.in. The servers of dept.uni.ac.in are cached, so it asks that server directly: **1 pair**.",
+      "Third name: www.other.co.in. The zones are root, in, co.in, other.co.in. The resolver has root and in cached, but not co.in. It starts at the in server: in (referral to co.in), co.in (referral to other.co.in), other.co.in (answer): **3 pairs**.",
+      "Total = 5 + 1 + 3 = 9."
+     ],
+     "answer": "9 query-response pairs."
+    },
+    {
+     "level": "twist",
+     "setup": "The user's host sends a **recursive** query for www.dept.uni.ac.in to the local resolver, which then does the iterative walk with nothing cached. How many query-response pairs are there in total, and how many does the resolver exchange with DNS servers?",
+     "steps": [
+      "The host asks the resolver once, and the resolver does all the work: 1 pair between the host and the resolver.",
+      "The resolver walks the 5 servers iteratively: 5 pairs with DNS servers.",
+      "In total there are 6 pairs, but a question that asks for the pairs the resolver exchanges with **DNS servers** wants 5. Read which one is asked."
+     ],
+     "answer": "5 with DNS servers; 6 in all, counting the host's own query."
+    }
+   ],
+   "why": "DNS counting is used on its own and as the first step of page-load timelines. In GATE: the number of query-response pairs, possibly across several names with a cache.",
+   "how": [
+    "List the zones on the path: root, then each domain from the TLD down.",
+    "Mark which zones' servers are already cached.",
+    "Start at the deepest cached zone (or the root). Count one pair per zone from there down to the authoritative one.",
+    "After each lookup, add all the zones on its path to the cache.",
+    "Check whether the question counts the host-to-resolver pair."
+   ],
+   "mistake": "Counting the host-to-resolver query as a DNS server pair, or counting the host label (www) as a level. A second slip is forgetting that after the first lookup the intermediate servers are cached.",
+   "edge_cases": [
+    "If the answer itself is cached, the count is 0 pairs.",
+    "If one server serves several levels, those levels cost one pair between them.",
+    "A CNAME answer needs an extra lookup for the target name."
+   ],
+   "connections": [
+    "The hierarchy (d1) defines the levels counted here.",
+    "TTL and record types (d3) decide how long a cache stays valid.",
+    "The page load timeline (d8) adds the DNS time before the TCP handshake."
+   ],
+   "check": [
+    {
+     "q": "www.school.edu.in with nothing cached. How many pairs?",
+     "a": "Domain labels school, edu, in = 3, so 3 + 1 = 4 pairs."
+    },
+    {
+     "q": "The resolver has the in servers cached. Pairs for www.school.edu.in?",
+     "a": "It starts at in: in, edu.in, school.edu.in = 3 pairs."
+    },
+    {
+     "q": "Does the www label add a level to the walk?",
+     "a": "No. It is looked up inside the last domain's server."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q35, 2023 CS Q52",
+   "try": {
+    "id": "gen.net.app.005",
+    "label": "Try: query-response pairs with nothing cached (L2)"
+   },
+   "scene": "net.app.d2.pairs",
+   "example": {
+    "setup": "A local resolver uses iterative queries to find the IP address of www.dept.uni.ac.in. Nothing is cached. How many query-response pairs does it exchange with DNS servers?",
+    "steps": [
+     "The name has the domain labels dept, uni, ac, in, and the host www. Each domain level has its own server, plus the root. The resolver asks root first. Reply: a referral to the servers of **in**. **Pair 1.**",
+     "It asks the in server. Reply: a referral to ac.in. **Pair 2.**",
+     "It asks the ac.in server. Reply: a referral to uni.ac.in. **Pair 3.**",
+     "It asks the uni.ac.in server. Reply: a referral to dept.uni.ac.in. **Pair 4.**",
+     "It asks the dept.uni.ac.in server, which is authoritative. Reply: the A record of www. **Pair 5.**",
+     "There is one pair per server walked: root plus the 4 domain labels = 5. The query from the user's host to the resolver is not a pair with a DNS server."
+    ],
+    "answer": "5 query-response pairs."
+   },
+   "what": "In **iterative** resolution the local resolver itself asks each server in turn and follows each referral. It exchanges **one query-response pair per server** it asks. Cached server addresses let it skip the upper levels.",
+   "what_full": "In **iterative** resolution the local resolver itself asks each server in turn and follows each referral. It exchanges **one query-response pair per server** it asks. Cached server addresses let it skip the upper levels.\n\n**Pairs for a name with d domain labels** (www.dept.uni.ac.in has d = 4): $d + 1$, one for the root and one for each domain level.\n\n**With a cache:** start at the deepest zone whose servers are cached, then count one pair per level from there down.\n\n**Recursive query:** the host asks the resolver and waits; that is one pair between host and resolver, and the resolver does the iterative walk.\n\nCached records stay valid until their TTL runs out (card d3).\n\nCount only pairs with DNS servers unless the question counts the host's query too.\n\n**Worked example.** A local resolver uses iterative queries to find the IP address of www.dept.uni.ac.in. Nothing is cached. How many query-response pairs does it exchange with DNS servers?\n\n1. The name has the domain labels dept, uni, ac, in, and the host www. Each domain level has its own server, plus the root. The resolver asks root first. Reply: a referral to the servers of **in**. **Pair 1.**\n2. It asks the in server. Reply: a referral to ac.in. **Pair 2.**\n3. It asks the ac.in server. Reply: a referral to uni.ac.in. **Pair 3.**\n4. It asks the uni.ac.in server. Reply: a referral to dept.uni.ac.in. **Pair 4.**\n5. It asks the dept.uni.ac.in server, which is authoritative. Reply: the A record of www. **Pair 5.**\n6. There is one pair per server walked: root plus the 4 domain labels = 5. The query from the user's host to the resolver is not a pair with a DNS server.\n\n**Answer:** 5 query-response pairs.",
+   "why_full": "DNS counting is used on its own and as the first step of page-load timelines. In GATE: the number of query-response pairs, possibly across several names with a cache.\n\nAsked: 2022 CS Q35, 2023 CS Q52",
+   "trap": "Counting the host-to-resolver query as a DNS server pair, or counting the host label (www) as a level. A second slip is forgetting that after the first lookup the intermediate servers are cached."
+  },
+  {
+   "atom_id": "d3",
+   "title": "Records and caching",
+   "simple": "A directory has different kinds of entries. One kind says 'this name has this number' (A). One says 'this name is just another name for that one' (CNAME), like a nickname. One says 'for this department, ask this office' (NS), and one says 'post for this department goes to that mailroom' (MX). Every entry also has a 'use by' time (TTL). Until it passes, people can reuse the answer without asking again. In exam words: A, AAAA, NS, CNAME and MX records, each with a TTL, cached by resolvers until it expires.",
+   "idea": "A DNS server stores **resource records**. Each has a name, a type and a value, and a **TTL** telling caches how long they may reuse it. The common types are A, AAAA, NS, CNAME and MX.",
+   "definition": "**A:** name to IPv4 address. **AAAA:** name to IPv6 address.\n\n**NS:** the name of a server that handles a domain (used for referrals).\n\n**CNAME:** an alias; the value is another name, which must be looked up too.\n\n**MX:** the mail host for a domain, with a preference number. (Mail itself uses SMTP, which is not named in the 2027 syllabus.)\n\n**TTL:** time in seconds for which a cache may keep the record. After it, the cache must ask again.\n\n**Glue:** an A record for a name server that lives inside the zone it serves, sent by the parent zone.\n\nLocal resolvers cache answers and referrals, which is what makes DNS fast.",
+   "intuition_full": "Records of different types answer different questions. An A record answers 'where is this host?'. An NS record answers 'who knows about this domain?', which is what referrals use. A CNAME lets an organisation point many names at one real host, so that changing the host's address means editing one record. An MX record separates 'where do I send mail for this domain?' from the web server. The TTL is a trade-off: a long TTL reduces queries and delay, a short one lets changes spread quickly. A cache answers from memory while the record's age is below the TTL and goes back to the authoritative server after that. The exam asks to match record types to jobs, and to count how many requests reach the authoritative server for a series of lookups.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The zone uni.ac.in has the records: NS ns1; ns1 A 10.1.1.5; www A 10.1.1.20; web CNAME www; MX mail. A client asks for the address of web.uni.ac.in. Trace the lookup and say what the resolver caches.",
+     "steps": [
+      "The zone file of uni.ac.in has five records of four types: **NS** (name of a server for the zone), **A** (name to IPv4 address), **CNAME** (alias for another name), **MX** (mail host).",
+      "The client asks for the A record of web. The server finds a **CNAME** record: web is an alias of www.",
+      "The resolver follows the alias and looks up the A record of www: 10.1.1.20.",
+      "The answer is 10.1.1.20. The resolver caches both the CNAME and the A record, each for its **TTL** (say 3600 s). Another lookup within the hour costs no DNS query.",
+      "A mail server delivering to user@uni.ac.in would ask for the **MX** record: the mail host is mail.uni.ac.in, and it then looks up the A record of mail.",
+      "The NS record names the servers of the zone. When a parent sends a referral to ns1.uni.ac.in, it also sends ns1's A record (10.1.1.5) so the resolver can reach it."
+     ],
+     "answer": "web is an alias of www, and the address is 10.1.1.20."
+    },
+    {
+     "level": "gate",
+     "setup": "An A record has TTL 300 s. A resolver receives lookups for that name at times 0 s, 100 s, 250 s, 400 s and 650 s. At which lookups does it contact the authoritative server?",
+     "steps": [
+      "t = 0: nothing is cached, so it contacts the authoritative server and caches the record until t = 300.",
+      "t = 100 and t = 250: the record is still valid (their age is below 300 s). Both are cache hits.",
+      "t = 400: the record expired at t = 300, so the resolver asks again and caches the new copy until t = 700.",
+      "t = 650: the new copy is 250 s old, below the TTL of 300 s, so this is a cache hit.",
+      "The authoritative server is contacted at t = 0 and t = 400: 2 times out of 5 lookups."
+     ],
+     "answer": "2 contacts: at 0 s and 400 s."
+    },
+    {
+     "level": "twist",
+     "setup": "The zone's NS record says the servers are ns1.uni.ac.in, which is inside the zone uni.ac.in itself. How can a resolver find ns1's address?",
+     "steps": [
+      "To find any host in uni.ac.in the resolver must ask ns1. To ask ns1 it needs the address of ns1, which lives in uni.ac.in. This is a circle.",
+      "The fix is a **glue record**: the parent zone (ac.in) returns ns1's A record (10.1.1.5) together with the NS referral.",
+      "With the glue the resolver can contact ns1 directly. Without it the name could never be resolved."
+     ],
+     "answer": "The parent supplies the A record of ns1 (glue) in its referral."
+    }
+   ],
+   "why": "Record types are quick marks, and TTL is a standard counting trap. In GATE: which record type does what, or how many queries reach the authoritative server for a series of lookups.",
+   "how": [
+    "Match the question to a type: name to IPv4 is A, alias is CNAME, name server is NS, mail host is MX.",
+    "For CNAME, look up the target name as well.",
+    "For caching, a record is valid from the time it was fetched until fetched time + TTL.",
+    "Count how many lookups fall outside the validity window; those go to the server."
+   ],
+   "mistake": "Using an MX record to find the web server, or forgetting to follow a CNAME to its target. For TTL questions, the common slip is to treat the TTL as a count of lookups instead of a time.",
+   "edge_cases": [
+    "A lookup exactly at fetch time + TTL is expired.",
+    "An NS record needs a glue A record if the name server's name is inside its own zone.",
+    "Low priority: DNS messages use UDP port 53 for short queries; UDP is not named in the 2027 syllabus."
+   ],
+   "connections": [
+    "Referral walk and counting: d1 and d2.",
+    "Page load timeline: DNS first, then TCP (d8).",
+    "HTTP caching (d9) also uses expiry and revalidation."
+   ],
+   "check": [
+    {
+     "q": "Which record maps a name to an IPv4 address?",
+     "a": "The A record."
+    },
+    {
+     "q": "Which record would a mail system look up to find the mail host of a domain?",
+     "a": "The MX record."
+    },
+    {
+     "q": "A record with TTL 60 s fetched at t = 10. Is a lookup at t = 80 a hit?",
+     "a": "No. It expired at t = 70."
+    }
+   ],
+   "asked": "Asked: 2007 CS Q20, 2019 CS Q26",
+   "try": {
+    "id": "gen.net.app.002",
+    "label": "Try: record type that maps a name to IPv4 (L1)"
+   },
+   "scene": "net.app.d3.records",
+   "example": {
+    "setup": "The zone uni.ac.in has the records: NS ns1; ns1 A 10.1.1.5; www A 10.1.1.20; web CNAME www; MX mail. A client asks for the address of web.uni.ac.in. Trace the lookup and say what the resolver caches.",
+    "steps": [
+     "The zone file of uni.ac.in has five records of four types: **NS** (name of a server for the zone), **A** (name to IPv4 address), **CNAME** (alias for another name), **MX** (mail host).",
+     "The client asks for the A record of web. The server finds a **CNAME** record: web is an alias of www.",
+     "The resolver follows the alias and looks up the A record of www: 10.1.1.20.",
+     "The answer is 10.1.1.20. The resolver caches both the CNAME and the A record, each for its **TTL** (say 3600 s). Another lookup within the hour costs no DNS query.",
+     "A mail server delivering to user@uni.ac.in would ask for the **MX** record: the mail host is mail.uni.ac.in, and it then looks up the A record of mail.",
+     "The NS record names the servers of the zone. When a parent sends a referral to ns1.uni.ac.in, it also sends ns1's A record (10.1.1.5) so the resolver can reach it."
+    ],
+    "answer": "web is an alias of www, and the address is 10.1.1.20."
+   },
+   "what": "A DNS server stores **resource records**. Each has a name, a type and a value, and a **TTL** telling caches how long they may reuse it. The common types are A, AAAA, NS, CNAME and MX.",
+   "what_full": "A DNS server stores **resource records**. Each has a name, a type and a value, and a **TTL** telling caches how long they may reuse it. The common types are A, AAAA, NS, CNAME and MX.\n\n**A:** name to IPv4 address. **AAAA:** name to IPv6 address.\n\n**NS:** the name of a server that handles a domain (used for referrals).\n\n**CNAME:** an alias; the value is another name, which must be looked up too.\n\n**MX:** the mail host for a domain, with a preference number. (Mail itself uses SMTP, which is not named in the 2027 syllabus.)\n\n**TTL:** time in seconds for which a cache may keep the record. After it, the cache must ask again.\n\n**Glue:** an A record for a name server that lives inside the zone it serves, sent by the parent zone.\n\nLocal resolvers cache answers and referrals, which is what makes DNS fast.\n\n**Worked example.** The zone uni.ac.in has the records: NS ns1; ns1 A 10.1.1.5; www A 10.1.1.20; web CNAME www; MX mail. A client asks for the address of web.uni.ac.in. Trace the lookup and say what the resolver caches.\n\n1. The zone file of uni.ac.in has five records of four types: **NS** (name of a server for the zone), **A** (name to IPv4 address), **CNAME** (alias for another name), **MX** (mail host).\n2. The client asks for the A record of web. The server finds a **CNAME** record: web is an alias of www.\n3. The resolver follows the alias and looks up the A record of www: 10.1.1.20.\n4. The answer is 10.1.1.20. The resolver caches both the CNAME and the A record, each for its **TTL** (say 3600 s). Another lookup within the hour costs no DNS query.\n5. A mail server delivering to user@uni.ac.in would ask for the **MX** record: the mail host is mail.uni.ac.in, and it then looks up the A record of mail.\n6. The NS record names the servers of the zone. When a parent sends a referral to ns1.uni.ac.in, it also sends ns1's A record (10.1.1.5) so the resolver can reach it.\n\n**Answer:** web is an alias of www, and the address is 10.1.1.20.",
+   "why_full": "Record types are quick marks, and TTL is a standard counting trap. In GATE: which record type does what, or how many queries reach the authoritative server for a series of lookups.\n\nAsked: 2007 CS Q20, 2019 CS Q26",
+   "trap": "Using an MX record to find the web server, or forgetting to follow a CNAME to its target. For TTL questions, the common slip is to treat the TTL as a count of lookups instead of a time."
+  },
+  {
+   "atom_id": "d4",
+   "title": "HTTP basics",
+   "simple": "Imagine a waiter with no memory. Every time you speak, he treats it as the first time he has ever seen you. To get your order remembered, you wear a numbered badge. When you come back to the table, you show your badge, and the restaurant looks up your number in its book. HTTP is the waiter without memory: it forgets each request. A cookie is the badge, and the server's database is the book. In exam words: HTTP is a stateless request-response protocol; cookies add state; status codes tell the result.",
+   "idea": "**HTTP** is a request-response protocol: the client sends a request for an object and the server sends a response. It is **stateless**: the server keeps no memory of earlier requests. **Cookies** let a site recognise a returning user.",
+   "definition": "**Request:** a method (GET, POST), a URL, headers (such as Host, Cookie) and an optional body.\n\n**Response:** a status line (code and text), headers and the object as a body.\n\n**Status codes:** 200 OK, 301 Moved Permanently, 304 Not Modified, 404 Not Found; classes 2xx success, 3xx redirect, 4xx client error, 5xx server error.\n\n**Stateless:** each request is independent.\n\n**Cookie:** the server sends Set-Cookie with an id; the browser returns it as a Cookie header on later requests; the server keeps the state keyed by that id.\n\nHTTP runs over TCP (port 80).",
+   "intuition_full": "Statelessness is a design choice. A server that does not remember clients is simple, cheap and easy to scale, because any copy of the server can answer any request. The price is that applications that need a session, like a shopping cart or a login, must carry the identity with each request. The cookie does that. The server hands out an id, and the browser sends it back every time, so the server can look up its stored data. The statelessness belongs to HTTP, not to TCP. A TCP connection has state, such as sequence numbers, but HTTP does not use it to remember the user. When the exam asks 'what does stateless mean?', the answer is: the server does not keep information about past client requests.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A shopping site uses HTTP and cookies. A user's browser sends GET /cart twice. Show how the site recognises the same user although HTTP is stateless.",
+     "steps": [
+      "Request 1: GET /cart. The browser has no cookie for this site yet, so the request carries none.",
+      "Response 1: 200 OK, with the header Set-Cookie: id=77. The server also creates a record for id 77 in its own database.",
+      "Request 2: GET /cart, now with the header Cookie: id=77. The browser adds the cookie to every request to this site.",
+      "The server looks up id 77 in its database and finds that user's cart. Response 2: 200 OK with the page showing 2 items.",
+      "HTTP itself kept no memory: each request is handled on its own. The state lives in the server's database, and the cookie is the key that finds it."
+     ],
+     "answer": "The cookie id=77 identifies the user. HTTP is stateless; the server's database holds the state."
+    },
+    {
+     "level": "gate",
+     "setup": "Match each status code with its meaning: 200, 301, 304, 404. For each say whether the response carries a body.",
+     "steps": [
+      "**200 OK:** the request succeeded. The response carries the requested object (a body).",
+      "**301 Moved Permanently:** the object has a new URL, given in the Location header. The browser follows it with a new request. A small body is possible, but the client uses the Location header.",
+      "**304 Not Modified:** the answer to a conditional GET (If-Modified-Since): the cached copy is still good. **No body.**",
+      "**404 Not Found:** the server has no such object. The body is usually a small error page.",
+      "The classes: 2xx success, 3xx redirection or not modified, 4xx client error, 5xx server error."
+     ],
+     "answer": "200 OK (body), 301 moved (follow Location), 304 not modified (no body), 404 not found."
+    },
+    {
+     "level": "twist",
+     "setup": "HTTP/1.1 keeps one TCP connection open for several requests. Does that make HTTP stateful?",
+     "steps": [
+      "No. The TCP connection is state at the **transport** layer. The HTTP server still treats each request on its own, with no memory of the earlier ones.",
+      "If the connection closes and the browser opens a new one, the server cannot tell it is the same user from the connection alone.",
+      "Only a cookie, a login token or a URL parameter gives the server a way to link requests."
+     ],
+     "answer": "No. A persistent connection is TCP state. HTTP is still stateless."
+    }
+   ],
+   "why": "Basic HTTP facts are one-mark recall. In GATE: what stateless means, which status code fits a case, or which statements about HTTP are true.",
+   "how": [
+    "Remember: request-response over TCP, stateless, port 80.",
+    "Match status codes to meanings (200, 301, 304, 404).",
+    "For state, think cookie: the server sends it, the browser returns it.",
+    "Do not confuse TCP state with HTTP state."
+   ],
+   "mistake": "Saying a persistent connection makes HTTP stateful, or that cookies are stored by the server. The cookie is stored by the browser; the server stores the data it points to. Another slip is to say a 304 carries the object.",
+   "edge_cases": [
+    "HTTP/1.0 closes the connection after each response unless told otherwise; HTTP/1.1 keeps it open by default.",
+    "A POST request carries data in its body; GET asks for an object.",
+    "Low priority: FTP and SMTP are older protocols with their own commands. They are not named in the 2027 syllabus."
+   ],
+   "connections": [
+    "HTTP over TCP: the handshake and sockets are in net.transport (t1, t8).",
+    "Connection reuse is d5 to d7; the page timeline is d8.",
+    "Conditional GET and the 304 code are d9."
+   ],
+   "check": [
+    {
+     "q": "What does 'HTTP is stateless' mean?",
+     "a": "The server keeps no information about previous requests from a client."
+    },
+    {
+     "q": "Which status code means 'use your cached copy'?",
+     "a": "304 Not Modified."
+    },
+    {
+     "q": "Who stores the cookie?",
+     "a": "The browser. The server keeps the data that the cookie id points to."
+    }
+   ],
+   "asked": "Asked: 2015 CS1 Q17, 2026 CS1 Q19",
+   "try": {
+    "id": "gen.net.app.003",
+    "label": "Try: what stateless means for HTTP (L1)"
+   },
+   "scene": "net.app.d4.cookie",
+   "example": {
+    "setup": "A shopping site uses HTTP and cookies. A user's browser sends GET /cart twice. Show how the site recognises the same user although HTTP is stateless.",
+    "steps": [
+     "Request 1: GET /cart. The browser has no cookie for this site yet, so the request carries none.",
+     "Response 1: 200 OK, with the header Set-Cookie: id=77. The server also creates a record for id 77 in its own database.",
+     "Request 2: GET /cart, now with the header Cookie: id=77. The browser adds the cookie to every request to this site.",
+     "The server looks up id 77 in its database and finds that user's cart. Response 2: 200 OK with the page showing 2 items.",
+     "HTTP itself kept no memory: each request is handled on its own. The state lives in the server's database, and the cookie is the key that finds it."
+    ],
+    "answer": "The cookie id=77 identifies the user. HTTP is stateless; the server's database holds the state."
+   },
+   "what": "**HTTP** is a request-response protocol: the client sends a request for an object and the server sends a response. It is **stateless**: the server keeps no memory of earlier requests. **Cookies** let a site recognise a returning user.",
+   "what_full": "**HTTP** is a request-response protocol: the client sends a request for an object and the server sends a response. It is **stateless**: the server keeps no memory of earlier requests. **Cookies** let a site recognise a returning user.\n\n**Request:** a method (GET, POST), a URL, headers (such as Host, Cookie) and an optional body.\n\n**Response:** a status line (code and text), headers and the object as a body.\n\n**Status codes:** 200 OK, 301 Moved Permanently, 304 Not Modified, 404 Not Found; classes 2xx success, 3xx redirect, 4xx client error, 5xx server error.\n\n**Stateless:** each request is independent.\n\n**Cookie:** the server sends Set-Cookie with an id; the browser returns it as a Cookie header on later requests; the server keeps the state keyed by that id.\n\nHTTP runs over TCP (port 80).\n\n**Worked example.** A shopping site uses HTTP and cookies. A user's browser sends GET /cart twice. Show how the site recognises the same user although HTTP is stateless.\n\n1. Request 1: GET /cart. The browser has no cookie for this site yet, so the request carries none.\n2. Response 1: 200 OK, with the header Set-Cookie: id=77. The server also creates a record for id 77 in its own database.\n3. Request 2: GET /cart, now with the header Cookie: id=77. The browser adds the cookie to every request to this site.\n4. The server looks up id 77 in its database and finds that user's cart. Response 2: 200 OK with the page showing 2 items.\n5. HTTP itself kept no memory: each request is handled on its own. The state lives in the server's database, and the cookie is the key that finds it.\n\n**Answer:** The cookie id=77 identifies the user. HTTP is stateless; the server's database holds the state.",
+   "why_full": "Basic HTTP facts are one-mark recall. In GATE: what stateless means, which status code fits a case, or which statements about HTTP are true.\n\nAsked: 2015 CS1 Q17, 2026 CS1 Q19",
+   "trap": "Saying a persistent connection makes HTTP stateful, or that cookies are stored by the server. The cookie is stored by the browser; the server stores the data it points to. Another slip is to say a 304 carries the object."
+  },
+  {
+   "atom_id": "d5",
+   "title": "Non-persistent HTTP",
+   "simple": "Imagine ordering seven dishes, but the waiter makes you say hello and be seated again before each dish. Every dish costs one trip to say hello and one trip to order. That doubles the waiting, and the more dishes, the more wasted trips. This is non-persistent HTTP: every object on a page gets its own fresh connection, with its own handshake. In exam words: each object costs 2 RTT (1 for the TCP handshake, 1 for the request and reply), so n objects cost 2n RTT.",
+   "idea": "In **non-persistent HTTP** the server closes the connection after sending one object. The browser opens a **new TCP connection for every object**, base file and each embedded object. Every object costs one RTT for the handshake and one for the request.",
+   "definition": "**Time per object** (small, negligible transmission) $= 1\\ \\text{RTT}$ (handshake) $+\\ 1\\ \\text{RTT}$ (request and reply) $= 2\\ \\text{RTT}$.\n\n**Page with n embedded objects**, fetched one after another: $(n + 1) \\times 2$ RTT. Connections used: $n + 1$.\n\nIf transmission time matters, add the transmission time of each object.\n\nThe third segment of the handshake can carry the request, so there is no extra RTT for it.\n\nHTTP/1.0 behaves like this by default. HTTP/1.1 is persistent by default (next card).",
+   "intuition_full": "TCP needs a round trip before it can carry data, so opening a connection is not free. In non-persistent HTTP this cost is paid again and again, once for each object. A page with many small images pays mostly for handshakes rather than for data. There is also a hidden dependency: the browser cannot know which objects the page contains until the base file has arrived and been parsed, so the objects can only be requested after the base file. That is why the base file always costs its own 2 RTT first, and the objects follow. Questions of this kind are pure counting: count objects, multiply by 2, add DNS or transmission if given. The usual traps are to count 1 RTT per object, or to count the base file as part of the embedded objects.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A web page has a base HTML file and 6 small embedded objects, all on one server whose IP address is known. The browser uses non-persistent HTTP, fetching the objects one after another. Transmission time is negligible. How many RTTs does the page take?",
+     "steps": [
+      "The page has 1 + 6 = 7 objects. Non-persistent HTTP opens a **new TCP connection for every object**.",
+      "Base file: RTT 1 is the TCP handshake. RTT 2 is the GET request and the reply. The base file costs **2 RTT**.",
+      "The browser reads the base file and finds the 6 objects. Object 1 needs a new connection: RTT 3 for the handshake, RTT 4 for the request and reply.",
+      "Objects 2 to 6 each repeat the same two RTTs, up to RTT 14.",
+      "Total = 7 objects x 2 RTT = 14 RTT."
+     ],
+     "answer": "14 RTT."
+    },
+    {
+     "level": "gate",
+     "setup": "A page has a base file and 8 embedded images on one server. HTTP is non-persistent and sequential. The RTT is 50 ms and transmitting each object takes 20 ms. How many TCP connections are used, and how long does the page take? (IP known.)",
+     "steps": [
+      "Objects = 1 + 8 = 9, and non-persistent HTTP uses one connection per object: **9 TCP connections**.",
+      "One object costs a handshake (1 RTT = 50 ms) plus a request and reply (1 RTT = 50 ms) plus the transmission time of the object (20 ms): 50 + 50 + 20 = 120 ms.",
+      "All 9 objects are fetched one after another: 9 x 120 = 1080 ms.",
+      "Check the pure-RTT part: 9 x 2 RTT = 18 RTT = 900 ms, plus 9 x 20 = 180 ms of transmission."
+     ],
+     "answer": "9 connections and 1080 ms."
+    },
+    {
+     "level": "twist",
+     "setup": "Count the time for one object on a fresh connection in half-RTT steps. A student says non-persistent HTTP needs 3 RTT per object (SYN, SYN+ACK, ACK, then the GET). Who is right?",
+     "steps": [
+      "The client sends SYN at time 0. The server's SYN+ACK arrives at 1 RTT.",
+      "At that moment the client sends the ACK **and** the GET request in the same packet (the third segment of the handshake may carry data).",
+      "The reply arrives at 2 RTT. Counting the ACK as a separate RTT would be wrong."
+     ],
+     "answer": "2 RTT per object. The ACK travels together with the request."
+    }
+   ],
+   "why": "This is the foundation of every page-load question. In GATE: RTTs or connections for a page under non-persistent HTTP, often combined with DNS or parallel connections.",
+   "how": [
+    "Count the objects: base file + embedded objects.",
+    "Each object costs 2 RTT: 1 handshake + 1 request and reply.",
+    "Add transmission time per object if it is given.",
+    "The base file comes first; embedded objects follow it."
+   ],
+   "mistake": "Counting 1 RTT per object (forgetting the handshake), or 3 RTT (counting the ACK separately). Another slip is to count only the embedded objects and leave out the base file.",
+   "edge_cases": [
+    "A page with no embedded objects costs 2 RTT.",
+    "If the IP address is not known, add the DNS time first (d8).",
+    "Large objects need extra RTTs in slow start; GATE assumes small objects unless stated."
+   ],
+   "connections": [
+    "Persistent HTTP (d6) removes the repeated handshakes.",
+    "Parallel connections (d7) overlap the objects.",
+    "The handshake itself is net.transport t1."
+   ],
+   "check": [
+    {
+     "q": "A page has a base file and 3 images. Non-persistent, sequential, IP known. RTTs?",
+     "a": "4 objects x 2 = 8 RTT."
+    },
+    {
+     "q": "How many TCP connections does that page need?",
+     "a": "4, one per object."
+    },
+    {
+     "q": "Why can embedded objects not be requested together with the base file?",
+     "a": "The browser learns their names only after reading the base file."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q35, 2023 CS Q52",
+   "try": {
+    "id": "gen.net.app.004",
+    "label": "Try: rTTs for one small object, non-persistent (L1)"
+   },
+   "scene": "net.app.d5.nonpersist",
+   "example": {
+    "setup": "A web page has a base HTML file and 6 small embedded objects, all on one server whose IP address is known. The browser uses non-persistent HTTP, fetching the objects one after another. Transmission time is negligible. How many RTTs does the page take?",
+    "steps": [
+     "The page has 1 + 6 = 7 objects. Non-persistent HTTP opens a **new TCP connection for every object**.",
+     "Base file: RTT 1 is the TCP handshake. RTT 2 is the GET request and the reply. The base file costs **2 RTT**.",
+     "The browser reads the base file and finds the 6 objects. Object 1 needs a new connection: RTT 3 for the handshake, RTT 4 for the request and reply.",
+     "Objects 2 to 6 each repeat the same two RTTs, up to RTT 14.",
+     "Total = 7 objects x 2 RTT = 14 RTT."
+    ],
+    "answer": "14 RTT."
+   },
+   "what": "In **non-persistent HTTP** the server closes the connection after sending one object. The browser opens a **new TCP connection for every object**, base file and each embedded object. Every object costs one RTT for the handshake and one for the request.",
+   "what_full": "In **non-persistent HTTP** the server closes the connection after sending one object. The browser opens a **new TCP connection for every object**, base file and each embedded object. Every object costs one RTT for the handshake and one for the request.\n\n**Time per object** (small, negligible transmission) $= 1\\ \\text{RTT}$ (handshake) $+\\ 1\\ \\text{RTT}$ (request and reply) $= 2\\ \\text{RTT}$.\n\n**Page with n embedded objects**, fetched one after another: $(n + 1) \\times 2$ RTT. Connections used: $n + 1$.\n\nIf transmission time matters, add the transmission time of each object.\n\nThe third segment of the handshake can carry the request, so there is no extra RTT for it.\n\nHTTP/1.0 behaves like this by default. HTTP/1.1 is persistent by default (next card).\n\n**Worked example.** A web page has a base HTML file and 6 small embedded objects, all on one server whose IP address is known. The browser uses non-persistent HTTP, fetching the objects one after another. Transmission time is negligible. How many RTTs does the page take?\n\n1. The page has 1 + 6 = 7 objects. Non-persistent HTTP opens a **new TCP connection for every object**.\n2. Base file: RTT 1 is the TCP handshake. RTT 2 is the GET request and the reply. The base file costs **2 RTT**.\n3. The browser reads the base file and finds the 6 objects. Object 1 needs a new connection: RTT 3 for the handshake, RTT 4 for the request and reply.\n4. Objects 2 to 6 each repeat the same two RTTs, up to RTT 14.\n5. Total = 7 objects x 2 RTT = 14 RTT.\n\n**Answer:** 14 RTT.",
+   "why_full": "This is the foundation of every page-load question. In GATE: RTTs or connections for a page under non-persistent HTTP, often combined with DNS or parallel connections.\n\nAsked: 2020 CS Q35, 2023 CS Q52",
+   "trap": "Counting 1 RTT per object (forgetting the handshake), or 3 RTT (counting the ACK separately). Another slip is to count only the embedded objects and leave out the base file."
+  },
+  {
+   "atom_id": "d6",
+   "title": "Persistent HTTP and pipelining",
+   "simple": "Go back to the restaurant. This time you are seated once and stay at the table for the whole meal. That saves all the repeated hellos. You can order one dish at a time and wait for it (persistent), or you can read out the whole order in one go and the kitchen sends the dishes as they are ready (pipelining). The second is much faster, but you can only order dishes you already know about. In exam words: persistent HTTP keeps one TCP connection per server; pipelining sends several requests without waiting for the replies.",
+   "idea": "**Persistent HTTP** keeps the TCP connection open, so the handshake is paid once per server. Without **pipelining** each request still waits for its reply (1 RTT each). With pipelining all the requests go out together, so the whole batch costs about 1 RTT.",
+   "definition": "For one server, a base file and n objects, IP known, transmission negligible:\n\n**Persistent, no pipelining:** $1 + 1 + n$ RTT (handshake, base, then one RTT per object).\n\n**Persistent with pipelining:** $1 + 1 + 1$ = 3 RTT (handshake, base, one batch for all objects).\n\nA connection is reused only for the **same server**. A second server needs its own handshake.\n\nPipelining differs from parallel connections: it uses **one** connection and sends requests back to back; the replies come back in order.\n\nHTTP/1.1 is persistent by default.",
+   "intuition_full": "The cost of a TCP handshake is one RTT. Persistent HTTP pays it once and then reuses the open connection. But each request-reply still takes one RTT if the browser waits for each reply before sending the next request, which is what 'no pipelining' means. Pipelining removes that wait: the browser can send all requests it already knows about at once, so n objects cost one RTT in total instead of n. The restriction is that the objects have to be known: the base file must come first, because the browser learns the embedded objects only from it. This is why the pipelined total is 3 RTT, not 2. When objects are on different servers, each server has its own connection and its own handshake, so the totals add up server by server unless the question says the fetches overlap.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The same page (base file + 6 small objects on one server, IP known) is fetched with persistent HTTP. How many RTTs does it take (a) without pipelining and (b) with pipelining?",
+     "steps": [
+      "Persistent HTTP keeps **one TCP connection open** for all requests to this server. Base file + 6 objects, IP known.",
+      "The handshake is done **once**: 1 RTT.",
+      "The base file: 1 RTT for the GET and the reply.",
+      "(a) Without pipelining each request waits for the previous reply: 6 objects x 1 RTT = 6 RTT. Total = 1 + 1 + 6 = **8 RTT**.",
+      "(b) With pipelining the browser sends all 6 requests together and the replies stream back: 1 RTT for the whole batch. Total = 1 + 1 + 1 = **3 RTT**.",
+      "For comparison, non-persistent HTTP took 14 RTT. Persistence removes the repeated handshakes, and pipelining removes the waiting between requests."
+     ],
+     "answer": "(a) 8 RTT. (b) 3 RTT."
+    },
+    {
+     "level": "gate",
+     "setup": "A page has a base file and 5 objects on server A, and 4 more objects on server B (the browser learns this from the base file). IP addresses are known. HTTP is persistent and the fetches are sequential: first everything on A, then everything on B. How many RTTs (a) without pipelining and (b) with pipelining?",
+     "steps": [
+      "A connection serves **one server only**. Server B needs its own handshake.",
+      "(a) Server A: handshake 1 + base 1 + 5 objects x 1 = 7 RTT. Server B: handshake 1 + 4 objects x 1 = 5 RTT. Total = 12 RTT.",
+      "(b) With pipelining, server A: 1 + 1 + 1 (all 5 objects together) = 3 RTT. Server B: 1 + 1 (all 4 together) = 2 RTT. Total = 5 RTT."
+     ],
+     "answer": "(a) 12 RTT. (b) 5 RTT."
+    },
+    {
+     "level": "twist",
+     "setup": "Pipelining with transmission time: after the base file, 6 requests are sent together to a server with RTT 100 ms. Each object takes 10 ms to transmit. When is the last object complete?",
+     "steps": [
+      "The requests leave together. The first reply starts arriving after one RTT (100 ms) and takes 10 ms to send.",
+      "The replies come back one after another because they share the same connection and must arrive in order: the 6 transmissions take 6 x 10 = 60 ms in total.",
+      "The last object is complete at 100 + 60 = 160 ms after the requests are sent.",
+      "It is 1 RTT plus the transmission of all the objects, not 1 RTT alone."
+     ],
+     "answer": "160 ms."
+    }
+   ],
+   "why": "Persistent and pipelined counts are common in page-load questions. In GATE: RTTs for persistent HTTP with or without pipelining, or statements about connection reuse.",
+   "how": [
+    "Per server: handshake 1 RTT, once.",
+    "Base file: 1 RTT. Then objects: n RTT without pipelining, 1 RTT with pipelining.",
+    "Add up the servers, each with its own handshake.",
+    "Add transmission time of the objects if it is given."
+   ],
+   "mistake": "Treating pipelining as parallel connections, or reusing one connection for a second server. Another slip is to pipeline the base file with the objects: the objects are known only after the base file arrives.",
+   "edge_cases": [
+    "A pipelined batch of objects still pays their transmission times one after another.",
+    "If the page has no embedded objects, persistent HTTP costs 2 RTT, the same as non-persistent.",
+    "Low priority: HTTP/2 multiplexing generalises pipelining; GATE uses the HTTP/1.1 model."
+   ],
+   "connections": [
+    "Non-persistent (d5) is the baseline.",
+    "Parallel connections (d7) are the other way to overlap requests.",
+    "The page timeline (d8) adds DNS before all of this."
+   ],
+   "check": [
+    {
+     "q": "Persistent, no pipelining, base + 4 objects. RTTs?",
+     "a": "1 + 1 + 4 = 6."
+    },
+    {
+     "q": "Persistent with pipelining, base + 4 objects. RTTs?",
+     "a": "1 + 1 + 1 = 3."
+    },
+    {
+     "q": "Can one connection fetch objects from two different servers?",
+     "a": "No. A TCP connection joins one client and one server."
+    }
+   ],
+   "asked": "Asked: 2026 CS1 Q19, 2023 CS Q52, 2015 CS1 Q17",
+   "try": {
+    "id": "gen.net.app.008",
+    "label": "Try: rTTs with persistent HTTP and no pipelining (L2)"
+   },
+   "scene": "net.app.d6.persistent",
+   "example": {
+    "setup": "The same page (base file + 6 small objects on one server, IP known) is fetched with persistent HTTP. How many RTTs does it take (a) without pipelining and (b) with pipelining?",
+    "steps": [
+     "Persistent HTTP keeps **one TCP connection open** for all requests to this server. Base file + 6 objects, IP known.",
+     "The handshake is done **once**: 1 RTT.",
+     "The base file: 1 RTT for the GET and the reply.",
+     "(a) Without pipelining each request waits for the previous reply: 6 objects x 1 RTT = 6 RTT. Total = 1 + 1 + 6 = **8 RTT**.",
+     "(b) With pipelining the browser sends all 6 requests together and the replies stream back: 1 RTT for the whole batch. Total = 1 + 1 + 1 = **3 RTT**.",
+     "For comparison, non-persistent HTTP took 14 RTT. Persistence removes the repeated handshakes, and pipelining removes the waiting between requests."
+    ],
+    "answer": "(a) 8 RTT. (b) 3 RTT."
+   },
+   "what": "**Persistent HTTP** keeps the TCP connection open, so the handshake is paid once per server. Without **pipelining** each request still waits for its reply (1 RTT each). With pipelining all the requests go out together, so the whole batch costs about 1 RTT.",
+   "what_full": "**Persistent HTTP** keeps the TCP connection open, so the handshake is paid once per server. Without **pipelining** each request still waits for its reply (1 RTT each). With pipelining all the requests go out together, so the whole batch costs about 1 RTT.\n\nFor one server, a base file and n objects, IP known, transmission negligible:\n\n**Persistent, no pipelining:** $1 + 1 + n$ RTT (handshake, base, then one RTT per object).\n\n**Persistent with pipelining:** $1 + 1 + 1$ = 3 RTT (handshake, base, one batch for all objects).\n\nA connection is reused only for the **same server**. A second server needs its own handshake.\n\nPipelining differs from parallel connections: it uses **one** connection and sends requests back to back; the replies come back in order.\n\nHTTP/1.1 is persistent by default.\n\n**Worked example.** The same page (base file + 6 small objects on one server, IP known) is fetched with persistent HTTP. How many RTTs does it take (a) without pipelining and (b) with pipelining?\n\n1. Persistent HTTP keeps **one TCP connection open** for all requests to this server. Base file + 6 objects, IP known.\n2. The handshake is done **once**: 1 RTT.\n3. The base file: 1 RTT for the GET and the reply.\n4. (a) Without pipelining each request waits for the previous reply: 6 objects x 1 RTT = 6 RTT. Total = 1 + 1 + 6 = **8 RTT**.\n5. (b) With pipelining the browser sends all 6 requests together and the replies stream back: 1 RTT for the whole batch. Total = 1 + 1 + 1 = **3 RTT**.\n6. For comparison, non-persistent HTTP took 14 RTT. Persistence removes the repeated handshakes, and pipelining removes the waiting between requests.\n\n**Answer:** (a) 8 RTT. (b) 3 RTT.",
+   "why_full": "Persistent and pipelined counts are common in page-load questions. In GATE: RTTs for persistent HTTP with or without pipelining, or statements about connection reuse.\n\nAsked: 2026 CS1 Q19, 2023 CS Q52, 2015 CS1 Q17",
+   "trap": "Treating pipelining as parallel connections, or reusing one connection for a second server. Another slip is to pipeline the base file with the objects: the objects are known only after the base file arrives."
+  },
+  {
+   "atom_id": "d7",
+   "title": "Parallel connections",
+   "simple": "Imagine you need to collect eight parcels from a depot, and each one needs a separate trip. If you send three friends at the same time, you get three parcels per round of trips, so you finish in three rounds, not eight. Even if the last round has only two parcels, it still takes a whole round. That is parallel connections: several separate connections used at the same time. You can only send them for parcels you know about, so the first parcel (the base page) has to be collected alone. In exam words: objects are fetched in ceil(n / p) batches of 2 RTT each, after the base file.",
+   "idea": "A browser can open **p connections in parallel** to fetch embedded objects at the same time. With non-persistent HTTP, the objects go in **ceil(n / p) batches**, each batch costing 2 RTT. The base file is fetched first and alone.",
+   "definition": "For a base file and n embedded objects, non-persistent HTTP, p parallel connections, IP known:\n\n**Time** $= 2 + 2 \\times \\lceil n / p \\rceil$ RTT.\n\nThe base file costs 2 RTT before anything else.\n\nThe ceiling matters: a last, partly empty batch still costs a full 2 RTT.\n\nIf $p \\geq n$, there is one batch: $2 + 2 = 4$ RTT.\n\nParallel connections are **different from pipelining**: they use several TCP connections, each with its own handshake.\n\nIf DNS or other servers are involved, add their times separately.",
+   "intuition_full": "Each connection is an independent lane, and each lane carries one object at a time in 2 RTT. With p lanes, p objects finish together, then the next p start. The only unevenness is at the end: the last batch may be smaller. Counting batches with a ceiling is therefore exact. The base file is a fixed cost, because the browser cannot request the embedded objects before it knows them. Parallel connections reduce the delay but use more server resources and share the same link, so they are not free. For persistent connections the maths changes: each of the p connections handshakes once, then fetches its share of the objects one by one. The exam cards that combine DNS, a second server and parallel connections all reduce to adding up phases: DNS, then base, then batches.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A page has a base file and 8 small embedded objects on one server, IP known. HTTP is non-persistent, and the browser opens up to 3 parallel connections for the embedded objects. How many RTTs does the page take?",
+     "steps": [
+      "Each connection is non-persistent, so each object costs 2 RTT (handshake + request). Up to 3 objects can be in progress at once.",
+      "The base file comes first, alone: 2 RTT. The browser cannot start the objects before it has read the base file.",
+      "Batch 1: objects 1, 2, 3 on three connections in parallel, taking 2 RTT (RTT 3 and 4).",
+      "Batch 2: objects 4, 5, 6 in parallel (RTT 5 and 6).",
+      "Batch 3: objects 7 and 8 (RTT 7 and 8); the third connection stays idle. The number of batches is ceil(8 / 3) = 3, rounded **up**.",
+      "Total = 2 (base) + 3 batches x 2 RTT = 8 RTT."
+     ],
+     "answer": "8 RTT."
+    },
+    {
+     "level": "gate",
+     "setup": "A page has a base file and 14 embedded objects on one server, IP known. HTTP is non-persistent with up to 4 parallel connections. How many RTTs does the page take?",
+     "steps": [
+      "Base file: 2 RTT.",
+      "Batches of embedded objects: ceil(14 / 4) = ceil(3.5) = 4. (Three full batches of 4 and a last batch of 2.)",
+      "Each batch costs 2 RTT (handshake + request on fresh connections): 4 x 2 = 8 RTT.",
+      "Total = 2 + 8 = 10 RTT. Rounding down to 3 batches would give 8 RTT, which is wrong."
+     ],
+     "answer": "10 RTT."
+    },
+    {
+     "level": "twist",
+     "setup": "The browser allows 6 parallel connections, but the page has only 4 embedded objects. How many RTTs does the page take?",
+     "steps": [
+      "The base file takes 2 RTT.",
+      "The 4 embedded objects fit into one batch, since 4 <= 6: ceil(4 / 6) = 1 batch of 2 RTT.",
+      "Total = 2 + 2 = 4 RTT. The two spare connections do not help; more connections than objects bring no gain."
+     ],
+     "answer": "4 RTT."
+    }
+   ],
+   "why": "Parallel connections appear in the page-load combinations (2023 CS Q52 and others). In GATE: the number of RTTs with p parallel non-persistent connections.",
+   "how": [
+    "Base file: 2 RTT.",
+    "Batches = ceil(n / p), rounded up.",
+    "Each batch: 2 RTT for non-persistent connections.",
+    "Total = 2 + 2 x batches, plus DNS and other phases if present."
+   ],
+   "mistake": "Rounding n / p down, or using the total number of objects including the base file in the batch count. Another slip is to start the embedded objects in parallel with the base file.",
+   "edge_cases": [
+    "p = 1 gives the sequential case 2 + 2n.",
+    "If p is larger than n, extra connections are idle.",
+    "A second server in the page needs its own DNS lookup and connections."
+   ],
+   "connections": [
+    "Non-persistent cost per object: d5.",
+    "Pipelining (d6) overlaps requests on one connection instead.",
+    "Page timelines (d8) combine DNS, handshakes and batches."
+   ],
+   "check": [
+    {
+     "q": "Base + 10 objects, 4 parallel connections, non-persistent. RTTs?",
+     "a": "2 + 2 x ceil(10/4) = 2 + 6 = 8."
+    },
+    {
+     "q": "Why does the base file not run in parallel with the objects?",
+     "a": "The browser must read it to learn the objects' names."
+    },
+    {
+     "q": "7 objects, 7 parallel connections. Batches?",
+     "a": "1 batch, so 2 + 2 = 4 RTT."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q52, 2015 CS1 Q17, 2020 CS Q35",
+   "try": {
+    "id": "gen.net.app.009",
+    "label": "Try: rTTs with 4 parallel connections (L2)"
+   },
+   "scene": "net.app.d7.parallel",
+   "example": {
+    "setup": "A page has a base file and 8 small embedded objects on one server, IP known. HTTP is non-persistent, and the browser opens up to 3 parallel connections for the embedded objects. How many RTTs does the page take?",
+    "steps": [
+     "Each connection is non-persistent, so each object costs 2 RTT (handshake + request). Up to 3 objects can be in progress at once.",
+     "The base file comes first, alone: 2 RTT. The browser cannot start the objects before it has read the base file.",
+     "Batch 1: objects 1, 2, 3 on three connections in parallel, taking 2 RTT (RTT 3 and 4).",
+     "Batch 2: objects 4, 5, 6 in parallel (RTT 5 and 6).",
+     "Batch 3: objects 7 and 8 (RTT 7 and 8); the third connection stays idle. The number of batches is ceil(8 / 3) = 3, rounded **up**.",
+     "Total = 2 (base) + 3 batches x 2 RTT = 8 RTT."
+    ],
+    "answer": "8 RTT."
+   },
+   "what": "A browser can open **p connections in parallel** to fetch embedded objects at the same time. With non-persistent HTTP, the objects go in **ceil(n / p) batches**, each batch costing 2 RTT. The base file is fetched first and alone.",
+   "what_full": "A browser can open **p connections in parallel** to fetch embedded objects at the same time. With non-persistent HTTP, the objects go in **ceil(n / p) batches**, each batch costing 2 RTT. The base file is fetched first and alone.\n\nFor a base file and n embedded objects, non-persistent HTTP, p parallel connections, IP known:\n\n**Time** $= 2 + 2 \\times \\lceil n / p \\rceil$ RTT.\n\nThe base file costs 2 RTT before anything else.\n\nThe ceiling matters: a last, partly empty batch still costs a full 2 RTT.\n\nIf $p \\geq n$, there is one batch: $2 + 2 = 4$ RTT.\n\nParallel connections are **different from pipelining**: they use several TCP connections, each with its own handshake.\n\nIf DNS or other servers are involved, add their times separately.\n\n**Worked example.** A page has a base file and 8 small embedded objects on one server, IP known. HTTP is non-persistent, and the browser opens up to 3 parallel connections for the embedded objects. How many RTTs does the page take?\n\n1. Each connection is non-persistent, so each object costs 2 RTT (handshake + request). Up to 3 objects can be in progress at once.\n2. The base file comes first, alone: 2 RTT. The browser cannot start the objects before it has read the base file.\n3. Batch 1: objects 1, 2, 3 on three connections in parallel, taking 2 RTT (RTT 3 and 4).\n4. Batch 2: objects 4, 5, 6 in parallel (RTT 5 and 6).\n5. Batch 3: objects 7 and 8 (RTT 7 and 8); the third connection stays idle. The number of batches is ceil(8 / 3) = 3, rounded **up**.\n6. Total = 2 (base) + 3 batches x 2 RTT = 8 RTT.\n\n**Answer:** 8 RTT.",
+   "why_full": "Parallel connections appear in the page-load combinations (2023 CS Q52 and others). In GATE: the number of RTTs with p parallel non-persistent connections.\n\nAsked: 2023 CS Q52, 2015 CS1 Q17, 2020 CS Q35",
+   "trap": "Rounding n / p down, or using the total number of objects including the base file in the batch count. Another slip is to start the embedded objects in parallel with the base file."
+  },
+  {
+   "atom_id": "d8",
+   "title": "Timeline of a page load",
+   "simple": "Think of ordering something from a shop you have never called. You first need the phone number (look it up in the directory). Then you ring and the shop answers (the handshake). Then you ask for the main item. Only when it arrives do you see that it comes with extras, and only then can you ask for those. If the extras come from another shop, you need that shop's number too. A page load is just these steps in order, each with a waiting time. In exam words: DNS, then SYN, then GET for the base page, then GET for the objects; a second host needs its own DNS and its own connections.",
+   "idea": "A page load is a chain of dependent steps. The browser needs the **IP address (DNS)**, then a **TCP connection (SYN)**, then the **base page (GET)**, and only then the **embedded objects**. A second host repeats the chain for its own objects.",
+   "definition": "**Order of the first packets** with empty caches: (1) DNS query, (2) SYN, (3) GET for the base page, (4) GET for each embedded object, then FIN when closing.\n\n**Total time** = DNS time + connection and request time for the base page + time for the embedded objects (batches, pipelining or sequential).\n\nA new host means a new DNS lookup (unless cached) and a new TCP connection.\n\nA cached DNS answer removes the DNS phase. A cached object removes its request.\n\nAdd the pieces phase by phase in RTTs.",
+   "intuition_full": "Every step needs the result of the one before it. The browser cannot send a SYN before it has an address, cannot send a GET before the connection is open, and cannot ask for an image before it has read the page that names it. This is why timeline questions cannot be solved by overlapping steps freely: only things that do not depend on each other can overlap, like parallel connections once the object names are known. The questions combine the earlier cards. DNS counting gives the first phase (d2). Non-persistent, persistent, pipelined and parallel fetching give the cost of the object phases (d5 to d7). Caches remove phases. When a page uses a second host, its lookup may be cheaper because the resolver has already cached the upper-level servers.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A browser with empty caches opens http://www.site.org/index.html. The page has one image on the same server. The browser uses one persistent connection and closes it at the end. In which order do the packets leave the computer?",
+     "steps": [
+      "The browser knows only the name, so it needs the IP address first. The **DNS query** for www.site.org leaves first, and the reply comes back with the IP.",
+      "With the IP known, the browser opens the connection: the **SYN** segment, then the server's SYN+ACK.",
+      "Then it sends the ACK together with the **GET /index.html** request, and receives the base page.",
+      "Only now does the browser know about the image, so it sends the **GET** for the image (on the same connection). It cannot be sent earlier.",
+      "When everything is done, the browser closes the connection with a **FIN**."
+     ],
+     "answer": "DNS query, SYN, GET index.html, GET image, FIN."
+    },
+    {
+     "level": "gate",
+     "setup": "A browser with empty caches loads a page. The base page is on www.a.com: DNS takes 3 RTT. It links to 3 small images on www.b.com. After the base page arrives, the lookup of www.b.com takes 2 RTT (the resolver has cached the upper servers). HTTP is non-persistent and fetches the images one after another. All other RTTs are 1 RTT each. How long is the whole page load?",
+     "steps": [
+      "Phase 1: DNS for www.a.com: 3 RTT.",
+      "Phase 2: the base page, non-persistent: 2 RTT (handshake + GET). Running total: 5 RTT.",
+      "Phase 3: after the base page, the lookup for www.b.com: 2 RTT. Running total: 7 RTT.",
+      "Phase 4: 3 images, each on a fresh connection: 3 x 2 = 6 RTT.",
+      "Total = 3 + 2 + 2 + 6 = 13 RTT. The images' server is a different host, so it needs its own DNS answer and connections."
+     ],
+     "answer": "13 RTT."
+    },
+    {
+     "level": "twist",
+     "setup": "The browser already has the IP address of www.a.com in its own cache, and the same page load as in the gate example is repeated. How does the total change?",
+     "steps": [
+      "The DNS phase for www.a.com disappears: it saves 3 RTT.",
+      "The lookup for www.b.com is still needed if it is not cached (2 RTT). The connections are all new.",
+      "Total = 13 - 3 = 10 RTT."
+     ],
+     "answer": "10 RTT."
+    }
+   ],
+   "why": "Timeline questions bring DNS and HTTP together and are among the hardest two-markers in this chapter. In GATE: the order of packets, or the total RTTs of a page load with two hosts.",
+   "how": [
+    "List the phases in order: DNS, base page, other DNS if any, embedded objects.",
+    "Cost each phase in RTTs with the earlier cards.",
+    "Add the phases. Remove any phase the caches make unnecessary.",
+    "For packet order questions: DNS, SYN, GET base, GET objects."
+   ],
+   "mistake": "Requesting embedded objects before the base page, or reusing a connection for a second host. Another slip is adding web RTTs when a different RTT applies to DNS, or forgetting that the second host needs its own lookup.",
+   "edge_cases": [
+    "With DNS cached, the first packet is the SYN.",
+    "A resolver on the same host makes DNS RTTs very small; use the values the question gives.",
+    "Low priority: ARP may precede the first packet on a LAN. ARP is not named in the 2027 syllabus."
+   ],
+   "connections": [
+    "DNS phases: d1 to d3.",
+    "Object phases: d5 to d7.",
+    "Caching (d9) removes whole requests."
+   ],
+   "check": [
+    {
+     "q": "Which packet leaves first when the caches are empty?",
+     "a": "The DNS query."
+    },
+    {
+     "q": "DNS 2 RTT, non-persistent, base + 1 image, same server. Total?",
+     "a": "2 + 2 + 2 = 6 RTT."
+    },
+    {
+     "q": "Can the image request be sent before the base page arrives?",
+     "a": "No. The browser learns of the image from the base page."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q16, 2016 CS2 Q25, 2023 CS Q52",
+   "try": {
+    "id": "gen.net.app.007",
+    "label": "Try: which packet leaves first with empty caches (L2)"
+   },
+   "scene": "net.app.d8.timeline",
+   "example": {
+    "setup": "A browser with empty caches opens http://www.site.org/index.html. The page has one image on the same server. The browser uses one persistent connection and closes it at the end. In which order do the packets leave the computer?",
+    "steps": [
+     "The browser knows only the name, so it needs the IP address first. The **DNS query** for www.site.org leaves first, and the reply comes back with the IP.",
+     "With the IP known, the browser opens the connection: the **SYN** segment, then the server's SYN+ACK.",
+     "Then it sends the ACK together with the **GET /index.html** request, and receives the base page.",
+     "Only now does the browser know about the image, so it sends the **GET** for the image (on the same connection). It cannot be sent earlier.",
+     "When everything is done, the browser closes the connection with a **FIN**."
+    ],
+    "answer": "DNS query, SYN, GET index.html, GET image, FIN."
+   },
+   "what": "A page load is a chain of dependent steps. The browser needs the **IP address (DNS)**, then a **TCP connection (SYN)**, then the **base page (GET)**, and only then the **embedded objects**. A second host repeats the chain for its own objects.",
+   "what_full": "A page load is a chain of dependent steps. The browser needs the **IP address (DNS)**, then a **TCP connection (SYN)**, then the **base page (GET)**, and only then the **embedded objects**. A second host repeats the chain for its own objects.\n\n**Order of the first packets** with empty caches: (1) DNS query, (2) SYN, (3) GET for the base page, (4) GET for each embedded object, then FIN when closing.\n\n**Total time** = DNS time + connection and request time for the base page + time for the embedded objects (batches, pipelining or sequential).\n\nA new host means a new DNS lookup (unless cached) and a new TCP connection.\n\nA cached DNS answer removes the DNS phase. A cached object removes its request.\n\nAdd the pieces phase by phase in RTTs.\n\n**Worked example.** A browser with empty caches opens http://www.site.org/index.html. The page has one image on the same server. The browser uses one persistent connection and closes it at the end. In which order do the packets leave the computer?\n\n1. The browser knows only the name, so it needs the IP address first. The **DNS query** for www.site.org leaves first, and the reply comes back with the IP.\n2. With the IP known, the browser opens the connection: the **SYN** segment, then the server's SYN+ACK.\n3. Then it sends the ACK together with the **GET /index.html** request, and receives the base page.\n4. Only now does the browser know about the image, so it sends the **GET** for the image (on the same connection). It cannot be sent earlier.\n5. When everything is done, the browser closes the connection with a **FIN**.\n\n**Answer:** DNS query, SYN, GET index.html, GET image, FIN.",
+   "why_full": "Timeline questions bring DNS and HTTP together and are among the hardest two-markers in this chapter. In GATE: the order of packets, or the total RTTs of a page load with two hosts.\n\nAsked: 2024 CS1 Q16, 2016 CS2 Q25, 2023 CS Q52",
+   "trap": "Requesting embedded objects before the base page, or reusing a connection for a second host. Another slip is adding web RTTs when a different RTT applies to DNS, or forgetting that the second host needs its own lookup."
+  },
+  {
+   "atom_id": "d9",
+   "title": "Caching",
+   "simple": "A shop that keeps its most popular items by the door can hand them over at once. Items not in stock must be fetched from the warehouse, which takes much longer. If most customers ask for popular items, the average wait is close to the quick time. When the shop is not sure its stock is still fresh, it phones the warehouse and asks 'has this changed?'. If not, the answer is a quick 'no change', and nothing needs to be carried. In exam words: the average time is hit ratio x hit time + miss ratio x miss time; a conditional GET gets a 304 reply with no body if the cached copy is current.",
+   "idea": "A **cache** keeps copies of objects close to the client. A **hit** is answered locally and quickly. A **miss** goes to the origin and costs more. A **conditional GET** lets a cache check whether its copy is still current without downloading the object again.",
+   "definition": "**Average time** $= h \\times T_{hit} + (1 - h) \\times T_{miss}$, where h is the hit ratio.\n\nA miss includes the cost of the failed lookup: $T_{miss} = T_{lookup} + T_{origin}$.\n\n**Conditional GET:** the cache sends If-Modified-Since: date (or an ETag). If the object is unchanged, the origin replies **304 Not Modified** with no body. If changed, it replies 200 OK with the new object.\n\nA proxy cache serves many clients; a browser cache serves one.\n\nCached entries have an expiry time; after it they must be revalidated.",
+   "intuition_full": "The average time is a weighted average, so it moves between the hit time and the miss time depending on the hit ratio. Small differences in the hit ratio matter a lot when misses are much slower than hits. The common trap is to forget that a miss also paid the lookup in the proxy, so it costs more than the origin fetch alone. Conditional GET makes a stale entry cheaper to renew. Instead of fetching the whole object again, the cache asks 'has it changed since this date?'. If not, the reply is a tiny 304 message, and the cached body is used. So revalidation costs about one round trip to the origin, while a real change costs the full transfer. Together, caching and conditional GET cut both delay and traffic.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A proxy cache answers a hit in 15 ms. On a miss it spends 15 ms on the lookup and then fetches the object from the origin server in 180 ms. The hit ratio is 0.7. What is the average response time?",
+     "steps": [
+      "Hit time = 15 ms. Miss time = lookup 15 ms + origin fetch 180 ms = **195 ms**.",
+      "A hit happens 70% of the time and a miss 30% of the time.",
+      "Average = 0.7 x 15 + 0.3 x 195.",
+      "= 10.5 + 58.5 = **69 ms**.",
+      "Without a proxy every request would cost the origin fetch of 180 ms (no lookup). The average of 69 ms is far below that, so the cache helps because most requests are hits."
+     ],
+     "answer": "69 ms."
+    },
+    {
+     "level": "gate",
+     "setup": "With the same hit time 15 ms and miss time 195 ms, what is the smallest hit ratio h for which the average response time is at most 100 ms?",
+     "steps": [
+      "Average = h x 15 + (1 - h) x 195 = 195 - 180 h.",
+      "We need 195 - 180 h <= 100, so 180 h >= 95, so h >= 95 / 180 = 0.5278.",
+      "Check: h = 0.53 gives 0.53 x 15 + 0.47 x 195 = 7.95 + 91.65 = 99.6 ms (fine). h = 0.52 gives 0.52 x 15 + 0.48 x 195 = 7.8 + 93.6 = 101.4 ms (too slow).",
+      "So about 53% of requests must be hits."
+     ],
+     "answer": "h >= 0.528 (about 53%)."
+    },
+    {
+     "level": "twist",
+     "setup": "The cached copy has expired. The proxy sends a **conditional GET** (If-Modified-Since) to the origin, which is 40 ms away. If the object is unchanged the origin answers 304 Not Modified with no body, otherwise it sends the full object (total miss time 195 ms). The proxy lookup costs 15 ms. The object is unchanged in 80% of revalidations. What is the average time for these requests?",
+     "steps": [
+      "Unchanged: the proxy pays the lookup 15 ms plus one RTT to the origin, 40 ms. The 304 reply has no body, so it adds no transfer time: 15 + 40 = 55 ms.",
+      "Changed: the origin sends the whole object. The time is the full miss time, 195 ms.",
+      "Average = 0.8 x 55 + 0.2 x 195 = 44 + 39 = 83 ms.",
+      "A conditional GET saves the transfer of the body when the copy is still good."
+     ],
+     "answer": "83 ms."
+    }
+   ],
+   "why": "Caching ties HTTP to expected-value arithmetic. In GATE: average response time with a proxy, a minimum hit ratio, or the reply to a conditional GET.",
+   "how": [
+    "Write hit time and miss time. Miss time = lookup + origin fetch.",
+    "Average = h x hit + (1 - h) x miss.",
+    "For a required average, solve the linear inequality for h.",
+    "A conditional GET for an unchanged object returns 304 with no body."
+   ],
+   "mistake": "Forgetting the proxy lookup cost on a miss (using the origin fetch alone), or sending the object back for a 304 reply. Another slip is to swap the weights of hit and miss.",
+   "edge_cases": [
+    "h = 1 gives the hit time; h = 0 gives the miss time.",
+    "A 304 reply still costs a round trip to the origin.",
+    "Browser caches and proxy caches can both sit in the path."
+   ],
+   "connections": [
+    "Status codes (301, 304): d4.",
+    "DNS caching with TTL is d3, the same expiry idea.",
+    "Expectation (prob.rv) is the maths of the average."
+   ],
+   "check": [
+    {
+     "q": "Hit 10 ms, miss 110 ms, hit ratio 0.5. Average?",
+     "a": "0.5 x 10 + 0.5 x 110 = 60 ms."
+    },
+    {
+     "q": "What does a server reply to a conditional GET when the page is unchanged?",
+     "a": "304 Not Modified, with no body."
+    },
+    {
+     "q": "Why is the miss time more than the origin fetch time?",
+     "a": "The proxy lookup that failed also cost time."
+    }
+   ],
+   "asked": "Asked: no direct question in the blueprint; the average-time formula and the 304 reply are tested on the ladder.",
+   "try": {
+    "id": "gen.net.app.010",
+    "label": "Try: reply to a conditional GET for an unchanged page (L2)"
+   },
+   "scene": "net.app.d9.cache",
+   "example": {
+    "setup": "A proxy cache answers a hit in 15 ms. On a miss it spends 15 ms on the lookup and then fetches the object from the origin server in 180 ms. The hit ratio is 0.7. What is the average response time?",
+    "steps": [
+     "Hit time = 15 ms. Miss time = lookup 15 ms + origin fetch 180 ms = **195 ms**.",
+     "A hit happens 70% of the time and a miss 30% of the time.",
+     "Average = 0.7 x 15 + 0.3 x 195.",
+     "= 10.5 + 58.5 = **69 ms**.",
+     "Without a proxy every request would cost the origin fetch of 180 ms (no lookup). The average of 69 ms is far below that, so the cache helps because most requests are hits."
+    ],
+    "answer": "69 ms."
+   },
+   "what": "A **cache** keeps copies of objects close to the client. A **hit** is answered locally and quickly. A **miss** goes to the origin and costs more. A **conditional GET** lets a cache check whether its copy is still current without downloading the object again.",
+   "what_full": "A **cache** keeps copies of objects close to the client. A **hit** is answered locally and quickly. A **miss** goes to the origin and costs more. A **conditional GET** lets a cache check whether its copy is still current without downloading the object again.\n\n**Average time** $= h \\times T_{hit} + (1 - h) \\times T_{miss}$, where h is the hit ratio.\n\nA miss includes the cost of the failed lookup: $T_{miss} = T_{lookup} + T_{origin}$.\n\n**Conditional GET:** the cache sends If-Modified-Since: date (or an ETag). If the object is unchanged, the origin replies **304 Not Modified** with no body. If changed, it replies 200 OK with the new object.\n\nA proxy cache serves many clients; a browser cache serves one.\n\nCached entries have an expiry time; after it they must be revalidated.\n\n**Worked example.** A proxy cache answers a hit in 15 ms. On a miss it spends 15 ms on the lookup and then fetches the object from the origin server in 180 ms. The hit ratio is 0.7. What is the average response time?\n\n1. Hit time = 15 ms. Miss time = lookup 15 ms + origin fetch 180 ms = **195 ms**.\n2. A hit happens 70% of the time and a miss 30% of the time.\n3. Average = 0.7 x 15 + 0.3 x 195.\n4. = 10.5 + 58.5 = **69 ms**.\n5. Without a proxy every request would cost the origin fetch of 180 ms (no lookup). The average of 69 ms is far below that, so the cache helps because most requests are hits.\n\n**Answer:** 69 ms.",
+   "why_full": "Caching ties HTTP to expected-value arithmetic. In GATE: average response time with a proxy, a minimum hit ratio, or the reply to a conditional GET.\n\nAsked: no direct question in the blueprint; the average-time formula and the 304 reply are tested on the ladder.",
+   "trap": "Forgetting the proxy lookup cost on a miss (using the origin fetch alone), or sending the object back for a 304 reply. Another slip is to swap the weights of hit and miss."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "net.app.d1.tree",
+   "title": "Walking the DNS tree for www.uni.ac.in",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "n_root",
+     "kind": "node",
+     "x": 180,
+     "y": 22,
+     "label": ".",
+     "r": 16
+    },
+    {
+     "id": "n_com",
+     "kind": "node",
+     "x": 90,
+     "y": 66,
+     "label": "com",
+     "r": 16
+    },
+    {
+     "id": "n_in",
+     "kind": "node",
+     "x": 180,
+     "y": 66,
+     "label": "in",
+     "r": 16
+    },
+    {
+     "id": "n_org",
+     "kind": "node",
+     "x": 270,
+     "y": 66,
+     "label": "org",
+     "r": 16
+    },
+    {
+     "id": "n_ac",
+     "kind": "node",
+     "x": 140,
+     "y": 112,
+     "label": "ac",
+     "r": 16
+    },
+    {
+     "id": "n_co",
+     "kind": "node",
+     "x": 220,
+     "y": 112,
+     "label": "co",
+     "r": 16
+    },
+    {
+     "id": "n_uni",
+     "kind": "node",
+     "x": 110,
+     "y": 158,
+     "label": "uni",
+     "r": 16
+    },
+    {
+     "id": "n_iit",
+     "kind": "node",
+     "x": 170,
+     "y": 158,
+     "label": "iit",
+     "r": 16
+    },
+    {
+     "id": "n_www",
+     "kind": "node",
+     "x": 110,
+     "y": 204,
+     "label": "www",
+     "r": 16
+    },
+    {
+     "id": "e_rootcom",
+     "kind": "edge",
+     "from": "n_root",
+     "to": "n_com"
+    },
+    {
+     "id": "e_rootin",
+     "kind": "edge",
+     "from": "n_root",
+     "to": "n_in"
+    },
+    {
+     "id": "e_rootorg",
+     "kind": "edge",
+     "from": "n_root",
+     "to": "n_org"
+    },
+    {
+     "id": "e_inac",
+     "kind": "edge",
+     "from": "n_in",
+     "to": "n_ac"
+    },
+    {
+     "id": "e_inco",
+     "kind": "edge",
+     "from": "n_in",
+     "to": "n_co"
+    },
+    {
+     "id": "e_acuni",
+     "kind": "edge",
+     "from": "n_ac",
+     "to": "n_uni"
+    },
+    {
+     "id": "e_aciit",
+     "kind": "edge",
+     "from": "n_ac",
+     "to": "n_iit"
+    },
+    {
+     "id": "e_uniwww",
+     "kind": "edge",
+     "from": "n_uni",
+     "to": "n_www"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 270,
+     "y": 184,
+     "text": "",
+     "size": 13,
+     "tone": "accent",
+     "bold": true
+    },
+    {
+     "id": "rd2",
+     "kind": "text",
+     "x": 270,
+     "y": 210,
+     "text": "",
+     "size": 13,
+     "tone": "accent",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A name is read from right to left: **in**, then **ac**, then **uni**, then the host **www**. The DNS tree has the same shape: root at the top, then the top-level domain (TLD) in, then ac, then uni.",
+     "set": [
+      {
+       "id": "n_www",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "n_www",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The **root servers** know the servers for each TLD. Asked about www.uni.ac.in, a root server gives a **referral**: NS records naming the servers of in.",
+     "set": [
+      {
+       "id": "n_root",
+       "tone": "good"
+      },
+      {
+       "id": "n_in",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "root refers to in"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e_rootin",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The **in servers** do not know the host, but know who runs ac.in. They refer the resolver to the servers of ac.in.",
+     "set": [
+      {
+       "id": "n_ac",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "in refers to ac.in"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e_inac",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The **ac.in servers** refer the resolver on to the **authoritative** servers for uni.ac.in.",
+     "set": [
+      {
+       "id": "n_uni",
+       "tone": "good"
+      },
+      {
+       "id": "rd",
+       "text": "ac.in refers to uni.ac.in"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e_acuni",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The authoritative server for uni.ac.in holds the **A record** of www.uni.ac.in and returns the IP address. Referrals come from the upper levels; only the authoritative server gives the final answer.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "uni.ac.in answers:"
+      },
+      {
+       "id": "rd2",
+       "text": "A record of www"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e_uniwww",
+       "tone": "good"
+      },
+      {
+       "id": "n_www",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.app.d2.pairs",
+   "title": "One query-response pair per server",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "res",
+     "kind": "box",
+     "x": 10,
+     "y": 94,
+     "w": 74,
+     "h": 44,
+     "label": "resolver"
+    },
+    {
+     "id": "cnt",
+     "kind": "text",
+     "x": 46,
+     "y": 164,
+     "text": "pairs: 0",
+     "size": 13,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "sv0",
+     "kind": "box",
+     "x": 230,
+     "y": 20,
+     "w": 120,
+     "h": 28,
+     "label": "root"
+    },
+    {
+     "id": "sv1",
+     "kind": "box",
+     "x": 230,
+     "y": 62,
+     "w": 120,
+     "h": 28,
+     "label": "in"
+    },
+    {
+     "id": "sv2",
+     "kind": "box",
+     "x": 230,
+     "y": 104,
+     "w": 120,
+     "h": 28,
+     "label": "ac.in"
+    },
+    {
+     "id": "sv3",
+     "kind": "box",
+     "x": 230,
+     "y": 146,
+     "w": 120,
+     "h": 28,
+     "label": "uni.ac.in"
+    },
+    {
+     "id": "sv4",
+     "kind": "box",
+     "x": 230,
+     "y": 188,
+     "w": 120,
+     "h": 28,
+     "label": "dept.uni.ac.in"
+    },
+    {
+     "id": "q0",
+     "kind": "arrow",
+     "x1": 84,
+     "y1": 108,
+     "x2": 228,
+     "y2": 28,
+     "tone": "accent"
+    },
+    {
+     "id": "q1",
+     "kind": "arrow",
+     "x1": 84,
+     "y1": 108,
+     "x2": 228,
+     "y2": 70,
+     "tone": "accent"
+    },
+    {
+     "id": "q2",
+     "kind": "arrow",
+     "x1": 84,
+     "y1": 108,
+     "x2": 228,
+     "y2": 112,
+     "tone": "accent"
+    },
+    {
+     "id": "q3",
+     "kind": "arrow",
+     "x1": 84,
+     "y1": 108,
+     "x2": 228,
+     "y2": 154,
+     "tone": "accent"
+    },
+    {
+     "id": "q4",
+     "kind": "arrow",
+     "x1": 84,
+     "y1": 108,
+     "x2": 228,
+     "y2": 196,
+     "tone": "accent"
+    },
+    {
+     "id": "r0",
+     "kind": "arrow",
+     "x1": 228,
+     "y1": 40,
+     "x2": 84,
+     "y2": 124,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "r1",
+     "kind": "arrow",
+     "x1": 228,
+     "y1": 82,
+     "x2": 84,
+     "y2": 124,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "r2",
+     "kind": "arrow",
+     "x1": 228,
+     "y1": 124,
+     "x2": 84,
+     "y2": 124,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "r3",
+     "kind": "arrow",
+     "x1": 228,
+     "y1": 166,
+     "x2": 84,
+     "y2": 124,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "r4",
+     "kind": "arrow",
+     "x1": 228,
+     "y1": 208,
+     "x2": 84,
+     "y2": 124,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 224,
+     "text": "",
+     "size": 13,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The name has the domain labels dept, uni, ac, in, and the host www. Each domain level has its own server, plus the root. The resolver asks root first. Reply: a referral to the servers of **in**. **Pair 1.**",
+     "show": [
+      "q0",
+      "r0"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "pairs: 1"
+      },
+      {
+       "id": "rd",
+       "text": "root: refers to in"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sv0",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "It asks the in server. Reply: a referral to ac.in. **Pair 2.**",
+     "show": [
+      "q1",
+      "r1"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "pairs: 2"
+      },
+      {
+       "id": "rd",
+       "text": "in: refers to ac.in"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sv1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "It asks the ac.in server. Reply: a referral to uni.ac.in. **Pair 3.**",
+     "show": [
+      "q2",
+      "r2"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "pairs: 3"
+      },
+      {
+       "id": "rd",
+       "text": "ac.in: refers to uni.ac.in"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sv2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "It asks the uni.ac.in server. Reply: a referral to dept.uni.ac.in. **Pair 4.**",
+     "show": [
+      "q3",
+      "r3"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "pairs: 4"
+      },
+      {
+       "id": "rd",
+       "text": "uni.ac.in: refers to dept"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sv3",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "It asks the dept.uni.ac.in server, which is authoritative. Reply: the A record of www. **Pair 5.**",
+     "show": [
+      "q4",
+      "r4"
+     ],
+     "set": [
+      {
+       "id": "cnt",
+       "text": "pairs: 5"
+      },
+      {
+       "id": "rd",
+       "text": "dept: A record of www"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "sv4",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "There is one pair per server walked: root plus the 4 domain labels = 5. The query from the user's host to the resolver is not a pair with a DNS server.",
+     "set": [
+      {
+       "id": "cnt",
+       "text": "pairs: 5"
+      },
+      {
+       "id": "rd",
+       "text": "5 = root + 4 domain labels",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cnt",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.app.d3.records",
+   "title": "Following a CNAME to an A record",
+   "viewBox": [
+    0,
+    0,
+    360,
+    242
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 30,
+     "y": 60,
+     "rows": 5,
+     "cols": 3,
+     "cells": [
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 100,
+     "ch": 26,
+     "colLabels": [
+      "name",
+      "type",
+      "value"
+     ]
+    },
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "zone file of uni.ac.in",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 224,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The zone file of uni.ac.in has five records of four types: **NS** (name of a server for the zone), **A** (name to IPv4 address), **CNAME** (alias for another name), **MX** (mail host).",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "uni.ac.in",
+         "NS",
+         "ns1"
+        ],
+        [
+         "ns1",
+         "A",
+         "10.1.1.5"
+        ],
+        [
+         "www",
+         "A",
+         "10.1.1.20"
+        ],
+        [
+         "web",
+         "CNAME",
+         "www"
+        ],
+        [
+         "uni.ac.in",
+         "MX",
+         "mail"
+        ]
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         4,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The client asks for the A record of web. The server finds a **CNAME** record: web is an alias of www.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "web is a CNAME for www"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         3,
+         0
+        ],
+        [
+         3,
+         1
+        ],
+        [
+         3,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The resolver follows the alias and looks up the A record of www: 10.1.1.20.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "www A 10.1.1.20"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The answer is 10.1.1.20. The resolver caches both the CNAME and the A record, each for its **TTL** (say 3600 s). Another lookup within the hour costs no DNS query.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "answer 10.1.1.20, cached for the TTL",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         2,
+         2
+        ],
+        [
+         3,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "A mail server delivering to user@uni.ac.in would ask for the **MX** record: the mail host is mail.uni.ac.in, and it then looks up the A record of mail.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "mail for the zone: MX = mail"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         4,
+         0
+        ],
+        [
+         4,
+         1
+        ],
+        [
+         4,
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The NS record names the servers of the zone. When a parent sends a referral to ns1.uni.ac.in, it also sends ns1's A record (10.1.1.5) so the resolver can reach it.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "NS ns1 + glue A 10.1.1.5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "mid",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.app.d4.cookie",
+   "title": "Cookies carry the state, not HTTP",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "cl",
+     "kind": "edge",
+     "x1": 60,
+     "y1": 30,
+     "x2": 60,
+     "y2": 216
+    },
+    {
+     "id": "sl",
+     "kind": "edge",
+     "x1": 300,
+     "y1": 30,
+     "x2": 300,
+     "y2": 216
+    },
+    {
+     "id": "lc",
+     "kind": "text",
+     "x": 60,
+     "y": 16,
+     "text": "Browser",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "ls",
+     "kind": "text",
+     "x": 300,
+     "y": 16,
+     "text": "Server",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "m1",
+     "kind": "arrow",
+     "x1": 60,
+     "y1": 44,
+     "x2": 300,
+     "y2": 58,
+     "label": "GET /cart"
+    },
+    {
+     "id": "m2",
+     "kind": "arrow",
+     "x1": 300,
+     "y1": 92,
+     "x2": 60,
+     "y2": 106,
+     "label": "200 OK, Set-Cookie: id=77"
+    },
+    {
+     "id": "m3",
+     "kind": "arrow",
+     "x1": 60,
+     "y1": 140,
+     "x2": 300,
+     "y2": 154,
+     "label": "GET /cart, Cookie: id=77"
+    },
+    {
+     "id": "m4",
+     "kind": "arrow",
+     "x1": 300,
+     "y1": 188,
+     "x2": 60,
+     "y2": 202,
+     "label": "200 OK: 2 items"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 234,
+     "text": "",
+     "size": 13,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Request 1: GET /cart. The browser has no cookie for this site yet, so the request carries none.",
+     "show": [
+      "cl",
+      "sl",
+      "lc",
+      "ls",
+      "m1"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "no cookie yet"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "m1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Response 1: 200 OK, with the header Set-Cookie: id=77. The server also creates a record for id 77 in its own database.",
+     "show": [
+      "m2"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "server stores id 77"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "m2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Request 2: GET /cart, now with the header Cookie: id=77. The browser adds the cookie to every request to this site.",
+     "show": [
+      "m3"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "browser adds the cookie"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "m3",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The server looks up id 77 in its database and finds that user's cart. Response 2: 200 OK with the page showing 2 items.",
+     "show": [
+      "m4"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "server finds cart 77"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "m4",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "HTTP itself kept no memory: each request is handled on its own. The state lives in the server's database, and the cookie is the key that finds it.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "HTTP stateless; cookie = key",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.app.d5.nonpersist",
+   "title": "Two RTT for every object",
+   "viewBox": [
+    0,
+    0,
+    360,
+    166
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 12,
+     "y": 70,
+     "rows": 1,
+     "cols": 14,
+     "cells": [
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 24,
+     "ch": 30,
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14"
+     ],
+     "colTitle": "RTT number"
+    },
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "base + 6 objects, one connection each",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 148,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The page has 1 + 6 = 7 objects. Non-persistent HTTP opens a **new TCP connection for every object**.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "7 objects, 7 connections"
+      }
+     ]
+    },
+    {
+     "caption": "Base file: RTT 1 is the TCP handshake. RTT 2 is the GET request and the reply. The base file costs **2 RTT**.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "S0",
+         "G0",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "base: S0 = handshake, G0 = GET"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The browser reads the base file and finds the 6 objects. Object 1 needs a new connection: RTT 3 for the handshake, RTT 4 for the request and reply.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "S0",
+         "G0",
+         "S1",
+         "G1",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "object 1 needs a new connection"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Objects 2 to 6 each repeat the same two RTTs, up to RTT 14.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "S0",
+         "G0",
+         "S1",
+         "G1",
+         "S2",
+         "G2",
+         "S3",
+         "G3",
+         "S4",
+         "G4",
+         "S5",
+         "G5",
+         "S6",
+         "G6"
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "objects 2 to 6 repeat it"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "mid",
+       "cells": [
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ],
+        [
+         0,
+         6
+        ],
+        [
+         0,
+         7
+        ],
+        [
+         0,
+         8
+        ],
+        [
+         0,
+         9
+        ],
+        [
+         0,
+         10
+        ],
+        [
+         0,
+         11
+        ],
+        [
+         0,
+         12
+        ],
+        [
+         0,
+         13
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Total = 7 objects x 2 RTT = 14 RTT.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "7 x 2 = 14 RTT",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ],
+        [
+         0,
+         6
+        ],
+        [
+         0,
+         7
+        ],
+        [
+         0,
+         8
+        ],
+        [
+         0,
+         9
+        ],
+        [
+         0,
+         10
+        ],
+        [
+         0,
+         11
+        ],
+        [
+         0,
+         12
+        ],
+        [
+         0,
+         13
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.app.d6.persistent",
+   "title": "One connection, many requests",
+   "viewBox": [
+    0,
+    0,
+    360,
+    214
+   ],
+   "objects": [
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 20,
+     "y": 56,
+     "cells": [],
+     "cw": 40,
+     "ch": 30,
+     "indices": false,
+     "slots": 8,
+     "label": "persistent, no pipelining"
+    },
+    {
+     "id": "b",
+     "kind": "array",
+     "x": 20,
+     "y": 126,
+     "cells": [],
+     "cw": 40,
+     "ch": 30,
+     "indices": false,
+     "slots": 8,
+     "label": "persistent + pipelining"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Persistent HTTP keeps **one TCP connection open** for all requests to this server. Base file + 6 objects, IP known.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "base + 6 objects, same server"
+      }
+     ]
+    },
+    {
+     "caption": "The handshake is done **once**: 1 RTT.",
+     "set": [
+      {
+       "id": "a",
+       "cells": [
+        "SYN"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "handshake once: 1 RTT"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "accent",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The base file: 1 RTT for the GET and the reply.",
+     "set": [
+      {
+       "id": "a",
+       "cells": [
+        "SYN",
+        "base"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "base file: 1 RTT"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "accent",
+       "cells": [
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "(a) Without pipelining each request waits for the previous reply: 6 objects x 1 RTT = 6 RTT. Total = 1 + 1 + 6 = **8 RTT**.",
+     "set": [
+      {
+       "id": "a",
+       "cells": [
+        "SYN",
+        "base",
+        "o1",
+        "o2",
+        "o3",
+        "o4",
+        "o5",
+        "o6"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "1 + 1 + 6 = 8 RTT"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "mid",
+       "cells": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "(b) With pipelining the browser sends all 6 requests together and the replies stream back: 1 RTT for the whole batch. Total = 1 + 1 + 1 = **3 RTT**.",
+     "set": [
+      {
+       "id": "b",
+       "cells": [
+        "SYN",
+        "base",
+        "o1-6"
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "1 + 1 + 1 = 3 RTT",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "good",
+       "cells": [
+        0,
+        1,
+        2
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "For comparison, non-persistent HTTP took 14 RTT. Persistence removes the repeated handshakes, and pipelining removes the waiting between requests.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "non-persistent needed 14 RTT"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "tone": "bad",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.app.d7.parallel",
+   "title": "Three connections working in batches",
+   "viewBox": [
+    0,
+    0,
+    360,
+    204
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 62,
+     "y": 64,
+     "rows": 3,
+     "cols": 8,
+     "cells": [
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ],
+      [
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     ],
+     "cw": 34,
+     "ch": 30,
+     "rowLabels": [
+      "conn 1",
+      "conn 2",
+      "conn 3"
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+     ],
+     "colTitle": "RTT number"
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 182,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Each connection is non-persistent, so each object costs 2 RTT (handshake + request). Up to 3 objects can be in progress at once.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "non-persistent: 2 RTT per object"
+      }
+     ]
+    },
+    {
+     "caption": "The base file comes first, alone: 2 RTT. The browser cannot start the objects before it has read the base file.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "B",
+         "B",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "base file first: 2 RTT"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "accent",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Batch 1: objects 1, 2, 3 on three connections in parallel, taking 2 RTT (RTT 3 and 4).",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "B",
+         "B",
+         "o1",
+         "o1",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "o2",
+         "o2",
+         "",
+         "",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "o3",
+         "o3",
+         "",
+         "",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "batch 1: o1, o2, o3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Batch 2: objects 4, 5, 6 in parallel (RTT 5 and 6).",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "B",
+         "B",
+         "o1",
+         "o1",
+         "o4",
+         "o4",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "o2",
+         "o2",
+         "o5",
+         "o5",
+         "",
+         ""
+        ],
+        [
+         "",
+         "",
+         "o3",
+         "o3",
+         "o6",
+         "o6",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "batch 2: o4, o5, o6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         1,
+         5
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         2,
+         5
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Batch 3: objects 7 and 8 (RTT 7 and 8); the third connection stays idle. The number of batches is ceil(8 / 3) = 3, rounded **up**.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         "B",
+         "B",
+         "o1",
+         "o1",
+         "o4",
+         "o4",
+         "o7",
+         "o7"
+        ],
+        [
+         "",
+         "",
+         "o2",
+         "o2",
+         "o5",
+         "o5",
+         "o8",
+         "o8"
+        ],
+        [
+         "",
+         "",
+         "o3",
+         "o3",
+         "o6",
+         "o6",
+         "",
+         ""
+        ]
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "batch 3: o7, o8 (ceil(8/3) = 3)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         6
+        ],
+        [
+         0,
+         7
+        ],
+        [
+         1,
+         6
+        ],
+        [
+         1,
+         7
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Total = 2 (base) + 3 batches x 2 RTT = 8 RTT.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "2 + 3 x 2 = 8 RTT",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "tone": "good",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ],
+        [
+         0,
+         4
+        ],
+        [
+         0,
+         5
+        ],
+        [
+         0,
+         6
+        ],
+        [
+         0,
+         7
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         1,
+         4
+        ],
+        [
+         1,
+         5
+        ],
+        [
+         1,
+         6
+        ],
+        [
+         1,
+         7
+        ],
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ],
+        [
+         2,
+         4
+        ],
+        [
+         2,
+         5
+        ],
+        [
+         2,
+         6
+        ],
+        [
+         2,
+         7
+        ]
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.app.d8.timeline",
+   "title": "Packets of a page load, in order",
+   "viewBox": [
+    0,
+    0,
+    360,
+    254
+   ],
+   "objects": [
+    {
+     "id": "lb",
+     "kind": "edge",
+     "x1": 50,
+     "y1": 26,
+     "x2": 50,
+     "y2": 222
+    },
+    {
+     "id": "ld",
+     "kind": "edge",
+     "x1": 180,
+     "y1": 26,
+     "x2": 180,
+     "y2": 222
+    },
+    {
+     "id": "lw",
+     "kind": "edge",
+     "x1": 310,
+     "y1": 26,
+     "x2": 310,
+     "y2": 222
+    },
+    {
+     "id": "tb",
+     "kind": "text",
+     "x": 50,
+     "y": 14,
+     "text": "Browser",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "td",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "DNS",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "tw",
+     "kind": "text",
+     "x": 310,
+     "y": 14,
+     "text": "Web server",
+     "size": 13,
+     "bold": true
+    },
+    {
+     "id": "r1",
+     "kind": "arrow",
+     "x1": 50,
+     "y1": 40,
+     "x2": 180,
+     "y2": 46,
+     "label": "DNS query",
+     "tone": "accent"
+    },
+    {
+     "id": "p1",
+     "kind": "arrow",
+     "x1": 180,
+     "y1": 58,
+     "x2": 50,
+     "y2": 64,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "r2",
+     "kind": "arrow",
+     "x1": 50,
+     "y1": 80,
+     "x2": 310,
+     "y2": 86,
+     "label": "SYN",
+     "tone": "accent"
+    },
+    {
+     "id": "p2",
+     "kind": "arrow",
+     "x1": 310,
+     "y1": 98,
+     "x2": 50,
+     "y2": 104,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "r3",
+     "kind": "arrow",
+     "x1": 50,
+     "y1": 120,
+     "x2": 310,
+     "y2": 126,
+     "label": "ACK + GET index.html",
+     "tone": "accent"
+    },
+    {
+     "id": "p3",
+     "kind": "arrow",
+     "x1": 310,
+     "y1": 138,
+     "x2": 50,
+     "y2": 144,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "r4",
+     "kind": "arrow",
+     "x1": 50,
+     "y1": 160,
+     "x2": 310,
+     "y2": 166,
+     "label": "GET image",
+     "tone": "accent"
+    },
+    {
+     "id": "p4",
+     "kind": "arrow",
+     "x1": 310,
+     "y1": 178,
+     "x2": 50,
+     "y2": 184,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "r5",
+     "kind": "arrow",
+     "x1": 50,
+     "y1": 200,
+     "x2": 310,
+     "y2": 206,
+     "label": "FIN",
+     "tone": "accent"
+    },
+    {
+     "id": "p5",
+     "kind": "arrow",
+     "x1": 310,
+     "y1": 218,
+     "x2": 50,
+     "y2": 224,
+     "tone": "good",
+     "dash": true
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 240,
+     "text": "",
+     "size": 13,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The browser knows only the name, so it needs the IP address first. The **DNS query** for www.site.org leaves first, and the reply comes back with the IP.",
+     "show": [
+      "lb",
+      "ld",
+      "lw",
+      "tb",
+      "td",
+      "tw",
+      "r1",
+      "p1"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "1: DNS query and reply"
+      }
+     ]
+    },
+    {
+     "caption": "With the IP known, the browser opens the connection: the **SYN** segment, then the server's SYN+ACK.",
+     "show": [
+      "r2",
+      "p2"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "2: SYN, SYN+ACK"
+      }
+     ]
+    },
+    {
+     "caption": "Then it sends the ACK together with the **GET /index.html** request, and receives the base page.",
+     "show": [
+      "r3",
+      "p3"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "3: GET index.html"
+      }
+     ]
+    },
+    {
+     "caption": "Only now does the browser know about the image, so it sends the **GET** for the image (on the same connection). It cannot be sent earlier.",
+     "show": [
+      "r4",
+      "p4"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "4: GET image (after the base page)"
+      }
+     ]
+    },
+    {
+     "caption": "When everything is done, the browser closes the connection with a **FIN**.",
+     "show": [
+      "r5",
+      "p5"
+     ],
+     "set": [
+      {
+       "id": "rd",
+       "text": "5: FIN",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "net.app.d9.cache",
+   "title": "Hits are fast, misses are slow, the mix is in between",
+   "viewBox": [
+    0,
+    0,
+    360,
+    208
+   ],
+   "objects": [
+    {
+     "id": "b",
+     "kind": "bar",
+     "x": 50,
+     "y": 34,
+     "values": [
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "hit",
+      "miss",
+      "average"
+     ],
+     "w": 260,
+     "h": 110,
+     "max": 200,
+     "hideZero": true
+    },
+    {
+     "id": "rd",
+     "kind": "text",
+     "x": 180,
+     "y": 190,
+     "text": "",
+     "size": 14,
+     "tone": "accent",
+     "bold": true,
+     "mono": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Hit time = 15 ms. Miss time = lookup 15 ms + origin fetch 180 ms = **195 ms**.",
+     "set": [
+      {
+       "id": "b",
+       "values": [
+        15,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "hit = 15 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "good",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "A hit happens 70% of the time and a miss 30% of the time.",
+     "set": [
+      {
+       "id": "b",
+       "values": [
+        15,
+        195,
+        0
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "miss = 15 + 180 = 195 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "bad",
+       "cells": [
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Average = 0.7 x 15 + 0.3 x 195.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "weights: 0.7 hits, 0.3 misses"
+      }
+     ]
+    },
+    {
+     "caption": "= 10.5 + 58.5 = **69 ms**.",
+     "set": [
+      {
+       "id": "b",
+       "values": [
+        15,
+        195,
+        69
+       ]
+      },
+      {
+       "id": "rd",
+       "text": "10.5 + 58.5 = 69 ms"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "accent",
+       "cells": [
+        2
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Without a proxy every request would cost the origin fetch of 180 ms (no lookup). The average of 69 ms is far below that, so the cache helps because most requests are hits.",
+     "set": [
+      {
+       "id": "rd",
+       "text": "no proxy: 180 ms each",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "tone": "good",
+       "cells": [
+        2
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

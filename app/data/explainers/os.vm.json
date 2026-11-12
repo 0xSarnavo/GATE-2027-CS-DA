@@ -1,0 +1,4289 @@
+{
+ "topic_id": "os.vm",
+ "title": "Virtual memory",
+ "chapter_note": {
+  "about": "Virtual memory lets a program use more addresses than the machine has physical memory. The page table maps each virtual page to a physical frame, and pages come in from disk only when they are touched. GATE turns this into four kinds of question: sizes of tables, the time of one access, counting page faults under a policy, and true-or-false concepts. Almost all of it is careful arithmetic on powers of two.",
+  "concept_map": [
+   {
+    "atom_id": "v1",
+    "title": "Demand paging and page faults",
+    "one_line": "Pages load on first use, and an invalid entry traps to the OS."
+   },
+   {
+    "atom_id": "v2",
+    "title": "Page table size and PTE",
+    "one_line": "Entries come from the virtual page number, and entry width comes from the frame bits."
+   },
+   {
+    "atom_id": "v3",
+    "title": "Multi-level page tables",
+    "one_line": "Each table fills one page, and you count tables level by level with ceilings."
+   },
+   {
+    "atom_id": "v4",
+    "title": "TLB and effective access time",
+    "one_line": "A small cache of translations: hits cost t + m, misses cost extra page-table reads."
+   },
+   {
+    "atom_id": "v5",
+    "title": "EAT with page faults",
+    "one_line": "Weight the normal access and the slow fault by how often each happens."
+   },
+   {
+    "atom_id": "v6",
+    "title": "FIFO, LRU and optimal replacement",
+    "one_line": "Three rules for which page to evict, compared by counting faults."
+   },
+   {
+    "atom_id": "v7",
+    "title": "Belady's anomaly",
+    "one_line": "FIFO can fault more with more frames, while LRU and OPT never do."
+   },
+   {
+    "atom_id": "v8",
+    "title": "Thrashing and working set",
+    "one_line": "When working sets no longer fit in memory, processes mostly wait for the disk."
+   }
+  ],
+  "gate_patterns": [
+   "Sizes and timing: page-table and multi-level table arithmetic (14 questions) and effective access time with a TLB (10 questions), plus 3 more with page faults.",
+   "Replacement simulation: run FIFO, LRU or OPT on a reference string and count faults (13 questions). Belady's anomaly appears in 5 more.",
+   "Concept statements: who does what in a page fault, what the TLB caches, when thrashing starts (6 questions)."
+  ],
+  "simple": "Virtual memory lets a program act as if it has far more memory than the machine really has. The trick is to keep most of the program on the disk and bring a piece, called a page, into memory only when it is needed. A table remembers where every page is, and a tiny fast notebook called the TLB remembers recent answers so the table is not read each time. When memory fills up, the OS must choose which page to throw out, and a bad choice or too many programs at once can make everything crawl. Exam questions are mostly careful arithmetic on powers of two, plus counting page faults."
+ },
+ "cards": [
+  {
+   "atom_id": "v1",
+   "title": "Demand paging and page faults",
+   "simple": "Think of your desk as the computer's memory and a library as the disk. You do not carry the whole library to your desk. You fetch a book only when you actually need it. If the page you want is not on the desk, you pause, walk to the library, bring it back and carry on. That pause is a page fault, and it is a normal part of the job, not a mistake. In exam words: a page fault happens when the valid bit of the page-table entry is 0, the hardware traps to the OS, the OS loads the page, and the instruction restarts.",
+   "idea": "Most pages of a program are not needed at once, so the OS loads a page only when the program first touches it. Each page-table entry has a **valid bit**: 1 means in memory, 0 means not. Touching a page with valid 0 makes the hardware call the OS. That call is a **page fault**.",
+   "idea_full": "A program often has far more pages than it uses at any moment. So the OS does not load them all. It loads a page only when the program first touches it. Each page-table entry has a **valid bit**. Valid 1 means the page is in memory. Valid 0 means it is not, and touching it makes the hardware call the OS. That call is a **page fault**.",
+   "definition": "Steps of a page fault.\n\n1. The CPU references a page whose valid bit is 0.\n2. The hardware (the MMU) traps to the OS.\n3. The OS finds the page on disk and picks a free frame, or evicts a page if none is free.\n4. The OS reads the page into the frame and sets the entry's valid bit to 1.\n5. The instruction restarts and now succeeds.\n\nA page fault is not an error. It is a normal request for service. The hardware detects it and the OS handles it.",
+   "intuition_full": "Programs are big, but at any moment they use only a small part of themselves. So the OS keeps all the pages on disk and brings in a page only when the program first touches it. The page table needs a way to say whether a page is currently in memory, and that is the valid bit. When the bit is 0, the CPU cannot finish the access. The hardware does not know how to fetch from disk, so it passes control to the OS. The OS does the slow work, fixes the table, and the same instruction runs again and succeeds. From the program's view nothing happened, except that it took longer. Think of it as a polite interruption, not a crash.",
+   "example": {
+    "setup": "A process has 4 pages, numbered 0 to 3. Pages 0 and 1 are in memory (valid = 1). Pages 2 and 3 are only on disk (valid = 0). Free frames are available. The references are 0, 2, 2, 3, 0.",
+    "steps": [
+     "Reference 0: valid is 1, so the page is in memory. No fault.",
+     "Reference 2: valid is 0, so this is a **page fault**. The OS loads page 2 into a free frame and sets valid to 1.",
+     "Reference 2 again: valid is now 1. No fault.",
+     "Reference 3: valid is 0, so a second page fault. The OS loads page 3.",
+     "Reference 0: still in memory. No fault."
+    ],
+    "answer": "There are 2 page faults, one for the first touch of page 2 and one for page 3."
+   },
+   "examples": [
+    {
+     "setup": "A process has 4 pages, numbered 0 to 3. Pages 0 and 1 are in memory (valid = 1). Pages 2 and 3 are only on disk (valid = 0). Free frames are available. The references are 0, 2, 2, 3, 0.",
+     "steps": [
+      "Reference 0: valid is 1, so the page is in memory. No fault.",
+      "Reference 2: valid is 0, so this is a **page fault**. The OS loads page 2 into a free frame and sets valid to 1.",
+      "Reference 2 again: valid is now 1. No fault.",
+      "Reference 3: valid is 0, so a second page fault. The OS loads page 3.",
+      "Reference 0: still in memory. No fault."
+     ],
+     "answer": "There are 2 page faults, one for the first touch of page 2 and one for page 3.",
+     "level": "basic"
+    },
+    {
+     "level": "gate",
+     "setup": "Which of these statements about a page fault are true? (i) The MMU hardware detects the fault. (ii) The OS reads the missing page from disk. (iii) The faulting instruction is skipped once the page arrives. (iv) Every TLB miss causes a page fault.",
+     "steps": [
+      "(i) The MMU sees valid = 0 and raises a trap. True.",
+      "(ii) The OS handler finds the page on disk, picks a frame, and reads the page in. True.",
+      "(iii) After the table is updated, the instruction is restarted, not skipped. False.",
+      "(iv) A TLB miss only means the translation was not cached. The page can still be in memory. False."
+     ],
+     "answer": "Only (i) and (ii) are true. The trap avoided is mixing up a TLB miss with a page fault."
+    },
+    {
+     "level": "twist",
+     "setup": "One instruction ADD X, Y needs three different pages at the same moment: the page holding the instruction, the page with X, and the page with Y. A process is given only 2 frames. Can it finish the instruction?",
+     "steps": [
+      "Load the instruction page and the page of X. Both frames are now full.",
+      "Executing needs Y. That faults, and the OS must evict one of the two pages to bring Y in.",
+      "If the instruction page is evicted, the instruction cannot restart. If the X page is evicted, the instruction needs it again and faults again.",
+      "Every restart faults once more, so the instruction never completes."
+     ],
+     "answer": "No. The process needs at least 3 frames for this instruction. Each instruction has a minimum number of frames it needs at once."
+    }
+   ],
+   "why": "Demand paging lets a process run with only the pages it needs, so more processes fit in memory at once. The price is that a fault costs a disk read, which is far slower than a memory access. In GATE: true-or-false statements on who does what in a fault. The fault rate then drives the EAT and replacement cards.",
+   "how": [
+    "Check the valid bit. 1 means no fault.",
+    "Valid 0 means a page fault. Count each fault in order.",
+    "To count faults on a reference string, follow the string. With enough frames, only the first touch of each page faults.",
+    "For statements, remember: hardware traps, the OS loads the page and updates the table, then the instruction restarts."
+   ],
+   "mistake": "Calling a TLB miss a page fault. A TLB miss only means the translation was not cached, and the page may be in memory. A page fault means the page itself is not in memory.",
+   "edge_cases": [
+    "An illegal address also shows valid = 0. The OS checks the address and kills the process (segmentation fault) instead of loading a page.",
+    "In pure demand paging a process starts with no pages in memory. Its very first instruction faults.",
+    "With enough frames, the number of page faults equals the number of distinct pages touched.",
+    "A TLB hit means the page is in memory, so a page fault can only follow a TLB miss."
+   ],
+   "connections": [
+    "The TLB and the page table decide where a page lives. A fault only happens when the page table itself says 'not in memory' (see TLB and effective access time).",
+    "When memory is full, which page the OS evicts is the replacement policy (see FIFO, LRU and optimal).",
+    "Disk is about a million times slower than memory, so faults must be rare (see EAT with page faults)."
+   ],
+   "check": [
+    {
+     "q": "Only page 0 is in memory at the start. References: 0, 1, 0, 2, 1, with plenty of free frames. How many page faults?",
+     "a": "Page 1 faults the first time. Page 2 faults the first time. The other references find their pages in memory. So 2 faults."
+    },
+    {
+     "q": "A process runs with plenty of free frames. It references pages 3, 1, 3, 2, 1, 4, 2. How many page faults?",
+     "a": "Each distinct page faults once: 3, 1, 2 and 4. The repeats are hits. So 4 faults."
+    },
+    {
+     "q": "Who does what: the hardware or the OS detects the missing page, and who loads it?",
+     "a": "The hardware (MMU) detects it and traps. The OS loads the page and updates the page table."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q24, 2004 CS Q21, 2006 CS Q63, 2001 CS Q1.8, 2009 CS Q10, 2002 CS Q1.23",
+   "try": {
+    "id": "gen.vm.001",
+    "label": "Try the first demand paging and page faults question (L1)"
+   },
+   "scene": "os.vm.fault",
+   "what": "Most pages of a program are not needed at once, so the OS loads a page only when the program first touches it. Each page-table entry has a **valid bit**: 1 means in memory, 0 means not. Touching a page with valid 0 makes the hardware call the OS. That call is a **page fault**.",
+   "what_full": "A program often has far more pages than it uses at any moment. So the OS does not load them all. It loads a page only when the program first touches it. Each page-table entry has a **valid bit**. Valid 1 means the page is in memory. Valid 0 means it is not, and touching it makes the hardware call the OS. That call is a **page fault**.\n\nSteps of a page fault.\n\n1. The CPU references a page whose valid bit is 0.\n2. The hardware (the MMU) traps to the OS.\n3. The OS finds the page on disk and picks a free frame, or evicts a page if none is free.\n4. The OS reads the page into the frame and sets the entry's valid bit to 1.\n5. The instruction restarts and now succeeds.\n\nA page fault is not an error. It is a normal request for service. The hardware detects it and the OS handles it.\n\n**Worked example.** A process has 4 pages, numbered 0 to 3. Pages 0 and 1 are in memory (valid = 1). Pages 2 and 3 are only on disk (valid = 0). Free frames are available. The references are 0, 2, 2, 3, 0.\n\n1. Reference 0: valid is 1, so the page is in memory. No fault.\n2. Reference 2: valid is 0, so this is a **page fault**. The OS loads page 2 into a free frame and sets valid to 1.\n3. Reference 2 again: valid is now 1. No fault.\n4. Reference 3: valid is 0, so a second page fault. The OS loads page 3.\n5. Reference 0: still in memory. No fault.\n\n**Answer:** There are 2 page faults, one for the first touch of page 2 and one for page 3.\n\n**Check yourself:** Only page 0 is in memory at the start. References: 0, 1, 0, 2, 1, with plenty of free frames. How many page faults?\n\n*Answer:* Page 1 faults the first time. Page 2 faults the first time. The other references find their pages in memory. So 2 faults.",
+   "trap": "Calling a TLB miss a page fault. A TLB miss only means the translation was not cached, and the page may be in memory. A page fault means the page itself is not in memory.",
+   "why_full": "Demand paging lets a process run with only the pages it needs, so more processes fit in memory at once. The price is that a fault costs a disk read, which is far slower than a memory access. In GATE: true-or-false statements on who does what in a fault. The fault rate then drives the EAT and replacement cards.\n\nAsked: 2024 CS2 Q24, 2004 CS Q21, 2006 CS Q63, 2001 CS Q1.8, 2009 CS Q10, 2002 CS Q1.23"
+  },
+  {
+   "atom_id": "v2",
+   "title": "Page table size and PTE",
+   "simple": "An address on a page is like an address in a big building: a block number and then a flat number inside the block. The computer splits every address the same way. The first part says which page, and the second part says where inside the page. The page table is a list with one line per page, and each line says which real slot of memory holds it. To size the list, count how many pages the address space has and multiply by the size of one line. In exam words: the entries come from the virtual page number bits, and each entry holds a frame number plus control bits, rounded up to whole bytes.",
+   "idea": "A virtual address has two parts. The low bits are the offset inside a page, and the high bits are the page number. The page table has one entry per virtual page, so count the pages to size the table. Each entry holds a frame number plus a few control bits.",
+   "idea_full": "A virtual address has two parts. The low bits say where you are inside a page, called the offset. The high bits say which page, called the page number. The page table keeps one entry per virtual page. So to size the table, count the virtual pages. To size each entry, look at the physical frame number plus a few control bits.",
+   "definition": "Offset bits = log2(page size).\n\nVirtual page number (VPN) bits = virtual-address bits - offset bits.\n\nNumber of entries = 2^(VPN bits).\n\nFrame bits = physical-address bits - offset bits.\n\nEntry size = frame bits + control bits, rounded up to whole bytes.\n\nTable size = number of entries × entry size.",
+   "intuition_full": "A virtual address is just a number, and the page size decides where to cut it. If a page holds 2^13 bytes, the last 13 bits say which byte inside the page. That part never changes during translation. The remaining high bits name the page, so with 27 of them there are 2^27 pages and the table needs 2^27 lines. Each line must point to a physical frame, so its width comes from the physical address, not the virtual one. That is why the two sizes do different jobs. The virtual size counts the lines, and the physical size sets the width of each line. Add a few control bits (valid, dirty, protection) and round up to whole bytes, because memory is addressed in bytes.",
+   "example": {
+    "setup": "A system has 40-bit virtual addresses, 32-bit physical addresses and 8 KB pages. Each entry has 3 control bits. The page table is single-level. How big is it?",
+    "steps": [
+     "Offset: 8 KB = 2^13 bytes, so 13 offset bits.",
+     "VPN bits: 40 - 13 = 27. So the table has 2^27 = 134,217,728 entries.",
+     "Frame bits: 32 - 13 = 19.",
+     "Entry size: 19 + 3 = 22 bits. Round up to whole bytes: 3 bytes.",
+     "Table size: 2^27 × 3 bytes = 402,653,184 bytes = 384 MB."
+    ],
+    "answer": "The page table is 384 MB."
+   },
+   "examples": [
+    {
+     "setup": "A system has 40-bit virtual addresses, 32-bit physical addresses and 8 KB pages. Each entry has 3 control bits. The page table is single-level. How big is it?",
+     "steps": [
+      "Offset: 8 KB = 2^13 bytes, so 13 offset bits.",
+      "VPN bits: 40 - 13 = 27. So the table has 2^27 = 134,217,728 entries.",
+      "Frame bits: 32 - 13 = 19.",
+      "Entry size: 19 + 3 = 22 bits. Round up to whole bytes: 3 bytes.",
+      "Table size: 2^27 × 3 bytes = 402,653,184 bytes = 384 MB."
+     ],
+     "answer": "The page table is 384 MB.",
+     "level": "basic"
+    },
+    {
+     "level": "gate",
+     "setup": "A system has 44-bit virtual addresses, 36-bit physical addresses and 16 KB pages. Each page-table entry stores the frame number plus 5 control bits, rounded up to whole bytes. The page table is single-level. How large is it?",
+     "steps": [
+      "Offset: 16 KB = 2^14, so 14 bits.",
+      "Virtual page number: 44 - 14 = 30 bits, so the table has 2^30 entries.",
+      "Frame number: 36 - 14 = 22 bits.",
+      "Entry: 22 + 5 = 27 bits, which rounds up to 4 bytes.",
+      "Table size: 2^30 x 4 B = 2^32 B = 4 GB."
+     ],
+     "answer": "The page table is 4 GB. The trap avoided is counting entries from the 36 physical bits, or forgetting to round 27 bits up to 4 bytes."
+    },
+    {
+     "level": "twist",
+     "setup": "Pages are 8 KB and entries have 4 control bits. Physical memory grows from 512 MB to 4 GB. Does the page-table size change?",
+     "steps": [
+      "With 512 MB: frames = 2^29 / 2^13 = 2^16, so 16 frame bits. Entry = 16 + 4 = 20 bits, which rounds up to 3 bytes.",
+      "With 4 GB: frames = 2^32 / 2^13 = 2^19, so 19 frame bits. Entry = 19 + 4 = 23 bits, which still rounds up to 3 bytes.",
+      "The number of entries comes from the virtual address, which did not change."
+     ],
+     "answer": "No, the table size stays the same. Physical memory is 8 times larger, but the entry still fits in 3 bytes. Rounding to bytes can hide small changes."
+    }
+   ],
+   "why": "The page table lives in memory, so its size is a real cost. In GATE: you compute the table size, the entry size, or the number of entries from the address and page sizes. The multi-level card starts from the same numbers.",
+   "how": [
+    "Find the offset bits from the page size.",
+    "VPN bits = virtual bits - offset bits. Entries = 2^VPN.",
+    "Frame bits = physical bits - offset bits.",
+    "Entry bits = frame bits + control bits. Round up to bytes.",
+    "Table size = entries × entry bytes."
+   ],
+   "mistake": "Using the physical address size to count entries. The number of entries comes from the virtual page number. Physical bits only set the width of each entry.",
+   "edge_cases": [
+    "Page size is always a power of two, so the offset needs exactly log2(page size) bits.",
+    "An entry that needs 27 bits uses 4 bytes. An entry that needs 24 bits uses 3 bytes. Round up, never down.",
+    "Doubling the page size removes one VPN bit, which halves the number of entries.",
+    "If the question gives the entry size in bytes directly, skip the frame-bit step."
+   ],
+   "connections": [
+    "A flat table for a big address space can be huge. Multi-level tables fix that (see Multi-level page tables).",
+    "The offset bits are the same in the virtual and the physical address. Only the page number is translated (see TLB and effective access time).",
+    "Bigger pages mean a smaller table but more wasted space inside each page."
+   ],
+   "check": [
+    {
+     "q": "A 32-bit virtual address, 16 KB pages and 4-byte entries, single-level. What is the table size?",
+     "a": "Offset = 14 bits. VPN = 32 - 14 = 18 bits, so 2^18 entries. Size = 2^18 × 4 B = 2^20 B = 1 MB."
+    },
+    {
+     "q": "A 36-bit virtual address with 4 KB pages. How many page-table entries does a single-level table need?",
+     "a": "Offset = 12 bits. VPN = 36 - 12 = 24 bits. So 2^24 = 16,777,216 entries."
+    },
+    {
+     "q": "Frame number needs 20 bits and there are 4 control bits. How many bytes is one entry?",
+     "a": "20 + 4 = 24 bits = 3 bytes."
+    }
+   ],
+   "asked": "Asked: 2025 CS1 Q14, 2015 CS1 Q12, 2016 CS1 Q47, 2015 CS2 Q47, 2001 CS Q2.21, 2003 CS Q26",
+   "try": {
+    "id": "gen.vm.002",
+    "label": "Try the first page table size and PTE question (L1)"
+   },
+   "scene": "os.vm.ptsize",
+   "what": "A virtual address has two parts. The low bits are the offset inside a page, and the high bits are the page number. The page table has one entry per virtual page, so count the pages to size the table. Each entry holds a frame number plus a few control bits.",
+   "what_full": "A virtual address has two parts. The low bits say where you are inside a page, called the offset. The high bits say which page, called the page number. The page table keeps one entry per virtual page. So to size the table, count the virtual pages. To size each entry, look at the physical frame number plus a few control bits.\n\nOffset bits = log2(page size).\n\nVirtual page number (VPN) bits = virtual-address bits - offset bits.\n\nNumber of entries = 2^(VPN bits).\n\nFrame bits = physical-address bits - offset bits.\n\nEntry size = frame bits + control bits, rounded up to whole bytes.\n\nTable size = number of entries × entry size.\n\n**Worked example.** A system has 40-bit virtual addresses, 32-bit physical addresses and 8 KB pages. Each entry has 3 control bits. The page table is single-level. How big is it?\n\n1. Offset: 8 KB = 2^13 bytes, so 13 offset bits.\n2. VPN bits: 40 - 13 = 27. So the table has 2^27 = 134,217,728 entries.\n3. Frame bits: 32 - 13 = 19.\n4. Entry size: 19 + 3 = 22 bits. Round up to whole bytes: 3 bytes.\n5. Table size: 2^27 × 3 bytes = 402,653,184 bytes = 384 MB.\n\n**Answer:** The page table is 384 MB.\n\n**Check yourself:** A 32-bit virtual address, 16 KB pages and 4-byte entries, single-level. What is the table size?\n\n*Answer:* Offset = 14 bits. VPN = 32 - 14 = 18 bits, so 2^18 entries. Size = 2^18 × 4 B = 2^20 B = 1 MB.",
+   "trap": "Using the physical address size to count entries. The number of entries comes from the virtual page number. Physical bits only set the width of each entry.",
+   "why_full": "The page table lives in memory, so its size is a real cost. In GATE: you compute the table size, the entry size, or the number of entries from the address and page sizes. The multi-level card starts from the same numbers.\n\nAsked: 2025 CS1 Q14, 2015 CS1 Q12, 2016 CS1 Q47, 2015 CS2 Q47, 2001 CS Q2.21, 2003 CS Q26"
+  },
+  {
+   "atom_id": "v3",
+   "title": "Multi-level page tables",
+   "simple": "Imagine a huge phone book with a line for every possible person on Earth, almost all of them empty. Keeping the whole book is a waste. So you split it into small volumes and keep a short index that says which volume to open. You only create a volume when someone in that range actually exists. Looking up a number now takes one step for the index and one for the volume. In exam words: a multi-level page table pages the page table itself, every table fills one page, and a lower-level table is created only when one of its entries is used.",
+   "idea": "A flat page table for a huge address space can be enormous, and most of it would describe pages the process never uses. A **multi-level page table** pages the page table itself. A top table points to inner tables, and an inner table is created only when it is needed. Every table is sized to fill exactly one page, so the OS can store it like any other page.",
+   "definition": "Entries per table = page size / entry size.\n\nBits per level = log2(entries per table).\n\nLevels = ceil(VPN bits / bits per level).\n\nCount tables from the bottom up. Leaf tables = ceil(pages used / entries per table). The level above needs ceil(leaf tables / entries per table), and so on up to one top table.\n\nThe ceiling is there because an inner table must exist as soon as even one of its entries is used.",
+   "intuition_full": "A single table with a line for every possible page is huge, yet a program uses a tiny part of its address space. The fix is to split the table into page-sized chunks. Each chunk has as many entries as fit in one page, which is page size divided by entry size. A top table points to the chunks, and a chunk is created only if some page inside its range is used. A lookup now reads one entry per level, so a table walk takes L memory reads. Counting is bottom-up. The leaf tables cover the used pages, the level above covers the leaf tables, and so on to the single top table. You use ceilings because one used page forces a whole table into existence.",
+   "example": {
+    "setup": "A system has 38-bit virtual addresses, 16 KB pages and 4-byte entries. Every table fills exactly one page. A process uses 100 MB of memory, laid out contiguously from address 0. How much memory do its page tables take?",
+    "steps": [
+     "Offset: 16 KB = 2^14, so 14 bits. VPN bits: 38 - 14 = 24.",
+     "Entries per table: 16 KB / 4 B = 4096 = 2^12, so 12 bits per level.",
+     "Levels: 24 / 12 = 2 levels.",
+     "Pages used: 100 MB / 16 KB = 6400. Leaf tables: ceil(6400 / 4096) = 2.",
+     "One top table points to those 2 leaves. Total 3 tables × 16 KB = 48 KB."
+    ],
+    "answer": "The page tables take 48 KB. A single-level table for this address space would need 2^24 × 4 B = 64 MB."
+   },
+   "examples": [
+    {
+     "setup": "A system has 38-bit virtual addresses, 16 KB pages and 4-byte entries. Every table fills exactly one page. A process uses 100 MB of memory, laid out contiguously from address 0. How much memory do its page tables take?",
+     "steps": [
+      "Offset: 16 KB = 2^14, so 14 bits. VPN bits: 38 - 14 = 24.",
+      "Entries per table: 16 KB / 4 B = 4096 = 2^12, so 12 bits per level.",
+      "Levels: 24 / 12 = 2 levels.",
+      "Pages used: 100 MB / 16 KB = 6400. Leaf tables: ceil(6400 / 4096) = 2.",
+      "One top table points to those 2 leaves. Total 3 tables × 16 KB = 48 KB."
+     ],
+     "answer": "The page tables take 48 KB. A single-level table for this address space would need 2^24 × 4 B = 64 MB.",
+     "level": "basic"
+    },
+    {
+     "level": "gate",
+     "setup": "A system has 46-bit virtual addresses, 8 KB pages and 8-byte entries. Every table, including the top one, fills exactly one page. A process maps 640 MB contiguously from address 0. How much memory do all its page tables take?",
+     "steps": [
+      "Offset: 8 KB = 2^13, so 13 bits. VPN bits: 46 - 13 = 33.",
+      "Entries per table: 8 KB / 8 B = 1024 = 2^10, so 10 bits per level. Levels: ceil(33 / 10) = 4.",
+      "Pages used: 640 MB / 8 KB = 81,920.",
+      "Leaf tables: ceil(81,920 / 1024) = 80. The level above needs ceil(80 / 1024) = 1 table. The next level needs 1, and the top needs 1.",
+      "Total tables: 80 + 1 + 1 + 1 = 83. Memory: 83 x 8 KB = 664 KB."
+     ],
+     "answer": "The page tables take 664 KB. The traps avoided are forgetting the upper levels, and forgetting that 33 bits needs 4 levels, not 3."
+    },
+    {
+     "level": "twist",
+     "setup": "A system has 38-bit virtual addresses, 16 KB pages and 4-byte entries, with two levels. Compare a process that uses exactly 4096 pages with one that uses 4097 pages, both contiguous from address 0.",
+     "steps": [
+      "Entries per table: 16 KB / 4 B = 4096.",
+      "4096 pages fill exactly one leaf table. Tables: 1 leaf + 1 top = 2, so 32 KB.",
+      "4097 pages need ceil(4097 / 4096) = 2 leaf tables. Tables: 2 leaves + 1 top = 3, so 48 KB."
+     ],
+     "answer": "2 tables (32 KB) for 4096 pages, and 3 tables (48 KB) for 4097 pages. One extra page forces a whole extra table."
+    }
+   ],
+   "why": "Multi-level tables make the table overhead follow the the memory a process uses, not the size of the address space. In GATE: you find the bits per level, the number of tables, or the minimum and maximum number of tables for a process.",
+   "how": [
+    "Find offset bits and VPN bits.",
+    "Entries per table = page size / entry size. Bits per level = log2 of that.",
+    "Levels = ceil(VPN bits / bits per level).",
+    "Count tables bottom-up, using a ceiling at each level.",
+    "For minimum versus maximum: the minimum packs the used pages into the fewest leaf tables. The maximum spreads them one per leaf, capped by the entries in the table above."
+   ],
+   "mistake": "Forgetting to round up, or forgetting the top table. An inner table must be allocated as soon as one entry in it is used, so use ceilings. The top table is always there.",
+   "edge_cases": [
+    "Exact fit: if the used pages exactly fill the leaf tables, no extra table is needed.",
+    "The top table always exists, even if only one entry is used.",
+    "If the VPN bits do not divide evenly by the bits per level, the top level uses fewer bits. A question may still say it occupies a full page.",
+    "Minimum use packs the used pages into the fewest leaf tables. Maximum use spreads them one per leaf table."
+   ],
+   "connections": [
+    "The flat size is the worst case (see Page table size and PTE).",
+    "Each extra level adds one memory read on a TLB miss, which the TLB hides on a hit (see TLB and effective access time).",
+    "Counting tables level by level is the same ceiling arithmetic that appears in file-system block counts."
+   ],
+   "check": [
+    {
+     "q": "Same system. A process uses only 5 pages, and each page falls in a different leaf table's range. How many tables are needed, and how much memory?",
+     "a": "5 leaf tables plus 1 top table, so 6 tables. At 16 KB each, that is 96 KB."
+    },
+    {
+     "q": "A two-level table has 1024 entries per table. A process uses 2049 contiguous pages from page 0. How many tables does it need?",
+     "a": "Leaf tables: ceil(2049 / 1024) = 3. Plus 1 top table. Total 4 tables."
+    },
+    {
+     "q": "A page is 4 KB and an entry is 8 bytes. How many bits does each level index?",
+     "a": "4096 / 8 = 512 = 2^9 entries, so 9 bits per level."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q58, 2025 CS2 Q58, 2024 CS2 Q64, 2021 CS2 Q58, 2003 CS Q79, 2008 CS Q67, 2013 CS Q52, 2009 CS Q34",
+   "try": {
+    "id": "gen.vm.008",
+    "label": "Try the first multi-level page tables question (L2)"
+   },
+   "scene": "os.vm.twolevel",
+   "what": "A flat page table for a huge address space can be enormous, and most of it would describe pages the process never uses. A **multi-level page table** pages the page table itself. A top table points to inner tables, and an inner table is created only when it is needed. Every table is sized to fill exactly one page, so the OS can store it like any other page.",
+   "what_full": "A flat page table for a huge address space can be enormous, and most of it would describe pages the process never uses. A **multi-level page table** pages the page table itself. A top table points to inner tables, and an inner table is created only when it is needed. Every table is sized to fill exactly one page, so the OS can store it like any other page.\n\nEntries per table = page size / entry size.\n\nBits per level = log2(entries per table).\n\nLevels = ceil(VPN bits / bits per level).\n\nCount tables from the bottom up. Leaf tables = ceil(pages used / entries per table). The level above needs ceil(leaf tables / entries per table), and so on up to one top table.\n\nThe ceiling is there because an inner table must exist as soon as even one of its entries is used.\n\n**Worked example.** A system has 38-bit virtual addresses, 16 KB pages and 4-byte entries. Every table fills exactly one page. A process uses 100 MB of memory, laid out contiguously from address 0. How much memory do its page tables take?\n\n1. Offset: 16 KB = 2^14, so 14 bits. VPN bits: 38 - 14 = 24.\n2. Entries per table: 16 KB / 4 B = 4096 = 2^12, so 12 bits per level.\n3. Levels: 24 / 12 = 2 levels.\n4. Pages used: 100 MB / 16 KB = 6400. Leaf tables: ceil(6400 / 4096) = 2.\n5. One top table points to those 2 leaves. Total 3 tables × 16 KB = 48 KB.\n\n**Answer:** The page tables take 48 KB. A single-level table for this address space would need 2^24 × 4 B = 64 MB.\n\n**Check yourself:** Same system. A process uses only 5 pages, and each page falls in a different leaf table's range. How many tables are needed, and how much memory?\n\n*Answer:* 5 leaf tables plus 1 top table, so 6 tables. At 16 KB each, that is 96 KB.",
+   "trap": "Forgetting to round up, or forgetting the top table. An inner table must be allocated as soon as one entry in it is used, so use ceilings. The top table is always there.",
+   "why_full": "Multi-level tables make the table overhead follow the the memory a process uses, not the size of the address space. In GATE: you find the bits per level, the number of tables, or the minimum and maximum number of tables for a process.\n\nAsked: 2023 CS Q58, 2025 CS2 Q58, 2024 CS2 Q64, 2021 CS2 Q58, 2003 CS Q79, 2008 CS Q67, 2013 CS Q52, 2009 CS Q34"
+  },
+  {
+   "atom_id": "v4",
+   "title": "TLB and effective access time",
+   "simple": "Every time a program uses a memory address, the computer must first look up where it really lives, and that lookup table is itself in memory. So each access costs two trips. To save time the computer keeps a tiny sticky note of recent lookups right next to the processor. If the answer is on the sticky note, it skips the slow trip. If not, it makes the slow trip and then writes the answer on the note. In exam words: the TLB caches recent page-to-frame translations, and the effective access time is the average of the hit path and the miss path weighted by the hit ratio.",
+   "idea": "Paging needs the page table, which sits in memory, so every access costs two: one to read the entry and one to fetch the data. A **TLB** is a small fast cache of recent page-to-frame translations. A **hit** skips the page-table read. A **miss** pays for it and then remembers the translation.",
+   "idea_full": "With paging, every memory access needs the page table first, and the page table is in memory. That doubles the cost: one access to read the entry, one to fetch the data. A **TLB** is a tiny, fast cache of recent translations from page number to frame number. If the translation is in the TLB (a **hit**), you skip the page-table read. If not (a **miss**), you pay for the extra read and then remember it.",
+   "definition": "Let t be the TLB lookup time, m the memory access time, h the hit ratio and L the number of page-table levels.\n\nHit: t + m.\n\nMiss: t + L×m + m. That is the lookup, L page-table reads, then the data access.\n\n$$\\text{EAT}=h\\,(t+m)+(1-h)\\,\\big(t+(L+1)\\,m\\big)$$\n\nEAT means effective access time, the average cost per access. TLB reach = number of entries × page size.",
+   "intuition_full": "Paging doubles every memory access, because the table sits in memory. A TLB is a small, very fast cache of recent translations. Programs reuse the same pages again and again, so most lookups hit. On a hit you pay the TLB lookup plus one memory access for the data. On a miss you pay the lookup, then one read per page-table level, then the data access. The effective access time is just a weighted average: the hit ratio h times the hit cost, plus (1 - h) times the miss cost. Both paths include the TLB lookup, because the TLB is always searched first. With more page-table levels, a miss costs more, so a good hit ratio matters even more.",
+   "example": {
+    "setup": "A toy system has 6-bit addresses, 8-byte pages and a single-level page table. TLB lookup t = 20 ns and memory access m = 100 ns. The TLB holds pages 2 and 7. The page table maps page 5 to frame 4. In the long run 80% of accesses hit the TLB.",
+    "steps": [
+     "The CPU issues VA = 101 011. The low 3 bits, 011, are the offset (3). The high 3 bits, 101, are page 5.",
+     "The TLB holds only pages 2 and 7, so this is a miss. The lookup already cost 20 ns.",
+     "Read the page table: row 5 says frame 4. That is one extra memory access, 100 ns.",
+     "Frame 4 is 100 in binary, so PA = 100 011 = 4 x 8 + 3 = 35. Fetching the data costs 100 ns more. The miss costs 20 + 100 + 100 = 220 ns, and the TLB now remembers 5 to 4.",
+     "The next access, VA = 101 110, is page 5 again. TLB hit, so no page-table read. PA = 100 110 = 4 x 8 + 6 = 38. The hit costs 20 + 100 = 120 ns.",
+     "With 80% hits: EAT = 0.8 x 120 + 0.2 x 220 = 96 + 44 = 140 ns."
+    ],
+    "answer": "The effective access time is 140 ns. The miss produced PA 35 at 220 ns, and the later hit produced PA 38 at 120 ns."
+   },
+   "examples": [
+    {
+     "setup": "A toy system has 6-bit addresses, 8-byte pages and a single-level page table. TLB lookup t = 20 ns and memory access m = 100 ns. The TLB holds pages 2 and 7. The page table maps page 5 to frame 4. In the long run 80% of accesses hit the TLB.",
+     "steps": [
+      "The CPU issues VA = 101 011. The low 3 bits, 011, are the offset (3). The high 3 bits, 101, are page 5.",
+      "The TLB holds only pages 2 and 7, so this is a miss. The lookup already cost 20 ns.",
+      "Read the page table: row 5 says frame 4. That is one extra memory access, 100 ns.",
+      "Frame 4 is 100 in binary, so PA = 100 011 = 4 x 8 + 3 = 35. Fetching the data costs 100 ns more. The miss costs 20 + 100 + 100 = 220 ns, and the TLB now remembers 5 to 4.",
+      "The next access, VA = 101 110, is page 5 again. TLB hit, so no page-table read. PA = 100 110 = 4 x 8 + 6 = 38. The hit costs 20 + 100 = 120 ns.",
+      "With 80% hits: EAT = 0.8 x 120 + 0.2 x 220 = 96 + 44 = 140 ns."
+     ],
+     "answer": "The effective access time is 140 ns. The miss produced PA 35 at 220 ns, and the later hit produced PA 38 at 120 ns.",
+     "level": "basic"
+    },
+    {
+     "level": "gate",
+     "setup": "A three-level page table is in memory. TLB lookup takes 15 ns, a memory access takes 120 ns, and the TLB hit ratio is 95%. Find the effective access time.",
+     "steps": [
+      "Hit: 15 + 120 = 135 ns.",
+      "Miss: 15 (TLB) + 3 x 120 (three table reads) + 120 (data) = 15 + 360 + 120 = 495 ns.",
+      "EAT = 0.95 x 135 + 0.05 x 495 = 128.25 + 24.75 = 153 ns."
+     ],
+     "answer": "The effective access time is 153 ns. The traps avoided are forgetting the TLB time on the miss path, and using 2 table reads instead of 3."
+    },
+    {
+     "level": "twist",
+     "setup": "A single-level page table is in memory. TLB lookup is 10 ns and memory access is 100 ns. What hit ratio is needed so the EAT is at most 120 ns?",
+     "steps": [
+      "Hit: 10 + 100 = 110 ns. Miss: 10 + 100 + 100 = 210 ns.",
+      "EAT = 110h + 210(1 - h) = 210 - 100h.",
+      "Set 210 - 100h at most 120. Then 100h is at least 90, so h is at least 0.9."
+     ],
+     "answer": "The hit ratio must be at least 90%. Here the question runs the formula backward and solves for h."
+    }
+   ],
+   "why": "Without a TLB, every access costs at least double. A high hit ratio wins most of that back. In GATE: this is the most common translation question. You compute EAT from t, m and h, or tag bits and TLB reach.",
+   "how": [
+    "Hit time = t + m.",
+    "Miss time = t + L × m + m.",
+    "EAT = h × hit time + (1 - h) × miss time.",
+    "Use the same unit for every time.",
+    "For TLB structure: tag bits = VPN bits - set-index bits, and reach = entries × page size."
+   ],
+   "mistake": "Leaving out the TLB lookup time on a miss. The TLB is always searched first, so t is paid on both the hit path and the miss path.",
+   "edge_cases": [
+    "If the stem says the TLB lookup time is negligible, set t = 0 and the formula still applies.",
+    "A hit ratio of 1 gives EAT = t + m. A hit ratio of 0 gives t + (L + 1)m.",
+    "A context switch can flush the TLB, unless entries carry a process id.",
+    "TLB reach is entries times page size. A program that sweeps more memory than the reach keeps missing."
+   ],
+   "connections": [
+    "On a miss the walk has one read per level (see Multi-level page tables).",
+    "If the page itself is missing, the miss turns into a page fault (see EAT with page faults).",
+    "The TLB is a cache, so the hit ratio and EAT formulas match cache AMAT in Computer Organization."
+   ],
+   "check": [
+    {
+     "q": "t = 10 ns, m = 50 ns, hit ratio 0.9, single-level page table. What is the EAT?",
+     "a": "Hit: 10 + 50 = 60 ns. Miss: 10 + 50 + 50 = 110 ns. EAT = 0.9 × 60 + 0.1 × 110 = 54 + 11 = 65 ns."
+    },
+    {
+     "q": "What are the offset and page-number sizes of a 6-bit address with 8-byte pages?",
+     "a": "8 bytes = 2^3, so 3 offset bits and 6 - 3 = 3 page-number bits."
+    },
+    {
+     "q": "t = 20 ns, m = 80 ns, h = 0.5, single-level. What is the EAT?",
+     "a": "Hit: 100. Miss: 20 + 80 + 80 = 180. EAT = 0.5 x 100 + 0.5 x 180 = 140 ns."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q63, 2019 CS Q43, 2026 CS2 Q54, 2003 CS Q78, 2004 CS Q47, 2006 CS Q62, 2014 CS3 Q33, 2015 CS2 Q25, 2022 CS Q38, 2026 CS1 Q54",
+   "try": {
+    "id": "gen.vm.006",
+    "label": "Try the first tLB and effective access time question (L1)"
+   },
+   "scene": "os.vm.translate",
+   "what": "Paging needs the page table, which sits in memory, so every access costs two: one to read the entry and one to fetch the data. A **TLB** is a small fast cache of recent page-to-frame translations. A **hit** skips the page-table read. A **miss** pays for it and then remembers the translation.",
+   "what_full": "With paging, every memory access needs the page table first, and the page table is in memory. That doubles the cost: one access to read the entry, one to fetch the data. A **TLB** is a tiny, fast cache of recent translations from page number to frame number. If the translation is in the TLB (a **hit**), you skip the page-table read. If not (a **miss**), you pay for the extra read and then remember it.\n\nLet t be the TLB lookup time, m the memory access time, h the hit ratio and L the number of page-table levels.\n\nHit: t + m.\n\nMiss: t + L×m + m. That is the lookup, L page-table reads, then the data access.\n\n$$\\text{EAT}=h\\,(t+m)+(1-h)\\,\\big(t+(L+1)\\,m\\big)$$\n\nEAT means effective access time, the average cost per access. TLB reach = number of entries × page size.\n\n**Worked example.** A toy system has 6-bit addresses, 8-byte pages and a single-level page table. TLB lookup t = 20 ns and memory access m = 100 ns. The TLB holds pages 2 and 7. The page table maps page 5 to frame 4. In the long run 80% of accesses hit the TLB.\n\n1. The CPU issues VA = 101 011. The low 3 bits, 011, are the offset (3). The high 3 bits, 101, are page 5.\n2. The TLB holds only pages 2 and 7, so this is a miss. The lookup already cost 20 ns.\n3. Read the page table: row 5 says frame 4. That is one extra memory access, 100 ns.\n4. Frame 4 is 100 in binary, so PA = 100 011 = 4 x 8 + 3 = 35. Fetching the data costs 100 ns more. The miss costs 20 + 100 + 100 = 220 ns, and the TLB now remembers 5 to 4.\n5. The next access, VA = 101 110, is page 5 again. TLB hit, so no page-table read. PA = 100 110 = 4 x 8 + 6 = 38. The hit costs 20 + 100 = 120 ns.\n6. With 80% hits: EAT = 0.8 x 120 + 0.2 x 220 = 96 + 44 = 140 ns.\n\n**Answer:** The effective access time is 140 ns. The miss produced PA 35 at 220 ns, and the later hit produced PA 38 at 120 ns.\n\n**Check yourself:** t = 10 ns, m = 50 ns, hit ratio 0.9, single-level page table. What is the EAT?\n\n*Answer:* Hit: 10 + 50 = 60 ns. Miss: 10 + 50 + 50 = 110 ns. EAT = 0.9 × 60 + 0.1 × 110 = 54 + 11 = 65 ns.",
+   "trap": "Leaving out the TLB lookup time on a miss. The TLB is always searched first, so t is paid on both the hit path and the miss path.",
+   "why_full": "Without a TLB, every access costs at least double. A high hit ratio wins most of that back. In GATE: this is the most common translation question. You compute EAT from t, m and h, or tag bits and TLB reach.\n\nAsked: 2020 CS Q63, 2019 CS Q43, 2026 CS2 Q54, 2003 CS Q78, 2004 CS Q47, 2006 CS Q62, 2014 CS3 Q33, 2015 CS2 Q25, 2022 CS Q38, 2026 CS1 Q54"
+  },
+  {
+   "atom_id": "v5",
+   "title": "EAT with page faults",
+   "simple": "Suppose a trip to the shop usually takes 1 minute, but once in a long while the shop is closed and you have to walk to a far one that takes hours. Even if the long walk is rare, those few long trips can drag your average time up a lot. A page fault is that long walk, because it goes to the disk, which is far slower than memory. To find the average, you mix the normal time and the fault time using how often each happens. In exam words: EAT = (1 - p) x m + p x F, with all times in the same unit.",
+   "idea": "A page fault is rare but very slow, because it involves the disk. So even a tiny fault rate can dominate the average. Each access either costs one memory access or costs the full fault time. The average is the weighted mix of the two.",
+   "idea_full": "A page fault is rare but very expensive, because it involves the disk. Even a tiny fault rate can dominate the average. Treat each access as one of two outcomes. With no fault, it costs one memory access. With a fault, it costs the full fault-service time. The average is the weighted mix of the two.",
+   "definition": "$$\\text{EAT}=(1-p)\\,m+p\\,F$$\n\nSymbols: p is the probability that an access causes a page fault. m is the memory access time. F is the total time to service a fault.\n\nAn equivalent form is EAT = m + p(F - m). Both give the same number if F includes the access that finally succeeds. Convert everything to one unit first.\n\nWith a TLB, a fault can happen only after a TLB miss, because a page that is not in memory cannot be in the TLB.",
+   "intuition_full": "A disk read takes millions of nanoseconds while a memory access takes about a hundred. That gap makes the fault term dominate. An access either succeeds in time m, or it faults and costs the full service time F. The average is the weighted mix of the two, so EAT is (1 - p) times m plus p times F. Because F is so large, even tiny p matters. If p is one in a hundred thousand, p times F can equal m by itself. Many questions give F as a sum of parts, such as one disk read plus sometimes a write-back of a dirty page. Add those into one number for F first, with probabilities for the dirty case, and then apply the formula.",
+   "example": {
+    "setup": "Memory access m = 100 ns. Servicing a fault takes F = 10 ms. One access in 100,000 faults, so p = 10^-5.",
+    "steps": [
+     "Convert units: F = 10 ms = 10,000,000 ns.",
+     "No-fault part: (1 - 10^-5) × 100 = 99.999 ns.",
+     "Fault part: 10^-5 × 10,000,000 = 100 ns.",
+     "Add: EAT = 99.999 + 100 = 199.999 ns, about 200 ns."
+    ],
+    "answer": "EAT is about 200 ns. A fault on only 0.001% of accesses doubles the average access time."
+   },
+   "examples": [
+    {
+     "setup": "Memory access m = 100 ns. Servicing a fault takes F = 10 ms. One access in 100,000 faults, so p = 10^-5.",
+     "steps": [
+      "Convert units: F = 10 ms = 10,000,000 ns.",
+      "No-fault part: (1 - 10^-5) × 100 = 99.999 ns.",
+      "Fault part: 10^-5 × 10,000,000 = 100 ns.",
+      "Add: EAT = 99.999 + 100 = 199.999 ns, about 200 ns."
+     ],
+     "answer": "EAT is about 200 ns. A fault on only 0.001% of accesses doubles the average access time.",
+     "level": "basic"
+    },
+    {
+     "level": "gate",
+     "setup": "Memory access m = 120 ns. A page fault is served in 8 ms if the victim page is clean and 20 ms if it is dirty. 60% of victims are dirty. One access in 50,000 faults, so p = 2 x 10^-5. Find the EAT.",
+     "steps": [
+      "Average fault time: 0.4 x 8 ms + 0.6 x 20 ms = 3.2 + 12 = 15.2 ms = 15,200,000 ns.",
+      "No-fault part: (1 - 0.00002) x 120 = 119.9976 ns.",
+      "Fault part: 0.00002 x 15,200,000 = 304 ns.",
+      "Add: 119.9976 + 304 = 423.9976, about 424 ns."
+     ],
+     "answer": "The EAT is about 424 ns, more than three and a half times the plain memory time. The trap avoided is using 8 ms or 20 ms alone instead of the weighted average."
+    },
+    {
+     "level": "twist",
+     "setup": "Memory access is 100 ns and a page fault takes 5 ms. The EAT must be at most 25% above 100 ns. How rare must faults be?",
+     "steps": [
+      "The limit is 100 x 1.25 = 125 ns.",
+      "EAT = (1 - p) x 100 + p x 5,000,000 = 100 + p x 4,999,900.",
+      "Need 100 + p x 4,999,900 at most 125, so p x 4,999,900 is at most 25.",
+      "p is at most 25 / 4,999,900, which is about 5 x 10^-6."
+     ],
+     "answer": "Faults must occur less than about once in 200,000 accesses (p about 5 x 10^-6). The units matter: 5 ms is 5,000,000 ns."
+    }
+   ],
+   "why": "This shows why the fault rate must be tiny for demand paging to be usable. In GATE: you compute EAT from m, F and p, or find the largest p allowed for a given slowdown. TLB questions sometimes hide this term inside a longer chain.",
+   "how": [
+    "Convert m and F to the same unit, usually ns.",
+    "Write EAT = (1 - p) × m + p × F.",
+    "Substitute and add the two parts.",
+    "If a TLB is present, apply p only to the TLB-miss path.",
+    "For 'at most x% slowdown', set EAT equal to the limit and solve for p."
+   ],
+   "mistake": "Mixing milliseconds with nanoseconds. 10 ms is 10,000,000 ns, not 10,000 ns. That single slip changes the answer by a factor of 1000.",
+   "edge_cases": [
+    "If F already includes the access that finally succeeds, EAT = m + p(F - m) gives the same value as the weighted form.",
+    "With a TLB, apply p only to TLB misses. A page that is not in memory cannot be in the TLB.",
+    "If p = 0, EAT is just m. If p = 1, every access costs F.",
+    "When F has parts (read, and maybe write-back), average them first."
+   ],
+   "connections": [
+    "The fault service time is dominated by the disk, which is why replacement policy matters (see FIFO, LRU and optimal).",
+    "With a TLB, the full EAT adds a fault term on the miss path (see TLB and effective access time).",
+    "The same weighted-average pattern gives cache AMAT in Computer Organization."
+   ],
+   "check": [
+    {
+     "q": "Same m = 100 ns and F = 10 ms, but p = 10^-6. What is the EAT?",
+     "a": "(1 - 10^-6) × 100 = 99.9999 ns. Fault part: 10^-6 × 10,000,000 = 10 ns. EAT is about 110 ns."
+    },
+    {
+     "q": "m = 100 ns, F = 10 ms, p = 10^-7. What is the EAT?",
+     "a": "(1 - 10^-7) x 100 is about 100 ns. Fault part: 10^-7 x 10,000,000 = 1 ns. EAT is about 101 ns."
+    },
+    {
+     "q": "Why must you convert 10 ms before using the formula with m = 100 ns?",
+     "a": "10 ms = 10,000,000 ns. Mixing ms and ns changes the answer by a factor of 1,000,000, so use one unit for all times."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q20, 2000 CS Q2.22, 2011 CS Q20",
+   "try": {
+    "id": "gen.vm.010",
+    "label": "Try the first eAT with page faults question (L2)"
+   },
+   "scene": "os.vm.eatfault",
+   "what": "A page fault is rare but very slow, because it involves the disk. So even a tiny fault rate can dominate the average. Each access either costs one memory access or costs the full fault time. The average is the weighted mix of the two.",
+   "what_full": "A page fault is rare but very expensive, because it involves the disk. Even a tiny fault rate can dominate the average. Treat each access as one of two outcomes. With no fault, it costs one memory access. With a fault, it costs the full fault-service time. The average is the weighted mix of the two.\n\n$$\\text{EAT}=(1-p)\\,m+p\\,F$$\n\nSymbols: p is the probability that an access causes a page fault. m is the memory access time. F is the total time to service a fault.\n\nAn equivalent form is EAT = m + p(F - m). Both give the same number if F includes the access that finally succeeds. Convert everything to one unit first.\n\nWith a TLB, a fault can happen only after a TLB miss, because a page that is not in memory cannot be in the TLB.\n\n**Worked example.** Memory access m = 100 ns. Servicing a fault takes F = 10 ms. One access in 100,000 faults, so p = 10^-5.\n\n1. Convert units: F = 10 ms = 10,000,000 ns.\n2. No-fault part: (1 - 10^-5) × 100 = 99.999 ns.\n3. Fault part: 10^-5 × 10,000,000 = 100 ns.\n4. Add: EAT = 99.999 + 100 = 199.999 ns, about 200 ns.\n\n**Answer:** EAT is about 200 ns. A fault on only 0.001% of accesses doubles the average access time.\n\n**Check yourself:** Same m = 100 ns and F = 10 ms, but p = 10^-6. What is the EAT?\n\n*Answer:* (1 - 10^-6) × 100 = 99.9999 ns. Fault part: 10^-6 × 10,000,000 = 10 ns. EAT is about 110 ns.",
+   "trap": "Mixing milliseconds with nanoseconds. 10 ms is 10,000,000 ns, not 10,000 ns. That single slip changes the answer by a factor of 1000.",
+   "why_full": "This shows why the fault rate must be tiny for demand paging to be usable. In GATE: you compute EAT from m, F and p, or find the largest p allowed for a given slowdown. TLB questions sometimes hide this term inside a longer chain.\n\nAsked: 2018 CS Q20, 2000 CS Q2.22, 2011 CS Q20"
+  },
+  {
+   "atom_id": "v6",
+   "title": "FIFO, LRU and optimal replacement",
+   "simple": "Your desk fits only three books, and you need a fourth. Which one goes back on the shelf? One rule: put back the book you brought first, even if you are still using it (that is FIFO). Another rule: put back the one you have not touched for the longest time (that is LRU). A third rule is to put back the book you will need last, but that needs a crystal ball, so it is only used as a yardstick (that is OPT). You then count how many times you had to fetch a book. In exam words: simulate FIFO, LRU or OPT on the reference string and count the page faults.",
+   "idea": "When memory is full, the OS must throw one page out. **FIFO** evicts the page that arrived first. **LRU** evicts the page unused for the longest time. **OPT** evicts the page needed furthest in the future; it is the perfect, impossible yardstick.",
+   "idea_full": "When memory is full and a new page must come in, the OS has to throw one page out. Which one? **FIFO** evicts the page that has been in memory longest. **LRU** evicts the page that has gone unused longest, guessing that the past predicts the future. **OPT** looks ahead and evicts the page needed furthest in the future. OPT is perfect but impossible in practice, so it is the yardstick.",
+   "definition": "A frame is one slot of physical memory. A fault happens when the requested page is in no frame.\n\n**FIFO:** a queue ordered by load time. A hit does not change the order.\n\n**LRU:** each hit makes that page the most recently used. Evict the one used longest ago.\n\n**OPT:** evict the page whose next use is furthest away, or that is never used again.\n\nCount one fault each time a requested page is not in a frame.",
+   "intuition_full": "When memory is full, a new page forces an old one out. OPT looks at the future, so it gives the lowest possible fault count, but a real OS cannot see the future. LRU guesses the future from the past: a page unused for a long time probably stays unused. FIFO ignores use entirely and looks only at age, which is simple but can throw out a busy page. A hit does different things in each policy. In LRU it moves the page to the front. In FIFO it does nothing. When a loop scans more pages than there are frames, LRU and FIFO both throw out the page they need next, so they fault on every access. OPT avoids that by keeping the pages it will use soonest.",
+   "example": {
+    "setup": "Three frames, empty at the start. The reference string is 1, 2, 3, 1, 4, 1, 5, 1. Run FIFO and LRU.",
+    "steps": [
+     "Reference 1: the frames are empty, so both policies fault (F) and load it.",
+     "Reference 2: both fault again.",
+     "Reference 3: both fault. The frames now hold 1, 2, 3.",
+     "Reference 1 again: a hit in both. LRU marks 1 as most recent. FIFO's order stays 1, 2, 3.",
+     "Reference 4 faults. FIFO evicts 1 (oldest load) and keeps 2, 3, 4. LRU evicts 2 (least recently used) and keeps 3, 1, 4.",
+     "Reference 1: FIFO faults because it threw 1 out, and evicts 2. LRU holds 1: a hit.",
+     "Reference 5 faults in both, and both evict 3.",
+     "Reference 1 is a hit in both.",
+     "Totals: FIFO 6 faults, LRU 5 faults. OPT also has 5."
+    ],
+    "answer": "FIFO has 6 faults. LRU has 5. OPT also has 5. FIFO ignored that page 1 kept coming back, and LRU kept it."
+   },
+   "examples": [
+    {
+     "setup": "Three frames, empty at the start. The reference string is 1, 2, 3, 1, 4, 1, 5, 1. Run FIFO and LRU.",
+     "steps": [
+      "Reference 1: the frames are empty, so both policies fault (F) and load it.",
+      "Reference 2: both fault again.",
+      "Reference 3: both fault. The frames now hold 1, 2, 3.",
+      "Reference 1 again: a hit in both. LRU marks 1 as most recent. FIFO's order stays 1, 2, 3.",
+      "Reference 4 faults. FIFO evicts 1 (oldest load) and keeps 2, 3, 4. LRU evicts 2 (least recently used) and keeps 3, 1, 4.",
+      "Reference 1: FIFO faults because it threw 1 out, and evicts 2. LRU holds 1: a hit.",
+      "Reference 5 faults in both, and both evict 3.",
+      "Reference 1 is a hit in both.",
+      "Totals: FIFO 6 faults, LRU 5 faults. OPT also has 5."
+     ],
+     "answer": "FIFO has 6 faults. LRU has 5. OPT also has 5. FIFO ignored that page 1 kept coming back, and LRU kept it.",
+     "level": "basic"
+    },
+    {
+     "level": "gate",
+     "setup": "A process has 4 frames, initially empty. It scans pages 1 to 5 in order, three times: 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5 (15 references). Count the faults under FIFO, LRU and OPT.",
+     "steps": [
+      "The first four references fault in every policy and fill the frames with 1, 2, 3, 4.",
+      "Reference 5 faults. FIFO and LRU both evict 1, which is the oldest and also the least recently used.",
+      "The next reference is 1, which was just evicted, so it faults and evicts 2. Then 2 faults, evicting 3, and so on: each reference needs the page just thrown out.",
+      "So FIFO and LRU fault on all 15 references.",
+      "OPT: after reference 5 it evicts 4, which is needed last. The next references 1, 2, 3 hit. Then 4 faults and evicts 3 (needed latest), and 5, 1, 2 hit. Then 3 faults, evicts 1, and 4, 5 hit.",
+      "OPT faults at 1, 2, 3, 4, 5, then at the 4 and then at the 3: 7 faults."
+     ],
+     "answer": "FIFO 15, LRU 15, OPT 7. A scan over more pages than frames defeats LRU and FIFO completely. The trap avoided is assuming LRU is always close to optimal."
+    },
+    {
+     "level": "twist",
+     "setup": "3 frames, initially empty, string 1, 2, 1, 3, 4, 2. Compare FIFO and LRU.",
+     "steps": [
+      "1 and 2 fault in both. The reference 1 is a hit.",
+      "FIFO keeps the load order 1, 2. LRU has moved 1 to the front: order 2, 1.",
+      "Reference 3 faults in both. The frames hold 1, 2, 3.",
+      "Reference 4 faults. FIFO evicts 1 (oldest load) and keeps 2, 3, 4. LRU evicts 2 (least recently used) and keeps 1, 3, 4.",
+      "Reference 2: FIFO hits. LRU faults, because it threw 2 out."
+     ],
+     "answer": "FIFO has 4 faults and LRU has 5. LRU is not always better than FIFO. OPT also has 4 on this string."
+    }
+   ],
+   "why": "The policy decides the fault count, and the fault count decides speed. In GATE: this is the most common memory question. You run one policy on a reference string and count faults. A scan over more pages than frames makes LRU and FIFO fault every time.",
+   "how": [
+    "Draw the frames across the page, one column per reference.",
+    "For each reference, check whether the page is in a frame. If yes, it is a hit.",
+    "If not, it is a fault. Use a free frame if there is one, otherwise evict by the policy.",
+    "FIFO evicts the oldest load. LRU evicts the least recently used and refreshes on every hit. OPT evicts the page with the furthest next use.",
+    "Count the faults."
+   ],
+   "mistake": "Refreshing the FIFO order on a hit, or forgetting to refresh LRU on a hit. FIFO cares only about when a page was loaded. LRU cares about when it was last used.",
+   "edge_cases": [
+    "The first k distinct pages always fault, since the frames start empty (cold misses).",
+    "If the frames are at least as many as the distinct pages, only the first touch of each page faults.",
+    "OPT ties: if two pages are never used again, evict either. The fault count is the same.",
+    "A hit changes the order in LRU but not in FIFO."
+   ],
+   "connections": [
+    "Real systems approximate LRU with a reference bit and the clock or second-chance algorithm.",
+    "FIFO's weakness is Belady's anomaly (see Belady's anomaly).",
+    "The fault count feeds the EAT formula (see EAT with page faults)."
+   ],
+   "check": [
+    {
+     "q": "Same string 1, 2, 3, 1, 4, 1, 5, 1 and 3 frames. How many faults under OPT?",
+     "a": "Faults on 1, 2, 3, then 4 (evict 2 or 3, which are never used again), then 5 (evict a page never used again). The hits are the three later 1s. So 5 faults."
+    },
+    {
+     "q": "2 frames, initially empty, string 1, 2, 1, 3, 1. How many faults under LRU?",
+     "a": "1 faults, 2 faults, 1 hits. 3 faults and evicts 2 (least recently used). 1 hits. Total 3 faults."
+    },
+    {
+     "q": "On a hit, what changes in FIFO and in LRU?",
+     "a": "FIFO: nothing. LRU: that page becomes the most recently used."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q64, 2025 CS1 Q54, 2025 CS2 Q47, 2007 CS Q82, 2007 CS Q83, 2010 CS Q24, 2012 CS Q42, 2014 CS1 Q33, 2014 CS2 Q33, 2014 CS3 Q20, 2015 CS1 Q47, 2016 CS1 Q49, 2023 CS Q57",
+   "try": {
+    "id": "gen.vm.003",
+    "label": "Try the first fIFO, LRU and optimal replacement question (L1)"
+   },
+   "scene": "os.vm.replace",
+   "what": "When memory is full, the OS must throw one page out. **FIFO** evicts the page that arrived first. **LRU** evicts the page unused for the longest time. **OPT** evicts the page needed furthest in the future; it is the perfect, impossible yardstick.",
+   "what_full": "When memory is full and a new page must come in, the OS has to throw one page out. Which one? **FIFO** evicts the page that has been in memory longest. **LRU** evicts the page that has gone unused longest, guessing that the past predicts the future. **OPT** looks ahead and evicts the page needed furthest in the future. OPT is perfect but impossible in practice, so it is the yardstick.\n\nA frame is one slot of physical memory. A fault happens when the requested page is in no frame.\n\n**FIFO:** a queue ordered by load time. A hit does not change the order.\n\n**LRU:** each hit makes that page the most recently used. Evict the one used longest ago.\n\n**OPT:** evict the page whose next use is furthest away, or that is never used again.\n\nCount one fault each time a requested page is not in a frame.\n\n**Worked example.** Three frames, empty at the start. The reference string is 1, 2, 3, 1, 4, 1, 5, 1. Run FIFO and LRU.\n\n1. Reference 1: the frames are empty, so both policies fault (F) and load it.\n2. Reference 2: both fault again.\n3. Reference 3: both fault. The frames now hold 1, 2, 3.\n4. Reference 1 again: a hit in both. LRU marks 1 as most recent. FIFO's order stays 1, 2, 3.\n5. Reference 4 faults. FIFO evicts 1 (oldest load) and keeps 2, 3, 4. LRU evicts 2 (least recently used) and keeps 3, 1, 4.\n6. Reference 1: FIFO faults because it threw 1 out, and evicts 2. LRU holds 1: a hit.\n7. Reference 5 faults in both, and both evict 3.\n8. Reference 1 is a hit in both.\n9. Totals: FIFO 6 faults, LRU 5 faults. OPT also has 5.\n\n**Answer:** FIFO has 6 faults. LRU has 5. OPT also has 5. FIFO ignored that page 1 kept coming back, and LRU kept it.\n\n**Check yourself:** Same string 1, 2, 3, 1, 4, 1, 5, 1 and 3 frames. How many faults under OPT?\n\n*Answer:* Faults on 1, 2, 3, then 4 (evict 2 or 3, which are never used again), then 5 (evict a page never used again). The hits are the three later 1s. So 5 faults.",
+   "trap": "Refreshing the FIFO order on a hit, or forgetting to refresh LRU on a hit. FIFO cares only about when a page was loaded. LRU cares about when it was last used.",
+   "why_full": "The policy decides the fault count, and the fault count decides speed. In GATE: this is the most common memory question. You run one policy on a reference string and count faults. A scan over more pages than frames makes LRU and FIFO fault every time.\n\nAsked: 2022 CS Q64, 2025 CS1 Q54, 2025 CS2 Q47, 2007 CS Q82, 2007 CS Q83, 2010 CS Q24, 2012 CS Q42, 2014 CS1 Q33, 2014 CS2 Q33, 2014 CS3 Q20, 2015 CS1 Q47, 2016 CS1 Q49, 2023 CS Q57"
+  },
+  {
+   "atom_id": "v7",
+   "title": "Belady's anomaly",
+   "simple": "More desk space should mean fewer trips to the library, and usually it does. But with one bad rule, FIFO, you always return the book you picked up first, even if you keep using it. With that rule, giving yourself one extra desk slot can change which books get returned at the wrong moment, and you can end up making more trips. That odd result is Belady's anomaly. Better rules like LRU never behave this way, because the books they keep with a smaller desk are always kept with a bigger desk too. In exam words: FIFO can show Belady's anomaly, while LRU and OPT are stack algorithms and cannot.",
+   "idea": "More memory should mean fewer page faults. For FIFO, that is not always true. On some strings, one extra frame makes FIFO fault more. This is **Belady's anomaly**, and LRU and OPT never show it.",
+   "idea_full": "More memory should mean fewer page faults. For FIFO, that is not always true. On some reference strings, giving FIFO an extra frame makes it fault more. This surprising effect is **Belady's anomaly**. LRU and OPT can never show it.",
+   "definition": "Belady's anomaly: for some reference strings, FIFO with k+1 frames has more faults than FIFO with k frames.\n\nLRU and OPT are **stack algorithms**. With k frames, the pages they hold are always a subset of the pages they would hold with k+1 frames. So an extra frame can only turn faults into hits, never the reverse. FIFO has no such nesting property.",
+   "intuition_full": "You expect that giving a process more frames can only help. That is true for LRU and OPT, because they are stack algorithms. With k frames, the set of pages they hold is always a subset of the set they would hold with k+1 frames. One extra frame can only convert a fault into a hit. FIFO breaks that nesting. Its choice depends on arrival time, and an extra frame changes arrival and eviction times in a way that can drop a page you need soon. So FIFO's set with k frames need not sit inside its set with k+1 frames. One concrete string proves it can happen. It does not happen on every string, and with frames at least equal to the number of distinct pages, FIFO faults just once per page.",
+   "example": {
+    "setup": "FIFO on the reference string 1, 2, 3, 4, 1, 2, 5, 1, 2, 3, 4, 5. Run it once with 3 frames and once with 4 frames.",
+    "steps": [
+     "The first four references, 1, 2, 3, 4, are first touches. Both runs fault 4 times.",
+     "References 1 and 2 again. With 3 frames both were already evicted, so they fault (6 faults). With 4 frames they are still there, so they hit (4 faults).",
+     "Reference 5 faults in both. Now 7 faults with 3 frames and 5 with 4 frames.",
+     "References 1 and 2. Now the 3-frame run hits and the 4-frame run faults twice. Totals: 7 and 7.",
+     "References 3, 4, 5. The 3-frame run faults on 3 and 4 and hits on 5, giving 9. The 4-frame run faults on all three, giving 10."
+    ],
+    "answer": "3 frames give 9 faults and 4 frames give 10 faults. More memory caused more faults."
+   },
+   "examples": [
+    {
+     "setup": "FIFO on the reference string 1, 2, 3, 4, 1, 2, 5, 1, 2, 3, 4, 5. Run it once with 3 frames and once with 4 frames.",
+     "steps": [
+      "The first four references, 1, 2, 3, 4, are first touches. Both runs fault 4 times.",
+      "References 1 and 2 again. With 3 frames both were already evicted, so they fault (6 faults). With 4 frames they are still there, so they hit (4 faults).",
+      "Reference 5 faults in both. Now 7 faults with 3 frames and 5 with 4 frames.",
+      "References 1 and 2. Now the 3-frame run hits and the 4-frame run faults twice. Totals: 7 and 7.",
+      "References 3, 4, 5. The 3-frame run faults on 3 and 4 and hits on 5, giving 9. The 4-frame run faults on all three, giving 10."
+     ],
+     "answer": "3 frames give 9 faults and 4 frames give 10 faults. More memory caused more faults.",
+     "level": "basic"
+    },
+    {
+     "level": "gate",
+     "setup": "FIFO runs on the string 3, 2, 1, 0, 3, 2, 4, 3, 2, 1, 0, 4. Compare 3 frames with 4 frames.",
+     "steps": [
+      "With 3 frames, 3, 2, 1 fault and 0 faults (evicting 3), then 3 faults (evicting 2), 2 faults (evicting 1). That is 6 faults so far.",
+      "Then 4 faults (evicting 0), and 3 and 2 hit. Then 1 faults (evicting 3), 0 faults (evicting 2), and 4 hits. Total with 3 frames: 9.",
+      "With 4 frames, 3, 2, 1, 0 fault, and then 3 and 2 hit. 4 faults (evicting 3). 3 faults (evicting 2). 2 faults (evicting 1). 1 faults (evicting 0). 0 faults (evicting 4). 4 faults (evicting 3). Total with 4 frames: 4 + 1 + 5 = 10."
+     ],
+     "answer": "3 frames give 9 faults and 4 frames give 10. This is Belady's anomaly. The method is always the same: run both and compare."
+    },
+    {
+     "level": "twist",
+     "setup": "Run LRU on the classic string 1, 2, 3, 4, 1, 2, 5, 1, 2, 3, 4, 5 with 3 frames and with 4 frames.",
+     "steps": [
+      "3 frames: LRU gives 10 faults.",
+      "4 frames: LRU gives 8 faults.",
+      "Compare with FIFO on the same string: 9 faults with 3 frames and 10 with 4 frames."
+     ],
+     "answer": "LRU drops from 10 to 8, so more frames helped. LRU is a stack algorithm and never goes up when frames increase."
+    }
+   ],
+   "why": "It shows that the replacement policy matters, not only the amount of memory. In GATE: true-or-false statements about the anomaly. FIFO is the standard example, and LRU and OPT are the standard immune cases.",
+   "how": [
+    "Run FIFO on the string with k frames, then with k+1 frames.",
+    "Count faults in each run.",
+    "If the larger memory has more faults, the string shows the anomaly.",
+    "For statements: FIFO can show it, LRU and OPT cannot."
+   ],
+   "mistake": "Believing that LRU can show the anomaly, or that more frames always help FIFO. The anomaly is a FIFO effect that appears only on some strings. One example proves it can happen, not that it always happens.",
+   "edge_cases": [
+    "One string that shows the anomaly proves it can happen. It does not mean it happens for every string.",
+    "If frames are at least the number of distinct pages, FIFO faults once per page, with no anomaly.",
+    "LRU and OPT never show the anomaly.",
+    "Both runs must start with empty frames and use the same string."
+   ],
+   "connections": [
+    "The stack property is why LRU and OPT are 'well behaved'. FIFO is not (see FIFO, LRU and optimal).",
+    "Better replacement means fewer faults, and fewer faults mean a lower EAT (see EAT with page faults).",
+    "The same 'more resource, worse result' surprise shows up in scheduling, such as priority inversion."
+   ],
+   "check": [
+    {
+     "q": "Run FIFO on the same string with 5 frames. How many faults?",
+     "a": "The string uses only 5 distinct pages, so with 5 frames only the first touch of each page faults. That is 5 faults, fewer than 9 or 10."
+    },
+    {
+     "q": "True or false: LRU can show Belady's anomaly.",
+     "a": "False. LRU is a stack algorithm, so adding a frame never raises its faults."
+    },
+    {
+     "q": "A string uses 4 distinct pages. FIFO runs with 4 frames. How many faults?",
+     "a": "4, one for the first touch of each page. Nothing is ever evicted."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q40, 2001 CS Q1.21, 2007 CS Q56, 2009 CS Q9, 2016 CS2 Q20",
+   "try": {
+    "id": "gen.vm.004",
+    "label": "Try the first belady's anomaly question (L1)"
+   },
+   "scene": "os.vm.belady",
+   "what": "More memory should mean fewer page faults. For FIFO, that is not always true. On some strings, one extra frame makes FIFO fault more. This is **Belady's anomaly**, and LRU and OPT never show it.",
+   "what_full": "More memory should mean fewer page faults. For FIFO, that is not always true. On some reference strings, giving FIFO an extra frame makes it fault more. This surprising effect is **Belady's anomaly**. LRU and OPT can never show it.\n\nBelady's anomaly: for some reference strings, FIFO with k+1 frames has more faults than FIFO with k frames.\n\nLRU and OPT are **stack algorithms**. With k frames, the pages they hold are always a subset of the pages they would hold with k+1 frames. So an extra frame can only turn faults into hits, never the reverse. FIFO has no such nesting property.\n\n**Worked example.** FIFO on the reference string 1, 2, 3, 4, 1, 2, 5, 1, 2, 3, 4, 5. Run it once with 3 frames and once with 4 frames.\n\n1. The first four references, 1, 2, 3, 4, are first touches. Both runs fault 4 times.\n2. References 1 and 2 again. With 3 frames both were already evicted, so they fault (6 faults). With 4 frames they are still there, so they hit (4 faults).\n3. Reference 5 faults in both. Now 7 faults with 3 frames and 5 with 4 frames.\n4. References 1 and 2. Now the 3-frame run hits and the 4-frame run faults twice. Totals: 7 and 7.\n5. References 3, 4, 5. The 3-frame run faults on 3 and 4 and hits on 5, giving 9. The 4-frame run faults on all three, giving 10.\n\n**Answer:** 3 frames give 9 faults and 4 frames give 10 faults. More memory caused more faults.\n\n**Check yourself:** Run FIFO on the same string with 5 frames. How many faults?\n\n*Answer:* The string uses only 5 distinct pages, so with 5 frames only the first touch of each page faults. That is 5 faults, fewer than 9 or 10.",
+   "trap": "Believing that LRU can show the anomaly, or that more frames always help FIFO. The anomaly is a FIFO effect that appears only on some strings. One example proves it can happen, not that it always happens.",
+   "why_full": "It shows that the replacement policy matters, not only the amount of memory. In GATE: true-or-false statements about the anomaly. FIFO is the standard example, and LRU and OPT are the standard immune cases.\n\nAsked: 2017 CS1 Q40, 2001 CS Q1.21, 2007 CS Q56, 2009 CS Q9, 2016 CS2 Q20"
+  },
+  {
+   "atom_id": "v8",
+   "title": "Thrashing and working set",
+   "simple": "A working set is the handful of pages a program is using right now. Think of a few students sharing one small desk, each needing five books to do their work. If the desk can hold only ten books, two students are fine. Add a third and every student keeps putting books away to make room for another student's books. Everyone spends the time swapping books and nobody does any work. That is thrashing. In exam words: thrashing happens when the sum of the working sets exceeds the available frames, and the cure is to lower the degree of multiprogramming.",
+   "idea": "Each running process needs some pages in memory right now: its **working set**. If the OS admits too many processes, their working sets do not all fit. Processes then keep evicting each other's pages and wait on the disk instead of computing. That collapse is **thrashing**.",
+   "idea_full": "To make progress, each running process needs a certain set of pages in memory right now. That set is its **working set**. If the OS lets in too many processes, the frames cannot hold everyone's working set. The processes keep evicting each other's pages, and they spend their time waiting for the disk instead of computing. This collapse is **thrashing**.",
+   "definition": "The working set at time t, with window size Δ, is the set of distinct pages referenced in the last Δ references. The working-set size is the number of pages in that set.\n\nThrashing happens when the total of all processes' working-set sizes is more than the number of frames.\n\nThe fix is to lower the degree of multiprogramming, which means suspending a process, so the remaining working sets fit.",
+   "intuition_full": "Programs show locality: for a while they use a small, steady group of pages, and then they move on to another group. The working set tries to capture that group by looking at the last Delta references. If a process gets at least as many frames as its working set, it faults rarely. If it gets fewer, it faults all the time, because the pages it needs keep getting evicted. Thrashing is the whole system in that state. The CPU waits for the disk, CPU utilisation drops, and a naive scheduler sees the idle CPU and admits more processes, which makes it worse. The right response is the opposite: suspend a process so the remaining working sets fit.",
+   "example": {
+    "setup": "Window Δ = 4 references. A process references pages 1, 2, 1, 3, 4, 4, 5, 4, in that order. Then a second question: a memory has 80 frames and 5 processes, each with a working set of 20 pages.",
+    "steps": [
+     "After the 4th reference, the last 4 references are 1, 2, 1, 3. The working set is {1, 2, 3}, size 3.",
+     "After the 8th reference, the last 4 are 4, 4, 5, 4. The working set is {4, 5}, size 2. Repeats count once.",
+     "Memory demand: 5 processes × 20 pages = 100 frames needed, but only 80 exist.",
+     "100 is more than 80, so the system thrashes. Each process gets about 16 frames, less than the 20 it needs, so it faults constantly and the CPU sits idle.",
+     "Suspend one process. Now 4 × 20 = 80 frames, which fits exactly."
+    ],
+    "answer": "The working-set sizes are 3 and 2. Five processes thrash. Four processes fit."
+   },
+   "examples": [
+    {
+     "setup": "Window Δ = 4 references. A process references pages 1, 2, 1, 3, 4, 4, 5, 4, in that order. Then a second question: a memory has 80 frames and 5 processes, each with a working set of 20 pages.",
+     "steps": [
+      "After the 4th reference, the last 4 references are 1, 2, 1, 3. The working set is {1, 2, 3}, size 3.",
+      "After the 8th reference, the last 4 are 4, 4, 5, 4. The working set is {4, 5}, size 2. Repeats count once.",
+      "Memory demand: 5 processes × 20 pages = 100 frames needed, but only 80 exist.",
+      "100 is more than 80, so the system thrashes. Each process gets about 16 frames, less than the 20 it needs, so it faults constantly and the CPU sits idle.",
+      "Suspend one process. Now 4 × 20 = 80 frames, which fits exactly."
+     ],
+     "answer": "The working-set sizes are 3 and 2. Five processes thrash. Four processes fit.",
+     "level": "basic"
+    },
+    {
+     "level": "gate",
+     "setup": "Window Delta = 6. A process references 7, 7, 8, 9, 7, 10, 10, 11, 8. Find the working-set size after the 6th reference and after the 9th.",
+     "steps": [
+      "After the 6th reference, take the last 6: 7, 7, 8, 9, 7, 10. The distinct pages are {7, 8, 9, 10}, so the size is 4.",
+      "After the 9th reference, the last 6 are 9, 7, 10, 10, 11, 8. The distinct pages are {7, 8, 9, 10, 11}, so the size is 5.",
+      "Repeats such as the two 10s count once."
+     ],
+     "answer": "The working-set sizes are 4 and 5. The trap avoided is counting references (6) instead of distinct pages."
+    },
+    {
+     "level": "twist",
+     "setup": "CPU utilisation is 8% and the paging disk is almost always busy. The OS sees a low CPU load and starts more processes. Memory has 60 frames, and the working sets are 25, 20, 15 and 12 pages. What should happen?",
+     "steps": [
+      "Total demand: 25 + 20 + 15 + 12 = 72 frames, but only 60 exist, so the system is thrashing.",
+      "Starting more processes makes demand larger and CPU utilisation lower.",
+      "Suspend the process with the 12-page working set. The rest need 25 + 20 + 15 = 60, which fits exactly."
+     ],
+     "answer": "The OS should reduce the degree of multiprogramming, not raise it. Suspend one process (the 12-page one) so the others fit."
+    }
+   ],
+   "why": "It explains why adding more processes can lower CPU use. In GATE: the blueprint shows no recurring year pattern. It appears in concept statements and as a working-set count.",
+   "how": [
+    "Take the last Δ references up to the point asked.",
+    "Count the distinct pages, ignoring repeats.",
+    "Add the working-set sizes of all processes and compare with the frames.",
+    "If the total is larger, the system thrashes. Reduce multiprogramming."
+   ],
+   "mistake": "Counting references instead of distinct pages. For 4, 4, 5, 4 the working-set size is 2, not 4.",
+   "edge_cases": [
+    "The window Delta matters. Too small a window misses pages the process still uses. Too large a window blends two phases.",
+    "Pages repeated inside the window count once.",
+    "If the total of all working sets is at most the number of frames, there is no thrashing.",
+    "A process with fewer frames than its working set faults constantly, even if other processes are fine."
+   ],
+   "connections": [
+    "Locality of reference is the reason working sets exist, and also why TLBs and caches work (see TLB and effective access time).",
+    "Local replacement keeps a thrashing process from stealing others' frames. Global replacement can spread the damage.",
+    "Thrashing is an extreme case of a high fault rate p in the EAT formula (see EAT with page faults)."
+   ],
+   "check": [
+    {
+     "q": "Window Δ = 5. A process references 6, 2, 6, 2, 7, 7, 8, 7. What is the working-set size after the 8th reference?",
+     "a": "The last 5 references are 2, 7, 7, 8, 7. The distinct pages are 2, 7 and 8, so the size is 3."
+    },
+    {
+     "q": "Window Delta = 4. A process references 2, 3, 3, 2, 5, 5. What is the working-set size after the 6th reference?",
+     "a": "The last 4 references are 3, 2, 5, 5. The distinct pages are 3, 2, 5, so the size is 3."
+    },
+    {
+     "q": "CPU utilisation falls as more processes are added. What does that suggest, and what should the OS do?",
+     "a": "It suggests thrashing. The OS should reduce the degree of multiprogramming."
+    }
+   ],
+   "asked": "Asked: no recurring pattern in the blueprint.",
+   "try": {
+    "id": "gen.vm.005",
+    "label": "Try the first thrashing and working set question (L1)"
+   },
+   "scene": "os.vm.workingset",
+   "what": "Each running process needs some pages in memory right now: its **working set**. If the OS admits too many processes, their working sets do not all fit. Processes then keep evicting each other's pages and wait on the disk instead of computing. That collapse is **thrashing**.",
+   "what_full": "To make progress, each running process needs a certain set of pages in memory right now. That set is its **working set**. If the OS lets in too many processes, the frames cannot hold everyone's working set. The processes keep evicting each other's pages, and they spend their time waiting for the disk instead of computing. This collapse is **thrashing**.\n\nThe working set at time t, with window size Δ, is the set of distinct pages referenced in the last Δ references. The working-set size is the number of pages in that set.\n\nThrashing happens when the total of all processes' working-set sizes is more than the number of frames.\n\nThe fix is to lower the degree of multiprogramming, which means suspending a process, so the remaining working sets fit.\n\n**Worked example.** Window Δ = 4 references. A process references pages 1, 2, 1, 3, 4, 4, 5, 4, in that order. Then a second question: a memory has 80 frames and 5 processes, each with a working set of 20 pages.\n\n1. After the 4th reference, the last 4 references are 1, 2, 1, 3. The working set is {1, 2, 3}, size 3.\n2. After the 8th reference, the last 4 are 4, 4, 5, 4. The working set is {4, 5}, size 2. Repeats count once.\n3. Memory demand: 5 processes × 20 pages = 100 frames needed, but only 80 exist.\n4. 100 is more than 80, so the system thrashes. Each process gets about 16 frames, less than the 20 it needs, so it faults constantly and the CPU sits idle.\n5. Suspend one process. Now 4 × 20 = 80 frames, which fits exactly.\n\n**Answer:** The working-set sizes are 3 and 2. Five processes thrash. Four processes fit.\n\n**Check yourself:** Window Δ = 5. A process references 6, 2, 6, 2, 7, 7, 8, 7. What is the working-set size after the 8th reference?\n\n*Answer:* The last 5 references are 2, 7, 7, 8, 7. The distinct pages are 2, 7 and 8, so the size is 3.",
+   "trap": "Counting references instead of distinct pages. For 4, 4, 5, 4 the working-set size is 2, not 4.",
+   "why_full": "It explains why adding more processes can lower CPU use. In GATE: the blueprint shows no recurring year pattern. It appears in concept statements and as a working-set count.\n\nAsked: no recurring pattern in the blueprint."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "os.vm.translate",
+   "title": "Page table, TLB and translation",
+   "viewBox": [
+    0,
+    0,
+    360,
+    248
+   ],
+   "objects": [
+    {
+     "id": "pt",
+     "kind": "grid",
+     "x": 44,
+     "y": 40,
+     "rows": 8,
+     "cols": 1,
+     "cw": 56,
+     "ch": 22,
+     "cells": [
+      3,
+      "-",
+      6,
+      "-",
+      1,
+      4,
+      "-",
+      2
+     ],
+     "rowLabels": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+     ],
+     "colLabels": [
+      "frame"
+     ],
+     "colTitle": "Page table"
+    },
+    {
+     "id": "tlb",
+     "kind": "grid",
+     "x": 190,
+     "y": 88,
+     "rows": 3,
+     "cols": 2,
+     "cw": 52,
+     "ch": 26,
+     "cells": [
+      [
+       2,
+       6
+      ],
+      [
+       7,
+       2
+      ],
+      [
+       "",
+       ""
+      ]
+     ],
+     "colLabels": [
+      "VPN",
+      "frame"
+     ],
+     "colTitle": "TLB"
+    },
+    {
+     "id": "va",
+     "kind": "text",
+     "x": 270,
+     "y": 24,
+     "text": "VA = 101 011",
+     "size": 15,
+     "anchor": "middle",
+     "mono": true,
+     "bold": true
+    },
+    {
+     "id": "pa",
+     "kind": "text",
+     "x": 270,
+     "y": 186,
+     "text": "PA = 100 011 = 35",
+     "size": 14,
+     "anchor": "middle",
+     "mono": true,
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 270,
+     "y": 208,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "ct",
+     "kind": "text",
+     "x": 270,
+     "y": 232,
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "text": ""
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The CPU issues VA = 101 011. Pages are 8 bytes, so the low 3 bits are the offset (3) and the high 3 bits the page number (5). Timing: TLB lookup t = 20 ns, memory access m = 100 ns.",
+     "highlight": "va"
+    },
+    {
+     "caption": "The TLB is searched for page 5. That costs t = 20 ns. It holds pages 2 and 7 only: a TLB miss.",
+     "set": [
+      {
+       "id": "st",
+       "text": "TLB miss",
+       "tone": "bad"
+      },
+      {
+       "id": "ct",
+       "text": "so far: 20 ns"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tlb",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "So the page table is read. Row 5 says frame 4. That is one extra memory access, 100 ns.",
+     "set": [
+      {
+       "id": "st",
+       "text": "page table: 5 to 4",
+       "tone": "accent"
+      },
+      {
+       "id": "ct",
+       "text": "so far: 20 + 100 = 120 ns"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pt",
+       "cells": [
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Frame 4 is 100 in binary, so PA = 100 011 = 4 x 8 + 3 = 35. Fetching the data costs another 100 ns. Miss total: 20 + 100 + 100 = 220 ns. The TLB now remembers 5 to 4.",
+     "show": "pa",
+     "set": [
+      {
+       "id": "tlb",
+       "cells": [
+        [
+         2,
+         6
+        ],
+        [
+         7,
+         2
+        ],
+        [
+         5,
+         4
+        ]
+       ]
+      },
+      {
+       "id": "st",
+       "text": "TLB updated",
+       "tone": "accent"
+      },
+      {
+       "id": "ct",
+       "text": "miss: 220 ns"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "tlb",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      "pa"
+     ]
+    },
+    {
+     "caption": "Next access: VA = 101 110, page 5 again. TLB hit, so no page-table read. PA = 100 110 = 4 x 8 + 6 = 38. Hit total: 20 + 100 = 120 ns.",
+     "set": [
+      {
+       "id": "va",
+       "text": "VA = 101 110"
+      },
+      {
+       "id": "pa",
+       "text": "PA = 100 110 = 38"
+      },
+      {
+       "id": "st",
+       "text": "TLB hit",
+       "tone": "good"
+      },
+      {
+       "id": "ct",
+       "text": "hit: 120 ns"
+      }
+     ],
+     "dim": "pt",
+     "highlight": [
+      {
+       "id": "tlb",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "If 80% of accesses hit and 20% miss: EAT = 0.8 x 120 + 0.2 x 220 = 96 + 44 = 140 ns.",
+     "set": [
+      {
+       "id": "st",
+       "text": "EAT = 140 ns",
+       "tone": "accent"
+      },
+      {
+       "id": "ct",
+       "text": "0.8 x 120 + 0.2 x 220"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.vm.replace",
+   "title": "FIFO versus LRU, 3 frames",
+   "viewBox": [
+    0,
+    0,
+    360,
+    275
+   ],
+   "objects": [
+    {
+     "id": "gf",
+     "kind": "grid",
+     "x": 60,
+     "y": 44,
+     "rows": 3,
+     "cols": 8,
+     "cw": 34,
+     "ch": 24,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "1",
+      "4",
+      "1",
+      "5",
+      "1"
+     ],
+     "rowTitle": "FIFO"
+    },
+    {
+     "id": "rf",
+     "kind": "grid",
+     "x": 60,
+     "y": 118,
+     "rows": 1,
+     "cols": 8,
+     "cw": 34,
+     "ch": 22,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ]
+    },
+    {
+     "id": "gl",
+     "kind": "grid",
+     "x": 60,
+     "y": 170,
+     "rows": 3,
+     "cols": 8,
+     "cw": 34,
+     "ch": 24,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "1",
+      "4",
+      "1",
+      "5",
+      "1"
+     ],
+     "rowTitle": "LRU"
+    },
+    {
+     "id": "rl",
+     "kind": "grid",
+     "x": 60,
+     "y": 244,
+     "rows": 1,
+     "cols": 8,
+     "cw": 34,
+     "ch": 22,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Reference 1: the frames are empty, so both fault (F) and load it.",
+     "set": [
+      {
+       "id": "gf",
+       "cells": [
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rf",
+       "cells": [
+        "F",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gl",
+       "cells": [
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rl",
+       "cells": [
+        "F",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rf",
+       "cells": [
+        0
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "rl",
+       "cells": [
+        0
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 2: both fault again.",
+     "set": [
+      {
+       "id": "gf",
+       "cells": [
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rf",
+       "cells": [
+        "F",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gl",
+       "cells": [
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rl",
+       "cells": [
+        "F",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rf",
+       "cells": [
+        1
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "rl",
+       "cells": [
+        1
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 3: both fault. All three frames are now full.",
+     "set": [
+      {
+       "id": "gf",
+       "cells": [
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rf",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gl",
+       "cells": [
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rl",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rf",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "rl",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 1 again: a hit (h) for both. LRU now counts 1 as most recent. FIFO changes nothing.",
+     "set": [
+      {
+       "id": "gf",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rf",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gl",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rl",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rf",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "rl",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 4 faults. FIFO evicts 1, the oldest load, though 1 was just used. LRU evicts 2, the least recently used.",
+     "set": [
+      {
+       "id": "gf",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        4,
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rf",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "F",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gl",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        4,
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rl",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "F",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rf",
+       "cells": [
+        4
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "rl",
+       "cells": [
+        4
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 1: FIFO faults because it threw 1 out. LRU still holds it: a hit.",
+     "set": [
+      {
+       "id": "gf",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        4,
+        4,
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        2,
+        1,
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rf",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "F",
+        "F",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gl",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        4,
+        4,
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rl",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "F",
+        "h",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rf",
+       "cells": [
+        5
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "rl",
+       "cells": [
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 5 faults in both. Each evicts 3.",
+     "set": [
+      {
+       "id": "gf",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        4,
+        4,
+        4,
+        "",
+        "",
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        5,
+        ""
+       ]
+      },
+      {
+       "id": "rf",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "F",
+        "F",
+        "F",
+        ""
+       ]
+      },
+      {
+       "id": "gl",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        "",
+        "",
+        2,
+        2,
+        2,
+        4,
+        4,
+        4,
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        5,
+        ""
+       ]
+      },
+      {
+       "id": "rl",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "F",
+        "h",
+        "F",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rf",
+       "cells": [
+        6
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "rl",
+       "cells": [
+        6
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 1 hits in both. Final count below.",
+     "set": [
+      {
+       "id": "gf",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        4,
+        4,
+        4,
+        4,
+        "",
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        5,
+        5
+       ]
+      },
+      {
+       "id": "rf",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "F",
+        "F",
+        "F",
+        "h"
+       ]
+      },
+      {
+       "id": "gl",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        "",
+        2,
+        2,
+        2,
+        4,
+        4,
+        4,
+        4,
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        5,
+        5
+       ]
+      },
+      {
+       "id": "rl",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "h",
+        "F",
+        "h",
+        "F",
+        "h"
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "rf",
+       "cells": [
+        7
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "rl",
+       "cells": [
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "FIFO had 6 faults and LRU 5. FIFO ignored that page 1 kept coming back; LRU kept it.",
+     "highlight": [
+      {
+       "id": "rf",
+       "tone": "bad"
+      },
+      {
+       "id": "rl",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.vm.belady",
+   "title": "Belady's anomaly under FIFO",
+   "viewBox": [
+    0,
+    0,
+    360,
+    340
+   ],
+   "objects": [
+    {
+     "id": "la",
+     "kind": "text",
+     "x": 40,
+     "y": 34,
+     "text": "FIFO, 3 frames",
+     "size": 13,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "ga",
+     "kind": "grid",
+     "x": 40,
+     "y": 62,
+     "rows": 3,
+     "cols": 12,
+     "cw": 26,
+     "ch": 22,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "1",
+      "2",
+      "5",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+     ]
+    },
+    {
+     "id": "ra",
+     "kind": "grid",
+     "x": 40,
+     "y": 130,
+     "rows": 1,
+     "cols": 12,
+     "cw": 26,
+     "ch": 20,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ]
+    },
+    {
+     "id": "lb",
+     "kind": "text",
+     "x": 40,
+     "y": 166,
+     "text": "FIFO, 4 frames",
+     "size": 13,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "gb",
+     "kind": "grid",
+     "x": 40,
+     "y": 194,
+     "rows": 4,
+     "cols": 12,
+     "cw": 26,
+     "ch": 22,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "1",
+      "2",
+      "5",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+     ]
+    },
+    {
+     "id": "rb",
+     "kind": "grid",
+     "x": 40,
+     "y": 286,
+     "rows": 1,
+     "cols": 12,
+     "cw": 26,
+     "ch": 20,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ]
+    },
+    {
+     "id": "na",
+     "kind": "text",
+     "x": 352,
+     "y": 34,
+     "text": "",
+     "size": 12,
+     "anchor": "end",
+     "mono": true,
+     "bold": true
+    },
+    {
+     "id": "nb",
+     "kind": "text",
+     "x": 352,
+     "y": 166,
+     "text": "",
+     "size": 12,
+     "anchor": "end",
+     "mono": true,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The first four references fault in both runs: 4 faults each. More frames cannot help a first touch.",
+     "set": [
+      {
+       "id": "ga",
+       "cells": [
+        1,
+        1,
+        1,
+        4,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ra",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gb",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        4,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "na",
+       "text": "faults: 4"
+      },
+      {
+       "id": "nb",
+       "text": "faults: 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ra",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "References 1 and 2 again: with 4 frames they hit. With 3 frames both were evicted, so they fault.",
+     "set": [
+      {
+       "id": "ga",
+       "cells": [
+        1,
+        1,
+        1,
+        4,
+        4,
+        4,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ra",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gb",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        4,
+        4,
+        4,
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "h",
+        "h",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "na",
+       "text": "faults: 6"
+      },
+      {
+       "id": "nb",
+       "text": "faults: 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ra",
+       "cells": [
+        4,
+        5
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        4,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Reference 5 faults in both. The 3-frame run is now at 7 faults, the 4-frame run at 5.",
+     "set": [
+      {
+       "id": "ga",
+       "cells": [
+        1,
+        1,
+        1,
+        4,
+        4,
+        4,
+        5,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ra",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gb",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        5,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        3,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        4,
+        4,
+        4,
+        4,
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "h",
+        "h",
+        "F",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "na",
+       "text": "faults: 7"
+      },
+      {
+       "id": "nb",
+       "text": "faults: 5"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ra",
+       "cells": [
+        6
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        6
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "References 1 and 2: the 3-frame run now hits where 4 frames fault. Totals so far: 7 against 7.",
+     "set": [
+      {
+       "id": "ga",
+       "cells": [
+        1,
+        1,
+        1,
+        4,
+        4,
+        4,
+        5,
+        5,
+        5,
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        2,
+        2,
+        2,
+        2,
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ra",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "h",
+        "h",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "gb",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        5,
+        5,
+        5,
+        "",
+        "",
+        "",
+        "",
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        "",
+        "",
+        "",
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        2,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "h",
+        "h",
+        "F",
+        "F",
+        "F",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "na",
+       "text": "faults: 7"
+      },
+      {
+       "id": "nb",
+       "text": "faults: 7"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ra",
+       "cells": [
+        7,
+        8
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        7,
+        8
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Final: 9 faults with 3 frames, 10 with 4. More frames, more faults: Belady's anomaly.",
+     "set": [
+      {
+       "id": "ga",
+       "cells": [
+        1,
+        1,
+        1,
+        4,
+        4,
+        4,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        "",
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        3,
+        3,
+        3,
+        "",
+        "",
+        3,
+        3,
+        3,
+        2,
+        2,
+        2,
+        2,
+        2,
+        4,
+        4
+       ]
+      },
+      {
+       "id": "ra",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "h",
+        "h",
+        "F",
+        "F",
+        "h"
+       ]
+      },
+      {
+       "id": "gb",
+       "cells": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        5,
+        5,
+        5,
+        5,
+        4,
+        4,
+        "",
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        1,
+        5,
+        "",
+        "",
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        2,
+        2,
+        2,
+        2,
+        "",
+        "",
+        "",
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        3,
+        3,
+        3
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "h",
+        "h",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F"
+       ]
+      },
+      {
+       "id": "na",
+       "text": "faults: 9"
+      },
+      {
+       "id": "nb",
+       "text": "faults: 10"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ra",
+       "cells": [
+        9,
+        10,
+        11
+       ]
+      },
+      {
+       "id": "rb",
+       "cells": [
+        9,
+        10,
+        11
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.vm.fault",
+   "title": "Valid bits and page faults",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "c0",
+     "kind": "text",
+     "x": 12,
+     "y": 16,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "pages 0..3: valid bit",
+     "tone": "muted"
+    },
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 12,
+     "y": 30,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "refs: 0 2 2 3 0",
+     "tone": "muted"
+    },
+    {
+     "id": "l_v",
+     "kind": "text",
+     "x": 68,
+     "y": 58,
+     "anchor": "start",
+     "size": 11,
+     "text": "valid bit",
+     "tone": "muted"
+    },
+    {
+     "id": "n0",
+     "kind": "text",
+     "x": 96.0,
+     "y": 73,
+     "size": 10,
+     "text": "page 0",
+     "tone": "muted"
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 152.0,
+     "y": 73,
+     "size": 10,
+     "text": "page 1",
+     "tone": "muted"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 208.0,
+     "y": 73,
+     "size": 10,
+     "text": "page 2",
+     "tone": "muted"
+    },
+    {
+     "id": "n3",
+     "kind": "text",
+     "x": 264.0,
+     "y": 73,
+     "size": 10,
+     "text": "page 3",
+     "tone": "muted"
+    },
+    {
+     "id": "v",
+     "kind": "array",
+     "x": 68,
+     "y": 78,
+     "cells": [
+      1,
+      1,
+      0,
+      0
+     ],
+     "cw": 56,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 130,
+     "size": 12,
+     "bold": true,
+     "mono": true,
+     "tone": "accent",
+     "text": ""
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Reference 0: valid is 1, so the page is in memory. No fault.",
+     "set": [
+      {
+       "id": "out",
+       "text": "ref 0: valid=1, no fault"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "v",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 2: valid is 0, so this is a page fault. The OS loads page 2 into a free frame and sets valid to 1.",
+     "set": [
+      {
+       "id": "v",
+       "cells": [
+        1,
+        1,
+        1,
+        0
+       ]
+      },
+      {
+       "id": "out",
+       "text": "ref 2: PAGE FAULT #1, load it"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "v",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 2 again: valid is now 1. No fault.",
+     "set": [
+      {
+       "id": "out",
+       "text": "ref 2: valid=1, no fault"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "v",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 3: valid is 0, so a second page fault. The OS loads page 3.",
+     "set": [
+      {
+       "id": "v",
+       "cells": [
+        1,
+        1,
+        1,
+        1
+       ]
+      },
+      {
+       "id": "out",
+       "text": "ref 3: PAGE FAULT #2, load it"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "v",
+       "cells": [
+        3
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Reference 0: still in memory. No fault.",
+     "set": [
+      {
+       "id": "out",
+       "text": "ref 0: no fault.  Total = 2 faults"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "v",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.vm.ptsize",
+   "title": "Page table size from the address bits",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "c0",
+     "kind": "text",
+     "x": 12,
+     "y": 16,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "VA 40 bits, PA 32 bits, 8 KB pages",
+     "tone": "muted"
+    },
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 12,
+     "y": 30,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "3 control bits, single level",
+     "tone": "muted"
+    },
+    {
+     "id": "l_b",
+     "kind": "text",
+     "x": 30,
+     "y": 58,
+     "anchor": "start",
+     "size": 11,
+     "text": "address split",
+     "tone": "muted"
+    },
+    {
+     "id": "n0",
+     "kind": "text",
+     "x": 80.0,
+     "y": 73,
+     "size": 10,
+     "text": "total",
+     "tone": "muted"
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180.0,
+     "y": 73,
+     "size": 10,
+     "text": "offset",
+     "tone": "muted"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 280.0,
+     "y": 73,
+     "size": 10,
+     "text": "VPN",
+     "tone": "muted"
+    },
+    {
+     "id": "b",
+     "kind": "array",
+     "x": 30,
+     "y": 78,
+     "cells": [
+      "",
+      "",
+      ""
+     ],
+     "cw": 100,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "l_e",
+     "kind": "text",
+     "x": 30,
+     "y": 124,
+     "anchor": "start",
+     "size": 11,
+     "text": "one entry",
+     "tone": "muted"
+    },
+    {
+     "id": "e",
+     "kind": "array",
+     "x": 30,
+     "y": 131,
+     "cells": [
+      "",
+      "",
+      ""
+     ],
+     "cw": 100,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "l_s",
+     "kind": "text",
+     "x": 30,
+     "y": 177,
+     "anchor": "start",
+     "size": 11,
+     "text": "table",
+     "tone": "muted"
+    },
+    {
+     "id": "s",
+     "kind": "array",
+     "x": 30,
+     "y": 184,
+     "cells": [
+      "",
+      "",
+      ""
+     ],
+     "cw": 100,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 228,
+     "size": 12,
+     "bold": true,
+     "mono": true,
+     "tone": "accent",
+     "text": ""
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Offset: 8 KB = 2^13 bytes, so 13 offset bits.",
+     "set": [
+      {
+       "id": "b",
+       "cells": [
+        "40",
+        "13",
+        ""
+       ]
+      },
+      {
+       "id": "out",
+       "text": "8 KB = 2^13: 13 offset bits"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "VPN bits: 40 - 13 = 27. So the table has 2^27 = 134,217,728 entries.",
+     "set": [
+      {
+       "id": "b",
+       "cells": [
+        "40",
+        "13",
+        "27"
+       ]
+      },
+      {
+       "id": "out",
+       "text": "VPN = 40 - 13 = 27: 2^27 entries"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Frame bits: 32 - 13 = 19.",
+     "set": [
+      {
+       "id": "e",
+       "cells": [
+        "19",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "out",
+       "text": "frame bits = 32 - 13 = 19"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Entry size: 19 + 3 = 22 bits. Round up to whole bytes: 3 bytes.",
+     "set": [
+      {
+       "id": "e",
+       "cells": [
+        "19",
+        "3",
+        "22 -> 3 B"
+       ]
+      },
+      {
+       "id": "out",
+       "text": "22 bits rounds up to 3 bytes"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Table size: 2^27 × 3 bytes = 402,653,184 bytes = 384 MB.",
+     "set": [
+      {
+       "id": "s",
+       "cells": [
+        "2^27",
+        "3 B",
+        "384 MB"
+       ]
+      },
+      {
+       "id": "out",
+       "text": "2^27 x 3 B = 384 MB"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "s",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.vm.twolevel",
+   "title": "Counting multi-level page tables",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "c0",
+     "kind": "text",
+     "x": 12,
+     "y": 16,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "VA 38 bits, 16 KB pages, 4 B entries",
+     "tone": "muted"
+    },
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 12,
+     "y": 30,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "100 MB used, tables fill one page",
+     "tone": "muted"
+    },
+    {
+     "id": "l_b",
+     "kind": "text",
+     "x": 30,
+     "y": 58,
+     "anchor": "start",
+     "size": 11,
+     "text": "bits",
+     "tone": "muted"
+    },
+    {
+     "id": "n0",
+     "kind": "text",
+     "x": 80.0,
+     "y": 73,
+     "size": 10,
+     "text": "offset",
+     "tone": "muted"
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180.0,
+     "y": 73,
+     "size": 10,
+     "text": "VPN",
+     "tone": "muted"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 280.0,
+     "y": 73,
+     "size": 10,
+     "text": "bits per level",
+     "tone": "muted"
+    },
+    {
+     "id": "b",
+     "kind": "array",
+     "x": 30,
+     "y": 78,
+     "cells": [
+      "",
+      "",
+      ""
+     ],
+     "cw": 100,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "l_t",
+     "kind": "text",
+     "x": 30,
+     "y": 124,
+     "anchor": "start",
+     "size": 11,
+     "text": "tables",
+     "tone": "muted"
+    },
+    {
+     "id": "t",
+     "kind": "array",
+     "x": 30,
+     "y": 131,
+     "cells": [
+      "",
+      "",
+      ""
+     ],
+     "cw": 100,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 183,
+     "size": 12,
+     "bold": true,
+     "mono": true,
+     "tone": "accent",
+     "text": ""
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Offset: 16 KB = 2^14, so 14 bits. VPN bits: 38 - 14 = 24.",
+     "set": [
+      {
+       "id": "b",
+       "cells": [
+        14,
+        24,
+        ""
+       ]
+      },
+      {
+       "id": "out",
+       "text": "offset 14, VPN = 38 - 14 = 24"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Entries per table: 16 KB / 4 B = 4096 = 2^12, so 12 bits per level.",
+     "set": [
+      {
+       "id": "b",
+       "cells": [
+        14,
+        24,
+        12
+       ]
+      },
+      {
+       "id": "out",
+       "text": "16 KB / 4 B = 4096 = 2^12 entries"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Levels: 24 / 12 = 2 levels.",
+     "set": [
+      {
+       "id": "out",
+       "text": "levels = 24 / 12 = 2"
+      }
+     ]
+    },
+    {
+     "caption": "Pages used: 100 MB / 16 KB = 6400. Leaf tables: ceil(6400 / 4096) = 2.",
+     "set": [
+      {
+       "id": "t",
+       "cells": [
+        "leaf",
+        "leaf",
+        ""
+       ]
+      },
+      {
+       "id": "out",
+       "text": "6400 pages / 4096 -> 2 leaf tables"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "t",
+       "cells": [
+        0,
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "One top table points to those 2 leaves. Total 3 tables × 16 KB = 48 KB.",
+     "set": [
+      {
+       "id": "t",
+       "cells": [
+        "leaf",
+        "leaf",
+        "top"
+       ]
+      },
+      {
+       "id": "out",
+       "text": "3 tables x 16 KB = 48 KB"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "t",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.vm.eatfault",
+   "title": "EAT with a rare page fault",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "c0",
+     "kind": "text",
+     "x": 12,
+     "y": 16,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "m = 100 ns, F = 10 ms, p = 10^-5",
+     "tone": "muted"
+    },
+    {
+     "id": "l_e",
+     "kind": "text",
+     "x": 30,
+     "y": 44,
+     "anchor": "start",
+     "size": 11,
+     "text": "ns",
+     "tone": "muted"
+    },
+    {
+     "id": "n0",
+     "kind": "text",
+     "x": 80.0,
+     "y": 59,
+     "size": 10,
+     "text": "no-fault part",
+     "tone": "muted"
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180.0,
+     "y": 59,
+     "size": 10,
+     "text": "fault part",
+     "tone": "muted"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 280.0,
+     "y": 59,
+     "size": 10,
+     "text": "EAT",
+     "tone": "muted"
+    },
+    {
+     "id": "e",
+     "kind": "array",
+     "x": 30,
+     "y": 64,
+     "cells": [
+      "",
+      "",
+      ""
+     ],
+     "cw": 100,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 116,
+     "size": 12,
+     "bold": true,
+     "mono": true,
+     "tone": "accent",
+     "text": ""
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Convert units: F = 10 ms = 10,000,000 ns.",
+     "set": [
+      {
+       "id": "out",
+       "text": "F = 10 ms = 10,000,000 ns"
+      }
+     ]
+    },
+    {
+     "caption": "No-fault part: (1 - 10^-5) × 100 = 99.999 ns.",
+     "set": [
+      {
+       "id": "e",
+       "cells": [
+        "99.999",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "out",
+       "text": "(1 - 10^-5) x 100 = 99.999"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Fault part: 10^-5 × 10,000,000 = 100 ns.",
+     "set": [
+      {
+       "id": "e",
+       "cells": [
+        "99.999",
+        "100",
+        ""
+       ]
+      },
+      {
+       "id": "out",
+       "text": "10^-5 x 10,000,000 = 100"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Add: EAT = 99.999 + 100 = 199.999 ns, about 200 ns.",
+     "set": [
+      {
+       "id": "e",
+       "cells": [
+        "99.999",
+        "100",
+        "199.999"
+       ]
+      },
+      {
+       "id": "out",
+       "text": "EAT about 200 ns: doubled"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.vm.workingset",
+   "title": "Working set and thrashing",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "c0",
+     "kind": "text",
+     "x": 12,
+     "y": 16,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "window = 4 refs",
+     "tone": "muted"
+    },
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 12,
+     "y": 30,
+     "anchor": "start",
+     "mono": true,
+     "size": 11,
+     "text": "80 frames, 5 processes of 20 pages",
+     "tone": "muted"
+    },
+    {
+     "id": "l_r",
+     "kind": "text",
+     "x": 20,
+     "y": 58,
+     "anchor": "start",
+     "size": 11,
+     "text": "references",
+     "tone": "muted"
+    },
+    {
+     "id": "r",
+     "kind": "array",
+     "x": 20,
+     "y": 65,
+     "cells": [
+      1,
+      2,
+      1,
+      3,
+      4,
+      4,
+      5,
+      4
+     ],
+     "cw": 40,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "l_p",
+     "kind": "text",
+     "x": 20,
+     "y": 111,
+     "anchor": "start",
+     "size": 11,
+     "text": "working set per process",
+     "tone": "muted"
+    },
+    {
+     "id": "p",
+     "kind": "array",
+     "x": 20,
+     "y": 118,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 40,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 170,
+     "size": 12,
+     "bold": true,
+     "mono": true,
+     "tone": "accent",
+     "text": ""
+    }
+   ],
+   "steps": [
+    {
+     "caption": "After the 4th reference, the last 4 references are 1, 2, 1, 3. The working set is {1, 2, 3}, size 3.",
+     "set": [
+      {
+       "id": "out",
+       "text": "last 4: {1,2,3}, size 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "r",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "After the 8th reference, the last 4 are 4, 4, 5, 4. The working set is {4, 5}, size 2. Repeats count once.",
+     "set": [
+      {
+       "id": "out",
+       "text": "last 4: {4,5}, size 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "r",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Memory demand: 5 processes × 20 pages = 100 frames needed, but only 80 exist.",
+     "set": [
+      {
+       "id": "p",
+       "cells": [
+        20,
+        20,
+        20,
+        20,
+        20
+       ]
+      },
+      {
+       "id": "out",
+       "text": "demand 100 > 80 frames"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "p",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "100 is more than 80, so the system thrashes. Each process gets about 16 frames, less than the 20 it needs, so it faults constantly and the CPU sits idle.",
+     "set": [
+      {
+       "id": "out",
+       "text": "thrashing: 16 frames each < 20"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "p",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Suspend one process. Now 4 × 20 = 80 frames, which fits exactly.",
+     "set": [
+      {
+       "id": "p",
+       "cells": [
+        20,
+        20,
+        20,
+        20,
+        ""
+       ]
+      },
+      {
+       "id": "out",
+       "text": "4 x 20 = 80 fits"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "p",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

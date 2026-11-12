@@ -1,0 +1,3696 @@
+{
+  "topic_id": "cd.icg_dataflow",
+  "title": "Intermediate code and data-flow analysis",
+  "chapter_note": {
+    "about": "After parsing, a compiler rewrites a program as small steps called three-address code, cuts them into straight-line blocks, and links the blocks into a flow graph. Everything after that is a question asked on that graph. Some questions are counts, such as blocks, edges, DAG nodes, triples or registers. Others are sets that flow along the edges: which variables are live, which definitions reach a point, which expressions are available. Each set problem follows one recipe. Pick forward or backward, pick union or intersection at joins, and sweep round loops until nothing changes.",
+    "concept_map": [
+      {
+        "atom_id": "d1",
+        "title": "Three-address code and triples",
+        "one_line": "One operator per instruction. Quadruples name results, triples use row numbers."
+      },
+      {
+        "atom_id": "d2",
+        "title": "DAG of a basic block",
+        "one_line": "Reuse a node when the same operator is applied to the same operand nodes."
+      },
+      {
+        "atom_id": "d3",
+        "title": "Basic blocks and the CFG",
+        "one_line": "Leaders cut the code into blocks. Edges are jumps plus fall-through."
+      },
+      {
+        "atom_id": "d4",
+        "title": "Liveness analysis",
+        "one_line": "Walk backward. IN = USE, plus OUT minus DEF. Union over successors."
+      },
+      {
+        "atom_id": "d5",
+        "title": "Reaching definitions",
+        "one_line": "Walk forward with GEN and KILL. Union at joins."
+      },
+      {
+        "atom_id": "d6",
+        "title": "Available expressions and CSE",
+        "one_line": "Walk forward. An expression must be on every path, so intersect at joins."
+      },
+      {
+        "atom_id": "d7",
+        "title": "Constant propagation and folding",
+        "one_line": "Track known numbers. Different numbers at a join become NAC."
+      },
+      {
+        "atom_id": "d8",
+        "title": "Register need",
+        "one_line": "Sethi-Ullman labels for trees, the largest live set for straight-line code."
+      },
+      {
+        "atom_id": "d9",
+        "title": "SSA form",
+        "one_line": "A new name per assignment, the latest name at each use, a phi at each join."
+      }
+    ],
+    "gate_patterns": [
+      "Count things in a short program: basic blocks and CFG edges, DAG nodes and edges, triples, registers, or SSA names. Asked in 2024 CS1, 2025 CS1, 2021 CS1 and 2017 CS1.",
+      "Fill a data-flow set on a small CFG, often with a loop: the variables live at a block exit, or which expressions are redundant after an available-expressions pass. Asked in 2023, 2026 CS1 and 2026 CS2.",
+      "Pick the true statement about intermediate code or optimisation: triples against quadruples, backpatching, folding against CSE. About 1.6 marks per CS paper in recent years (14 questions)."
+    ],
+    "simple": "After a compiler reads your program, it rewrites it as tiny steps and cuts the steps into stretches with no turn-offs, like a road map. Then it asks questions about that map. Some questions are counting: how many stretches, how many different calculations, how many hands (registers) are needed to hold the numbers. Other questions ask what is true at each spot: which variables will still be used, which writes could have made this value, which results are already worked out. The same recipe fits all of them: choose to walk forward or backward, choose whether 'any road' or 'every road' counts where roads meet, and keep walking until nothing changes. In exam words: intermediate code, basic blocks, the CFG, and the data-flow analyses liveness, reaching definitions, available expressions and constant propagation."
+  },
+  "cards": [
+    {
+      "atom_id": "d1",
+      "title": "Three-address code and triples",
+      "simple": "Imagine giving a friend directions one tiny step at a time: add these two, write the answer down, then multiply it by that. Three-address code does this for the computer. Every line does exactly one calculation and drops the answer into a named box, so no line is ever complicated. A quadruple is one such line written as a table row with four columns: the operation, the two inputs, and the box that gets the answer. A triple skips the answer column and just says 'use the answer from row 2'. In exam words: three-address code allows at most one operator per instruction; quadruples store (op, arg1, arg2, result) and triples store (op, arg1, arg2) and refer to results by row number.",
+      "idea": "A processor does one operation at a time. So the compiler breaks a long formula into tiny steps, each with at most **one operator**. The innermost bracket goes first, and each step keeps its answer in a named temporary. That is three-address code. Quadruples name every result. Triples use row numbers instead.",
+      "idea_full": "Take y = (p - q) * r + s. A processor cannot do that in one go, so the compiler writes three small steps: p - q first, then times r, then plus s. Each step has at most three addresses: two inputs and one output. That is why it is called **three-address code**. The temporaries t1 and t2 hold the middle answers. A **quadruple** stores a step as four fields: operator, first argument, second argument, result. A **triple** removes the result field. Later steps point to an earlier step by its row number.",
+      "definition": "An instruction has the form $x = y \\;\\text{op}\\; z$ with at most one operator. The letters x, y and z are names or constants.\n\nQuadruple: (op, arg1, arg2, result). Triple: (op, arg1, arg2), where an argument may be a row number such as (0). Indirect triples keep the triples fixed and use a separate list of pointers for the run order.\n\nArrays have their own operations. Reading a[i] is the row `=[] a i`. Writing to a[i] is the row `[]= a i`, which names the slot. A separate row `= (slot) (value)` then stores into it. A plain store such as y = (2) is also its own triple row.",
+      "intuition_full": "Why one operator per line? Machine instructions have the same shape: at most two inputs and one output. If the compiler lowers the code to this shape early, it can reorder, share and optimise steps without re-reading formulas. Think of a recipe card. 'Beat two eggs' is a step. 'Beat two eggs, fold in flour and bake' is not. Quadruples are cards that each name the dish they make, so you can shuffle the cards and every card still makes sense. Triples save a column by saying 'use the dish from card 2'. If you shuffle the cards, every 'card 2' now points at the wrong card. That is why indirect triples exist: keep the cards fixed and shuffle only a separate order list. A triple has no name for its answer, which is also why storing into y needs its own '=' row.",
+      "example": {
+        "setup": "Write y = (p - q) * r + s as quadruples and as triples. How many rows does each need?",
+        "steps": [
+          "Find the order. Brackets first, then * before +. So p - q, then times r, then plus s.",
+          "Quadruple 1: (-, p, q, t1). It computes t1 = p - q.",
+          "Quadruple 2: the operator is multiply, arg1 is t1, arg2 is r and the result is t2. It computes t2 = t1 * r.",
+          "Quadruple 3: (+, t2, s, y). The last result goes straight into y. That is 3 quadruples.",
+          "Triples drop the result field. Row (0): (-, p, q). Row (1): (*, (0), r). Row (2): (+, (1), s).",
+          "A triple cannot name its target, so storing into y needs a fourth row. Row (3): (=, y, (2))."
+        ],
+        "answer": "3 quadruples, or 4 triples (the extra triple is the store into y)."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Write y = (p - q) * r + s as quadruples and as triples. How many rows does each need?",
+          "steps": [
+            "Find the order. Brackets first, then * before +. So p - q, then times r, then plus s.",
+            "Quadruple 1: (-, p, q, t1). It computes t1 = p - q.",
+            "Quadruple 2: the operator is multiply, arg1 is t1, arg2 is r and the result is t2. It computes t2 = t1 * r.",
+            "Quadruple 3: (+, t2, s, y). The last result goes straight into y. That is 3 quadruples.",
+            "Triples drop the result field. Row (0): (-, p, q). Row (1): (*, (0), r). Row (2): (+, (1), s).",
+            "A triple cannot name its target, so storing into y needs a fourth row. Row (3): (=, y, (2))."
+          ],
+          "answer": "3 quadruples, or 4 triples (the extra triple is the store into y)."
+        },
+        {
+          "level": "gate",
+          "setup": "A compiler generates triples for t[i] = t[i] * 2 + u[j]. Every array read, the array slot write, the final store and each arithmetic step is one triple. How many triples are there, and what is the last one?",
+          "steps": [
+            "Read t[i]. Row (0): (=[], t, i).",
+            "Multiply by 2. Row (1): (*, (0), 2).",
+            "Read u[j]. Row (2): (=[], u, j).",
+            "Add the two results. Row (3): (+, (1), (2)).",
+            "Name the target slot. Row (4): ([]=, t, i). This row only names the slot t[i].",
+            "Store the value into that slot. Row (5): (=, (4), (3))."
+          ],
+          "answer": "6 triples. The last is (=, (4), (3)). The trap avoided is counting only the 2 arithmetic rows and forgetting the two array reads, the slot row and the store."
+        },
+        {
+          "level": "twist",
+          "setup": "Triples: (0) + a b, (1) * c d, (2) - (0) (1). So the value is (a + b) - (c * d). An optimiser wants to run the multiplication first. What breaks if you swap rows (0) and (1), and how do indirect triples avoid it?",
+          "steps": [
+            "Swap the two rows. Now (0) is * c d and (1) is + a b. Row (2) still reads - (0) (1).",
+            "Row (2) now computes (c * d) - (a + b). The answer has silently changed.",
+            "To fix it, every reference to a moved row must be renumbered. Row (2) must become - (1) (0). With many rows this is slow and easy to get wrong.",
+            "Indirect triples keep the three triples where they are, still numbered (0) to (2). A separate list gives the run order, such as [1, 0, 2].",
+            "To reorder, change only the list. No triple is edited, so every reference stays correct."
+          ],
+          "answer": "Plain triples need every reference renumbered after a reorder. Indirect triples reorder only a list of pointers."
+        }
+      ],
+      "why": "Every later phase works on this shape, so you must be able to produce it by hand. In GATE: you pick the valid three-address instruction, count triples for an array statement, or say how triples differ from quadruples.",
+      "how": [
+        "Bracket the expression fully: brackets first, then * and / before + and -, left to right for equal precedence.",
+        "Write one instruction per operator, innermost first. Name each result t1, t2, and so on.",
+        "For triples, delete the result name. Wherever a result is used, write the earlier row number such as (1).",
+        "Add one row for each array read (=[]), each array slot write ([]=) and each final store (=).",
+        "If the question asks how many, count the rows."
+      ],
+      "mistake": "Putting two operators in one instruction, such as t1 = a + b * c. That is not three-address code. Split it into t1 = b * c, then t2 = a + t1. A second slip is forgetting the extra row for the store when counting triples.",
+      "edge_cases": [
+        "A copy x = y has no operator. It is a valid three-address instruction on its own.",
+        "a - b - c goes left to right: t1 = a - b, then t2 = t1 - c.",
+        "A unary minus is its own operation. In a triple it has a single argument.",
+        "Indirect triples can reorder without renumbering. Plain triples cannot."
+      ],
+      "connections": [
+        "Parsing builds a tree. Three-address code is that tree flattened into steps (see Lexical analysis and parsing).",
+        "The next card, the DAG of a block, merges repeated rows of this code.",
+        "Backpatching fills in jump targets for these instructions in one pass (see Syntax-directed translation and run-time environments)."
+      ],
+      "check": [
+        {
+          "q": "Write k = m - n / q as three-address code.",
+          "a": "Division comes first: t1 = n / q, then k = m - t1. That is 2 instructions."
+        },
+        {
+          "q": "In the triples (0) + a b and (1) * (0) c, what does the (0) inside row (1) mean?",
+          "a": "It means the value computed by row (0), which is a + b. So row (1) computes (a + b) * c."
+        },
+        {
+          "q": "How many instructions does d = a - b - c need?",
+          "a": "2. Subtraction goes left to right: t1 = a - b, then d = t1 - c."
+        }
+      ],
+      "asked": "Asked: 2024 CS2 Q43, 2021 CS2 Q23, 2025 CS2 Q21, 2014 CS3 Q17, 2014 CS2 Q34",
+      "try": {
+        "id": "gen.ic.001",
+        "label": "Which is a valid three-address instruction?"
+      },
+      "scene": "cd.icg.tac",
+      "what": "A processor does one operation at a time. So the compiler breaks a long formula into tiny steps, each with at most **one operator**. The innermost bracket goes first, and each step keeps its answer in a named temporary. That is three-address code. Quadruples name every result. Triples use row numbers instead.",
+      "what_full": "Take y = (p - q) * r + s. A processor cannot do that in one go, so the compiler writes three small steps: p - q first, then times r, then plus s. Each step has at most three addresses: two inputs and one output. That is why it is called **three-address code**. The temporaries t1 and t2 hold the middle answers. A **quadruple** stores a step as four fields: operator, first argument, second argument, result. A **triple** removes the result field. Later steps point to an earlier step by its row number.\n\nAn instruction has the form $x = y \\;\\text{op}\\; z$ with at most one operator. The letters x, y and z are names or constants.\n\nQuadruple: (op, arg1, arg2, result). Triple: (op, arg1, arg2), where an argument may be a row number such as (0). Indirect triples keep the triples fixed and use a separate list of pointers for the run order.\n\nArrays have their own operations. Reading a[i] is the row `=[] a i`. Writing to a[i] is the row `[]= a i`, which names the slot. A separate row `= (slot) (value)` then stores into it. A plain store such as y = (2) is also its own triple row.\n\n**Worked example.** Write y = (p - q) * r + s as quadruples and as triples. How many rows does each need?\n\n1. Find the order. Brackets first, then * before +. So p - q, then times r, then plus s.\n2. Quadruple 1: (-, p, q, t1). It computes t1 = p - q.\n3. Quadruple 2: the operator is multiply, arg1 is t1, arg2 is r and the result is t2. It computes t2 = t1 * r.\n4. Quadruple 3: (+, t2, s, y). The last result goes straight into y. That is 3 quadruples.\n5. Triples drop the result field. Row (0): (-, p, q). Row (1): (*, (0), r). Row (2): (+, (1), s).\n6. A triple cannot name its target, so storing into y needs a fourth row. Row (3): (=, y, (2)).\n\n**Answer:** 3 quadruples, or 4 triples (the extra triple is the store into y).\n\n**Check yourself:** Write k = m - n / q as three-address code.\n\n*Answer:* Division comes first: t1 = n / q, then k = m - t1. That is 2 instructions.",
+      "trap": "Putting two operators in one instruction, such as t1 = a + b * c. That is not three-address code. Split it into t1 = b * c, then t2 = a + t1. A second slip is forgetting the extra row for the store when counting triples.",
+      "why_full": "Every later phase works on this shape, so you must be able to produce it by hand. In GATE: you pick the valid three-address instruction, count triples for an array statement, or say how triples differ from quadruples.\n\nAsked: 2024 CS2 Q43, 2021 CS2 Q23, 2025 CS2 Q21, 2014 CS3 Q17, 2014 CS2 Q34"
+    },
+    {
+      "atom_id": "d2",
+      "title": "DAG of a basic block",
+      "simple": "Picture a cook whose recipe says 'chop the onions' twice. A smart cook chops once and uses the same pile both times. A DAG is a picture of a calculation that does exactly this. Every different calculation gets one bubble. If the same calculation shows up again, you point to the bubble you already have. The catch is that if an ingredient changed in between, the old pile no longer counts, because it was made from the old ingredient. In exam words: a DAG of a basic block reuses a node when the same operator is applied to the same operand nodes. A redefined variable points to a new node.",
+      "idea": "The **DAG** of a block draws each calculation once. Before creating a node for a + b, look for a node with the same operator and the same children. If there is one, reuse it and add the new name as a label. If an operand was reassigned in between, the children are different, so make a new node.",
+      "idea_full": "Go through the block one statement at a time. Each variable that is read before it is assigned becomes a **leaf**. Each calculation becomes an **operator node** with edges to its two inputs. If the same operator is applied to the same two nodes again, no new node is made. The new name is just added as a label on the node that exists. So a block with four statements can have only three operator nodes. Counting nodes and edges then asks: how many different calculations were really done?",
+      "definition": "For a statement $x = y \\;\\text{op}\\; z$: find the current node of y and of z (a leaf if the variable is not yet assigned in the block). If a node with operator op and exactly those two children exists, label it x. Otherwise create it. A copy $x = y$ only adds the label x to y's node.\n\nCounting: nodes = leaves + operator nodes. Each operator node has 2 edges, one to each child, so edges = 2 × operator nodes.",
+      "intuition_full": "Think of a DAG as a calculation with no repeated work. A node is a value. An edge says 'this value is built from that one'. Two nodes with the same operator and the same inputs always give the same number, so keeping both is waste. This is exactly common subexpression elimination, and the DAG finds it for free. The names x, y, w are sticky notes on nodes, and one node can carry several notes. Reassignment is the only thing that breaks sharing. After a = a + 1, the name a sticks to a new node. An older a + b node was built from the old a, so it is a different value. A leaf such as a means 'the value a had when the block started'. To count, walk the statements top to bottom and keep a running list of nodes.",
+      "example": {
+        "setup": "Draw the DAG of this block and count nodes and edges: u = m * n; v = u + 1; w = m * n; x = v + w.",
+        "steps": [
+          "Leaves first: m, n and 1 already exist before the block. That is 3 nodes.",
+          "u = m * n. No * node over m and n exists yet, so create one and label it u. Now 4 nodes.",
+          "v = u + 1. Create a + node over the u node and 1. Now 5 nodes.",
+          "w = m * n. A * node over m and n already exists. Reuse it and add the label w. Still 5 nodes.",
+          "x = v + w. Here w is the * node, so this is a + over the v node and the * node. It is new. Now 6 nodes.",
+          "Edges: 3 operator nodes with 2 edges each is 6."
+        ],
+        "answer": "6 nodes and 6 edges. There are four statements but only three operations."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Draw the DAG of this block and count nodes and edges: u = m * n; v = u + 1; w = m * n; x = v + w.",
+          "steps": [
+            "Leaves first: m, n and 1 already exist before the block. That is 3 nodes.",
+            "u = m * n. No * node over m and n exists yet, so create one and label it u. Now 4 nodes.",
+            "v = u + 1. Create a + node over the u node and 1. Now 5 nodes.",
+            "w = m * n. A * node over m and n already exists. Reuse it and add the label w. Still 5 nodes.",
+            "x = v + w. Here w is the * node, so this is a + over the v node and the * node. It is new. Now 6 nodes.",
+            "Edges: 3 operator nodes with 2 edges each is 6."
+          ],
+          "answer": "6 nodes and 6 edges. There are four statements but only three operations."
+        },
+        {
+          "level": "gate",
+          "setup": "Find the number of nodes and edges in the DAG of: p = x + y; q = p * 2; x = q - p; r = x + y; s = p * 2.",
+          "steps": [
+            "Leaves: x, y and 2 (the starting values). 3 nodes.",
+            "p = x + y. New + node over x and y. 4 nodes.",
+            "q = p * 2. New * node over the p node and 2. 5 nodes.",
+            "x = q - p. New - node over the q node and the p node. The name x now points here, not at the old leaf. 6 nodes.",
+            "r = x + y. This x is the - node. The + node from step 2 was built on the old leaf x, so it does not match. New node. 7 nodes.",
+            "s = p * 2. The p node and the 2 are unchanged, so the * node from step 3 is reused and gets the label s. Still 7.",
+            "Operator nodes: +, *, -, + is 4. Edges: 4 × 2 = 8."
+          ],
+          "answer": "7 nodes and 8 edges. The trap avoided is treating r = x + y as a repeat of p = x + y, even though x changed in between."
+        },
+        {
+          "level": "twist",
+          "setup": "A copy statement sits in the middle: a = b + c; d = a; e = d + c; f = a + c. How many nodes does the DAG have?",
+          "steps": [
+            "Leaves: b and c. 2 nodes.",
+            "a = b + c. New + node over b and c. Label a. 3 nodes.",
+            "d = a is a copy. It creates no node. It only adds the label d to the same node.",
+            "e = d + c. The name d is the + node, so this is a + over that node and c. Its children differ from b and c, so it is new. 4 nodes.",
+            "f = a + c. The name a is the same node as d, so this is the same + over the same two children as e. Reuse it and add the label f."
+          ],
+          "answer": "4 nodes and 4 edges. A copy never creates a node, and e and f share one."
+        }
+      ],
+      "why": "A DAG shows which work is repeated, so it is how a compiler spots common subexpressions inside one block. In GATE: you count DAG nodes or edges for a short block, usually with one variable reassigned in the middle.",
+      "how": [
+        "Make a leaf for every variable or constant that is read before it is assigned in the block.",
+        "Go statement by statement. Find the current nodes of the two operands.",
+        "Look for a node with the same operator and the same children. If found, add the label. If not, create it.",
+        "A copy x = y adds a label only.",
+        "Nodes = leaves + operator nodes. Edges = 2 × operator nodes."
+      ],
+      "mistake": "Reusing a node after an operand was reassigned. After x = q - p, a later x + y is not the same as an earlier x + y. The children are different nodes, so build a new one. The other slip is counting one node per statement.",
+      "edge_cases": [
+        "If a question says to use commutativity, a + b and b + a share a node. Otherwise match operands in the order written.",
+        "A variable never assigned in the block stays one leaf, however many times it is used.",
+        "A constant used twice is still one leaf.",
+        "A unary operator has one child, so it adds one edge instead of two."
+      ],
+      "connections": [
+        "Common subexpression elimination across blocks is Available expressions (a later card).",
+        "Value numbering is the table form of this DAG: the same operator and the same numbered operands get the same number.",
+        "SSA removes the reassignment problem by giving every assignment a new name."
+      ],
+      "check": [
+        {
+          "q": "Block: x = a + b; y = x * c; z = a + b; w = z * c. How many DAG nodes?",
+          "a": "Leaves a, b, c make 3. The + node (x) and the * node (y) make 2 more. z = a + b reuses the + node. w = z * c is the same * over the same children, so it reuses the * node. Total 5."
+        },
+        {
+          "q": "Why do a = a + 1; b = a + 1 give two separate + nodes?",
+          "a": "After the first line, the name a points to a new node. The second a + 1 has a different child, so it is a different calculation."
+        },
+        {
+          "q": "x = y; z = x + 1, where y is never assigned. How many nodes?",
+          "a": "Leaves y and 1. The copy x = y adds a label to the leaf y. z = y + 1 makes one + node. Total 3."
+        }
+      ],
+      "asked": "Asked: 2021 CS1 Q60, 2014 CS3 Q34",
+      "try": {
+        "id": "gen.ic.006",
+        "label": "Number of DAG nodes for a short block"
+      },
+      "scene": "cd.icg.dag",
+      "what": "The **DAG** of a block draws each calculation once. Before creating a node for a + b, look for a node with the same operator and the same children. If there is one, reuse it and add the new name as a label. If an operand was reassigned in between, the children are different, so make a new node.",
+      "what_full": "Go through the block one statement at a time. Each variable that is read before it is assigned becomes a **leaf**. Each calculation becomes an **operator node** with edges to its two inputs. If the same operator is applied to the same two nodes again, no new node is made. The new name is just added as a label on the node that exists. So a block with four statements can have only three operator nodes. Counting nodes and edges then asks: how many different calculations were really done?\n\nFor a statement $x = y \\;\\text{op}\\; z$: find the current node of y and of z (a leaf if the variable is not yet assigned in the block). If a node with operator op and exactly those two children exists, label it x. Otherwise create it. A copy $x = y$ only adds the label x to y's node.\n\nCounting: nodes = leaves + operator nodes. Each operator node has 2 edges, one to each child, so edges = 2 × operator nodes.\n\n**Worked example.** Draw the DAG of this block and count nodes and edges: u = m * n; v = u + 1; w = m * n; x = v + w.\n\n1. Leaves first: m, n and 1 already exist before the block. That is 3 nodes.\n2. u = m * n. No * node over m and n exists yet, so create one and label it u. Now 4 nodes.\n3. v = u + 1. Create a + node over the u node and 1. Now 5 nodes.\n4. w = m * n. A * node over m and n already exists. Reuse it and add the label w. Still 5 nodes.\n5. x = v + w. Here w is the * node, so this is a + over the v node and the * node. It is new. Now 6 nodes.\n6. Edges: 3 operator nodes with 2 edges each is 6.\n\n**Answer:** 6 nodes and 6 edges. There are four statements but only three operations.\n\n**Check yourself:** Block: x = a + b; y = x * c; z = a + b; w = z * c. How many DAG nodes?\n\n*Answer:* Leaves a, b, c make 3. The + node (x) and the * node (y) make 2 more. z = a + b reuses the + node. w = z * c is the same * over the same children, so it reuses the * node. Total 5.",
+      "trap": "Reusing a node after an operand was reassigned. After x = q - p, a later x + y is not the same as an earlier x + y. The children are different nodes, so build a new one. The other slip is counting one node per statement.",
+      "why_full": "A DAG shows which work is repeated, so it is how a compiler spots common subexpressions inside one block. In GATE: you count DAG nodes or edges for a short block, usually with one variable reassigned in the middle.\n\nAsked: 2021 CS1 Q60, 2014 CS3 Q34"
+    },
+    {
+      "atom_id": "d3",
+      "title": "Basic blocks and the CFG",
+      "simple": "Think of a road trip with signs that say 'if this, turn off to town B'. Every place you can arrive from a sign, and every place right after a sign, starts a new stretch of road. One stretch with no turn-offs is a basic block: you enter at the start and drive to the end with no choices. The flow graph draws each stretch as a circle and each possible turn as an arrow. In exam words: leaders are the first instruction, every jump target and every instruction after a jump. A block runs from one leader to just before the next. The CFG has an edge for each jump and each fall-through.",
+      "idea": "A **basic block** is a stretch of code you enter only at the top and leave only at the bottom. To find the blocks, mark the **leaders**, the first line of each block. Draw one node per block and an arrow wherever control can go next. That picture is the **control flow graph**, or CFG.",
+      "idea_full": "A block must have no way in except the top. A jump that lands in the middle of a run of lines breaks that, so the landing line must start a new block. A block must have no way out except the bottom. A jump is a way out, so whatever follows it must start a new block. The first instruction starts the program. These three facts give the three leader rules. After marking leaders, cut the code just before each one. Each piece is a block. Then look at the last line of each block to draw its arrows.",
+      "definition": "Leaders:\n1. The first instruction.\n2. Any instruction that is the target of a jump (conditional or unconditional).\n3. Any instruction that comes right after a jump.\n\nA block runs from a leader up to, but not including, the next leader.\n\nEdges: B goes to C if B ends with a jump to C's leader, or if B can fall through into C. A conditional jump gives two edges. An unconditional goto gives one. ENTRY and EXIT are extra nodes that some questions add.",
+      "intuition_full": "Why these three rules? Walk through the code as if you were the program counter. You can only enter a block at its first line, and you can only leave it at its last line. A jump target breaks the first promise, because control can arrive in the middle. A jump itself breaks the second, because control can leave early. So the line after the jump has to begin something new. Read the code once, circle every leader, and the blocks fall out. Then edges are mechanical. Look at the last line of a block. A plain line falls through to the next block. A conditional jump goes two ways: to its target and to the next block. A goto goes one way: to its target only. Counting edges is just adding up what each last line allows. ENTRY and EXIT are bookkeeping nodes, so check whether the question counts them.",
+      "example": {
+        "setup": "Find the blocks and the edges. Lines: 1: i = 0; 2: L: if i >= 10 goto E; 3: s = s + i; 4: i = i + 1; 5: goto L; 6: E: print s.",
+        "steps": [
+          "Line 1 is a leader because it is the first instruction.",
+          "Jump targets: line 5 jumps to L (line 2), and line 2 jumps to E (line 6). So lines 2 and 6 are leaders.",
+          "Lines after a jump: line 3 follows the test in line 2, and line 6 follows goto L. So line 3 is a leader. Line 6 already is.",
+          "Leaders are 1, 2, 3, 6. Blocks: B1 = line 1, B2 = line 2, B3 = lines 3 to 5, B4 = line 6.",
+          "Fall-through edges: B1 to B2, and B2 to B3 when the test is false.",
+          "Jump edges: B2 to B4 when the test is true, and B3 to B2 from goto L. B3 has no fall-through.",
+          "That is 4 blocks and 4 edges. Adding ENTRY and EXIT gives 6 nodes and 6 edges."
+        ],
+        "answer": "4 blocks and 4 edges. With ENTRY and EXIT counted, 6 nodes and 6 edges."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Find the blocks and the edges. Lines: 1: i = 0; 2: L: if i >= 10 goto E; 3: s = s + i; 4: i = i + 1; 5: goto L; 6: E: print s.",
+          "steps": [
+            "Line 1 is a leader because it is the first instruction.",
+            "Jump targets: line 5 jumps to L (line 2), and line 2 jumps to E (line 6). So lines 2 and 6 are leaders.",
+            "Lines after a jump: line 3 follows the test in line 2, and line 6 follows goto L. So line 3 is a leader. Line 6 already is.",
+            "Leaders are 1, 2, 3, 6. Blocks: B1 = line 1, B2 = line 2, B3 = lines 3 to 5, B4 = line 6.",
+            "Fall-through edges: B1 to B2, and B2 to B3 when the test is false.",
+            "Jump edges: B2 to B4 when the test is true, and B3 to B2 from goto L. B3 has no fall-through.",
+            "That is 4 blocks and 4 edges. Adding ENTRY and EXIT gives 6 nodes and 6 edges."
+          ],
+          "answer": "4 blocks and 4 edges. With ENTRY and EXIT counted, 6 nodes and 6 edges."
+        },
+        {
+          "level": "gate",
+          "setup": "Lines: 1: n = 5; 2: s = 0; 3: if n <= 0 goto 8; 4: s = s + n; 5: n = n - 1; 6: if s > 9 goto 8; 7: goto 3; 8: print s. How many basic blocks are there, how many instructions are in the largest, and how many CFG edges are there (without ENTRY and EXIT)?",
+          "steps": [
+            "Jump targets: line 8 (from lines 3 and 6) and line 3 (from line 7).",
+            "Lines after a jump: line 4 (after line 3), line 7 (after line 6) and line 8 (after the goto in line 7).",
+            "Leaders: 1, 3, 4, 7, 8. Blocks: {1, 2}, {3}, {4, 5, 6}, {7}, {8}. That is 5 blocks.",
+            "Sizes are 2, 1, 3, 1, 1. The largest has 3 instructions (lines 4 to 6).",
+            "Edges: {1,2} to {3}. {3} to {8} (jump) and to {4,5,6} (test false). {4,5,6} to {8} (jump) and to {7} (test false). {7} to {3} (goto). That is 6."
+          ],
+          "answer": "5 blocks, the largest has 3 instructions, and there are 6 edges. With ENTRY and EXIT the edge count is 8. The trap avoided is missing the leader at line 7, which only follows a conditional jump."
+        },
+        {
+          "level": "twist",
+          "setup": "Lines: 1: x = 1; 2: goto 5; 3: y = 2; 4: z = 3; 5: print x. How many blocks and edges are there? Does every block get an edge from the one above it?",
+          "steps": [
+            "Leaders: line 1 (first), line 5 (a jump target) and line 3 (right after the goto).",
+            "Blocks: {1, 2}, {3, 4}, {5}. Three blocks.",
+            "Block {1, 2} ends in goto 5, which is unconditional. It has one edge, to {5}. It does not fall through into {3, 4}.",
+            "Block {3, 4} ends in a plain line, so it falls through to {5}. Nothing jumps into {3, 4}, so it is unreachable.",
+            "Edges: {1,2} to {5}, and {3,4} to {5}. Two edges."
+          ],
+          "answer": "3 blocks and 2 edges. The unreachable block {3, 4} is still a block, because line 3 follows a jump. A goto block does not fall through."
+        }
+      ],
+      "why": "Blocks and the CFG are the starting point of every data-flow problem in this chapter. In GATE: you list the leaders, count blocks or their sizes, or count edges, sometimes with ENTRY and EXIT.",
+      "how": [
+        "Number the lines. Mark each jump and its target.",
+        "Circle the leaders: line 1, every target, and every line right after a jump.",
+        "Cut the code just before each leader. Each piece is a block.",
+        "For each block, look at its last line. A plain line gives one edge to the next block. A conditional jump gives two. A goto gives one, to its target.",
+        "Check whether the question counts ENTRY and EXIT, and add them if so."
+      ],
+      "mistake": "Missing a leader. People forget the line after a conditional jump or after a goto, and they forget that a jump target in the middle of a run of lines cuts a block in two. Check every jump for both its target and its next line.",
+      "edge_cases": [
+        "A line that is both a target and right after a jump is still one leader. Count blocks, not reasons.",
+        "A goto block has one successor and no fall-through.",
+        "A return or halt ends a block with no successor, except an edge to EXIT if the question draws one.",
+        "A loop adds a back edge to an earlier block. It counts like any other edge."
+      ],
+      "connections": [
+        "Every data-flow analysis in the next cards (liveness, reaching definitions, available expressions) runs on this graph.",
+        "The CFG is a directed graph and loops are its cycles (see Graph traversal).",
+        "Backpatching fills in the jump targets while code is generated in one pass (see Syntax-directed translation and run-time environments)."
+      ],
+      "check": [
+        {
+          "q": "Lines: 1: x = 0; 2: if x > 3 goto 4; 3: x = x + 1; 4: print x. Which lines are leaders?",
+          "a": "Line 1 (first), line 4 (the jump target) and line 3 (right after the jump). The leaders are 1, 3 and 4."
+        },
+        {
+          "q": "How many outgoing edges does a block ending in a conditional jump have? And a block ending in a goto?",
+          "a": "Two (the jump target and the fall-through), and one (only the target)."
+        },
+        {
+          "q": "A CFG has 4 blocks. How many nodes is that if ENTRY and EXIT are also counted?",
+          "a": "6."
+        }
+      ],
+      "asked": "Asked: 2024 CS1 Q39, 2025 CS1 Q52, 2015 CS2 Q29",
+      "try": {
+        "id": "gen.ic.003",
+        "label": "Which line is a leader?"
+      },
+      "scene": "cd.icg.cfg",
+      "what": "A **basic block** is a stretch of code you enter only at the top and leave only at the bottom. To find the blocks, mark the **leaders**, the first line of each block. Draw one node per block and an arrow wherever control can go next. That picture is the **control flow graph**, or CFG.",
+      "what_full": "A block must have no way in except the top. A jump that lands in the middle of a run of lines breaks that, so the landing line must start a new block. A block must have no way out except the bottom. A jump is a way out, so whatever follows it must start a new block. The first instruction starts the program. These three facts give the three leader rules. After marking leaders, cut the code just before each one. Each piece is a block. Then look at the last line of each block to draw its arrows.\n\nLeaders:\n1. The first instruction.\n2. Any instruction that is the target of a jump (conditional or unconditional).\n3. Any instruction that comes right after a jump.\n\nA block runs from a leader up to, but not including, the next leader.\n\nEdges: B goes to C if B ends with a jump to C's leader, or if B can fall through into C. A conditional jump gives two edges. An unconditional goto gives one. ENTRY and EXIT are extra nodes that some questions add.\n\n**Worked example.** Find the blocks and the edges. Lines: 1: i = 0; 2: L: if i >= 10 goto E; 3: s = s + i; 4: i = i + 1; 5: goto L; 6: E: print s.\n\n1. Line 1 is a leader because it is the first instruction.\n2. Jump targets: line 5 jumps to L (line 2), and line 2 jumps to E (line 6). So lines 2 and 6 are leaders.\n3. Lines after a jump: line 3 follows the test in line 2, and line 6 follows goto L. So line 3 is a leader. Line 6 already is.\n4. Leaders are 1, 2, 3, 6. Blocks: B1 = line 1, B2 = line 2, B3 = lines 3 to 5, B4 = line 6.\n5. Fall-through edges: B1 to B2, and B2 to B3 when the test is false.\n6. Jump edges: B2 to B4 when the test is true, and B3 to B2 from goto L. B3 has no fall-through.\n7. That is 4 blocks and 4 edges. Adding ENTRY and EXIT gives 6 nodes and 6 edges.\n\n**Answer:** 4 blocks and 4 edges. With ENTRY and EXIT counted, 6 nodes and 6 edges.\n\n**Check yourself:** Lines: 1: x = 0; 2: if x > 3 goto 4; 3: x = x + 1; 4: print x. Which lines are leaders?\n\n*Answer:* Line 1 (first), line 4 (the jump target) and line 3 (right after the jump). The leaders are 1, 3 and 4.",
+      "trap": "Missing a leader. People forget the line after a conditional jump or after a goto, and they forget that a jump target in the middle of a run of lines cuts a block in two. Check every jump for both its target and its next line.",
+      "why_full": "Blocks and the CFG are the starting point of every data-flow problem in this chapter. In GATE: you list the leaders, count blocks or their sizes, or count edges, sometimes with ENTRY and EXIT.\n\nAsked: 2024 CS1 Q39, 2025 CS1 Q52, 2015 CS2 Q29"
+    },
+    {
+      "atom_id": "d4",
+      "title": "Liveness analysis",
+      "simple": "Think of notes on your desk. A note is worth keeping only if you will read it again later. Once you rewrite it, or you know nobody will read it again, you can bin the old one. A variable is live at some point if its current value might still be read later, before it is overwritten. To work this out you start at the end of the program and walk backwards, because 'will I need it later?' is a question about the future. Each line removes the variable it overwrites and adds the variables it reads. In exam words: liveness is a backward 'may' analysis, IN = USE ∪ (OUT − DEF), and loops are repeated until nothing changes.",
+      "idea": "A variable is **live** at a point if its current value may still be read later, before it is overwritten. We ask about the future, so we walk **backward** from the end. Each line first removes the variable it writes, then adds the variables it reads. Where paths split, a variable is live if **any** path needs it.",
+      "idea_full": "Start at the end of the code with the set of variables the rest of the program needs. Move up one statement at a time. A statement that writes x makes the earlier value of x useless, so x leaves the set. A statement that reads y needs y alive just before it, so y joins the set. Do the removal first and the adding second, so a line like x = x + 1 keeps x live. In a flow graph, the set live after a block is the union of the sets live at the start of every block that can follow it. Loops feed a block's own answer back to it, so you repeat the walk until no set changes.",
+      "definition": "$$\\text{IN}[B]=\\text{USE}[B]\\cup\\big(\\text{OUT}[B]-\\text{DEF}[B]\\big),\\qquad \\text{OUT}[B]=\\bigcup_{S\\in\\text{succ}(B)}\\text{IN}[S]$$\n\nSymbols: IN[B] is the set of variables live at the start of block B, and OUT[B] is the set live at its end. USE[B] holds variables read in B before any write to them inside B. DEF[B] holds variables written in B. The symbol ∪ means union (everything in either set) and − removes elements. succ(B) is the set of blocks that can run right after B. For a single statement the same equation applies, with USE as its inputs and DEF as its output.",
+      "intuition_full": "Liveness answers a question about the future, so facts have to flow from the future to the past. That is why it runs backward. A value is alive from the write that creates it to the last read that can still see it. Writing x again starts a new life, so the old value is dead just before the write. That is the DEF removal. A read of y means y must already exist, so y is live just before the read. That is the USE addition. Order matters because a line like x = x + y reads and writes x. The read happens first, so x is live before the line. At a branch the program may go either way and we do not know which. So we play safe and keep a variable live if either way needs it. That is a **may** analysis, and it is why successors are combined with union. In a loop the OUT of a block depends on its own IN. Start every set empty, sweep the blocks, and sweep again until nothing changes. Each sweep can only add variables, and there are finitely many, so it stops.",
+      "example": {
+        "setup": "A block runs these lines. After it, the rest of the program reads v and y. Find the variables live before each line. 1: x = y + 1; 2: z = x * y; 3: y = z + w.",
+        "steps": [
+          "Go backward. After line 3, the live set is { v, y }.",
+          "Line 3 is y = z + w. It writes y, so remove y: { v }. It reads z and w, so add them: { v, w, z }. That is live before line 3.",
+          "Line 2 is z = x * y. Remove z: { v, w }. Add x and y: { v, w, x, y }. That is live before line 2.",
+          "Line 1 is x = y + 1. Remove x: { v, w, y }. Add y (already there): { v, w, y }. That is live before line 1.",
+          "So the block needs v, w and y from earlier code. x and z are always written before they are read, so they are not live at the entry."
+        ],
+        "answer": "Before line 3: { v, w, z }. Before line 2: { v, w, x, y }. Before line 1, the block entry: { v, w, y }."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A block runs these lines. After it, the rest of the program reads v and y. Find the variables live before each line. 1: x = y + 1; 2: z = x * y; 3: y = z + w.",
+          "steps": [
+            "Go backward. After line 3, the live set is { v, y }.",
+            "Line 3 is y = z + w. It writes y, so remove y: { v }. It reads z and w, so add them: { v, w, z }. That is live before line 3.",
+            "Line 2 is z = x * y. Remove z: { v, w }. Add x and y: { v, w, x, y }. That is live before line 2.",
+            "Line 1 is x = y + 1. Remove x: { v, w, y }. Add y (already there): { v, w, y }. That is live before line 1.",
+            "So the block needs v, w and y from earlier code. x and z are always written before they are read, so they are not live at the entry."
+          ],
+          "answer": "Before line 3: { v, w, z }. Before line 2: { v, w, x, y }. Before line 1, the block entry: { v, w, y }."
+        },
+        {
+          "level": "gate",
+          "setup": "CFG edges: B1 to B2, B2 to B3, B2 to B4, B3 to B2. B1: i = 0; s = 0; t = 5. B2: if i < t (reads i and t). B3: s = s + i; i = i + 1. B4: print(s). Find the variables live at the exit of B3.",
+          "steps": [
+            "Local sets. B1: USE = { }, DEF = { i, s, t }. B2: USE = { i, t }, DEF = { }. B3: USE = { s, i } (both are read before they are written), DEF = { s, i }. B4: USE = { s }, DEF = { }.",
+            "Pass 1, from the end. OUT[B4] = { }. IN[B4] = { s }.",
+            "B3 comes next, but its successor B2 is not computed yet, so OUT[B3] is still { }. IN[B3] = { s, i } ∪ ({ } − { s, i }) = { s, i }.",
+            "B2: OUT[B2] = IN[B3] ∪ IN[B4] = { s, i }. IN[B2] = { i, t } ∪ { s, i } = { i, s, t }.",
+            "Pass 2. OUT[B3] = IN[B2] = { i, s, t }. Now t arrives through the back edge. IN[B3] = { s, i } ∪ ({ i, s, t } − { s, i }) = { i, s, t }.",
+            "Pass 3 changes nothing, so we stop. The final OUT[B3] = { i, s, t }."
+          ],
+          "answer": "{ i, s, t }. One pass gives { } for OUT[B3] and misses t, because t is read again after the back edge."
+        },
+        {
+          "level": "twist",
+          "setup": "Nothing is live after these two lines. Find the live set before each line. 1: x = x + y; 2: y = 7.",
+          "steps": [
+            "Go backward. After line 2 nothing is live: { }.",
+            "Line 2 is y = 7. Remove y (it is not there anyway). It reads nothing. Live before line 2: { }.",
+            "Line 1 is x = x + y. Step A, remove what is written: remove x. The set is still { }.",
+            "Step B, add what is read: x and y. Live before line 1: { x, y }.",
+            "x is live although line 1 writes it, because the old x is read first. y is live although line 2 overwrites it, because line 1 reads y before that."
+          ],
+          "answer": "{ x, y } before line 1, and { } before line 2. Always remove first and add second."
+        }
+      ],
+      "why": "Liveness tells the compiler when a value can be thrown away. Register allocation and dead-code removal rely on it. In GATE: you compute live sets on a small CFG, often with a loop, or say how IN and OUT of blocks are related.",
+      "how": [
+        "List USE and DEF for each block or statement. USE counts only reads that happen before a write inside the block.",
+        "Start every IN and OUT as empty. The OUT of the last block is whatever the rest of the program needs, usually empty.",
+        "Go backward. The OUT of a block is the union of the IN sets of its successors.",
+        "IN = USE ∪ (OUT − DEF). Remove what is written, then add what is read.",
+        "With a loop, sweep again until no set changes."
+      ],
+      "mistake": "Making a single pass over a loop. A variable read at the top of the loop body is live at the bottom too, because the next trip reads it. One pass has not yet seen the back edge, so it misses this. Repeat until nothing changes.",
+      "edge_cases": [
+        "x = x + 1 reads and writes x. It stays live before the line.",
+        "A variable written but never read afterwards is dead right after the write, so the write is dead code.",
+        "A variable that is read before any write is live at the program entry. That points to a possibly uninitialised variable.",
+        "At a branch the live set is the union of both successors, never the intersection."
+      ],
+      "connections": [
+        "The largest live set sets the number of registers needed (see the Register need card).",
+        "Reaching definitions runs forward and liveness runs backward. Both are 'may' analyses with union at joins.",
+        "The set work is union and difference (see Discrete Mathematics: Sets, relations and functions)."
+      ],
+      "check": [
+        {
+          "q": "The live set after a statement is { a, d }. Find the live set before a = b + c.",
+          "a": "Remove a, which is written: { d }. Add b and c, which are read: { b, c, d }."
+        },
+        {
+          "q": "A variable is assigned and never read again. Is it live right after the assignment?",
+          "a": "No. Its value is never needed, so it is dead there, and the assignment is dead code."
+        },
+        {
+          "q": "Is liveness a forward or a backward analysis, and why?",
+          "a": "Backward. 'Will this value be read later?' is a question about the future, so facts flow from later code to earlier code."
+        }
+      ],
+      "asked": "Asked: 2023 CS Q37, 2026 CS2 Q45, 2021 CS2 Q48, 2015 CS1 Q50",
+      "try": {
+        "id": "gen.ic.004",
+        "label": "When is a variable live?"
+      },
+      "scene": "cd.icg.liveness",
+      "what": "A variable is **live** at a point if its current value may still be read later, before it is overwritten. We ask about the future, so we walk **backward** from the end. Each line first removes the variable it writes, then adds the variables it reads. Where paths split, a variable is live if **any** path needs it.",
+      "what_full": "Start at the end of the code with the set of variables the rest of the program needs. Move up one statement at a time. A statement that writes x makes the earlier value of x useless, so x leaves the set. A statement that reads y needs y alive just before it, so y joins the set. Do the removal first and the adding second, so a line like x = x + 1 keeps x live. In a flow graph, the set live after a block is the union of the sets live at the start of every block that can follow it. Loops feed a block's own answer back to it, so you repeat the walk until no set changes.\n\n$$\\text{IN}[B]=\\text{USE}[B]\\cup\\big(\\text{OUT}[B]-\\text{DEF}[B]\\big),\\qquad \\text{OUT}[B]=\\bigcup_{S\\in\\text{succ}(B)}\\text{IN}[S]$$\n\nSymbols: IN[B] is the set of variables live at the start of block B, and OUT[B] is the set live at its end. USE[B] holds variables read in B before any write to them inside B. DEF[B] holds variables written in B. The symbol ∪ means union (everything in either set) and − removes elements. succ(B) is the set of blocks that can run right after B. For a single statement the same equation applies, with USE as its inputs and DEF as its output.\n\n**Worked example.** A block runs these lines. After it, the rest of the program reads v and y. Find the variables live before each line. 1: x = y + 1; 2: z = x * y; 3: y = z + w.\n\n1. Go backward. After line 3, the live set is { v, y }.\n2. Line 3 is y = z + w. It writes y, so remove y: { v }. It reads z and w, so add them: { v, w, z }. That is live before line 3.\n3. Line 2 is z = x * y. Remove z: { v, w }. Add x and y: { v, w, x, y }. That is live before line 2.\n4. Line 1 is x = y + 1. Remove x: { v, w, y }. Add y (already there): { v, w, y }. That is live before line 1.\n5. So the block needs v, w and y from earlier code. x and z are always written before they are read, so they are not live at the entry.\n\n**Answer:** Before line 3: { v, w, z }. Before line 2: { v, w, x, y }. Before line 1, the block entry: { v, w, y }.\n\n**Check yourself:** The live set after a statement is { a, d }. Find the live set before a = b + c.\n\n*Answer:* Remove a, which is written: { d }. Add b and c, which are read: { b, c, d }.",
+      "trap": "Making a single pass over a loop. A variable read at the top of the loop body is live at the bottom too, because the next trip reads it. One pass has not yet seen the back edge, so it misses this. Repeat until nothing changes.",
+      "why_full": "Liveness tells the compiler when a value can be thrown away. Register allocation and dead-code removal rely on it. In GATE: you compute live sets on a small CFG, often with a loop, or say how IN and OUT of blocks are related.\n\nAsked: 2023 CS Q37, 2026 CS2 Q45, 2021 CS2 Q48, 2015 CS1 Q50"
+    },
+    {
+      "atom_id": "d5",
+      "title": "Reaching definitions",
+      "simple": "Every time a program writes to a variable, that is a definition, like signing your name on a sheet of paper. A definition reaches a later spot if the signed sheet can arrive there without a newer signature replacing it on the way. If the road splits and only one road has a newer signature, the old signature can still arrive by the other road. So at a meeting point you pool everything that can arrive from any road. In exam words: reaching definitions is a forward 'may' analysis. OUT = GEN ∪ (IN − KILL), and at a join you take the union.",
+      "idea": "Number every assignment: d1, d2, d3 and so on. A definition **reaches** a point if some path carries it there with no other write to the same variable in between. Each block **generates** its own last writes and **kills** the other definitions of those variables. Pass the sets forward, and at a join take the **union**.",
+      "idea_full": "Think of each assignment as a labelled sticker on a variable. As control moves forward, the sticker stays on the variable until another assignment to that variable covers it. Where two paths meet, a sticker is present if it comes along either path, because we only ask whether it might be there. Each block does two things to the incoming stickers. It removes the stickers of variables it writes again (its KILL set) and adds its own stickers (its GEN set). In symbols, OUT = GEN ∪ (IN − KILL).",
+      "definition": "$$\\text{OUT}[B]=\\text{GEN}[B]\\cup\\big(\\text{IN}[B]-\\text{KILL}[B]\\big),\\qquad \\text{IN}[B]=\\bigcup_{P\\in\\text{pred}(B)}\\text{OUT}[P]$$\n\nSymbols: GEN[B] is the last definition of each variable written in B. KILL[B] is every other definition, anywhere in the program, of a variable that B writes. IN[B] and OUT[B] are the sets of definitions that reach the start and the end of B. pred(B) is the set of blocks that can run right before B. IN of the entry block is empty.",
+      "intuition_full": "Liveness looks at the future. Reaching definitions looks at the past: 'which writes could have produced the value I read here?'. So the information flows forward along the arrows. Inside a block only the last write to each variable survives to the end, so GEN holds just those. A write also overwrites older definitions of the same variable from anywhere else in the program, so those go into KILL. At a join the program arrived from one predecessor, but we do not know which one. A definition counts as reaching if it might have come by any road, so we keep everything: union. Loops work as they did for liveness. A definition inside the body flows round the back edge and reaches the loop head. Start with empty sets and sweep until nothing changes.",
+      "example": {
+        "setup": "B1 has d1: x = 0 and d2: y = 1, then branches to B2 and B3. B2 has d3: x = x + 1. B3 has d4: x = 2 * y. Both go to B4. Which definitions reach the start of B4?",
+        "steps": [
+          "GEN and KILL. B1: GEN = { d1, d2 }. B2: GEN = { d3 }, KILL = { d1, d4 }. B3: GEN = { d4 }, KILL = { d1, d3 }.",
+          "B1 has nothing coming in, so OUT[B1] = { d1, d2 }.",
+          "B2: OUT = { d3 } ∪ ({ d1, d2 } − { d1, d4 }) = { d3 } ∪ { d2 } = { d2, d3 }.",
+          "B3: OUT = { d4 } ∪ ({ d1, d2 } − { d1, d3 }) = { d4 } ∪ { d2 } = { d2, d4 }.",
+          "B4 has two predecessors. IN[B4] = OUT[B2] ∪ OUT[B3] = { d2, d3 } ∪ { d2, d4 } = { d2, d3, d4 }.",
+          "d1 is missing. Both paths overwrite x first, so d1 can never arrive."
+        ],
+        "answer": "{ d2, d3, d4 }, so 3 definitions reach B4. d1 is killed on both paths."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "B1 has d1: x = 0 and d2: y = 1, then branches to B2 and B3. B2 has d3: x = x + 1. B3 has d4: x = 2 * y. Both go to B4. Which definitions reach the start of B4?",
+          "steps": [
+            "GEN and KILL. B1: GEN = { d1, d2 }. B2: GEN = { d3 }, KILL = { d1, d4 }. B3: GEN = { d4 }, KILL = { d1, d3 }.",
+            "B1 has nothing coming in, so OUT[B1] = { d1, d2 }.",
+            "B2: OUT = { d3 } ∪ ({ d1, d2 } − { d1, d4 }) = { d3 } ∪ { d2 } = { d2, d3 }.",
+            "B3: OUT = { d4 } ∪ ({ d1, d2 } − { d1, d3 }) = { d4 } ∪ { d2 } = { d2, d4 }.",
+            "B4 has two predecessors. IN[B4] = OUT[B2] ∪ OUT[B3] = { d2, d3 } ∪ { d2, d4 } = { d2, d3, d4 }.",
+            "d1 is missing. Both paths overwrite x first, so d1 can never arrive."
+          ],
+          "answer": "{ d2, d3, d4 }, so 3 definitions reach B4. d1 is killed on both paths."
+        },
+        {
+          "level": "gate",
+          "setup": "B1 holds d1: a = 1 and d2: b = 2, then branches. One branch goes to B2 (d3: a = 3) and on to B3. The other goes straight to B3 (d4: c = a + b). Which definitions reach the start of B3, and how many of them define a?",
+          "steps": [
+            "Edges: B1 to B2, B1 to B3, B2 to B3. B3 has two predecessors: B1 (skipping B2) and B2.",
+            "OUT[B1] = { d1, d2 }.",
+            "B2: KILL = { d1 }, the other definition of a. OUT[B2] = { d3 } ∪ ({ d1, d2 } − { d1 }) = { d2, d3 }.",
+            "IN[B3] = OUT[B1] ∪ OUT[B2] = { d1, d2 } ∪ { d2, d3 } = { d1, d2, d3 }.",
+            "Definitions of a that reach B3: d1 (by the short path) and d3 (through B2). That is two."
+          ],
+          "answer": "{ d1, d2, d3 }, and two of them define a. So a is not a known constant in c = a + b. The trap avoided is thinking d3 cancels d1, which is true only on the path through B2."
+        },
+        {
+          "level": "twist",
+          "setup": "B1 holds d1: i = 0 and goes to B2, the loop head, which reads i. B2 goes to B3 or exits to B4. B3 holds d2: i = i + 1 and returns to B2. Which definitions reach the start of B2?",
+          "steps": [
+            "Edges: B1 to B2, B2 to B3, B3 to B2, B2 to B4. B2 has two predecessors: B1 and B3.",
+            "First pass: OUT[B1] = { d1 }. B3 is not computed yet, so IN[B2] = { d1 } and OUT[B2] = { d1 }.",
+            "B3: IN = { d1 }. KILL = { d1 }, since d1 also defines i. OUT[B3] = { d2 } ∪ ({ d1 } − { d1 }) = { d2 }.",
+            "Second pass: IN[B2] = OUT[B1] ∪ OUT[B3] = { d1 } ∪ { d2 } = { d1, d2 }. This changed, so go round once more. Nothing changes after that."
+          ],
+          "answer": "{ d1, d2 }. On the first trip i comes from d1. On later trips it comes from d2. A single pass would give only { d1 }."
+        }
+      ],
+      "why": "Reaching definitions tell the compiler where a variable's value could have come from. Constant propagation and use-definition chains build on it. In GATE: it comes with the other data-flow questions, usually as counting the definitions that reach a block or a use.",
+      "how": [
+        "Number every assignment d1, d2, ... in program order.",
+        "For each block write GEN (the last write to each variable) and KILL (all other definitions of those variables).",
+        "Start with IN of the entry block empty and OUT = GEN for every block.",
+        "IN = union of the predecessors' OUT. OUT = GEN ∪ (IN − KILL).",
+        "In a loop, repeat until no set changes."
+      ],
+      "mistake": "Using intersection at the join. Reaching definitions asks whether a definition might reach, so one path is enough. Intersection belongs to available expressions, which asks whether something is guaranteed on every path.",
+      "edge_cases": [
+        "If a block writes x twice, only the second write is in GEN. The first is overwritten inside the block.",
+        "A definition killed on only one of two paths still reaches the join, by the other path.",
+        "Definitions inside a loop reach the loop head through the back edge.",
+        "A path with no definition of x brings nothing for x. A read there may be an uninitialised use."
+      ],
+      "connections": [
+        "Same shape as liveness but forward, with GEN and KILL (see Liveness analysis).",
+        "Contrast with available expressions: the same equation, but intersection at joins (the next card).",
+        "Constant propagation uses it: if the only definition reaching a use is a constant, the use becomes that constant."
+      ],
+      "check": [
+        {
+          "q": "A block holds d1: x = 1, then d2: x = 2, then d3: y = 3. What is GEN for the block?",
+          "a": "{ d2, d3 }. d1 is overwritten inside the block, so only the last write to x survives."
+        },
+        {
+          "q": "IN = { d1, d2 }, GEN = { d5 }, KILL = { d2 }. What is OUT?",
+          "a": "OUT = { d5 } ∪ ({ d1, d2 } − { d2 }) = { d5 } ∪ { d1 } = { d1, d5 }."
+        },
+        {
+          "q": "Two paths join. One carries d1 and the other carries d2, and both define x. Do both reach the join?",
+          "a": "Yes. Reaching definitions uses union, so d1 and d2 both reach."
+        }
+      ],
+      "asked": "Asked: no separate year in the blueprint. It comes with the other data-flow questions.",
+      "try": {
+        "id": "gen.ic.005",
+        "label": "When does a definition reach a point?"
+      },
+      "scene": "cd.icg.reach",
+      "what": "Number every assignment: d1, d2, d3 and so on. A definition **reaches** a point if some path carries it there with no other write to the same variable in between. Each block **generates** its own last writes and **kills** the other definitions of those variables. Pass the sets forward, and at a join take the **union**.",
+      "what_full": "Think of each assignment as a labelled sticker on a variable. As control moves forward, the sticker stays on the variable until another assignment to that variable covers it. Where two paths meet, a sticker is present if it comes along either path, because we only ask whether it might be there. Each block does two things to the incoming stickers. It removes the stickers of variables it writes again (its KILL set) and adds its own stickers (its GEN set). In symbols, OUT = GEN ∪ (IN − KILL).\n\n$$\\text{OUT}[B]=\\text{GEN}[B]\\cup\\big(\\text{IN}[B]-\\text{KILL}[B]\\big),\\qquad \\text{IN}[B]=\\bigcup_{P\\in\\text{pred}(B)}\\text{OUT}[P]$$\n\nSymbols: GEN[B] is the last definition of each variable written in B. KILL[B] is every other definition, anywhere in the program, of a variable that B writes. IN[B] and OUT[B] are the sets of definitions that reach the start and the end of B. pred(B) is the set of blocks that can run right before B. IN of the entry block is empty.\n\n**Worked example.** B1 has d1: x = 0 and d2: y = 1, then branches to B2 and B3. B2 has d3: x = x + 1. B3 has d4: x = 2 * y. Both go to B4. Which definitions reach the start of B4?\n\n1. GEN and KILL. B1: GEN = { d1, d2 }. B2: GEN = { d3 }, KILL = { d1, d4 }. B3: GEN = { d4 }, KILL = { d1, d3 }.\n2. B1 has nothing coming in, so OUT[B1] = { d1, d2 }.\n3. B2: OUT = { d3 } ∪ ({ d1, d2 } − { d1, d4 }) = { d3 } ∪ { d2 } = { d2, d3 }.\n4. B3: OUT = { d4 } ∪ ({ d1, d2 } − { d1, d3 }) = { d4 } ∪ { d2 } = { d2, d4 }.\n5. B4 has two predecessors. IN[B4] = OUT[B2] ∪ OUT[B3] = { d2, d3 } ∪ { d2, d4 } = { d2, d3, d4 }.\n6. d1 is missing. Both paths overwrite x first, so d1 can never arrive.\n\n**Answer:** { d2, d3, d4 }, so 3 definitions reach B4. d1 is killed on both paths.\n\n**Check yourself:** A block holds d1: x = 1, then d2: x = 2, then d3: y = 3. What is GEN for the block?\n\n*Answer:* { d2, d3 }. d1 is overwritten inside the block, so only the last write to x survives.",
+      "trap": "Using intersection at the join. Reaching definitions asks whether a definition might reach, so one path is enough. Intersection belongs to available expressions, which asks whether something is guaranteed on every path.",
+      "why_full": "Reaching definitions tell the compiler where a variable's value could have come from. Constant propagation and use-definition chains build on it. In GATE: it comes with the other data-flow questions, usually as counting the definitions that reach a block or a use.\n\nAsked: no separate year in the blueprint. It comes with the other data-flow questions."
+    },
+    {
+      "atom_id": "d6",
+      "title": "Available expressions and CSE",
+      "simple": "Two cooks head for the same dinner table, and each may have chopped the onions already. You can skip chopping only if you are sure the onions were chopped whichever cook turned up. And if anyone swapped the onions after the chopping, the chopping no longer counts. An expression is available at a spot if it has been computed on every road to that spot and none of its ingredients have changed since. Then the compiler can reuse the old answer instead of computing again. In exam words: available expressions is a forward 'must' analysis. At a join you take the intersection, and assigning to an operand kills the expression.",
+      "idea": "An expression like a + b is **available** at a point if it has been computed on **every** path to that point, and neither a nor b has changed since. If it is available, the compiler can reuse the old value. That is a **common subexpression**. Every path must agree, so you **intersect** the sets at a join.",
+      "idea_full": "Reaching definitions asked 'might it arrive?'. Available expressions asks 'is it certain to arrive?'. A block creates an expression when it computes it. It destroys an expression when it assigns to one of its operands. Going forward, OUT = GEN ∪ (IN − KILL) again, but at a join the set is the intersection of all the predecessors' OUT sets. One path without the expression is enough to remove it. Order inside a block matters: compute then change kills the expression, change then compute keeps it.",
+      "definition": "$$\\text{OUT}[B]=\\text{GEN}[B]\\cup\\big(\\text{IN}[B]-\\text{KILL}[B]\\big),\\qquad \\text{IN}[B]=\\bigcap_{P\\in\\text{pred}(B)}\\text{OUT}[P]$$\n\nSymbols: GEN[B] holds the expressions computed in B and not spoiled later in B. KILL[B] holds the expressions that have an operand assigned in B. The symbol ∩ is intersection (only what is in every set). IN of the entry block is empty. In a loop, start the other blocks at 'every expression' and shrink the sets until they stop changing.",
+      "intuition_full": "The word 'must' is the key. If I replace a computation by an old result, the old result had better exist whichever way I arrived. So one path that lacks it, or one path that changed an operand, is enough to ruin it. That is the intersection. A kill is simple: if a changes, the stored value of a + b is stale, because it was built from the old a. In a straight line the order matters. In 't = a + b; a = 7' the expression is computed and then spoiled, so it is not available after. In 'a = 7; t = a + b' the change comes first, so a + b is available after. For loops the safe starting guess is optimistic. Assume everything is available at the loop head, then let the back edge remove whatever does not survive a trip round the loop.",
+      "example": {
+        "setup": "B1: s = a + b, then it branches to B2 and B3. B2: t = c * d. B3: t = c * d; a = 1. Both go to B4: u = c * d; v = a + b. Which of the two B4 computations is redundant?",
+        "steps": [
+          "B1 computes a + b. OUT[B1] = { a+b }.",
+          "B2 computes c * d and changes none of a, b, c, d. OUT[B2] = { a+b, c*d }.",
+          "B3 computes c * d, then runs a = 1. Assigning a kills a + b. OUT[B3] = { c*d }.",
+          "At the join, intersect. IN[B4] = { a+b, c*d } ∩ { c*d } = { c*d }.",
+          "In B4, u = c * d is redundant because c * d is available. v = a + b is not, because B3 killed it."
+        ],
+        "answer": "Only u = c * d is redundant. It can reuse the earlier value."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "B1: s = a + b, then it branches to B2 and B3. B2: t = c * d. B3: t = c * d; a = 1. Both go to B4: u = c * d; v = a + b. Which of the two B4 computations is redundant?",
+          "steps": [
+            "B1 computes a + b. OUT[B1] = { a+b }.",
+            "B2 computes c * d and changes none of a, b, c, d. OUT[B2] = { a+b, c*d }.",
+            "B3 computes c * d, then runs a = 1. Assigning a kills a + b. OUT[B3] = { c*d }.",
+            "At the join, intersect. IN[B4] = { a+b, c*d } ∩ { c*d } = { c*d }.",
+            "In B4, u = c * d is redundant because c * d is available. v = a + b is not, because B3 killed it."
+          ],
+          "answer": "Only u = c * d is redundant. It can reuse the earlier value."
+        },
+        {
+          "level": "gate",
+          "setup": "B1: x = a + b. B2 is the loop head: y = a + b. B3 is the loop body: a = a + 1, then back to B2. B2 can also exit to B4. Is y = a + b redundant?",
+          "steps": [
+            "Edges: B1 to B2, B2 to B3, B3 to B2, B2 to B4. The loop head B2 has two predecessors: B1 and B3.",
+            "OUT[B1] = { a+b }. For the back edge, start by assuming B3's OUT has every expression. IN[B2] = { a+b } ∩ (everything) = { a+b }.",
+            "B3 runs a = a + 1, which assigns a. That kills a + b. It also does not keep a + 1, since a changes right after the computation. OUT[B3] = { }.",
+            "Repeat with the new value. IN[B2] = OUT[B1] ∩ OUT[B3] = { a+b } ∩ { } = { }.",
+            "Nothing changes again. a + b is not available at the start of B2, so y = a + b is not redundant."
+          ],
+          "answer": "Not redundant. a changes on every trip round the loop, so the value of a + b from before the loop is stale. The trap avoided is looking only at the entry path, where a + b looks available."
+        },
+        {
+          "level": "twist",
+          "setup": "Compare two versions. Version 1: B1 is t = a + b; a = 7, then B2 is u = a + b. Version 2: B1 is a = 7; t = a + b, then B2 is u = a + b. In which version is u = a + b redundant?",
+          "steps": [
+            "Version 1: B1 computes a + b first, then a = 7 overwrites a. The stored value was made from the old a.",
+            "So a + b is killed by the end of B1. OUT[B1] = { }, IN[B2] = { }. In B2, u = a + b is not redundant.",
+            "Version 2: a = 7 comes first and spoils nothing yet. Then t = a + b computes it with the new a.",
+            "Nothing changes a or b after that. OUT[B1] = { a+b }, so IN[B2] = { a+b }.",
+            "In version 2, u = a + b is redundant."
+          ],
+          "answer": "Redundant only in version 2. Inside a block, only a change after the computation spoils the expression."
+        }
+      ],
+      "why": "Available expressions finds repeated computations that can be reused, which saves work in loops and across branches. In GATE: you decide which computations are redundant, or count the operations left after common subexpression elimination.",
+      "how": [
+        "List the expressions in the code, such as a + b and c * d.",
+        "For each block write GEN (computed and not spoiled later) and KILL (has an operand assigned in the block).",
+        "IN of the entry block is empty.",
+        "IN of every other block is the intersection of its predecessors' OUT. OUT = GEN ∪ (IN − KILL).",
+        "A computation is redundant if its expression is in IN, or was computed earlier in the same block with no operand change since."
+      ],
+      "mistake": "Using union at joins. One path without the expression means it is not guaranteed to have been computed, so it is not available. A second slip is calling an expression redundant because one branch computed it.",
+      "edge_cases": [
+        "x = x + 1 does not generate x + 1. The assignment changes x straight after the computation.",
+        "If an operand changes and the expression is computed again later in the same block, it generates again.",
+        "At the entry block nothing is available.",
+        "In a loop, start the non-entry blocks at 'everything available' and shrink. Starting from empty would wrongly hide real redundancy."
+      ],
+      "connections": [
+        "Common subexpressions inside one block are the DAG card. This card extends the idea across blocks.",
+        "Same equation as reaching definitions, with ∩ instead of ∪ at joins (the previous card).",
+        "When counting operations after elimination, include the loop counter's additions (see the worked loop example)."
+      ],
+      "check": [
+        {
+          "q": "a * b is computed on both branches of an if-else, and neither a nor b changes afterwards. Is it available at the join?",
+          "a": "Yes. Both paths carry it, so the intersection keeps it."
+        },
+        {
+          "q": "a * b is computed in only one branch. Is it available at the join?",
+          "a": "No. The other path does not carry it, so the intersection drops it."
+        },
+        {
+          "q": "t = x + y; x = t. Is x + y available after these two lines?",
+          "a": "No. The second line assigns x, an operand of x + y, so it kills the expression."
+        }
+      ],
+      "asked": "Asked: 2026 CS1 Q42, 2021 CS2 Q40, 2014 CS1 Q17, 2006 CS Q60",
+      "try": {
+        "id": "gen.ic.008",
+        "label": "When is an expression available?"
+      },
+      "scene": "cd.icg.avail",
+      "what": "An expression like a + b is **available** at a point if it has been computed on **every** path to that point, and neither a nor b has changed since. If it is available, the compiler can reuse the old value. That is a **common subexpression**. Every path must agree, so you **intersect** the sets at a join.",
+      "what_full": "Reaching definitions asked 'might it arrive?'. Available expressions asks 'is it certain to arrive?'. A block creates an expression when it computes it. It destroys an expression when it assigns to one of its operands. Going forward, OUT = GEN ∪ (IN − KILL) again, but at a join the set is the intersection of all the predecessors' OUT sets. One path without the expression is enough to remove it. Order inside a block matters: compute then change kills the expression, change then compute keeps it.\n\n$$\\text{OUT}[B]=\\text{GEN}[B]\\cup\\big(\\text{IN}[B]-\\text{KILL}[B]\\big),\\qquad \\text{IN}[B]=\\bigcap_{P\\in\\text{pred}(B)}\\text{OUT}[P]$$\n\nSymbols: GEN[B] holds the expressions computed in B and not spoiled later in B. KILL[B] holds the expressions that have an operand assigned in B. The symbol ∩ is intersection (only what is in every set). IN of the entry block is empty. In a loop, start the other blocks at 'every expression' and shrink the sets until they stop changing.\n\n**Worked example.** B1: s = a + b, then it branches to B2 and B3. B2: t = c * d. B3: t = c * d; a = 1. Both go to B4: u = c * d; v = a + b. Which of the two B4 computations is redundant?\n\n1. B1 computes a + b. OUT[B1] = { a+b }.\n2. B2 computes c * d and changes none of a, b, c, d. OUT[B2] = { a+b, c*d }.\n3. B3 computes c * d, then runs a = 1. Assigning a kills a + b. OUT[B3] = { c*d }.\n4. At the join, intersect. IN[B4] = { a+b, c*d } ∩ { c*d } = { c*d }.\n5. In B4, u = c * d is redundant because c * d is available. v = a + b is not, because B3 killed it.\n\n**Answer:** Only u = c * d is redundant. It can reuse the earlier value.\n\n**Check yourself:** a * b is computed on both branches of an if-else, and neither a nor b changes afterwards. Is it available at the join?\n\n*Answer:* Yes. Both paths carry it, so the intersection keeps it.",
+      "trap": "Using union at joins. One path without the expression means it is not guaranteed to have been computed, so it is not available. A second slip is calling an expression redundant because one branch computed it.",
+      "why_full": "Available expressions finds repeated computations that can be reused, which saves work in loops and across branches. In GATE: you decide which computations are redundant, or count the operations left after common subexpression elimination.\n\nAsked: 2026 CS1 Q42, 2021 CS2 Q40, 2014 CS1 Q17, 2006 CS Q60"
+    },
+    {
+      "atom_id": "d7",
+      "title": "Constant propagation and folding",
+      "simple": "Say you write down 'my age is 15' and later 'next year's age is my age plus 1'. A clever friend does not wait until the party to work it out. He sees that my age is 15 and writes 16 on the card straight away. Constant propagation is that: if a variable always holds a known number, replace it by that number. Folding means doing the sum in advance, so 5 times 5 becomes 25 before the program even runs. If two roads give different numbers, or one road is unknown, the friend gives up and writes 'not a constant'. In exam words: constant propagation tracks known values through the CFG, values that differ at a join become NAC (not a constant), and folding evaluates constant expressions at compile time.",
+      "idea": "If a variable always holds a known number, replace it by that number. That is **constant propagation**. Then do the sums that have become possible at compile time, such as 5 * 5 turning into 25. That is **folding**. At a join, if two paths give different numbers for a variable, it becomes **NAC**, which means not a constant.",
+      "idea_full": "Walk through the code and keep a small table. For each variable it holds a known number or NAC. An assignment x = 3 records 3. An assignment x = y + 2 records y's value plus 2 if y is known, and NAC if y is NAC. A call like read() gives NAC. Whenever an expression has all its operands known, replace it by its value. At a join a variable is a constant only if every path gives the same number. Loops need repeats, because the back edge may bring a different value to the loop head.",
+      "definition": "A variable's value is one of three things: **undefined** (no information yet), a **constant** c, or **NAC** (not a constant). At a join the values combine. The same constant on every path stays that constant. Two different constants give NAC. NAC with anything gives NAC. Undefined with a constant gives that constant.\n\nAn assignment x = e gives x the value of e, worked out from the table. It is a constant if every operand is a constant, and NAC otherwise.\n\nFolding replaces an expression whose operands are all constants by its value. For example k = 20 / 4 becomes k = 5.",
+      "intuition_full": "This is a forward analysis like reaching definitions, but the sets are replaced by a table of values. There are only three levels of knowledge about a variable: nothing yet, one exact number, or 'could be anything'. Knowledge only ever moves down that ladder, from nothing to a number to anything, and never back up. That is why loops always finish. A join is the interesting spot. If one road says x is 4 and the other also says 4, then x is 4 whichever road we took. If they say 4 and 5, we cannot know, so NAC. Note that two different calculations can give the same constant. Take x = 2, then y = x + 1 on one road and y = 3 on the other. Both give 3, so y is 3 after the join. In a loop, the value on the first trip may not match the value on later trips. So we cannot trust the first pass. Repeat until the table stops changing.",
+      "example": {
+        "setup": "Apply constant propagation and folding to: n = 5; m = n * n; k = m - n; r = read(); s = r + n; j = k / 4.",
+        "steps": [
+          "n = 5 is a constant. Record n = 5.",
+          "m = n * n. n is 5, so propagate it: 5 * 5. Fold to 25. The line becomes m = 25.",
+          "k = m - n. Both are known: 25 - 5 = 20. The line becomes k = 20.",
+          "r = read(). The value comes from outside the program, so r is NAC. Nothing to fold.",
+          "s = r + n. r is NAC, so s is NAC. But n is still 5, so propagate it: s = r + 5.",
+          "j = k / 4. k is 20, so 20 / 4 = 5. The line becomes j = 5.",
+          "Four variables are constants: n, m, k and j. r and s are not."
+        ],
+        "answer": "n = 5; m = 25; k = 20; r = read(); s = r + 5; j = 5."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Apply constant propagation and folding to: n = 5; m = n * n; k = m - n; r = read(); s = r + n; j = k / 4.",
+          "steps": [
+            "n = 5 is a constant. Record n = 5.",
+            "m = n * n. n is 5, so propagate it: 5 * 5. Fold to 25. The line becomes m = 25.",
+            "k = m - n. Both are known: 25 - 5 = 20. The line becomes k = 20.",
+            "r = read(). The value comes from outside the program, so r is NAC. Nothing to fold.",
+            "s = r + n. r is NAC, so s is NAC. But n is still 5, so propagate it: s = r + 5.",
+            "j = k / 4. k is 20, so 20 / 4 = 5. The line becomes j = 5.",
+            "Four variables are constants: n, m, k and j. r and s are not."
+          ],
+          "answer": "n = 5; m = 25; k = 20; r = read(); s = r + 5; j = 5."
+        },
+        {
+          "level": "gate",
+          "setup": "x = 3. Then if c: y = x + 2 and z = 1, else y = 5 and z = 2. After the join: w = y * 2 and v = z + x. Which of w and v are constants?",
+          "steps": [
+            "Before the if: x = 3, a constant.",
+            "Then branch: y = 3 + 2 = 5, and z = 1.",
+            "Else branch: y = 5, and z = 2.",
+            "Join for y: both paths say 5. Same constant, so y = 5 after the join.",
+            "Join for z: one path says 1 and the other says 2. They differ, so z is NAC.",
+            "w = y * 2 = 5 * 2 = 10. That is a constant.",
+            "v = z + x. z is NAC, so v is NAC. This holds even though x = 3."
+          ],
+          "answer": "w = 10 is a constant. v is not. The trap avoided is calling y NAC just because it was worked out differently on the two paths. The values agree."
+        },
+        {
+          "level": "twist",
+          "setup": "k = 1. Then while c: m = k * 3 and k = 2. What is m inside the loop, and what does a single pass give?",
+          "steps": [
+            "Before the loop: k = 1.",
+            "First pass, using only the entry value: at the loop head k = 1, so m = 1 * 3 = 3. At the end of the body k = 2.",
+            "Now bring in the back edge. At the loop head, k comes from the entry (1) and from the back edge (2). They differ, so k is NAC.",
+            "Repeat the body with k = NAC. Then m = NAC * 3 = NAC.",
+            "Nothing changes again, so we stop. In the first pass m looked like 3, which is wrong for later trips."
+          ],
+          "answer": "m is NAC. A single pass wrongly gives m = 3, because it never saw the back-edge value k = 2."
+        }
+      ],
+      "why": "Constant propagation and folding remove work at compile time and unlock other optimisations, such as dropping a branch whose test is now known. In GATE: you simplify a short block by hand, or say which variables are constants after a join or a loop.",
+      "how": [
+        "Make a table of variable values: a number or NAC.",
+        "Walk forward. A constant assignment records the number. An expression whose operands are all known is worked out (folded). An unknown input or unknown operand gives NAC.",
+        "Rewrite each use of a known variable by its number, and fold.",
+        "At a join, keep a variable only if every path gives the same number. Otherwise it is NAC.",
+        "With a loop, repeat until the table stops changing."
+      ],
+      "mistake": "Stopping after one pass in a loop. A variable set to 1 before the loop and to 2 inside it looks constant on the way in. Once the back edge is included it is NAC. A second slip is forgetting that two paths with the same value still give a constant.",
+      "edge_cases": [
+        "x = x + 1 inside a loop with x = 0 before it: the loop head sees 0, then 1, so x is NAC.",
+        "Equal constants from both branches stay a constant, even if they were worked out differently.",
+        "A value read from input or returned by a function call is NAC.",
+        "Folding can create new constants: after 4 * 5 becomes 20, later lines that use it may fold too."
+      ],
+      "connections": [
+        "Same forward flow as reaching definitions, with a value table in place of sets (see Reaching definitions).",
+        "Folding computes a constant. Common subexpression elimination reuses a value. They are different things (see Available expressions and CSE).",
+        "Loops need repeats until stable, just as in Liveness analysis."
+      ],
+      "check": [
+        {
+          "q": "a = 2; b = a + 3; c = b * b. What does the block become?",
+          "a": "a = 2; b = 5; c = 25."
+        },
+        {
+          "q": "At a join, one path gives x = 4 and the other path gives x = 4. Is x a constant?",
+          "a": "Yes, x = 4. Every path agrees."
+        },
+        {
+          "q": "At a join, one path gives x = 4 and the other gives x = 5. What is x after the join?",
+          "a": "NAC. The paths disagree, so no single constant is right."
+        }
+      ],
+      "asked": "Asked: no separate year in the blueprint. Expect it as 'what does this block simplify to' or 'which variables are constants'.",
+      "try": {
+        "id": "gen.ic.009",
+        "label": "What does a short block simplify to?"
+      },
+      "scene": "cd.icg.constprop",
+      "what": "If a variable always holds a known number, replace it by that number. That is **constant propagation**. Then do the sums that have become possible at compile time, such as 5 * 5 turning into 25. That is **folding**. At a join, if two paths give different numbers for a variable, it becomes **NAC**, which means not a constant.",
+      "what_full": "Walk through the code and keep a small table. For each variable it holds a known number or NAC. An assignment x = 3 records 3. An assignment x = y + 2 records y's value plus 2 if y is known, and NAC if y is NAC. A call like read() gives NAC. Whenever an expression has all its operands known, replace it by its value. At a join a variable is a constant only if every path gives the same number. Loops need repeats, because the back edge may bring a different value to the loop head.\n\nA variable's value is one of three things: **undefined** (no information yet), a **constant** c, or **NAC** (not a constant). At a join the values combine. The same constant on every path stays that constant. Two different constants give NAC. NAC with anything gives NAC. Undefined with a constant gives that constant.\n\nAn assignment x = e gives x the value of e, worked out from the table. It is a constant if every operand is a constant, and NAC otherwise.\n\nFolding replaces an expression whose operands are all constants by its value. For example k = 20 / 4 becomes k = 5.\n\n**Worked example.** Apply constant propagation and folding to: n = 5; m = n * n; k = m - n; r = read(); s = r + n; j = k / 4.\n\n1. n = 5 is a constant. Record n = 5.\n2. m = n * n. n is 5, so propagate it: 5 * 5. Fold to 25. The line becomes m = 25.\n3. k = m - n. Both are known: 25 - 5 = 20. The line becomes k = 20.\n4. r = read(). The value comes from outside the program, so r is NAC. Nothing to fold.\n5. s = r + n. r is NAC, so s is NAC. But n is still 5, so propagate it: s = r + 5.\n6. j = k / 4. k is 20, so 20 / 4 = 5. The line becomes j = 5.\n7. Four variables are constants: n, m, k and j. r and s are not.\n\n**Answer:** n = 5; m = 25; k = 20; r = read(); s = r + 5; j = 5.\n\n**Check yourself:** a = 2; b = a + 3; c = b * b. What does the block become?\n\n*Answer:* a = 2; b = 5; c = 25.",
+      "trap": "Stopping after one pass in a loop. A variable set to 1 before the loop and to 2 inside it looks constant on the way in. Once the back edge is included it is NAC. A second slip is forgetting that two paths with the same value still give a constant.",
+      "why_full": "Constant propagation and folding remove work at compile time and unlock other optimisations, such as dropping a branch whose test is now known. In GATE: you simplify a short block by hand, or say which variables are constants after a join or a loop.\n\nAsked: no separate year in the blueprint. Expect it as 'what does this block simplify to' or 'which variables are constants'."
+    },
+    {
+      "atom_id": "d8",
+      "title": "Register need",
+      "simple": "Think of carrying shopping. Your hands are the registers: fast, but there are only so many. To do one sum you hold the numbers you still need. The trick is to do the heavy part first while your hands are free, then hold just one small result while you do the light part. Count how many things you must hold at once, and that is how many hands you need. In exam words: for an expression tree, the Sethi-Ullman label gives the registers needed. A leaf is 1, a node whose children have equal labels is that label plus 1, otherwise it is the larger label. For straight-line code the need is the largest number of variables alive at the same time.",
+      "idea": "Registers are the few fast storage slots inside the CPU, and the question is how few you can get away with. For an expression tree, label each node with the registers its subtree needs. A leaf needs **1**. A node whose two children have the same label needs that label **plus 1**. Otherwise it needs the **larger** label. For straight-line code, count the largest set of variables alive at once.",
+      "idea_full": "To compute a node, you compute both children and combine them. If one child is lighter, compute the heavier child first. While you do the light one, you hold just one register for the heavy result, so the need is the larger label. If both children are equally heavy, you must hold one finished result while you compute the other, so you need one more register. An immediate (a constant written inside the instruction) needs no register, so its label is 0. For a list of statements, the registers needed at any moment equal the number of values that must still be read later. That is the live set, so take the largest live set.",
+      "definition": "Sethi-Ullman label of a node: a leaf (a variable loaded into a register) is 1. An immediate constant is 0. A node whose children are labelled m and n has label m + 1 if m = n, and max(m, n) otherwise. The label of the root is the smallest number of registers, with no spills, when the heavier child is evaluated first.\n\nStraight-line code: registers needed = the largest size of any live set. If the machine has fewer registers than that, the extra values are spilled to memory.",
+      "intuition_full": "A binary operation has two inputs and one output. Take a * (b + c * d). The deepest piece c * d takes two registers, one for c and one for d. After it, one register holds the product and the other is free again. Then b needs one register, so b + (c * d) peaks at two. Finally a needs one more register while the sum waits, but the peak is again two. Order matters. If you load a first, you hold it while computing c * d, which needs two more, so you peak at three. So always start with the heavy side. That is all the labels do: label(node) is the peak when you do the work in the best order. Straight-line code with named variables has no tree, only a list. A variable occupies a register from its write to its last read. Two variables whose lives do not overlap can share a register. So the peak number of overlapping lives is the answer.",
+      "example": {
+        "setup": "How many registers does a * (b + c * d) need, on a machine where arithmetic works only on registers and a, b, c, d start in memory?",
+        "steps": [
+          "Label every leaf 1. A variable has to be loaded into a register first.",
+          "c * d: both children are labelled 1, so they are equal. The label is 1 + 1 = 2.",
+          "b + (c * d): the children are 1 and 2. They differ, so take the larger: 2.",
+          "a * (...): the children are 1 and 2. The larger is 2. The root label is 2.",
+          "Check by running the heavier side first. Load c into R1 and d into R2, then R1 = c * d. R2 is free, so load b into it and do R1 = b + R1.",
+          "Load a into R2 and do R1 = a * R1. Two registers were enough."
+        ],
+        "answer": "2 registers."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "How many registers does a * (b + c * d) need, on a machine where arithmetic works only on registers and a, b, c, d start in memory?",
+          "steps": [
+            "Label every leaf 1. A variable has to be loaded into a register first.",
+            "c * d: both children are labelled 1, so they are equal. The label is 1 + 1 = 2.",
+            "b + (c * d): the children are 1 and 2. They differ, so take the larger: 2.",
+            "a * (...): the children are 1 and 2. The larger is 2. The root label is 2.",
+            "Check by running the heavier side first. Load c into R1 and d into R2, then R1 = c * d. R2 is free, so load b into it and do R1 = b + R1.",
+            "Load a into R2 and do R1 = a * R1. Two registers were enough."
+          ],
+          "answer": "2 registers."
+        },
+        {
+          "level": "gate",
+          "setup": "Lines: 1: a = 4; 2: b = 7; 3: c = a + b; 4: d = c * a; 5: e = d - b; 6: f = e + c; 7: return f. What is the smallest number of registers that runs this without spilling?",
+          "steps": [
+            "Registers needed equal the largest number of values alive at once. Work out the live sets backward from the return.",
+            "Before line 7: { f }. Before line 6 (f = e + c): remove f, add e and c: { e, c }.",
+            "Before line 5 (e = d - b): remove e, add d and b: { c, d, b }. That has size 3.",
+            "Before line 4 (d = c * a): remove d, add c and a: { c, b, a }. Also size 3.",
+            "Before line 3 (c = a + b): remove c, add a and b: { a, b }. Before line 2: { a }. Before line 1: { }.",
+            "The largest live set has size 3. There are six variables, but never more than 3 alive at once."
+          ],
+          "answer": "3 registers. The trap avoided is answering 6 because there are six variable names."
+        },
+        {
+          "level": "twist",
+          "setup": "Evaluate a * (b + c * d) again, but this time load a first because it is the left operand. How many registers does it use?",
+          "steps": [
+            "Load a into R1. It has to wait until the right side is done.",
+            "Now compute c * d with R1 busy. Load c into R2 and d into R3. That already uses 3 registers.",
+            "R2 = c * d, then R3 is free. Load b into R3 and add. Still at most 3.",
+            "R1 = a * (the result). The peak was 3."
+          ],
+          "answer": "3 registers. The same expression needs only 2 if the heavier side, b + c * d, is evaluated first. Order is the whole trick."
+        }
+      ],
+      "why": "Registers are scarce, and values that do not fit are spilled to slow memory. The minimum need tells a compiler how many spills a block costs. In GATE: you find the fewest registers for an expression or a short block, or the number of spills.",
+      "how": [
+        "Expression tree: label the leaves 1 (an immediate constant is 0), then work upward.",
+        "At each node: equal child labels give that label plus 1, otherwise the larger label.",
+        "Straight-line code: write the live set before each statement, working backward.",
+        "The need is the largest set size. Fewer registers than that means spills.",
+        "Count variables alive at the same moment, never the total number of names."
+      ],
+      "mistake": "Counting variables. Ten variables may need only three registers if never more than three are alive together. Another slip is counting a constant (an immediate) as needing a register. It does not.",
+      "edge_cases": [
+        "An immediate operand has label 0, so x + 5 needs only 1 register.",
+        "Two children that each need k registers give k + 1, not k + k.",
+        "If the machine lets the right operand sit in memory, the leaf labels change. Follow the machine rule in the question.",
+        "With fewer registers than the need, the extra values are spilled, which costs extra loads and stores."
+      ],
+      "connections": [
+        "Straight-line need is the largest live set from Liveness analysis.",
+        "Sethi-Ullman labelling is a bottom-up pass where each node's value comes from its two children (see Trees).",
+        "In SSA form each assignment has its own name, which makes lives easy to read (the next card)."
+      ],
+      "check": [
+        {
+          "q": "What is the Sethi-Ullman label of x + y, with x and y in memory?",
+          "a": "Both leaves are 1 and equal, so the label is 1 + 1 = 2."
+        },
+        {
+          "q": "What is the label of x + 5, where 5 is an immediate?",
+          "a": "The leaf x is 1 and the immediate is 0. The larger is 1."
+        },
+        {
+          "q": "A block uses 6 variables, and at most 3 are ever alive together. How many registers does it need?",
+          "a": "3."
+        }
+      ],
+      "asked": "Asked: 2017 CS1 Q52, 2010 CS Q37, 2004 CS Q10, 2025 CS1 Q13",
+      "try": {
+        "id": "gen.ic.010",
+        "label": "Registers needed on a load/store machine"
+      },
+      "scene": "cd.icg.regs",
+      "what": "Registers are the few fast storage slots inside the CPU, and the question is how few you can get away with. For an expression tree, label each node with the registers its subtree needs. A leaf needs **1**. A node whose two children have the same label needs that label **plus 1**. Otherwise it needs the **larger** label. For straight-line code, count the largest set of variables alive at once.",
+      "what_full": "To compute a node, you compute both children and combine them. If one child is lighter, compute the heavier child first. While you do the light one, you hold just one register for the heavy result, so the need is the larger label. If both children are equally heavy, you must hold one finished result while you compute the other, so you need one more register. An immediate (a constant written inside the instruction) needs no register, so its label is 0. For a list of statements, the registers needed at any moment equal the number of values that must still be read later. That is the live set, so take the largest live set.\n\nSethi-Ullman label of a node: a leaf (a variable loaded into a register) is 1. An immediate constant is 0. A node whose children are labelled m and n has label m + 1 if m = n, and max(m, n) otherwise. The label of the root is the smallest number of registers, with no spills, when the heavier child is evaluated first.\n\nStraight-line code: registers needed = the largest size of any live set. If the machine has fewer registers than that, the extra values are spilled to memory.\n\n**Worked example.** How many registers does a * (b + c * d) need, on a machine where arithmetic works only on registers and a, b, c, d start in memory?\n\n1. Label every leaf 1. A variable has to be loaded into a register first.\n2. c * d: both children are labelled 1, so they are equal. The label is 1 + 1 = 2.\n3. b + (c * d): the children are 1 and 2. They differ, so take the larger: 2.\n4. a * (...): the children are 1 and 2. The larger is 2. The root label is 2.\n5. Check by running the heavier side first. Load c into R1 and d into R2, then R1 = c * d. R2 is free, so load b into it and do R1 = b + R1.\n6. Load a into R2 and do R1 = a * R1. Two registers were enough.\n\n**Answer:** 2 registers.\n\n**Check yourself:** What is the Sethi-Ullman label of x + y, with x and y in memory?\n\n*Answer:* Both leaves are 1 and equal, so the label is 1 + 1 = 2.",
+      "trap": "Counting variables. Ten variables may need only three registers if never more than three are alive together. Another slip is counting a constant (an immediate) as needing a register. It does not.",
+      "why_full": "Registers are scarce, and values that do not fit are spilled to slow memory. The minimum need tells a compiler how many spills a block costs. In GATE: you find the fewest registers for an expression or a short block, or the number of spills.\n\nAsked: 2017 CS1 Q52, 2010 CS Q37, 2004 CS Q10, 2025 CS1 Q13"
+    },
+    {
+      "atom_id": "d9",
+      "title": "SSA form",
+      "simple": "Imagine a diary where you are never allowed to cross anything out. Each time you change x, you start a new line: x1, then x2, then x3. Anyone reading a later line knows exactly which version was meant. The tricky part is where two roads meet and one road has x1 while the other has x2. There you write a special line saying 'x3 is x1 if we came by the first road, or x2 if we came by the second'. That special line is called phi. In exam words: in SSA every variable is assigned exactly once, every use refers to the latest version on its path, and a φ function merges versions at a join.",
+      "idea": "In **SSA** (static single assignment) every assignment gets a brand-new name: x1, x2, x3. Every use refers to the latest name on its path. When two paths bring different names of one variable together, a **φ function** at the join picks the right one: x3 = φ(x2, x1).",
+      "idea_full": "Plain code reuses names, so 'x' means different values at different times, and an analysis must keep track of which is which. SSA removes the problem. Each assignment makes a new version and each use names its version directly. Straight-line code is easy: count up the subscripts. A join is the one hard case. If the two incoming paths hold different versions of x, the code after the join cannot name just one. So a φ function at the top of the join block creates a fresh version, and its arguments list the incoming versions in the order of the incoming edges. A variable that has the same version on both paths needs no φ.",
+      "definition": "Rename rule: give each assignment a new subscript. A use takes the latest version on the path that reaches it. At a join block with predecessors P1 and P2, add x_new = φ(x from P1, x from P2) for every variable x whose versions differ across the incoming paths. The φ arguments appear in the same order as the incoming edges.\n\nCounting names: all distinct names = input variables (read before any assignment) + one per assignment, and each φ counts as an assignment. A loop header has two incoming edges, the entry and the back edge, so a variable assigned in the loop body needs a φ there.",
+      "intuition_full": "SSA is about making facts permanent. Once x1 is written it never changes, so any statement that mentions x1 means one exact value. That makes the question 'where did this value come from?' trivial: you read the subscript. But programs branch, and a name used after a branch cannot stand for one fixed value. The φ is the compiler's way of saying 'it is this one if we came from the left and that one if we came from the right'. It is not a real instruction. It is bookkeeping that later turns into a register copy on each incoming edge. Where do φ's go? Exactly at joins where two different versions of the same variable meet. A loop header is a join between 'before the loop' and 'after one more trip', so a variable changed in the body needs a φ there. A variable that is only read, or that is untouched on both paths, never needs one. A φ is itself an assignment, so it gets its own fresh name.",
+      "example": {
+        "setup": "Put this diamond in SSA form. B1: x = 1; y = 2. B2: x = x + 1. B3: y = y * 3. Both go to B4: z = x + y.",
+        "steps": [
+          "Rule: every assignment gets a new name, and every use takes the latest name on its path.",
+          "B1: x = 1 becomes x1 = 1, and y = 2 becomes y1 = 2.",
+          "B2: x = x + 1 reads the latest x, which is x1, and writes a new name: x2 = x1 + 1.",
+          "B3: y = y * 3 reads y1 and writes a new name: y2 = y1 * 3.",
+          "B4 is a join. x is x2 if we came from B2 but x1 if we came from B3, so x3 = φ(x2, x1). y is y1 if we came from B2 and y2 from B3, so y3 = φ(y1, y2).",
+          "Now z = x + y becomes z1 = x3 + y3."
+        ],
+        "answer": "Two φ functions, one for x and one for y. The names used are x1, x2, x3, y1, y2, y3 and z1, which is 7."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Put this diamond in SSA form. B1: x = 1; y = 2. B2: x = x + 1. B3: y = y * 3. Both go to B4: z = x + y.",
+          "steps": [
+            "Rule: every assignment gets a new name, and every use takes the latest name on its path.",
+            "B1: x = 1 becomes x1 = 1, and y = 2 becomes y1 = 2.",
+            "B2: x = x + 1 reads the latest x, which is x1, and writes a new name: x2 = x1 + 1.",
+            "B3: y = y * 3 reads y1 and writes a new name: y2 = y1 * 3.",
+            "B4 is a join. x is x2 if we came from B2 but x1 if we came from B3, so x3 = φ(x2, x1). y is y1 if we came from B2 and y2 from B3, so y3 = φ(y1, y2).",
+            "Now z = x + y becomes z1 = x3 + y3."
+          ],
+          "answer": "Two φ functions, one for x and one for y. The names used are x1, x2, x3, y1, y2, y3 and z1, which is 7."
+        },
+        {
+          "level": "gate",
+          "setup": "Rename this to SSA and count all the distinct variable names used. The variables p, q and r are inputs. 1: a = p + q; 2: b = a * r; 3: a = b - p; 4: c = a + b; 5: b = c * 2.",
+          "steps": [
+            "Inputs: p, q and r are read before any assignment. They count as names. That is 3.",
+            "Line 1: a1 = p + q.",
+            "Line 2: b1 = a1 * r.",
+            "Line 3: a2 = b1 - p. A new version of a.",
+            "Line 4: c1 = a2 + b1. It uses the latest a (a2) and the latest b (b1).",
+            "Line 5: b2 = c1 * 2.",
+            "Count: 3 inputs + 5 assignments = 8 names (p, q, r, a1, b1, a2, c1, b2)."
+          ],
+          "answer": "8 names. The trap avoided is counting only the 5 new names and forgetting the inputs."
+        },
+        {
+          "level": "twist",
+          "setup": "Write this loop in SSA: i = 0; while (i < n) { i = i + 1 }.",
+          "steps": [
+            "Before the loop: i1 = 0.",
+            "The loop header can be reached from the entry (i1) and from the back edge (the last i in the body). It is a join, so it needs a φ.",
+            "Header: i2 = φ(i1, i3). The test uses i2: i2 < n.",
+            "Body: i3 = i2 + 1. The back edge carries i3 to the header.",
+            "i3 appears in the φ before its definition in the text. That is normal, because the φ reads it along the back edge."
+          ],
+          "answer": "i1 = 0. Header: i2 = φ(i1, i3), test i2 < n. Body: i3 = i2 + 1. The φ at the loop header is the one people forget."
+        }
+      ],
+      "why": "SSA makes data flow explicit, so many optimisations become simple. In GATE: you rename a block into SSA, count the φ functions for a CFG, or count all the names used.",
+      "how": [
+        "Mark the input variables (read before any assignment). They are names too.",
+        "Walk in order. Give each assignment the next subscript for its variable.",
+        "Each use takes the latest subscript on its path.",
+        "At a join where two versions of x differ, add x_new = φ(...) with the arguments in incoming-edge order. Do the same at a loop header for variables assigned in the loop.",
+        "Count φ functions or names as asked. Each φ counts as an assignment."
+      ],
+      "mistake": "Forgetting the φ at a loop header. A loop header has two incoming paths, the entry and the back edge, so every variable assigned in the loop needs a φ there. Also remember that inputs count when the question asks for all the names.",
+      "edge_cases": [
+        "A variable assigned in only one arm still needs a φ at the join if it was defined before the branch. One path brings the old version and the other the new one.",
+        "A variable assigned before the branch and untouched on both arms needs no φ at the join.",
+        "A φ is itself an assignment. It gets a new name and counts in the name total.",
+        "The φ arguments follow the order of the incoming edges, so swap them if the edges are listed the other way round."
+      ],
+      "connections": [
+        "SSA gives every value a unique name, which removes the reassignment trap in the DAG of a basic block.",
+        "Reaching definitions asks where a value came from. In SSA a use names its definition directly.",
+        "A φ at a join is the same idea as merging facts at a join in constant propagation and liveness."
+      ],
+      "check": [
+        {
+          "q": "Rename to SSA: x = 5; x = x + 1; y = x.",
+          "a": "x1 = 5; x2 = x1 + 1; y1 = x2."
+        },
+        {
+          "q": "At a join, x arrives as x1 on one path and as x2 on the other. What do you write?",
+          "a": "x3 = φ(x1, x2), with the arguments in the order of the incoming edges."
+        },
+        {
+          "q": "A variable is assigned before an if and again in one arm only. How many φ functions does it need at the join?",
+          "a": "One. One path carries the old version and the other carries the new one."
+        }
+      ],
+      "asked": "Asked: 2017 CS1 Q12, 2015 CS1 Q55, 2016 CS1 Q19",
+      "try": {
+        "id": "gen.ic.011",
+        "label": "Convert code to SSA"
+      },
+      "scene": "cd.icg.ssa",
+      "what": "In **SSA** (static single assignment) every assignment gets a brand-new name: x1, x2, x3. Every use refers to the latest name on its path. When two paths bring different names of one variable together, a **φ function** at the join picks the right one: x3 = φ(x2, x1).",
+      "what_full": "Plain code reuses names, so 'x' means different values at different times, and an analysis must keep track of which is which. SSA removes the problem. Each assignment makes a new version and each use names its version directly. Straight-line code is easy: count up the subscripts. A join is the one hard case. If the two incoming paths hold different versions of x, the code after the join cannot name just one. So a φ function at the top of the join block creates a fresh version, and its arguments list the incoming versions in the order of the incoming edges. A variable that has the same version on both paths needs no φ.\n\nRename rule: give each assignment a new subscript. A use takes the latest version on the path that reaches it. At a join block with predecessors P1 and P2, add x_new = φ(x from P1, x from P2) for every variable x whose versions differ across the incoming paths. The φ arguments appear in the same order as the incoming edges.\n\nCounting names: all distinct names = input variables (read before any assignment) + one per assignment, and each φ counts as an assignment. A loop header has two incoming edges, the entry and the back edge, so a variable assigned in the loop body needs a φ there.\n\n**Worked example.** Put this diamond in SSA form. B1: x = 1; y = 2. B2: x = x + 1. B3: y = y * 3. Both go to B4: z = x + y.\n\n1. Rule: every assignment gets a new name, and every use takes the latest name on its path.\n2. B1: x = 1 becomes x1 = 1, and y = 2 becomes y1 = 2.\n3. B2: x = x + 1 reads the latest x, which is x1, and writes a new name: x2 = x1 + 1.\n4. B3: y = y * 3 reads y1 and writes a new name: y2 = y1 * 3.\n5. B4 is a join. x is x2 if we came from B2 but x1 if we came from B3, so x3 = φ(x2, x1). y is y1 if we came from B2 and y2 from B3, so y3 = φ(y1, y2).\n6. Now z = x + y becomes z1 = x3 + y3.\n\n**Answer:** Two φ functions, one for x and one for y. The names used are x1, x2, x3, y1, y2, y3 and z1, which is 7.\n\n**Check yourself:** Rename to SSA: x = 5; x = x + 1; y = x.\n\n*Answer:* x1 = 5; x2 = x1 + 1; y1 = x2.",
+      "trap": "Forgetting the φ at a loop header. A loop header has two incoming paths, the entry and the back edge, so every variable assigned in the loop needs a φ there. Also remember that inputs count when the question asks for all the names.",
+      "why_full": "SSA makes data flow explicit, so many optimisations become simple. In GATE: you rename a block into SSA, count the φ functions for a CFG, or count all the names used.\n\nAsked: 2017 CS1 Q12, 2015 CS1 Q55, 2016 CS1 Q19"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "cd.icg.tac",
+      "title": "Three-address code: tree, quadruples, triples",
+      "viewBox": [
+        0,
+        0,
+        360,
+        280
+      ],
+      "objects": [
+        {
+          "id": "hd",
+          "kind": "text",
+          "x": 180,
+          "y": 16,
+          "text": "y = (p - q) * r + s",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "mono": true
+        },
+        {
+          "id": "nplus",
+          "kind": "node",
+          "x": 100,
+          "y": 56,
+          "label": "+",
+          "r": 14
+        },
+        {
+          "id": "nmul",
+          "kind": "node",
+          "x": 62,
+          "y": 108,
+          "label": "*",
+          "r": 14
+        },
+        {
+          "id": "ns",
+          "kind": "node",
+          "x": 138,
+          "y": 108,
+          "label": "s",
+          "r": 14
+        },
+        {
+          "id": "nsub",
+          "kind": "node",
+          "x": 36,
+          "y": 160,
+          "label": "-",
+          "r": 14
+        },
+        {
+          "id": "nr",
+          "kind": "node",
+          "x": 88,
+          "y": 160,
+          "label": "r",
+          "r": 14
+        },
+        {
+          "id": "np",
+          "kind": "node",
+          "x": 18,
+          "y": 212,
+          "label": "p",
+          "r": 14
+        },
+        {
+          "id": "nq",
+          "kind": "node",
+          "x": 58,
+          "y": 212,
+          "label": "q",
+          "r": 14
+        },
+        {
+          "id": "e1",
+          "kind": "edge",
+          "from": "nplus",
+          "to": "nmul"
+        },
+        {
+          "id": "e2",
+          "kind": "edge",
+          "from": "nplus",
+          "to": "ns"
+        },
+        {
+          "id": "e3",
+          "kind": "edge",
+          "from": "nmul",
+          "to": "nsub"
+        },
+        {
+          "id": "e4",
+          "kind": "edge",
+          "from": "nmul",
+          "to": "nr"
+        },
+        {
+          "id": "e5",
+          "kind": "edge",
+          "from": "nsub",
+          "to": "np"
+        },
+        {
+          "id": "e6",
+          "kind": "edge",
+          "from": "nsub",
+          "to": "nq"
+        },
+        {
+          "id": "lt1",
+          "kind": "text",
+          "x": 18,
+          "y": 160,
+          "text": "t1",
+          "size": 12,
+          "anchor": "end",
+          "tone": "good"
+        },
+        {
+          "id": "lt2",
+          "kind": "text",
+          "x": 44,
+          "y": 108,
+          "text": "t2",
+          "size": 12,
+          "anchor": "end",
+          "tone": "good"
+        },
+        {
+          "id": "ly",
+          "kind": "text",
+          "x": 82,
+          "y": 56,
+          "text": "y",
+          "size": 12,
+          "anchor": "end",
+          "tone": "good"
+        },
+        {
+          "id": "qt",
+          "kind": "text",
+          "x": 260,
+          "y": 32,
+          "text": "quadruples",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "q",
+          "kind": "grid",
+          "x": 172,
+          "y": 58,
+          "rows": 3,
+          "cols": 4,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "cw": 44,
+          "ch": 24,
+          "colLabels": [
+            "op",
+            "arg1",
+            "arg2",
+            "result"
+          ]
+        },
+        {
+          "id": "tt",
+          "kind": "text",
+          "x": 238,
+          "y": 144,
+          "text": "triples",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t",
+          "kind": "grid",
+          "x": 172,
+          "y": 172,
+          "rows": 4,
+          "cols": 3,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "cw": 44,
+          "ch": 24,
+          "colLabels": [
+            "op",
+            "arg1",
+            "arg2"
+          ],
+          "rowLabels": [
+            "(0)",
+            "(1)",
+            "(2)",
+            "(3)"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The expression as a tree. The deepest operator must run first, so p - q comes before anything else.",
+          "highlight": [
+            {
+              "id": "nsub",
+              "tone": "accent"
+            },
+            "e5",
+            "e6"
+          ]
+        },
+        {
+          "caption": "Instruction 1: t1 = p - q. One operator, so one row. Its result gets a name, t1.",
+          "set": {
+            "id": "q",
+            "cells": [
+              "-",
+              "p",
+              "q",
+              "t1",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "show": [
+            "lt1"
+          ],
+          "highlight": [
+            {
+              "id": "q",
+              "cells": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "nsub",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Instruction 2: t2 = t1 * r. It uses the name t1 from the row above.",
+          "set": {
+            "id": "q",
+            "cells": [
+              "-",
+              "p",
+              "q",
+              "t1",
+              "*",
+              "t1",
+              "r",
+              "t2",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "show": [
+            "lt2"
+          ],
+          "highlight": [
+            {
+              "id": "q",
+              "cells": [
+                4,
+                5,
+                6,
+                7
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "nmul",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Instruction 3: y = t2 + s. The last result goes straight into y. That is 3 quadruples.",
+          "set": {
+            "id": "q",
+            "cells": [
+              "-",
+              "p",
+              "q",
+              "t1",
+              "*",
+              "t1",
+              "r",
+              "t2",
+              "+",
+              "t2",
+              "s",
+              "y"
+            ]
+          },
+          "show": [
+            "ly"
+          ],
+          "highlight": [
+            {
+              "id": "q",
+              "cells": [
+                8,
+                9,
+                10,
+                11
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "nplus",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Triples have no result column. Row 0 is p - q. Row 1 multiplies row 0 by r. Row 2 adds s to row 1.",
+          "set": {
+            "id": "t",
+            "cells": [
+              "-",
+              "p",
+              "q",
+              "*",
+              "(0)",
+              "r",
+              "+",
+              "(1)",
+              "s",
+              "",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ],
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "A triple cannot name its result, so storing into y needs its own row: (3) = y (2). That is 4 triples.",
+          "set": {
+            "id": "t",
+            "cells": [
+              "-",
+              "p",
+              "q",
+              "*",
+              "(0)",
+              "r",
+              "+",
+              "(1)",
+              "s",
+              "=",
+              "y",
+              "(2)"
+            ]
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                9,
+                10,
+                11
+              ],
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cd.icg.dag",
+      "title": "DAG of a basic block: reuse the node",
+      "viewBox": [
+        0,
+        0,
+        360,
+        250
+      ],
+      "objects": [
+        {
+          "id": "c1",
+          "kind": "text",
+          "x": 12,
+          "y": 40,
+          "text": "u = m * n",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c2",
+          "kind": "text",
+          "x": 12,
+          "y": 68,
+          "text": "v = u + 1",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c3",
+          "kind": "text",
+          "x": 12,
+          "y": 96,
+          "text": "w = m * n",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c4",
+          "kind": "text",
+          "x": 12,
+          "y": 124,
+          "text": "x = v + w",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "m",
+          "kind": "node",
+          "x": 190,
+          "y": 220,
+          "label": "m",
+          "r": 16
+        },
+        {
+          "id": "n",
+          "kind": "node",
+          "x": 250,
+          "y": 220,
+          "label": "n",
+          "r": 16
+        },
+        {
+          "id": "one",
+          "kind": "node",
+          "x": 330,
+          "y": 220,
+          "label": "1",
+          "r": 16
+        },
+        {
+          "id": "mul",
+          "kind": "node",
+          "x": 220,
+          "y": 150,
+          "label": "*",
+          "r": 16
+        },
+        {
+          "id": "add",
+          "kind": "node",
+          "x": 300,
+          "y": 100,
+          "label": "+",
+          "r": 16
+        },
+        {
+          "id": "top",
+          "kind": "node",
+          "x": 260,
+          "y": 40,
+          "label": "+",
+          "r": 16
+        },
+        {
+          "id": "e1",
+          "kind": "edge",
+          "from": "mul",
+          "to": "m"
+        },
+        {
+          "id": "e2",
+          "kind": "edge",
+          "from": "mul",
+          "to": "n"
+        },
+        {
+          "id": "e3",
+          "kind": "edge",
+          "from": "add",
+          "to": "mul"
+        },
+        {
+          "id": "e4",
+          "kind": "edge",
+          "from": "add",
+          "to": "one"
+        },
+        {
+          "id": "e5",
+          "kind": "edge",
+          "from": "top",
+          "to": "add"
+        },
+        {
+          "id": "e6",
+          "kind": "edge",
+          "from": "top",
+          "to": "mul"
+        },
+        {
+          "id": "lmul",
+          "kind": "text",
+          "x": 196,
+          "y": 150,
+          "text": "u",
+          "size": 12,
+          "anchor": "end",
+          "tone": "good"
+        },
+        {
+          "id": "ladd",
+          "kind": "text",
+          "x": 322,
+          "y": 100,
+          "text": "v",
+          "size": 12,
+          "anchor": "start",
+          "tone": "good"
+        },
+        {
+          "id": "ltop",
+          "kind": "text",
+          "x": 282,
+          "y": 40,
+          "text": "x",
+          "size": 12,
+          "anchor": "start",
+          "tone": "good"
+        },
+        {
+          "id": "cnt",
+          "kind": "text",
+          "x": 14,
+          "y": 190,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "cnt2",
+          "kind": "text",
+          "x": 14,
+          "y": 214,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Start with leaves: the values already present when the block begins. m, n and 1 give 3 nodes.",
+          "show": [
+            "m",
+            "n",
+            "one"
+          ],
+          "set": {
+            "id": "cnt",
+            "text": "nodes: 3"
+          },
+          "highlight": [
+            "m",
+            "n",
+            "one"
+          ]
+        },
+        {
+          "caption": "u = m * n. No * node over m and n exists yet, so make one and label it u. Nodes: 4.",
+          "show": [
+            "mul",
+            "e1",
+            "e2",
+            "lmul"
+          ],
+          "set": {
+            "id": "cnt",
+            "text": "nodes: 4"
+          },
+          "highlight": [
+            {
+              "id": "c1",
+              "tone": "good"
+            },
+            {
+              "id": "mul",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "v = u + 1. This needs a + over the u node and 1. New node, label v. Nodes: 5.",
+          "show": [
+            "add",
+            "e3",
+            "e4",
+            "ladd"
+          ],
+          "set": {
+            "id": "cnt",
+            "text": "nodes: 5"
+          },
+          "highlight": [
+            {
+              "id": "c2",
+              "tone": "good"
+            },
+            {
+              "id": "add",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "w = m * n. Look it up first. A * over m and n already exists, so no new node. Just add the label w.",
+          "set": [
+            {
+              "id": "lmul",
+              "text": "u, w"
+            },
+            {
+              "id": "cnt",
+              "text": "nodes: 5 (unchanged)"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "c3",
+              "tone": "mid"
+            },
+            {
+              "id": "mul",
+              "tone": "mid"
+            }
+          ]
+        },
+        {
+          "caption": "x = v + w. Here w is the * node, so this is a + over the v node and the * node. New node, label x. Nodes: 6.",
+          "show": [
+            "top",
+            "e5",
+            "e6",
+            "ltop"
+          ],
+          "set": {
+            "id": "cnt",
+            "text": "nodes: 6"
+          },
+          "highlight": [
+            {
+              "id": "c4",
+              "tone": "good"
+            },
+            {
+              "id": "top",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Final count: 3 leaves + 3 operator nodes = 6 nodes. Each operator has 2 edges, so 6 edges. Four statements, only three operations.",
+          "set": {
+            "id": "cnt2",
+            "text": "edges: 3 operators x 2 = 6"
+          },
+          "highlight": [
+            "mul",
+            "add",
+            "top"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cd.icg.cfg",
+      "title": "Leaders, blocks and the CFG",
+      "viewBox": [
+        0,
+        0,
+        360,
+        214
+      ],
+      "objects": [
+        {
+          "id": "c1",
+          "kind": "text",
+          "x": 14,
+          "y": 28,
+          "text": "1  i = 0",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c2",
+          "kind": "text",
+          "x": 14,
+          "y": 52,
+          "text": "2  L: if i >= 10 goto E",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c3",
+          "kind": "text",
+          "x": 14,
+          "y": 76,
+          "text": "3  s = s + i",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c4",
+          "kind": "text",
+          "x": 14,
+          "y": 100,
+          "text": "4  i = i + 1",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c5",
+          "kind": "text",
+          "x": 14,
+          "y": 124,
+          "text": "5  goto L",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c6",
+          "kind": "text",
+          "x": 14,
+          "y": 148,
+          "text": "6  E: print s",
+          "size": 12,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "b1",
+          "kind": "box",
+          "x": 8,
+          "y": 14,
+          "w": 182,
+          "h": 24,
+          "fill": false
+        },
+        {
+          "id": "b2",
+          "kind": "box",
+          "x": 8,
+          "y": 38,
+          "w": 182,
+          "h": 24,
+          "fill": false
+        },
+        {
+          "id": "b3",
+          "kind": "box",
+          "x": 8,
+          "y": 62,
+          "w": 182,
+          "h": 74,
+          "fill": false
+        },
+        {
+          "id": "b4",
+          "kind": "box",
+          "x": 8,
+          "y": 134,
+          "w": 182,
+          "h": 24,
+          "fill": false
+        },
+        {
+          "id": "B1",
+          "kind": "node",
+          "x": 280,
+          "y": 34,
+          "label": "B1",
+          "r": 17
+        },
+        {
+          "id": "B2",
+          "kind": "node",
+          "x": 280,
+          "y": 94,
+          "label": "B2",
+          "r": 17
+        },
+        {
+          "id": "B3",
+          "kind": "node",
+          "x": 322,
+          "y": 172,
+          "label": "B3",
+          "r": 17
+        },
+        {
+          "id": "B4",
+          "kind": "node",
+          "x": 232,
+          "y": 172,
+          "label": "B4",
+          "r": 17
+        },
+        {
+          "id": "e12",
+          "kind": "arrow",
+          "from": "B1",
+          "to": "B2"
+        },
+        {
+          "id": "e23",
+          "kind": "arrow",
+          "x1": 294.3,
+          "y1": 107.9,
+          "x2": 318.3,
+          "y2": 152.4
+        },
+        {
+          "id": "e24",
+          "kind": "arrow",
+          "from": "B2",
+          "to": "B4"
+        },
+        {
+          "id": "e32",
+          "kind": "arrow",
+          "x1": 307.7,
+          "y1": 158.1,
+          "x2": 283.7,
+          "y2": 113.6
+        },
+        {
+          "id": "cnt",
+          "kind": "text",
+          "x": 14,
+          "y": 196,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Rule 1: the first instruction is a leader. Line 1.",
+          "highlight": [
+            {
+              "id": "c1",
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "c1",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Rule 2: the target of a jump is a leader. Line 5 jumps to L (line 2). Line 2 jumps to E (line 6).",
+          "highlight": [
+            {
+              "id": "c2",
+              "tone": "good"
+            },
+            {
+              "id": "c6",
+              "tone": "good"
+            },
+            {
+              "id": "c5",
+              "tone": "mid"
+            }
+          ],
+          "set": [
+            {
+              "id": "c2",
+              "tone": "good"
+            },
+            {
+              "id": "c6",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Rule 3: the line right after a jump is a leader. Line 3 follows the test in line 2. Line 6 follows goto L.",
+          "highlight": [
+            {
+              "id": "c3",
+              "tone": "good"
+            },
+            {
+              "id": "c6",
+              "tone": "good"
+            }
+          ],
+          "set": [
+            {
+              "id": "c3",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Leaders are lines 1, 2, 3 and 6. Each block runs from a leader to just before the next one.",
+          "show": [
+            "b1",
+            "b2",
+            "b3",
+            "b4"
+          ],
+          "highlight": [
+            "b1",
+            "b2",
+            "b3",
+            "b4"
+          ]
+        },
+        {
+          "caption": "One node per block. Fall-through edges: B1 to B2, and B2 to B3 when the test is false.",
+          "show": [
+            "B1",
+            "B2",
+            "B3",
+            "B4",
+            "e12",
+            "e23"
+          ],
+          "highlight": [
+            "e12",
+            "e23"
+          ]
+        },
+        {
+          "caption": "The conditional jump adds B2 to B4, for the case where i >= 10.",
+          "show": "e24",
+          "highlight": [
+            "e24"
+          ]
+        },
+        {
+          "caption": "goto L at the end of B3 adds the back edge B3 to B2. B3 has no fall-through, only this jump.",
+          "show": "e32",
+          "highlight": [
+            "e32"
+          ]
+        },
+        {
+          "caption": "Total: 4 blocks and 4 edges. With ENTRY and EXIT nodes added, it is 6 nodes and 6 edges.",
+          "set": {
+            "id": "cnt",
+            "text": "4 blocks, 4 edges"
+          },
+          "highlight": [
+            "B1",
+            "B2",
+            "B3",
+            "B4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cd.icg.liveness",
+      "title": "Liveness filled backward",
+      "viewBox": [
+        0,
+        0,
+        360,
+        230
+      ],
+      "objects": [
+        {
+          "id": "hd",
+          "kind": "text",
+          "x": 14,
+          "y": 22,
+          "text": "block (backward)",
+          "size": 12,
+          "anchor": "start",
+          "tone": "muted"
+        },
+        {
+          "id": "s1",
+          "kind": "text",
+          "x": 14,
+          "y": 66,
+          "text": "1  x = y + 1",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "s2",
+          "kind": "text",
+          "x": 14,
+          "y": 106,
+          "text": "2  z = x * y",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "s3",
+          "kind": "text",
+          "x": 14,
+          "y": 146,
+          "text": "3  y = z + w",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "out",
+          "kind": "text",
+          "x": 14,
+          "y": 190,
+          "text": "live after block: { v, y }",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "res",
+          "kind": "text",
+          "x": 14,
+          "y": 216,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "g",
+          "kind": "grid",
+          "x": 178,
+          "y": 50,
+          "rows": 5,
+          "cols": 4,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "cw": 44,
+          "ch": 28,
+          "rowLabels": [
+            "v",
+            "w",
+            "x",
+            "y",
+            "z"
+          ],
+          "colLabels": [
+            "in 1",
+            "in 2",
+            "in 3",
+            "out"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "caption": "We go backward, so start at the bottom. After the block, v and y are live (the rest of the program reads them). Column out.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "",
+              "",
+              "",
+              "●",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "●",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                3,
+                15
+              ],
+              "tone": "good"
+            },
+            "out"
+          ]
+        },
+        {
+          "caption": "Line 3 is y = z + w. It defines y, so remove y. It uses z and w, so add them. Live before line 3: { v, w, z }.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "",
+              "",
+              "●",
+              "●",
+              "",
+              "",
+              "●",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "●",
+              "",
+              "",
+              "●",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "s3",
+              "tone": "accent"
+            },
+            {
+              "id": "g",
+              "cells": [
+                2,
+                6,
+                18
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Line 2 is z = x * y. Remove z, add x and y. Live before line 2: { v, w, x, y }. Note y is live again.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "",
+              "●",
+              "●",
+              "●",
+              "",
+              "●",
+              "●",
+              "",
+              "",
+              "●",
+              "",
+              "",
+              "",
+              "●",
+              "",
+              "●",
+              "",
+              "",
+              "●",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "s2",
+              "tone": "accent"
+            },
+            {
+              "id": "g",
+              "cells": [
+                1,
+                5,
+                9,
+                13
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Line 1 is x = y + 1. Remove x, add y. Live before line 1: { v, w, y }.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "●",
+              "●",
+              "●",
+              "●",
+              "●",
+              "●",
+              "●",
+              "",
+              "",
+              "●",
+              "",
+              "",
+              "●",
+              "●",
+              "",
+              "●",
+              "",
+              "",
+              "●",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "s1",
+              "tone": "accent"
+            },
+            {
+              "id": "g",
+              "cells": [
+                0,
+                4,
+                12
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Read the first column: the block needs v, w and y from before it. x and z are written before they are read, so they are not live at entry.",
+          "set": {
+            "id": "res",
+            "text": "live at entry: { v, w, y }"
+          },
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                0,
+                4,
+                12
+              ],
+              "tone": "good"
+            },
+            "res"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cd.icg.reach",
+      "title": "Reaching definitions through a diamond",
+      "viewBox": [
+        0,
+        0,
+        360,
+        282
+      ],
+      "objects": [
+        {
+          "id": "bx1",
+          "kind": "box",
+          "x": 110,
+          "y": 8,
+          "w": 140,
+          "h": 46
+        },
+        {
+          "id": "bx2",
+          "kind": "box",
+          "x": 8,
+          "y": 96,
+          "w": 150,
+          "h": 40
+        },
+        {
+          "id": "bx3",
+          "kind": "box",
+          "x": 202,
+          "y": 96,
+          "w": 150,
+          "h": 40
+        },
+        {
+          "id": "bx4",
+          "kind": "box",
+          "x": 90,
+          "y": 184,
+          "w": 180,
+          "h": 46
+        },
+        {
+          "id": "a12",
+          "kind": "arrow",
+          "from": "bx1",
+          "to": "bx2"
+        },
+        {
+          "id": "a13",
+          "kind": "arrow",
+          "from": "bx1",
+          "to": "bx3"
+        },
+        {
+          "id": "a24",
+          "kind": "arrow",
+          "from": "bx2",
+          "to": "bx4"
+        },
+        {
+          "id": "a34",
+          "kind": "arrow",
+          "from": "bx3",
+          "to": "bx4"
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 180,
+          "y": 31,
+          "text": "B1  d1: x = 0\nd2: y = 1",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 83,
+          "y": 116,
+          "text": "B2  d3: x = x + 1",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t3",
+          "kind": "text",
+          "x": 277,
+          "y": 116,
+          "text": "B3  d4: x = 2 * y",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t4",
+          "kind": "text",
+          "x": 180,
+          "y": 207,
+          "text": "B4  print x, y",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "o1",
+          "kind": "text",
+          "x": 258,
+          "y": 31,
+          "text": "OUT {d1, d2}",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "o2",
+          "kind": "text",
+          "x": 12,
+          "y": 156,
+          "text": "OUT {d2, d3}",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "o3",
+          "kind": "text",
+          "x": 348,
+          "y": 156,
+          "text": "OUT {d2, d4}",
+          "size": 12,
+          "anchor": "end",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "i4",
+          "kind": "text",
+          "x": 180,
+          "y": 248,
+          "text": "IN = { d2, d3, d4 }",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "nt",
+          "kind": "text",
+          "x": 180,
+          "y": 272,
+          "text": "",
+          "size": 12,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Number the definitions d1 to d4. B1 starts with nothing reaching it, so its OUT is just what it defines: d1 and d2.",
+          "show": "o1",
+          "highlight": [
+            {
+              "id": "bx1",
+              "tone": "good"
+            },
+            "o1"
+          ]
+        },
+        {
+          "caption": "B2 defines x again (d3). That kills the other definitions of x: d1 and d4. OUT = d3 plus (d1, d2 minus d1) = { d2, d3 }.",
+          "show": "o2",
+          "highlight": [
+            {
+              "id": "bx2",
+              "tone": "good"
+            },
+            "o2",
+            "a12"
+          ]
+        },
+        {
+          "caption": "B3 defines x too (d4), killing d1 and d3. OUT = d4 plus (d1, d2 minus d1) = { d2, d4 }.",
+          "show": "o3",
+          "highlight": [
+            {
+              "id": "bx3",
+              "tone": "good"
+            },
+            "o3",
+            "a13"
+          ]
+        },
+        {
+          "caption": "B4 has two ways in. Reaching definitions is a may problem: if any path brings a definition, it reaches. Take the union.",
+          "show": "i4",
+          "highlight": [
+            "a24",
+            "a34",
+            "i4"
+          ]
+        },
+        {
+          "caption": "d1 is missing. Both paths overwrite x before B4, so d1 never gets there. Three definitions reach B4: d2, d3, d4.",
+          "set": {
+            "id": "nt",
+            "text": "d1 is killed on both paths"
+          },
+          "show": "nt",
+          "highlight": [
+            "nt",
+            "i4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cd.icg.avail",
+      "title": "Available expressions: intersect at the join",
+      "viewBox": [
+        0,
+        0,
+        360,
+        288
+      ],
+      "objects": [
+        {
+          "id": "bx1",
+          "kind": "box",
+          "x": 110,
+          "y": 8,
+          "w": 140,
+          "h": 46
+        },
+        {
+          "id": "bx2",
+          "kind": "box",
+          "x": 8,
+          "y": 96,
+          "w": 150,
+          "h": 40
+        },
+        {
+          "id": "bx3",
+          "kind": "box",
+          "x": 202,
+          "y": 96,
+          "w": 150,
+          "h": 40
+        },
+        {
+          "id": "bx4",
+          "kind": "box",
+          "x": 90,
+          "y": 184,
+          "w": 180,
+          "h": 46
+        },
+        {
+          "id": "a12",
+          "kind": "arrow",
+          "from": "bx1",
+          "to": "bx2"
+        },
+        {
+          "id": "a13",
+          "kind": "arrow",
+          "from": "bx1",
+          "to": "bx3"
+        },
+        {
+          "id": "a24",
+          "kind": "arrow",
+          "from": "bx2",
+          "to": "bx4"
+        },
+        {
+          "id": "a34",
+          "kind": "arrow",
+          "from": "bx3",
+          "to": "bx4"
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 180,
+          "y": 31,
+          "text": "B1  s = a + b",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 83,
+          "y": 116,
+          "text": "B2  t = c * d",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t3",
+          "kind": "text",
+          "x": 277,
+          "y": 117,
+          "text": "B3  t = c * d\na = 1",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t4",
+          "kind": "text",
+          "x": 180,
+          "y": 207,
+          "text": "B4  u = c * d\nv = a + b",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "o1",
+          "kind": "text",
+          "x": 258,
+          "y": 31,
+          "text": "OUT {a+b}",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "o2",
+          "kind": "text",
+          "x": 12,
+          "y": 156,
+          "text": "OUT {a+b, c*d}",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "o3",
+          "kind": "text",
+          "x": 348,
+          "y": 156,
+          "text": "OUT {c*d}",
+          "size": 12,
+          "anchor": "end",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "i4",
+          "kind": "text",
+          "x": 180,
+          "y": 252,
+          "text": "IN = { c*d }",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "nt",
+          "kind": "text",
+          "x": 180,
+          "y": 276,
+          "text": "",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "B1 computes a + b. Nothing is available before it, so OUT = { a+b }.",
+          "show": "o1",
+          "highlight": [
+            {
+              "id": "bx1",
+              "tone": "good"
+            },
+            "o1"
+          ]
+        },
+        {
+          "caption": "B2 computes c * d and changes neither c nor d. It keeps a + b and adds c * d.",
+          "show": "o2",
+          "highlight": [
+            {
+              "id": "bx2",
+              "tone": "good"
+            },
+            "o2"
+          ]
+        },
+        {
+          "caption": "B3 computes c * d, then runs a = 1. Changing a kills a + b, because a is an operand. OUT = { c*d }.",
+          "show": "o3",
+          "highlight": [
+            {
+              "id": "bx3",
+              "tone": "bad"
+            },
+            "o3"
+          ]
+        },
+        {
+          "caption": "At the join, available expressions is a must problem: the expression must be there on every path. Intersect { a+b, c*d } with { c*d }.",
+          "show": "i4",
+          "highlight": [
+            "a24",
+            "a34",
+            "i4"
+          ]
+        },
+        {
+          "caption": "In B4, u = c * d is redundant: it was already computed on every path. v = a + b must be recomputed, since B3 killed it.",
+          "set": {
+            "id": "nt",
+            "text": "c*d is a common subexpression"
+          },
+          "show": "nt",
+          "highlight": [
+            "nt",
+            "i4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cd.icg.constprop",
+      "title": "Constant propagation and folding line by line",
+      "viewBox": [
+        0,
+        0,
+        360,
+        250
+      ],
+      "objects": [
+        {
+          "id": "hd",
+          "kind": "text",
+          "x": 14,
+          "y": 18,
+          "text": "code (rewritten as we go)",
+          "size": 12,
+          "anchor": "start",
+          "tone": "muted"
+        },
+        {
+          "id": "hv",
+          "kind": "text",
+          "x": 290,
+          "y": 18,
+          "text": "value",
+          "size": 12,
+          "anchor": "middle",
+          "tone": "muted"
+        },
+        {
+          "id": "s1",
+          "kind": "text",
+          "x": 14,
+          "y": 52,
+          "text": "n = 5",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "s2",
+          "kind": "text",
+          "x": 14,
+          "y": 82,
+          "text": "m = n * n",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "s3",
+          "kind": "text",
+          "x": 14,
+          "y": 112,
+          "text": "k = m - n",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "s4",
+          "kind": "text",
+          "x": 14,
+          "y": 142,
+          "text": "r = read()",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "s5",
+          "kind": "text",
+          "x": 14,
+          "y": 172,
+          "text": "s = r + n",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "s6",
+          "kind": "text",
+          "x": 14,
+          "y": 202,
+          "text": "j = k / 4",
+          "size": 13,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "g",
+          "kind": "grid",
+          "x": 250,
+          "y": 36,
+          "rows": 6,
+          "cols": 1,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "cw": 80,
+          "ch": 30,
+          "rowLabels": [
+            "n",
+            "m",
+            "k",
+            "r",
+            "s",
+            "j"
+          ]
+        },
+        {
+          "id": "res",
+          "kind": "text",
+          "x": 14,
+          "y": 236,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "n = 5 is a constant. Record n = 5.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "5",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "s1",
+              "tone": "accent"
+            },
+            {
+              "id": "g",
+              "cells": [
+                0
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "m = n * n. n is 5, so propagate it: 5 * 5. Fold to 25. The line becomes m = 25.",
+          "set": [
+            {
+              "id": "g",
+              "cells": [
+                "5",
+                "25",
+                "",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "id": "s2",
+              "text": "m = 25"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "s2",
+              "tone": "good"
+            },
+            {
+              "id": "g",
+              "cells": [
+                1
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "k = m - n. Both known: 25 - 5 = 20. The line becomes k = 20.",
+          "set": [
+            {
+              "id": "g",
+              "cells": [
+                "5",
+                "25",
+                "20",
+                "",
+                "",
+                ""
+              ]
+            },
+            {
+              "id": "s3",
+              "text": "k = 20"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "s3",
+              "tone": "good"
+            },
+            {
+              "id": "g",
+              "cells": [
+                2
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "r = read(). The value comes from outside, so it is not a constant. Mark NAC. Nothing to fold.",
+          "set": {
+            "id": "g",
+            "cells": [
+              "5",
+              "25",
+              "20",
+              "NAC",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "s4",
+              "tone": "bad"
+            },
+            {
+              "id": "g",
+              "cells": [
+                3
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "s = r + n. r is NAC, so s is NAC. But n is still 5, so we can propagate it: s = r + 5.",
+          "set": [
+            {
+              "id": "g",
+              "cells": [
+                "5",
+                "25",
+                "20",
+                "NAC",
+                "NAC",
+                ""
+              ]
+            },
+            {
+              "id": "s5",
+              "text": "s = r + 5"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "s5",
+              "tone": "mid"
+            },
+            {
+              "id": "g",
+              "cells": [
+                4
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "j = k / 4. k is 20, so 20 / 4 = 5. The line becomes j = 5.",
+          "set": [
+            {
+              "id": "g",
+              "cells": [
+                "5",
+                "25",
+                "20",
+                "NAC",
+                "NAC",
+                "5"
+              ]
+            },
+            {
+              "id": "s6",
+              "text": "j = 5"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "s6",
+              "tone": "good"
+            },
+            {
+              "id": "g",
+              "cells": [
+                5
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Result: four lines became plain constants (n, m, k, j). r and s stay computed at run time.",
+          "set": {
+            "id": "res",
+            "text": "n, m, k, j are constants; r, s are not"
+          },
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                0,
+                1,
+                2,
+                5
+              ],
+              "tone": "good"
+            },
+            "res"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cd.icg.regs",
+      "title": "Sethi-Ullman labels and register use",
+      "viewBox": [
+        0,
+        0,
+        360,
+        276
+      ],
+      "objects": [
+        {
+          "id": "r0",
+          "kind": "node",
+          "x": 170,
+          "y": 30,
+          "label": "*",
+          "r": 14
+        },
+        {
+          "id": "a",
+          "kind": "node",
+          "x": 90,
+          "y": 88,
+          "label": "a",
+          "r": 14
+        },
+        {
+          "id": "p1",
+          "kind": "node",
+          "x": 230,
+          "y": 88,
+          "label": "+",
+          "r": 14
+        },
+        {
+          "id": "b",
+          "kind": "node",
+          "x": 180,
+          "y": 146,
+          "label": "b",
+          "r": 14
+        },
+        {
+          "id": "m2",
+          "kind": "node",
+          "x": 280,
+          "y": 146,
+          "label": "*",
+          "r": 14
+        },
+        {
+          "id": "c",
+          "kind": "node",
+          "x": 250,
+          "y": 204,
+          "label": "c",
+          "r": 14
+        },
+        {
+          "id": "d",
+          "kind": "node",
+          "x": 310,
+          "y": 204,
+          "label": "d",
+          "r": 14
+        },
+        {
+          "id": "e1",
+          "kind": "edge",
+          "from": "r0",
+          "to": "a"
+        },
+        {
+          "id": "e2",
+          "kind": "edge",
+          "from": "r0",
+          "to": "p1"
+        },
+        {
+          "id": "e3",
+          "kind": "edge",
+          "from": "p1",
+          "to": "b"
+        },
+        {
+          "id": "e4",
+          "kind": "edge",
+          "from": "p1",
+          "to": "m2"
+        },
+        {
+          "id": "e5",
+          "kind": "edge",
+          "from": "m2",
+          "to": "c"
+        },
+        {
+          "id": "e6",
+          "kind": "edge",
+          "from": "m2",
+          "to": "d"
+        },
+        {
+          "id": "la",
+          "kind": "text",
+          "x": 70,
+          "y": 88,
+          "text": "1",
+          "size": 13,
+          "anchor": "end",
+          "tone": "good"
+        },
+        {
+          "id": "lb",
+          "kind": "text",
+          "x": 160,
+          "y": 146,
+          "text": "1",
+          "size": 13,
+          "anchor": "end",
+          "tone": "good"
+        },
+        {
+          "id": "lc",
+          "kind": "text",
+          "x": 230,
+          "y": 204,
+          "text": "1",
+          "size": 13,
+          "anchor": "end",
+          "tone": "good"
+        },
+        {
+          "id": "ld",
+          "kind": "text",
+          "x": 332,
+          "y": 204,
+          "text": "1",
+          "size": 13,
+          "anchor": "start",
+          "tone": "good"
+        },
+        {
+          "id": "lm2",
+          "kind": "text",
+          "x": 302,
+          "y": 146,
+          "text": "2",
+          "size": 13,
+          "anchor": "start",
+          "tone": "good"
+        },
+        {
+          "id": "lp1",
+          "kind": "text",
+          "x": 252,
+          "y": 88,
+          "text": "2",
+          "size": 13,
+          "anchor": "start",
+          "tone": "good"
+        },
+        {
+          "id": "lr0",
+          "kind": "text",
+          "x": 192,
+          "y": 30,
+          "text": "2",
+          "size": 13,
+          "anchor": "start",
+          "tone": "good"
+        },
+        {
+          "id": "ex",
+          "kind": "text",
+          "x": 14,
+          "y": 20,
+          "text": "a * (b + c * d)",
+          "size": 13,
+          "anchor": "start",
+          "bold": true,
+          "mono": true
+        },
+        {
+          "id": "rg",
+          "kind": "array",
+          "x": 14,
+          "y": 196,
+          "cells": [
+            "",
+            ""
+          ],
+          "cw": 62,
+          "ch": 30,
+          "slots": 2,
+          "indices": false,
+          "label": "registers R1, R2"
+        },
+        {
+          "id": "res",
+          "kind": "text",
+          "x": 14,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Label every leaf 1: a variable must be loaded into a register before it can be used.",
+          "show": [
+            "la",
+            "lb",
+            "lc",
+            "ld"
+          ],
+          "highlight": [
+            "a",
+            "b",
+            "c",
+            "d"
+          ]
+        },
+        {
+          "caption": "c * d: the children have equal labels (1 and 1), so one extra register is needed. Label 1 + 1 = 2.",
+          "show": "lm2",
+          "highlight": [
+            {
+              "id": "m2",
+              "tone": "good"
+            },
+            "e5",
+            "e6"
+          ]
+        },
+        {
+          "caption": "b + (c * d): the labels are 1 and 2. Different, so take the larger: 2.",
+          "show": "lp1",
+          "highlight": [
+            {
+              "id": "p1",
+              "tone": "good"
+            },
+            "e3",
+            "e4"
+          ]
+        },
+        {
+          "caption": "a * (...): labels 1 and 2. Larger is 2. The whole expression needs 2 registers.",
+          "show": "lr0",
+          "set": {
+            "id": "res",
+            "text": "registers needed: 2"
+          },
+          "highlight": [
+            {
+              "id": "r0",
+              "tone": "good"
+            },
+            "e1",
+            "e2",
+            "res"
+          ]
+        },
+        {
+          "caption": "Run it, heavier side first. Load c into R1 and d into R2.",
+          "set": {
+            "id": "rg",
+            "cells": [
+              "c",
+              "d"
+            ]
+          },
+          "highlight": [
+            {
+              "id": "rg",
+              "cells": [
+                0,
+                1
+              ],
+              "tone": "accent"
+            },
+            "c",
+            "d"
+          ]
+        },
+        {
+          "caption": "R1 = c * d. R2 is free again, so load b into it. Then R1 = b + R1. Still 2 registers.",
+          "set": {
+            "id": "rg",
+            "cells": [
+              "b+cd",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "rg",
+              "cells": [
+                0
+              ],
+              "tone": "good"
+            },
+            "p1"
+          ]
+        },
+        {
+          "caption": "Load a into R2 and multiply. Never more than 2 registers in use at once.",
+          "set": {
+            "id": "rg",
+            "cells": [
+              "result",
+              "a"
+            ]
+          },
+          "highlight": [
+            {
+              "id": "rg",
+              "cells": [
+                0,
+                1
+              ],
+              "tone": "good"
+            },
+            "r0"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cd.icg.ssa",
+      "title": "SSA renaming with phi at the join",
+      "viewBox": [
+        0,
+        0,
+        360,
+        286
+      ],
+      "objects": [
+        {
+          "id": "bx1",
+          "kind": "box",
+          "x": 110,
+          "y": 8,
+          "w": 140,
+          "h": 46
+        },
+        {
+          "id": "bx2",
+          "kind": "box",
+          "x": 8,
+          "y": 96,
+          "w": 150,
+          "h": 40
+        },
+        {
+          "id": "bx3",
+          "kind": "box",
+          "x": 202,
+          "y": 96,
+          "w": 150,
+          "h": 40
+        },
+        {
+          "id": "bx4",
+          "kind": "box",
+          "x": 70,
+          "y": 184,
+          "w": 220,
+          "h": 64
+        },
+        {
+          "id": "a12",
+          "kind": "arrow",
+          "from": "bx1",
+          "to": "bx2"
+        },
+        {
+          "id": "a13",
+          "kind": "arrow",
+          "from": "bx1",
+          "to": "bx3"
+        },
+        {
+          "id": "a24",
+          "kind": "arrow",
+          "from": "bx2",
+          "to": "bx4"
+        },
+        {
+          "id": "a34",
+          "kind": "arrow",
+          "from": "bx3",
+          "to": "bx4"
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 180,
+          "y": 31,
+          "text": "x = 1\ny = 2",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 83,
+          "y": 116,
+          "text": "x = x + 1",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t3",
+          "kind": "text",
+          "x": 277,
+          "y": 116,
+          "text": "y = y * 3",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "t4",
+          "kind": "text",
+          "x": 180,
+          "y": 216,
+          "text": "z = x + y",
+          "size": 12,
+          "anchor": "middle",
+          "mono": true
+        },
+        {
+          "id": "lb1",
+          "kind": "text",
+          "x": 262,
+          "y": 31,
+          "text": "B1",
+          "size": 12,
+          "anchor": "start",
+          "tone": "muted"
+        },
+        {
+          "id": "lb2",
+          "kind": "text",
+          "x": 14,
+          "y": 88,
+          "text": "B2",
+          "size": 12,
+          "anchor": "start",
+          "tone": "muted"
+        },
+        {
+          "id": "lb3",
+          "kind": "text",
+          "x": 346,
+          "y": 88,
+          "text": "B3",
+          "size": 12,
+          "anchor": "end",
+          "tone": "muted"
+        },
+        {
+          "id": "lb4",
+          "kind": "text",
+          "x": 76,
+          "y": 176,
+          "text": "B4",
+          "size": 12,
+          "anchor": "start",
+          "tone": "muted"
+        },
+        {
+          "id": "nt",
+          "kind": "text",
+          "x": 180,
+          "y": 272,
+          "text": "",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Plain code on a diamond. Rule: every assignment gets a brand-new name, and every use takes the latest name on its path.",
+          "highlight": [
+            "t1",
+            "t2",
+            "t3",
+            "t4"
+          ]
+        },
+        {
+          "caption": "B1: x = 1 becomes x1 = 1, and y = 2 becomes y1 = 2.",
+          "set": {
+            "id": "t1",
+            "text": "x1 = 1\ny1 = 2"
+          },
+          "highlight": [
+            {
+              "id": "t1",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "B2: x = x + 1 reads the latest x, which is x1. It writes a new name: x2 = x1 + 1.",
+          "set": {
+            "id": "t2",
+            "text": "x2 = x1 + 1"
+          },
+          "highlight": [
+            {
+              "id": "t2",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "B3: y = y * 3 reads y1 and writes a new name: y2 = y1 * 3.",
+          "set": {
+            "id": "t3",
+            "text": "y2 = y1 * 3"
+          },
+          "highlight": [
+            {
+              "id": "t3",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "B4 is a join. x is x2 if we came from B2 but x1 if we came from B3. A φ function picks by path: x3 = φ(x2, x1). Same for y: y3 = φ(y1, y2).",
+          "set": {
+            "id": "t4",
+            "text": "x3 = φ(x2, x1)\ny3 = φ(y1, y2)\nz = x + y"
+          },
+          "highlight": [
+            {
+              "id": "t4",
+              "tone": "mid"
+            },
+            "a24",
+            "a34"
+          ]
+        },
+        {
+          "caption": "Now z = x + y reads the merged names: z1 = x3 + y3. Two φ functions were needed, one per variable that differs across the paths.",
+          "set": [
+            {
+              "id": "t4",
+              "text": "x3 = φ(x2, x1)\ny3 = φ(y1, y2)\nz1 = x3 + y3"
+            },
+            {
+              "id": "nt",
+              "text": "2 φ functions, 7 names"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "t4",
+              "tone": "good"
+            },
+            "nt"
+          ]
+        }
+      ]
+    }
+  ]
+}

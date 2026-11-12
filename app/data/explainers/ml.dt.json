@@ -1,0 +1,2416 @@
+{
+ "topic_id": "ml.dt",
+ "title": "Decision trees",
+ "chapter_note": {
+  "about": "A decision tree labels rows by asking a short series of yes/no questions about their attributes. It chooses each question greedily: the one that makes the groups below it as pure as possible. This chapter covers how purity is measured (entropy and Gini), how a split is scored (information gain), how the tree picks splits including numeric thresholds, what a leaf predicts and how its training error is counted, and why a fully grown tree overfits.",
+  "concept_map": [
+   {
+    "atom_id": "d1",
+    "title": "Entropy",
+    "one_line": "How mixed a node is, in bits: 0 when pure and 1 at an even two-class mix."
+   },
+   {
+    "atom_id": "d2",
+    "title": "Gini impurity",
+    "one_line": "One minus the sum of squared fractions: 0 when pure and 0.5 at most for two classes."
+   },
+   {
+    "atom_id": "d3",
+    "title": "Information gain",
+    "one_line": "Parent entropy minus the size-weighted entropy of the children."
+   },
+   {
+    "atom_id": "d4",
+    "title": "Choosing the split",
+    "one_line": "Greedy: split on the highest gain, stop at pure nodes, repeat in each child."
+   },
+   {
+    "atom_id": "d4b",
+    "title": "Numeric attributes: choosing a threshold",
+    "one_line": "Sort, take midpoints where the label changes, and keep the cut with the best gain."
+   },
+   {
+    "atom_id": "d5",
+    "title": "Leaf prediction and training error",
+    "one_line": "A leaf predicts its majority class. Add the minority rows and divide by all rows."
+   },
+   {
+    "atom_id": "d6",
+    "title": "Capacity and overfitting",
+    "one_line": "Deep trees fit the training rows perfectly but can fail on new rows. Pruning trades bias for variance."
+   }
+  ],
+  "gate_patterns": [
+   "Information gain on a small two-class table: entropy of the parent, entropy of each child, weighted average, then subtract. Asked in 2024 DA Q62.",
+   "Compare models on XOR-type data: a fully grown tree reaches 100% training accuracy, while logistic regression, LDA, a linear SVM and naive Bayes cannot. Asked in 2024 DA sample Q13.",
+   "Leaf predictions, training error, depth limits and overfitting statements. About 0.67 marks per DA paper."
+  ],
+  "simple": "A decision tree is a game of twenty questions that the computer plays on your data. At each step it asks the question that sorts the rows into the cleanest groups, and a group that is all one kind needs no more questions. To measure how clean a group is, it uses entropy or Gini, and it scores a question by how much cleaner the groups become. At the bottom, each group votes for its most common label. If the tree asks too many questions it just memorises the examples and does badly on new ones. In exam words: pick the split with the highest information gain, predict the majority class in each leaf, and limit depth to avoid overfitting."
+ },
+ "cards": [
+  {
+   "atom_id": "d1",
+   "title": "Entropy",
+   "simple": "Entropy tells you how mixed up a group is. Think of a jar of marbles. If every marble is red, you can name the colour of the next one with no surprise, so entropy is 0. If half are red and half blue, every guess is a coin flip, which is the biggest surprise there is, so entropy is 1. A jar in between has a value in between. A decision tree wants groups with low entropy, because they are easy to label. In exam words: $H=-\\sum_kp_k\\log_2p_k$, which is 0 for a pure node and $\\log_2K$ when $K$ classes are equally likely.",
+   "idea": "A decision tree splits the rows into smaller groups, and it wants each group to be as **pure** as possible. **Entropy** is a number that says how mixed a group is. It is 0 when every row has the same label. It is largest when the labels are evenly mixed, and for two classes that largest value is 1 bit.",
+   "definition": "$$H=-\\sum_{k}p_k\\,\\log_2 p_k$$\n\nSymbols: $p_k$ is the fraction of rows in the node that have class $k$. $\\log_2$ is the base-2 logarithm: $\\log_2 8=3$ because $2^3=8$. A class with $p_k=0$ adds 0. With $K$ classes the largest value is $\\log_2K$, reached when all classes are equally likely.",
+   "intuition_full": "Think of $-\\log_2p$ as the surprise of an event with probability $p$. A certain event ($p=1$) has surprise 0. A rare event, say $p=1/8$, has surprise $3$. Entropy is the average surprise when you pick a row at random and read its label. Each term $-p_k\\log_2p_k$ is the surprise of class $k$ weighted by how often it happens. The logarithm of a fraction below 1 is negative, so the leading minus sign makes every term positive. In bits, entropy is roughly the number of yes/no questions you need on average to learn the label. Shape: entropy is 0 at $p=0$ and at $p=1$ and peaks at $p=0.5$. It rises quickly near the pure end. At $p=0.1$ it is already $0.469$. Most calculators have $\\ln$ but not $\\log_2$. Use $\\log_2x=\\ln x/\\ln2$, where $\\ln2=0.693$.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A node has 14 rows: 9 yes and 5 no. Find its entropy in bits.",
+     "steps": [
+      "Count: 9 yes and 5 no, 14 rows in all.",
+      "Fractions: $p_{yes}=9/14=0.643$ and $p_{no}=5/14=0.357$.",
+      "Yes term: $\\log_2 0.643=\\ln0.643/\\ln2=-0.442/0.693=-0.637$. The term is $-0.643\\times(-0.637)=0.410$.",
+      "No term: $\\log_2 0.357=\\ln0.357/\\ln2=-1.030/0.693=-1.485$. The term is $0.357\\times1.485=0.530$.",
+      "Add: $H=0.410+0.530=0.940$ bits. The most it could be for two classes is 1."
+     ],
+     "answer": "$H=0.940$ bits. The node is close to an even mix, so it is far from pure."
+    },
+    {
+     "level": "gate",
+     "setup": "A node has 10 rows from three classes with counts 5, 3 and 2. Find its entropy and compare it with the largest possible value for three classes.",
+     "steps": [
+      "Fractions: $0.5$, $0.3$ and $0.2$.",
+      "$\\log_2 0.5=-1$, so the first term is $0.5\\times1=0.5$.",
+      "$\\log_2 0.3=-1.737$, so the second term is $0.3\\times1.737=0.521$. $\\log_2 0.2=-2.322$, so the third is $0.2\\times2.322=0.464$.",
+      "$H=0.5+0.521+0.464=1.485$ bits. The largest value for 3 classes is $\\log_2 3=1.585$ (all three at $1/3$)."
+     ],
+     "answer": "$H=1.485$ bits, a little below the cap $\\log_2 3=1.585$. For three classes the cap is not 1."
+    },
+    {
+     "level": "twist",
+     "setup": "A node has three classes with counts 7, 0 and 3. What is its entropy, and what is the entropy of a node with counts 10, 0, 0?",
+     "steps": [
+      "The empty class has $p=0$. A term $0\\cdot\\log_20$ is taken as 0 (the term shrinks to 0 as $p\\to0$), so it adds nothing.",
+      "Remaining: $p=0.7$ and $0.3$. $\\log_20.7=-0.515$, so $0.7\\times0.515=0.360$. The other term is $0.3\\times1.737=0.521$.",
+      "$H=0.360+0.521=0.881$ bits. This is the same as a two-class node with counts 7 and 3.",
+      "Counts $10,0,0$: one class has $p=1$ and $\\log_21=0$, so $H=0$."
+     ],
+     "answer": "$0.881$ bits for $(7,0,3)$ and $0$ for $(10,0,0)$. An empty class never changes the entropy."
+    }
+   ],
+   "why": "Every split in a decision tree is judged by how much it reduces impurity, and entropy is the first measure to know. In GATE: compute the entropy of a node from its class counts, usually as step one of an information-gain question.",
+   "how": [
+    "Count the rows of each class and the total.",
+    "Divide each count by the total to get the fractions $p_k$.",
+    "For each non-zero class compute $-p_k\\log_2p_k$.",
+    "Add the terms. Check: pure gives 0 and an even two-class mix gives 1.",
+    "Memorise for two classes: $p=0.1\\to0.469$, $0.2\\to0.722$, $0.3\\to0.881$, $0.4\\to0.971$, $0.5\\to1$."
+   ],
+   "mistake": "Using $\\ln$ instead of $\\log_2$ without saying so. The answer comes out $0.693$ times too small (nats instead of bits). Other slips: dropping the leading minus sign, or taking the logarithm of the count instead of the fraction.",
+   "edge_cases": [
+    "Pure node: entropy 0.",
+    "A class with count 0 adds 0.",
+    "$K$ equally likely classes give the largest value, $\\log_2K$.",
+    "Natural log gives nats: $0.940$ bits is $0.940\\times0.693=0.652$ nats."
+   ],
+   "connections": [
+    "Foundations: Exponents and logarithms covers $\\log_2$ and the change of base used here.",
+    "Probability: entropy is an expected value, the average of $-\\log_2p$. Logistic regression has the same idea in its log-loss, a cross-entropy.",
+    "Next card: Gini impurity is a cheaper measure with the same shape."
+   ],
+   "check": [
+    {
+     "q": "A node has 2 yes and 2 no. What is its entropy?",
+     "a": "$p=0.5$ for each class, so $H=-2(0.5)(-1)=1$ bit."
+    },
+    {
+     "q": "Which is more mixed, a node with 1 yes and 9 no, or a node with 5 yes and 5 no? Give both entropies.",
+     "a": "The 5/5 node. Its entropy is 1. The 1/9 node has $0.1\\times3.322+0.9\\times0.152=0.469$."
+    },
+    {
+     "q": "A student gets $0.652$ for the 9 yes, 5 no node. What went wrong?",
+     "a": "They used $\\ln$ instead of $\\log_2$. The correct value in bits is $0.652/0.693=0.940$."
+    }
+   ],
+   "asked": "Asked: 2024 DA Q62 (the entropy of a 10-row two-class table is the first step of that information-gain question).",
+   "scene": "ml.dt.impurity",
+   "try": {
+    "id": "gen.ml.dt.001",
+    "label": "Entropy of an even two-class node"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "A node has 14 rows: 9 yes and 5 no. Find its entropy in bits.",
+    "steps": [
+     "Count: 9 yes and 5 no, 14 rows in all.",
+     "Fractions: $p_{yes}=9/14=0.643$ and $p_{no}=5/14=0.357$.",
+     "Yes term: $\\log_2 0.643=\\ln0.643/\\ln2=-0.442/0.693=-0.637$. The term is $-0.643\\times(-0.637)=0.410$.",
+     "No term: $\\log_2 0.357=\\ln0.357/\\ln2=-1.030/0.693=-1.485$. The term is $0.357\\times1.485=0.530$.",
+     "Add: $H=0.410+0.530=0.940$ bits. The most it could be for two classes is 1."
+    ],
+    "answer": "$H=0.940$ bits. The node is close to an even mix, so it is far from pure."
+   },
+   "what": "A decision tree splits the rows into smaller groups, and it wants each group to be as **pure** as possible. **Entropy** is a number that says how mixed a group is. It is 0 when every row has the same label. It is largest when the labels are evenly mixed, and for two classes that largest value is 1 bit.",
+   "what_full": "A decision tree splits the rows into smaller groups, and it wants each group to be as **pure** as possible. **Entropy** is a number that says how mixed a group is. It is 0 when every row has the same label. It is largest when the labels are evenly mixed, and for two classes that largest value is 1 bit.\n\n$$H=-\\sum_{k}p_k\\,\\log_2 p_k$$\n\nSymbols: $p_k$ is the fraction of rows in the node that have class $k$. $\\log_2$ is the base-2 logarithm: $\\log_2 8=3$ because $2^3=8$. A class with $p_k=0$ adds 0. With $K$ classes the largest value is $\\log_2K$, reached when all classes are equally likely.\n\n**Worked example.** A node has 14 rows: 9 yes and 5 no. Find its entropy in bits.\n\n1. Count: 9 yes and 5 no, 14 rows in all.\n2. Fractions: $p_{yes}=9/14=0.643$ and $p_{no}=5/14=0.357$.\n3. Yes term: $\\log_2 0.643=\\ln0.643/\\ln2=-0.442/0.693=-0.637$. The term is $-0.643\\times(-0.637)=0.410$.\n4. No term: $\\log_2 0.357=\\ln0.357/\\ln2=-1.030/0.693=-1.485$. The term is $0.357\\times1.485=0.530$.\n5. Add: $H=0.410+0.530=0.940$ bits. The most it could be for two classes is 1.\n\n**Answer:** $H=0.940$ bits. The node is close to an even mix, so it is far from pure.\n\n**Check yourself:** A node has 2 yes and 2 no. What is its entropy?\n\n*Answer:* $p=0.5$ for each class, so $H=-2(0.5)(-1)=1$ bit.",
+   "why_full": "Every split in a decision tree is judged by how much it reduces impurity, and entropy is the first measure to know. In GATE: compute the entropy of a node from its class counts, usually as step one of an information-gain question.\n\nAsked: 2024 DA Q62 (the entropy of a 10-row two-class table is the first step of that information-gain question).",
+   "trap": "Using $\\ln$ instead of $\\log_2$ without saying so. The answer comes out $0.693$ times too small (nats instead of bits). Other slips: dropping the leading minus sign, or taking the logarithm of the count instead of the fraction.",
+   "trap_full": "Using $\\ln$ instead of $\\log_2$ without saying so. The answer comes out $0.693$ times too small (nats instead of bits). Other slips: dropping the leading minus sign, or taking the logarithm of the count instead of the fraction."
+  },
+  {
+   "atom_id": "d2",
+   "title": "Gini impurity",
+   "simple": "Gini is another way to measure how mixed a group is. Pick two rows from the group at random, putting the first one back before picking the second. Gini is the chance that the two rows have different labels. In a pure group the two always match, so Gini is 0. In a 50-50 group they differ half the time, so Gini is 0.5. It is a cheaper stand-in for entropy, and the tree uses it in the same way. In exam words: $G=1-\\sum_kp_k^2$, with a maximum of $1-1/K$ for $K$ classes.",
+   "idea": "**Gini impurity** is a second way to measure how mixed a node is. Draw two rows at random from the node. Gini is the chance that their labels differ. It is 0 for a pure node and at most 0.5 for two classes. It has the same shape as entropy and needs no logarithm, so it is easy to compute by hand.",
+   "definition": "$$G=1-\\sum_{k}p_k^{\\,2}$$\n\nSymbols: $p_k$ is the fraction of rows with class $k$. $p_k^2$ is the chance that two random draws are both class $k$. The sum is the chance that the two draws match. For $K$ classes the largest value is $1-1/K$.",
+   "intuition_full": "Draw two rows at random, putting the first back before the second draw. The chance that both are class $k$ is $p_k\\times p_k=p_k^2$. Add this over all classes and you get the chance that the two draws match. So $1-\\sum p_k^2$ is the chance that they differ. For two classes with $p$ and $1-p$ this simplifies to $G=2p(1-p)$, a hill that is 0 at $p=0$ and $p=1$ and peaks at $0.5$ when $p=0.5$. Entropy has the same shape but peaks at 1, so Gini is a smaller number but it ranks nodes in the same order for two classes. When you compare splits, the two measures usually pick the same attribute but not always. A question that says 'Gini' wants the Gini numbers. CART trees use Gini and ID3 trees use entropy.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A node has 12 rows: 8 yes and 4 no. Find its Gini impurity.",
+     "steps": [
+      "Count: 8 yes and 4 no, 12 rows.",
+      "Fractions: $p_{yes}=8/12=2/3$ and $p_{no}=4/12=1/3$.",
+      "Squares: $(2/3)^2=4/9=0.444$ and $(1/3)^2=1/9=0.111$.",
+      "Add: $4/9+1/9=5/9=0.556$. This is the chance that two draws match.",
+      "Gini $=1-5/9=4/9=0.444$. For two classes the maximum is 0.5."
+     ],
+     "answer": "$G=4/9=0.444$. Check with the shortcut $2p(1-p)=2\\cdot\\tfrac23\\cdot\\tfrac13=4/9$."
+    },
+    {
+     "level": "gate",
+     "setup": "A 14-row table has attribute Outlook. Sunny: 2 yes and 3 no. Overcast: 4 yes and 0 no. Rain: 3 yes and 2 no. Find the Gini gain of splitting on Outlook.",
+     "steps": [
+      "Parent: 9 yes and 5 no. $G=1-\\big((9/14)^2+(5/14)^2\\big)=1-(81+25)/196=1-106/196=0.4592$.",
+      "Sunny (2, 3): $1-(4+9)/25=0.48$. Overcast (4, 0): $G=0$. Rain (3, 2): $1-(9+4)/25=0.48$.",
+      "Weights are the child sizes over 14: $5/14$, $4/14$, $5/14$. Weighted Gini $=\\tfrac5{14}(0.48)+\\tfrac4{14}(0)+\\tfrac5{14}(0.48)=0.1714+0+0.1714=0.3429$.",
+      "Gain $=0.4592-0.3429=0.1163$."
+     ],
+     "answer": "Gini gain $=0.116$. The same split has information gain $0.247$. The two scales differ but both call Outlook a strong split."
+    },
+    {
+     "level": "twist",
+     "setup": "A node has three classes with counts 5, 3 and 2. What is its Gini impurity, and what is the largest value possible for three classes?",
+     "steps": [
+      "Fractions: $0.5$, $0.3$, $0.2$. Squares: $0.25$, $0.09$, $0.04$. Sum $=0.38$.",
+      "$G=1-0.38=0.62$.",
+      "The largest value is $1-1/3=0.667$, when all three classes are equally likely."
+     ],
+     "answer": "$G=0.62$, close to the cap $0.667$. For two classes the cap is $0.5$, for three it is $0.667$."
+    }
+   ],
+   "why": "CART-style questions ask for Gini instead of entropy, and the working is easier because there is no logarithm. In GATE: compute the Gini of a node or the Gini gain of a split.",
+   "how": [
+    "Count the rows of each class and the total.",
+    "Divide to get the fractions $p_k$ and square each one.",
+    "Add the squares and subtract from 1.",
+    "Two-class shortcut: $G=2p(1-p)$.",
+    "For a split, weight the child values by size, exactly as for information gain."
+   ],
+   "mistake": "Forgetting the '$1-$' and quoting $\\sum p_k^2$. That number is large for a pure node (it is 1), so the answer comes out upside down. Also, do not quote the entropy cap of 1 for Gini. For two classes Gini stops at 0.5.",
+   "edge_cases": [
+    "Pure node: Gini 0.",
+    "Two classes: the largest value is 0.5, at a 50-50 mix.",
+    "$K$ classes: the largest value is $1-1/K$.",
+    "Gini and entropy usually pick the same split, but not always."
+   ],
+   "connections": [
+    "Foundations: Algebra covers the fractions and squares used here.",
+    "Probability: $\\sum p_k^2$ is the chance that two independent draws match. Entropy, on the previous card, is the logarithmic version of the same idea.",
+    "Next card: information gain, or Gini gain, scores a split."
+   ],
+   "check": [
+    {
+     "q": "A node has 1 yes and 4 no. What is its Gini impurity?",
+     "a": "$p=0.2$ and $0.8$. $G=1-(0.04+0.64)=0.32$. Shortcut: $2(0.2)(0.8)=0.32$."
+    },
+    {
+     "q": "What is the Gini impurity of a node with 5 rows, all of one class?",
+     "a": "0. $1-1^2=0$."
+    },
+    {
+     "q": "What is the largest Gini impurity for a node with 4 classes?",
+     "a": "$1-1/4=0.75$, when all four classes are equally likely."
+    }
+   ],
+   "asked": "Asked: no year isolates Gini. It is the CART version of the information-gain computation in 2024 DA Q62.",
+   "scene": "ml.dt.gini",
+   "try": {
+    "id": "gen.ml.dt.002",
+    "label": "Which node has the highest impurity"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "A node has 12 rows: 8 yes and 4 no. Find its Gini impurity.",
+    "steps": [
+     "Count: 8 yes and 4 no, 12 rows.",
+     "Fractions: $p_{yes}=8/12=2/3$ and $p_{no}=4/12=1/3$.",
+     "Squares: $(2/3)^2=4/9=0.444$ and $(1/3)^2=1/9=0.111$.",
+     "Add: $4/9+1/9=5/9=0.556$. This is the chance that two draws match.",
+     "Gini $=1-5/9=4/9=0.444$. For two classes the maximum is 0.5."
+    ],
+    "answer": "$G=4/9=0.444$. Check with the shortcut $2p(1-p)=2\\cdot\\tfrac23\\cdot\\tfrac13=4/9$."
+   },
+   "what": "**Gini impurity** is a second way to measure how mixed a node is. Draw two rows at random from the node. Gini is the chance that their labels differ. It is 0 for a pure node and at most 0.5 for two classes. It has the same shape as entropy and needs no logarithm, so it is easy to compute by hand.",
+   "what_full": "**Gini impurity** is a second way to measure how mixed a node is. Draw two rows at random from the node. Gini is the chance that their labels differ. It is 0 for a pure node and at most 0.5 for two classes. It has the same shape as entropy and needs no logarithm, so it is easy to compute by hand.\n\n$$G=1-\\sum_{k}p_k^{\\,2}$$\n\nSymbols: $p_k$ is the fraction of rows with class $k$. $p_k^2$ is the chance that two random draws are both class $k$. The sum is the chance that the two draws match. For $K$ classes the largest value is $1-1/K$.\n\n**Worked example.** A node has 12 rows: 8 yes and 4 no. Find its Gini impurity.\n\n1. Count: 8 yes and 4 no, 12 rows.\n2. Fractions: $p_{yes}=8/12=2/3$ and $p_{no}=4/12=1/3$.\n3. Squares: $(2/3)^2=4/9=0.444$ and $(1/3)^2=1/9=0.111$.\n4. Add: $4/9+1/9=5/9=0.556$. This is the chance that two draws match.\n5. Gini $=1-5/9=4/9=0.444$. For two classes the maximum is 0.5.\n\n**Answer:** $G=4/9=0.444$. Check with the shortcut $2p(1-p)=2\\cdot\\tfrac23\\cdot\\tfrac13=4/9$.\n\n**Check yourself:** A node has 1 yes and 4 no. What is its Gini impurity?\n\n*Answer:* $p=0.2$ and $0.8$. $G=1-(0.04+0.64)=0.32$. Shortcut: $2(0.2)(0.8)=0.32$.",
+   "why_full": "CART-style questions ask for Gini instead of entropy, and the working is easier because there is no logarithm. In GATE: compute the Gini of a node or the Gini gain of a split.\n\nAsked: no year isolates Gini. It is the CART version of the information-gain computation in 2024 DA Q62.",
+   "trap": "Forgetting the '$1-$' and quoting $\\sum p_k^2$. That number is large for a pure node (it is 1), so the answer comes out upside down. Also, do not quote the entropy cap of 1 for Gini. For two classes Gini stops at 0.5.",
+   "trap_full": "Forgetting the '$1-$' and quoting $\\sum p_k^2$. That number is large for a pure node (it is 1), so the answer comes out upside down. Also, do not quote the entropy cap of 1 for Gini. For two classes Gini stops at 0.5."
+  },
+  {
+   "atom_id": "d3",
+   "title": "Information gain",
+   "simple": "Imagine sorting a messy pile of exam papers into two piles by one question. If the two new piles are each mostly pass or mostly fail, the question helped a lot. If both piles are as mixed as the original pile, the question helped nothing. Information gain is the score for that: how much less mixed the piles got. You measure the mix before, measure the mix after (counting the bigger pile more), and subtract. In exam words: $IG=H(\\text{parent})-\\sum_v\\frac{n_v}{n}H(v)$.",
+   "idea": "**Information gain** scores a split. Measure how mixed the parent node is. Split its rows by an attribute. Measure how mixed the children are, counting each child by its share of the rows. The gain is the drop in mixing: the parent's entropy minus the weighted average of the children's entropies. A high gain means the split sorted the labels well.",
+   "definition": "$$IG=H(\\text{parent})-\\sum_{v}\\frac{n_v}{n}\\,H(\\text{child}_v)$$\n\nSymbols: $n$ is the number of rows in the parent. $n_v$ is the number of rows that go to child $v$. $\\frac{n_v}{n}$ is the weight of that child. $H$ is entropy, from the previous card. The same formula with Gini in place of $H$ gives the Gini gain.",
+   "intuition_full": "The weights matter. A tiny pure child hardly changes the picture, because very few rows live there. A big pure child changes it a lot. That is why each child's entropy is multiplied by its share of the rows. Think of the sum as the entropy you still expect after the split, when you pick a random row and look at the child it landed in. The gain is how much uncertainty the split removed. It can never be negative, because splitting cannot make you less informed. It is at most $H(\\text{parent})$, reached when every child is pure. It is exactly 0 when every child has the same mix as the parent, because then the split told you nothing. One warning: an attribute with many values, such as an ID column, makes many tiny pure children and gets a huge gain without being useful. That is why gain ratio exists.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "12 students: 6 pass and 6 fail. Splitting on 'Study' gives a high-study group with 5 pass and 1 fail, and a low-study group with 1 pass and 5 fail. Find the information gain.",
+     "steps": [
+      "Parent: 6 pass and 6 fail, an even mix, so $H=1$.",
+      "Children: high (5 pass, 1 fail) with 6 rows and low (1 pass, 5 fail) with 6 rows.",
+      "Entropy of the $(5,1)$ child: $-\\tfrac56\\log_2\\tfrac56-\\tfrac16\\log_2\\tfrac16=0.833\\cdot0.263+0.167\\cdot2.585=0.219+0.431=0.650$. The $(1,5)$ child gives the same, $0.650$.",
+      "Weights: $6/12$ each. Weighted entropy $=0.5\\cdot0.650+0.5\\cdot0.650=0.650$.",
+      "Gain $=1-0.650=0.350$ bits."
+     ],
+     "answer": "$IG=0.350$ bits. The split removed about a third of the original uncertainty."
+    },
+    {
+     "level": "gate",
+     "setup": "A 14-row table has 9 yes and 5 no. Splitting on Outlook gives Sunny with 2 yes and 3 no, Overcast with 4 yes and 0 no, and Rain with 3 yes and 2 no. Find the information gain.",
+     "steps": [
+      "Parent: $H(9,5)=0.9403$.",
+      "Sunny $(2,3)$: $-0.4\\log_20.4-0.6\\log_20.6=0.4\\cdot1.322+0.6\\cdot0.737=0.5288+0.4422=0.9710$. Rain $(3,2)$ is the same with the roles swapped: $0.9710$. Overcast $(4,0)$ is pure: $0$.",
+      "Weights: $5/14$, $4/14$, $5/14$. Weighted entropy $=\\tfrac5{14}(0.9710)+\\tfrac4{14}(0)+\\tfrac5{14}(0.9710)=0.3468+0+0.3468=0.6935$.",
+      "Gain $=0.9403-0.6935=0.2468$."
+     ],
+     "answer": "$IG\\approx0.247$ bits. A 3-valued attribute works the same way: one weighted term per child."
+    },
+    {
+     "level": "twist",
+     "setup": "A parent has 6 yes and 4 no. A split sends 3 yes and 2 no to each of two children. What is the information gain?",
+     "steps": [
+      "Parent: $H(6,4)=0.9710$.",
+      "Each child has $(3,2)$, which is the same $60\\%/40\\%$ mix. $H(3,2)=0.9710$.",
+      "Weighted entropy $=0.5(0.9710)+0.5(0.9710)=0.9710$. Gain $=0.9710-0.9710=0$."
+     ],
+     "answer": "$IG=0$. The attribute does not change the mix of labels, so it tells the tree nothing."
+    }
+   ],
+   "why": "Information gain is how an ID3 tree decides where to split. If you can compute one gain, you can build a whole tree by repeating it. In GATE: a 10-row two-class table where you compute the gain of one attribute.",
+   "how": [
+    "Compute the entropy of the parent from its class counts.",
+    "Split the rows by the attribute and count the classes in each child.",
+    "Compute the entropy of each child.",
+    "Multiply each child's entropy by $n_v/n$ and add.",
+    "Subtract the weighted sum from the parent's entropy."
+   ],
+   "mistake": "Averaging the children's entropies without weighting them by size, or using the parent's entropy for the children. Both give the wrong answer. A plain average treats a child with 1 row like a child with 9 rows.",
+   "edge_cases": [
+    "$IG\\ge0$ always. It is never negative.",
+    "$IG\\le H(\\text{parent})$, with equality when all children are pure.",
+    "$IG=0$ when every child has the same mix as the parent.",
+    "Many-valued attributes (an ID column) get inflated gain."
+   ],
+   "connections": [
+    "Foundations: Algebra covers fractions and weighted averages.",
+    "Previous cards: entropy and Gini give the $H$ values used here.",
+    "Next card: the tree picks the attribute with the highest gain at every node."
+   ],
+   "check": [
+    {
+     "q": "The parent entropy is 0.8 and the weighted child entropy is 0.5. What is the gain?",
+     "a": "$0.8-0.5=0.3$."
+    },
+    {
+     "q": "Can the information gain of a split be negative?",
+     "a": "No. Splitting never increases the weighted entropy, so the gain is 0 or more."
+    },
+    {
+     "q": "A split leaves the weighted child entropy equal to the parent's. What does that say about the attribute?",
+     "a": "The gain is 0 and the attribute is useless for this node."
+    }
+   ],
+   "asked": "Asked: 2024 DA Q62 (information gain of a split on a 10-row two-class table, worth 2 marks).",
+   "scene": "ml.dt.gain",
+   "try": {
+    "id": "gen.ml.dt.003",
+    "label": "What information gain equals"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "12 students: 6 pass and 6 fail. Splitting on 'Study' gives a high-study group with 5 pass and 1 fail, and a low-study group with 1 pass and 5 fail. Find the information gain.",
+    "steps": [
+     "Parent: 6 pass and 6 fail, an even mix, so $H=1$.",
+     "Children: high (5 pass, 1 fail) with 6 rows and low (1 pass, 5 fail) with 6 rows.",
+     "Entropy of the $(5,1)$ child: $-\\tfrac56\\log_2\\tfrac56-\\tfrac16\\log_2\\tfrac16=0.833\\cdot0.263+0.167\\cdot2.585=0.219+0.431=0.650$. The $(1,5)$ child gives the same, $0.650$.",
+     "Weights: $6/12$ each. Weighted entropy $=0.5\\cdot0.650+0.5\\cdot0.650=0.650$.",
+     "Gain $=1-0.650=0.350$ bits."
+    ],
+    "answer": "$IG=0.350$ bits. The split removed about a third of the original uncertainty."
+   },
+   "what": "**Information gain** scores a split. Measure how mixed the parent node is. Split its rows by an attribute. Measure how mixed the children are, counting each child by its share of the rows. The gain is the drop in mixing: the parent's entropy minus the weighted average of the children's entropies. A high gain means the split sorted the labels well.",
+   "what_full": "**Information gain** scores a split. Measure how mixed the parent node is. Split its rows by an attribute. Measure how mixed the children are, counting each child by its share of the rows. The gain is the drop in mixing: the parent's entropy minus the weighted average of the children's entropies. A high gain means the split sorted the labels well.\n\n$$IG=H(\\text{parent})-\\sum_{v}\\frac{n_v}{n}\\,H(\\text{child}_v)$$\n\nSymbols: $n$ is the number of rows in the parent. $n_v$ is the number of rows that go to child $v$. $\\frac{n_v}{n}$ is the weight of that child. $H$ is entropy, from the previous card. The same formula with Gini in place of $H$ gives the Gini gain.\n\n**Worked example.** 12 students: 6 pass and 6 fail. Splitting on 'Study' gives a high-study group with 5 pass and 1 fail, and a low-study group with 1 pass and 5 fail. Find the information gain.\n\n1. Parent: 6 pass and 6 fail, an even mix, so $H=1$.\n2. Children: high (5 pass, 1 fail) with 6 rows and low (1 pass, 5 fail) with 6 rows.\n3. Entropy of the $(5,1)$ child: $-\\tfrac56\\log_2\\tfrac56-\\tfrac16\\log_2\\tfrac16=0.833\\cdot0.263+0.167\\cdot2.585=0.219+0.431=0.650$. The $(1,5)$ child gives the same, $0.650$.\n4. Weights: $6/12$ each. Weighted entropy $=0.5\\cdot0.650+0.5\\cdot0.650=0.650$.\n5. Gain $=1-0.650=0.350$ bits.\n\n**Answer:** $IG=0.350$ bits. The split removed about a third of the original uncertainty.\n\n**Check yourself:** The parent entropy is 0.8 and the weighted child entropy is 0.5. What is the gain?\n\n*Answer:* $0.8-0.5=0.3$.",
+   "why_full": "Information gain is how an ID3 tree decides where to split. If you can compute one gain, you can build a whole tree by repeating it. In GATE: a 10-row two-class table where you compute the gain of one attribute.\n\nAsked: 2024 DA Q62 (information gain of a split on a 10-row two-class table, worth 2 marks).",
+   "trap": "Averaging the children's entropies without weighting them by size, or using the parent's entropy for the children. Both give the wrong answer. A plain average treats a child with 1 row like a child with 9 rows.",
+   "trap_full": "Averaging the children's entropies without weighting them by size, or using the parent's entropy for the children. Both give the wrong answer. A plain average treats a child with 1 row like a child with 9 rows."
+  },
+  {
+   "atom_id": "d4",
+   "title": "Choosing the split",
+   "simple": "Building a decision tree is like playing twenty questions to sort people into groups. At each step you ask the question that sorts the group best right now. For every possible question you work out its information gain and pick the winner. Then you repeat inside each new group. A group that is already all one kind needs no more questions, so it stops. This always takes the best next question, but the best next question does not always lead to the best tree overall. In exam words: at every node choose the attribute with the highest information gain, then recurse (greedy).",
+   "idea": "A tree is built **greedily**. At a node, compute the information gain of every attribute and split on the one with the highest gain. Then repeat the same procedure inside each child. A child that is pure becomes a **leaf** and stops. The tree grows until every node is pure or no attributes are left.",
+   "definition": "$$\\text{split on}\\ \\ A^*=\\arg\\max_{A}\\ IG(A),\\qquad\\text{stop at a node when it is pure or no attributes remain}$$\n\nSymbols: $IG(A)$ is the information gain of attribute $A$ at the current node. $\\arg\\max$ means 'the attribute that gives the largest value'. ID3 uses entropy. CART uses Gini and makes binary splits.",
+   "intuition_full": "Greedy means short-sighted. The tree looks only at the next question and never reconsiders. This is fast, because each node needs only a handful of gain calculations. It is not always optimal. A split that looks weak now can set up a very strong split later, and the greedy rule will never find it. The classic example is XOR, where no single attribute helps by itself, yet two attributes used together classify perfectly. Also note that each child is a new, smaller problem. The gain of an attribute is recomputed using only the rows that reached that node, so an attribute that was best at the root may be useless lower down. A pure child cannot be improved, so we stop there. A tree that keeps splitting until everything is pure will fit the training data perfectly, which brings us to overfitting on a later card.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A node has 10 rows: 6 yes and 4 no. Attribute A splits it into $(4,0)$ and $(2,4)$ (yes, no). Attribute B splits it into $(4,1)$ and $(2,3)$. Which attribute does the tree use?",
+     "steps": [
+      "Attribute A: the left child has 4 yes and 0 no, the right child has 2 yes and 4 no.",
+      "Parent entropy $H(6,4)=0.971$. Left child: pure, $H=0$. Right child: $H(2,4)=0.918$.",
+      "Weighted entropy after A: $0.4\\cdot0+0.6\\cdot0.918=0.551$. $IG_A=0.971-0.551=0.420$.",
+      "Attribute B: left $(4,1)$ has $H=0.722$ and right $(2,3)$ has $H=0.971$, each with weight $0.5$. Weighted $=0.846$. $IG_B=0.971-0.846=0.125$.",
+      "$0.420>0.125$, so split on A. The left child is pure and becomes a leaf. The right child $(2,4)$ is split again."
+     ],
+     "answer": "Split on A, with gain $0.420$ against $0.125$ for B. Then keep splitting the impure right child."
+    },
+    {
+     "level": "gate",
+     "setup": "Eight rows (Sky, Wind, Walk): three rows (clear, windy, Yes), two rows (cloudy, calm, Yes), three rows (cloudy, windy, No). Build the tree with information gain.",
+     "steps": [
+      "Root: 5 yes and 3 no, so $H(5,3)=0.9544$.",
+      "Split on Sky: clear has 3 rows $(3,0)$ with $H=0$. Cloudy has 5 rows $(2,3)$ with $H=0.9710$. Weighted $=\\tfrac58(0.9710)=0.6068$. $IG=0.9544-0.6068=0.3476$.",
+      "Split on Wind: calm has 2 rows $(2,0)$ with $H=0$. Windy has 6 rows $(3,3)$ with $H=1$. Weighted $=\\tfrac68(1)=0.75$. $IG=0.9544-0.75=0.2044$.",
+      "$0.348>0.204$, so the root splits on Sky. Clear is pure, so it becomes the leaf Yes. Cloudy $(2,3)$ is still mixed.",
+      "In the cloudy node only Wind is left. Calm gives $(2,0)$, windy gives $(0,3)$. Both are pure, with a gain of $0.971$."
+     ],
+     "answer": "Root Sky. Clear gives Yes. Cloudy splits on Wind: calm gives Yes and windy gives No. All leaves are pure, so training accuracy is 100%."
+    },
+    {
+     "level": "twist",
+     "setup": "Eight rows, two binary attributes $A$ and $B$, label $=A\\ \\text{xor}\\ B$ (two rows for each combination). What does greedy do at the root?",
+     "steps": [
+      "Root: 4 rows of each class, $H=1$.",
+      "Split on $A$: each child has 2 rows of each class, $H=1$. Weighted $=1$, so $IG_A=0$. Splitting on $B$ gives the same, $IG_B=0$.",
+      "No attribute shows any gain. If you split on $A$ anyway, each child separates perfectly on $B$: both grandchildren are pure."
+     ],
+     "answer": "Both gains are 0, yet a tree of depth 2 classifies all 8 rows correctly. Stopping at 'no gain' would give a single leaf with 50% accuracy. This is where greedy is short-sighted."
+    }
+   ],
+   "why": "This is the whole algorithm of ID3 and CART. In GATE you rarely build a full tree. You find the root split, say which attribute it uses, and describe what happens next. In GATE: the best attribute at the root, and statements about greedy trees.",
+   "how": [
+    "At the current node compute the gain of every attribute.",
+    "Split on the attribute with the largest gain.",
+    "A pure child becomes a leaf. A mixed child repeats the procedure with the rows that reached it.",
+    "Stop when a node is pure or no attributes remain. For CART use Gini."
+   ],
+   "mistake": "Believing a greedy tree is the best possible tree. It picks the best split now, not the best tree. A second slip is stopping when every gain is 0, as in XOR, which leaves a tree that is far too small.",
+   "edge_cases": [
+    "Ties: if two attributes have the same gain, either is a valid choice.",
+    "An attribute already used on the path to a node has nothing left to split (for categorical attributes).",
+    "Entropy and Gini can pick different attributes at the root.",
+    "Greedy does not guarantee the smallest tree."
+   ],
+   "connections": [
+    "Foundations: Algebra covers the fractions and weighted averages.",
+    "Previous card: information gain scores one split. Next card: for numeric attributes the candidates are thresholds.",
+    "Overfitting card: growing until every leaf is pure fits the training data perfectly."
+   ],
+   "check": [
+    {
+     "q": "Attribute P has gain 0.31 and attribute Q has gain 0.12 at the root. Which does ID3 choose?",
+     "a": "P, the one with the larger gain."
+    },
+    {
+     "q": "After a split one child has only 'yes' rows. What does the tree do with that child?",
+     "a": "It becomes a leaf that predicts yes. No further split is needed."
+    },
+    {
+     "q": "True or false: a greedy tree always has the fewest nodes of any tree that fits the data.",
+     "a": "False. Greedy chooses the best split at each step, which does not guarantee the smallest tree overall."
+    }
+   ],
+   "asked": "Asked: 2024 DA Q62 (the gain of the root split on a 10-row table). The ladder asks which attribute is chosen and what happens next.",
+   "scene": "ml.dt.split",
+   "try": {
+    "id": "gen.ml.dt.005",
+    "label": "True statements about entropy, gain and splits"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "A node has 10 rows: 6 yes and 4 no. Attribute A splits it into $(4,0)$ and $(2,4)$ (yes, no). Attribute B splits it into $(4,1)$ and $(2,3)$. Which attribute does the tree use?",
+    "steps": [
+     "Attribute A: the left child has 4 yes and 0 no, the right child has 2 yes and 4 no.",
+     "Parent entropy $H(6,4)=0.971$. Left child: pure, $H=0$. Right child: $H(2,4)=0.918$.",
+     "Weighted entropy after A: $0.4\\cdot0+0.6\\cdot0.918=0.551$. $IG_A=0.971-0.551=0.420$.",
+     "Attribute B: left $(4,1)$ has $H=0.722$ and right $(2,3)$ has $H=0.971$, each with weight $0.5$. Weighted $=0.846$. $IG_B=0.971-0.846=0.125$.",
+     "$0.420>0.125$, so split on A. The left child is pure and becomes a leaf. The right child $(2,4)$ is split again."
+    ],
+    "answer": "Split on A, with gain $0.420$ against $0.125$ for B. Then keep splitting the impure right child."
+   },
+   "what": "A tree is built **greedily**. At a node, compute the information gain of every attribute and split on the one with the highest gain. Then repeat the same procedure inside each child. A child that is pure becomes a **leaf** and stops. The tree grows until every node is pure or no attributes are left.",
+   "what_full": "A tree is built **greedily**. At a node, compute the information gain of every attribute and split on the one with the highest gain. Then repeat the same procedure inside each child. A child that is pure becomes a **leaf** and stops. The tree grows until every node is pure or no attributes are left.\n\n$$\\text{split on}\\ \\ A^*=\\arg\\max_{A}\\ IG(A),\\qquad\\text{stop at a node when it is pure or no attributes remain}$$\n\nSymbols: $IG(A)$ is the information gain of attribute $A$ at the current node. $\\arg\\max$ means 'the attribute that gives the largest value'. ID3 uses entropy. CART uses Gini and makes binary splits.\n\n**Worked example.** A node has 10 rows: 6 yes and 4 no. Attribute A splits it into $(4,0)$ and $(2,4)$ (yes, no). Attribute B splits it into $(4,1)$ and $(2,3)$. Which attribute does the tree use?\n\n1. Attribute A: the left child has 4 yes and 0 no, the right child has 2 yes and 4 no.\n2. Parent entropy $H(6,4)=0.971$. Left child: pure, $H=0$. Right child: $H(2,4)=0.918$.\n3. Weighted entropy after A: $0.4\\cdot0+0.6\\cdot0.918=0.551$. $IG_A=0.971-0.551=0.420$.\n4. Attribute B: left $(4,1)$ has $H=0.722$ and right $(2,3)$ has $H=0.971$, each with weight $0.5$. Weighted $=0.846$. $IG_B=0.971-0.846=0.125$.\n5. $0.420>0.125$, so split on A. The left child is pure and becomes a leaf. The right child $(2,4)$ is split again.\n\n**Answer:** Split on A, with gain $0.420$ against $0.125$ for B. Then keep splitting the impure right child.\n\n**Check yourself:** Attribute P has gain 0.31 and attribute Q has gain 0.12 at the root. Which does ID3 choose?\n\n*Answer:* P, the one with the larger gain.",
+   "why_full": "This is the whole algorithm of ID3 and CART. In GATE you rarely build a full tree. You find the root split, say which attribute it uses, and describe what happens next. In GATE: the best attribute at the root, and statements about greedy trees.\n\nAsked: 2024 DA Q62 (the gain of the root split on a 10-row table). The ladder asks which attribute is chosen and what happens next.",
+   "trap": "Believing a greedy tree is the best possible tree. It picks the best split now, not the best tree. A second slip is stopping when every gain is 0, as in XOR, which leaves a tree that is far too small.",
+   "trap_full": "Believing a greedy tree is the best possible tree. It picks the best split now, not the best tree. A second slip is stopping when every gain is 0, as in XOR, which leaves a tree that is far too small."
+  },
+  {
+   "atom_id": "d4b",
+   "title": "Numeric attributes: choosing a threshold",
+   "simple": "Some questions in a tree are numbers, such as hours studied. You cannot make a branch for every possible number, so the tree asks 'is it below some cut value?'. Write the values in order. A good cut goes in the gap between two neighbours whose labels differ, because a cut between two equal labels never helps. Try each of those cuts, score it like any other split, and keep the best. In exam words: sort the values, take midpoints where the label changes, and pick the threshold with the highest gain.",
+   "idea": "A numeric attribute becomes a yes/no question: is $x<c$? Sort the values and look at neighbours. A useful cut lies **halfway between two neighbours whose labels differ**. Cuts between equal labels are never better. Score each candidate cut with the usual gain and keep the best one.",
+   "definition": "$$c=\\frac{x_{(i)}+x_{(i+1)}}{2}\\quad\\text{for neighbours with different labels},\\qquad \\text{split rule: } x<c\\ \\text{goes left}$$\n\nSymbols: $x_{(i)}$ is the $i$-th smallest value. $c$ is a candidate threshold. The left child holds the rows with $x<c$ and the right child holds the rest. Then compute the gain of that split as before.",
+   "intuition_full": "Why only at label changes? Slide a cut along a run of rows that all share one label. Each step moves one row of that class from one side to the other. The weighted impurity along such a run curves like a hill, so its smallest value, and the largest gain, is at one end of the run and never in the middle. An end of a run is exactly a place where the label changes. So with $n$ sorted values there are $n-1$ gaps, but only the gaps at label changes need testing, and that is usually far fewer. Midpoints are the convention because they sit as far as possible from the data on both sides. A numeric attribute can be cut again deeper in the tree at a new threshold, unlike a yes/no attribute, which is used up after one split.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Eight students: hours studied $1,2,4,5,6,8,9,10$ with results N, N, Y, Y, Y, N, Y, Y (N fail, Y pass). Find the best threshold on hours with entropy.",
+     "steps": [
+      "Parent: 3 N and 5 Y. $H(3,5)=-\\tfrac38\\log_2\\tfrac38-\\tfrac58\\log_2\\tfrac58=0.954$.",
+      "The label changes between hours 2 and 4, between 6 and 8, and between 8 and 9. The cuts are $3$, $7$ and $8.5$.",
+      "Cut $3$: left $\\{1,2\\}$ is $(2\\text{ N},0\\text{ Y})$ with $H=0$. Right is $(1\\text{ N},5\\text{ Y})$ with $H=0.650$. Gain $=0.954-\\tfrac68(0.650)=0.954-0.488=0.467$.",
+      "Cut $7$: left $(2\\text{ N},3\\text{ Y})$ has $H=0.971$ and right $(1\\text{ N},2\\text{ Y})$ has $H=0.918$. Weighted $=\\tfrac58(0.971)+\\tfrac38(0.918)=0.951$. Gain $=0.003$. Cut $8.5$: left $(3,3)$ has $H=1$, right $(0,2)$ has $H=0$. Weighted $=0.75$. Gain $=0.204$.",
+      "The best cut is $3$ with gain $0.467$. The rule is: hours below 3 means N, otherwise Y."
+     ],
+     "answer": "Threshold $3$, gain $0.467$. The other cuts give $0.003$ and $0.204$."
+    },
+    {
+     "level": "gate",
+     "setup": "Values $2,4,6,8,10,12$ with labels A, A, B, A, B, B. Use the Gini gain. Which thresholds are candidates and which is best?",
+     "steps": [
+      "Parent: 3 A and 3 B, so $G=0.5$. The label changes between 4 and 6, 6 and 8, 8 and 10. Candidates: $5$, $7$, $9$.",
+      "Cut $5$: left $\\{2,4\\}$ is $(2,0)$ with $G=0$. Right is $(1,3)$ with $G=1-(\\tfrac1{16}+\\tfrac9{16})=0.375$. Weighted $=\\tfrac46(0.375)=0.25$. Gain $=0.5-0.25=0.25$.",
+      "Cut $7$: left $(2,1)$ and right $(1,2)$ both have $G=1-(\\tfrac49+\\tfrac19)=0.4444$. Weighted $=0.4444$. Gain $=0.0556$.",
+      "Cut $9$: left $(3,1)$ has $G=0.375$ and right $(0,2)$ has $G=0$. Weighted $=\\tfrac46(0.375)=0.25$. Gain $=0.25$."
+     ],
+     "answer": "Gains $0.25$, $0.056$ and $0.25$. Cuts $5$ and $9$ tie as best, and either is a valid choice. Both leave one misclassified training row."
+    },
+    {
+     "level": "twist",
+     "setup": "Values $1,2,3,3,4,5$ with labels N, N, N, Y, Y, Y. Two rows share the value 3 but have different labels. What is the best training accuracy of any tree that splits only on this value?",
+     "steps": [
+      "A cut compares a value with a threshold, so the two rows with value 3 always land on the same side. No cut can separate them.",
+      "Cut $2.5$: left $\\{1,2\\}$ is all N. Right is $\\{3,3,4,5\\}$ = N, Y, Y, Y, so predicting Y gets one row wrong.",
+      "Cut $3.5$: left is N, N, N, Y, so predicting N gets one row wrong. Right $\\{4,5\\}$ is all Y.",
+      "Either way one of the six rows is wrong. More depth does not help, because the conflict is in the data."
+     ],
+     "answer": "At most $5/6=83.3\\%$ training accuracy. Rows with identical inputs and different labels cannot be separated by any tree."
+    }
+   ],
+   "why": "Most real data has numeric columns, so every real tree uses thresholds. In GATE: a short list of numbers with labels, and you must find the best cut or its gain. Testing only the label changes keeps the work small.",
+   "how": [
+    "Sort the values and write the labels beside them.",
+    "List the midpoints between neighbours whose labels differ. Ignore all other gaps.",
+    "For each candidate cut, count the classes on each side and compute the gain.",
+    "Keep the cut with the highest gain. State the rule as $x<c$."
+   ],
+   "mistake": "Trying a cut at every value, or using a data value as the threshold instead of the midpoint. Also, forgetting to sort first, which makes 'neighbours' meaningless.",
+   "edge_cases": [
+    "If every label is the same, no cut is needed. The node is pure.",
+    "Two rows with the same value and different labels can never be separated by that attribute.",
+    "Ties in gain are fine: either cut is valid.",
+    "A numeric attribute can be cut again deeper in the tree, at a different threshold."
+   ],
+   "connections": [
+    "Previous card: the gain formula used to score each cut. Next card: how a leaf predicts and how its training error is counted.",
+    "Foundations: Algebra covers the midpoints, fractions and weighted averages used here.",
+    "k-NN and logistic regression use numeric features directly. A tree turns each one into yes/no questions."
+   ],
+   "check": [
+    {
+     "q": "Sorted values 1, 3, 4, 8 have labels N, N, Y, Y. Which cuts are candidates?",
+     "a": "Only one. The label changes between 3 and 4, so the cut is $3.5$."
+    },
+    {
+     "q": "Sorted values 2, 5, 6, 9 have labels Y, N, N, Y. List the candidate cuts.",
+     "a": "The label changes between 2 and 5 and between 6 and 9, so the cuts are $3.5$ and $7.5$."
+    },
+    {
+     "q": "A node has 20 distinct sorted values and the labels change 4 times. How many cuts do you evaluate?",
+     "a": "4, one for each label change."
+    }
+   ],
+   "asked": "Asked: the numeric version appears in the ladder only. The same gain computation is behind 2024 DA Q62.",
+   "scene": "ml.dt.threshold",
+   "try": {
+    "id": "gen.ml.dt.016",
+    "label": "Best threshold on a numeric attribute"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "Eight students: hours studied $1,2,4,5,6,8,9,10$ with results N, N, Y, Y, Y, N, Y, Y (N fail, Y pass). Find the best threshold on hours with entropy.",
+    "steps": [
+     "Parent: 3 N and 5 Y. $H(3,5)=-\\tfrac38\\log_2\\tfrac38-\\tfrac58\\log_2\\tfrac58=0.954$.",
+     "The label changes between hours 2 and 4, between 6 and 8, and between 8 and 9. The cuts are $3$, $7$ and $8.5$.",
+     "Cut $3$: left $\\{1,2\\}$ is $(2\\text{ N},0\\text{ Y})$ with $H=0$. Right is $(1\\text{ N},5\\text{ Y})$ with $H=0.650$. Gain $=0.954-\\tfrac68(0.650)=0.954-0.488=0.467$.",
+     "Cut $7$: left $(2\\text{ N},3\\text{ Y})$ has $H=0.971$ and right $(1\\text{ N},2\\text{ Y})$ has $H=0.918$. Weighted $=\\tfrac58(0.971)+\\tfrac38(0.918)=0.951$. Gain $=0.003$. Cut $8.5$: left $(3,3)$ has $H=1$, right $(0,2)$ has $H=0$. Weighted $=0.75$. Gain $=0.204$.",
+     "The best cut is $3$ with gain $0.467$. The rule is: hours below 3 means N, otherwise Y."
+    ],
+    "answer": "Threshold $3$, gain $0.467$. The other cuts give $0.003$ and $0.204$."
+   },
+   "what": "A numeric attribute becomes a yes/no question: is $x<c$? Sort the values and look at neighbours. A useful cut lies **halfway between two neighbours whose labels differ**. Cuts between equal labels are never better. Score each candidate cut with the usual gain and keep the best one.",
+   "what_full": "A numeric attribute becomes a yes/no question: is $x<c$? Sort the values and look at neighbours. A useful cut lies **halfway between two neighbours whose labels differ**. Cuts between equal labels are never better. Score each candidate cut with the usual gain and keep the best one.\n\n$$c=\\frac{x_{(i)}+x_{(i+1)}}{2}\\quad\\text{for neighbours with different labels},\\qquad \\text{split rule: } x<c\\ \\text{goes left}$$\n\nSymbols: $x_{(i)}$ is the $i$-th smallest value. $c$ is a candidate threshold. The left child holds the rows with $x<c$ and the right child holds the rest. Then compute the gain of that split as before.\n\n**Worked example.** Eight students: hours studied $1,2,4,5,6,8,9,10$ with results N, N, Y, Y, Y, N, Y, Y (N fail, Y pass). Find the best threshold on hours with entropy.\n\n1. Parent: 3 N and 5 Y. $H(3,5)=-\\tfrac38\\log_2\\tfrac38-\\tfrac58\\log_2\\tfrac58=0.954$.\n2. The label changes between hours 2 and 4, between 6 and 8, and between 8 and 9. The cuts are $3$, $7$ and $8.5$.\n3. Cut $3$: left $\\{1,2\\}$ is $(2\\text{ N},0\\text{ Y})$ with $H=0$. Right is $(1\\text{ N},5\\text{ Y})$ with $H=0.650$. Gain $=0.954-\\tfrac68(0.650)=0.954-0.488=0.467$.\n4. Cut $7$: left $(2\\text{ N},3\\text{ Y})$ has $H=0.971$ and right $(1\\text{ N},2\\text{ Y})$ has $H=0.918$. Weighted $=\\tfrac58(0.971)+\\tfrac38(0.918)=0.951$. Gain $=0.003$. Cut $8.5$: left $(3,3)$ has $H=1$, right $(0,2)$ has $H=0$. Weighted $=0.75$. Gain $=0.204$.\n5. The best cut is $3$ with gain $0.467$. The rule is: hours below 3 means N, otherwise Y.\n\n**Answer:** Threshold $3$, gain $0.467$. The other cuts give $0.003$ and $0.204$.\n\n**Check yourself:** Sorted values 1, 3, 4, 8 have labels N, N, Y, Y. Which cuts are candidates?\n\n*Answer:* Only one. The label changes between 3 and 4, so the cut is $3.5$.",
+   "why_full": "Most real data has numeric columns, so every real tree uses thresholds. In GATE: a short list of numbers with labels, and you must find the best cut or its gain. Testing only the label changes keeps the work small.\n\nAsked: the numeric version appears in the ladder only. The same gain computation is behind 2024 DA Q62.",
+   "trap": "Trying a cut at every value, or using a data value as the threshold instead of the midpoint. Also, forgetting to sort first, which makes 'neighbours' meaningless.",
+   "trap_full": "Trying a cut at every value, or using a data value as the threshold instead of the midpoint. Also, forgetting to sort first, which makes 'neighbours' meaningless."
+  },
+  {
+   "atom_id": "d5",
+   "title": "Leaf prediction and training error",
+   "simple": "At the bottom of the tree, each leaf holds the training rows that ended up there. When a new item lands in a leaf, the tree goes with whatever most of the rows in that leaf were. The rows in the minority are the ones the tree gets wrong on the training data. To get the overall error, add up the wrong rows from every leaf and divide by all the rows. Do not average the leaf percentages, because a big leaf counts for more than a small one. In exam words: a leaf predicts its majority class, and the training error is the sum of the minority counts divided by $n$.",
+   "idea": "A leaf predicts the **majority class** of the training rows that reached it. The rows in the minority are the leaf's mistakes. The **training error** of the whole tree is all those mistakes added up, divided by the total number of rows, not by the size of one leaf.",
+   "definition": "$$\\hat y(\\text{leaf})=\\arg\\max_k n_k,\\qquad \\text{training error}=\\frac{\\sum_{\\text{leaves}}\\big(n_{\\text{leaf}}-n_{\\text{majority}}\\big)}{n}$$\n\nSymbols: $n_k$ is the number of rows of class $k$ in the leaf. $n_{\\text{leaf}}$ is the number of rows in the leaf. $n_{\\text{majority}}$ is the count of its most common class. $n$ is the number of training rows in the whole tree.",
+   "intuition_full": "Why the majority? If a leaf holds 7 yes and 1 no, then predicting yes is right for 7 of those 8 rows. Predicting no would be right for only 1. The majority class is the guess that makes the fewest mistakes. Each leaf is judged only on its own rows, so each leaf makes the same kind of choice. The overall error then needs the right denominator. A big leaf holds many rows, so its mistakes weigh more. That is why you add the mistakes first and divide once by $n$. Averaging leaf percentages gives every leaf the same vote, which is wrong. Two more facts. A pure leaf has no mistakes. And splitting a leaf can never raise the training error, because each child can still copy the old prediction and may do better. A fully grown tree therefore has the lowest training error of all, usually 0, which is the road to overfitting on the last card.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A tree trained on 20 rows (12 yes, 8 no) has three leaves with $(\\text{yes},\\text{no})$ counts $(7,1)$, $(2,5)$ and $(3,2)$. What does each leaf predict, and what is the training error?",
+     "steps": [
+      "Leaf sizes: $8$, $7$ and $5$. They add up to 20 rows.",
+      "Majority class: leaf 1 predicts yes (7 against 1), leaf 2 predicts no (5 against 2), leaf 3 predicts yes (3 against 2).",
+      "Mistakes are the minority rows: $1$, $2$ and $2$.",
+      "Total mistakes $=1+2+2=5$ out of all 20 rows. Training error $=5/20=25\\%$. Accuracy is $75\\%$.",
+      "Leaf error rates are $1/8=12.5\\%$, $2/7=28.6\\%$ and $2/5=40\\%$. Their plain average is $27.0\\%$, which is not the answer. The leaves have different sizes."
+     ],
+     "answer": "Predictions: yes, no, yes. Training error $25\\%$ (accuracy $75\\%$)."
+    },
+    {
+     "level": "gate",
+     "setup": "A tree has three leaves with 30, 50 and 20 training rows. Their error rates are $10\\%$, $20\\%$ and $40\\%$. What is the training error of the tree, and which leaf contributes the most mistakes?",
+     "steps": [
+      "Mistakes in each leaf $=$ size $\\times$ rate: $30\\times0.10=3$, $50\\times0.20=10$, $20\\times0.40=8$.",
+      "Total mistakes $=3+10+8=21$ out of $100$ rows, so the training error is $21\\%$.",
+      "The plain average of the rates is $(10+20+40)/3=23.3\\%$. That is wrong, because it ignores the leaf sizes.",
+      "The most mistakes come from leaf 2 (10 rows), even though leaf 3 has the worst rate."
+     ],
+     "answer": "Training error $21\\%$, accuracy $79\\%$. Leaf 2 contributes the most mistakes. Weight by leaf size."
+    },
+    {
+     "level": "twist",
+     "setup": "A leaf holds 3 yes and 3 no. What does it predict, and how many rows does it get wrong? What about a leaf with 5 yes and 0 no?",
+     "steps": [
+      "Predicting yes gets the 3 no rows wrong. Predicting no gets the 3 yes rows wrong. Both give 3 mistakes out of 6, which is $50\\%$.",
+      "It is a tie, so either prediction is allowed. The error rate is the same whichever class is chosen.",
+      "The leaf $(5,0)$ is pure. It predicts yes and has 0 mistakes."
+     ],
+     "answer": "The tied leaf has error $50\\%$ for either choice. The pure leaf has error $0$."
+    }
+   ],
+   "why": "A tree's training error is the quickest check of how well it fits. In GATE: given leaf counts or a small tree, find the prediction for each leaf, the overall error or accuracy, or what changes when a leaf is split further.",
+   "how": [
+    "For each leaf, find the majority class. That is its prediction.",
+    "Mistakes in the leaf are its rows of all other classes.",
+    "Add the mistakes over all leaves.",
+    "Divide by the total number of rows. Accuracy is $1-$ error."
+   ],
+   "mistake": "Dividing by the size of one leaf, or averaging the leaf error rates. Add the mistakes first and divide once by the total number of training rows.",
+   "edge_cases": [
+    "A tie in a leaf: either class is a valid prediction and the number of mistakes is the same.",
+    "A pure leaf has no mistakes.",
+    "Splitting a leaf never raises the training error.",
+    "A leaf can also report a probability, the fraction of its rows in each class. For $(7,1)$ that is $0.875$ yes."
+   ],
+   "connections": [
+    "Previous cards: the splits decide which rows share a leaf.",
+    "Next card: a tree grown until every leaf is pure has training error 0, which can mean overfitting.",
+    "Foundations: Algebra covers the fractions and percentages used for error rates."
+   ],
+   "check": [
+    {
+     "q": "A leaf holds 9 rows: 6 of class A and 3 of class B. What does it predict and what is its error rate?",
+     "a": "It predicts A. 3 of its 9 rows are wrong, so the error rate is $3/9=1/3$."
+    },
+    {
+     "q": "Leaf 1 has 10 rows and 2 mistakes. Leaf 2 has 30 rows and 3 mistakes. What is the training error of the tree?",
+     "a": "$(2+3)/(10+30)=5/40=12.5\\%$."
+    },
+    {
+     "q": "Can splitting a leaf further ever increase the training error?",
+     "a": "No. Each new leaf can still copy the old prediction, so the error stays the same or falls."
+    }
+   ],
+   "asked": "Asked: no year isolates this step. It appears inside the tree-versus-linear-model question of 2024 DA sample Q13 and in the ladder.",
+   "scene": "ml.dt.leaf",
+   "try": {
+    "id": "gen.ml.dt.004",
+    "label": "What a leaf predicts"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "A tree trained on 20 rows (12 yes, 8 no) has three leaves with $(\\text{yes},\\text{no})$ counts $(7,1)$, $(2,5)$ and $(3,2)$. What does each leaf predict, and what is the training error?",
+    "steps": [
+     "Leaf sizes: $8$, $7$ and $5$. They add up to 20 rows.",
+     "Majority class: leaf 1 predicts yes (7 against 1), leaf 2 predicts no (5 against 2), leaf 3 predicts yes (3 against 2).",
+     "Mistakes are the minority rows: $1$, $2$ and $2$.",
+     "Total mistakes $=1+2+2=5$ out of all 20 rows. Training error $=5/20=25\\%$. Accuracy is $75\\%$.",
+     "Leaf error rates are $1/8=12.5\\%$, $2/7=28.6\\%$ and $2/5=40\\%$. Their plain average is $27.0\\%$, which is not the answer. The leaves have different sizes."
+    ],
+    "answer": "Predictions: yes, no, yes. Training error $25\\%$ (accuracy $75\\%$)."
+   },
+   "what": "A leaf predicts the **majority class** of the training rows that reached it. The rows in the minority are the leaf's mistakes. The **training error** of the whole tree is all those mistakes added up, divided by the total number of rows, not by the size of one leaf.",
+   "what_full": "A leaf predicts the **majority class** of the training rows that reached it. The rows in the minority are the leaf's mistakes. The **training error** of the whole tree is all those mistakes added up, divided by the total number of rows, not by the size of one leaf.\n\n$$\\hat y(\\text{leaf})=\\arg\\max_k n_k,\\qquad \\text{training error}=\\frac{\\sum_{\\text{leaves}}\\big(n_{\\text{leaf}}-n_{\\text{majority}}\\big)}{n}$$\n\nSymbols: $n_k$ is the number of rows of class $k$ in the leaf. $n_{\\text{leaf}}$ is the number of rows in the leaf. $n_{\\text{majority}}$ is the count of its most common class. $n$ is the number of training rows in the whole tree.\n\n**Worked example.** A tree trained on 20 rows (12 yes, 8 no) has three leaves with $(\\text{yes},\\text{no})$ counts $(7,1)$, $(2,5)$ and $(3,2)$. What does each leaf predict, and what is the training error?\n\n1. Leaf sizes: $8$, $7$ and $5$. They add up to 20 rows.\n2. Majority class: leaf 1 predicts yes (7 against 1), leaf 2 predicts no (5 against 2), leaf 3 predicts yes (3 against 2).\n3. Mistakes are the minority rows: $1$, $2$ and $2$.\n4. Total mistakes $=1+2+2=5$ out of all 20 rows. Training error $=5/20=25\\%$. Accuracy is $75\\%$.\n5. Leaf error rates are $1/8=12.5\\%$, $2/7=28.6\\%$ and $2/5=40\\%$. Their plain average is $27.0\\%$, which is not the answer. The leaves have different sizes.\n\n**Answer:** Predictions: yes, no, yes. Training error $25\\%$ (accuracy $75\\%$).\n\n**Check yourself:** A leaf holds 9 rows: 6 of class A and 3 of class B. What does it predict and what is its error rate?\n\n*Answer:* It predicts A. 3 of its 9 rows are wrong, so the error rate is $3/9=1/3$.",
+   "why_full": "A tree's training error is the quickest check of how well it fits. In GATE: given leaf counts or a small tree, find the prediction for each leaf, the overall error or accuracy, or what changes when a leaf is split further.\n\nAsked: no year isolates this step. It appears inside the tree-versus-linear-model question of 2024 DA sample Q13 and in the ladder.",
+   "trap": "Dividing by the size of one leaf, or averaging the leaf error rates. Add the mistakes first and divide once by the total number of training rows.",
+   "trap_full": "Dividing by the size of one leaf, or averaging the leaf error rates. Add the mistakes first and divide once by the total number of training rows."
+  },
+  {
+   "atom_id": "d6",
+   "title": "Capacity and overfitting",
+   "simple": "A tree can keep asking questions until every leaf holds just one kind of row. Then it has memorised the training rows perfectly, like a student who learns last year's paper word for word. That student scores 100% on last year's paper but does badly on a new paper with different questions. A very shallow tree is the opposite: too few questions, so it misses real patterns. The best tree is somewhere in the middle, and you find it by testing on rows the tree has not seen. In exam words: a deeper tree has lower bias and higher variance. Training error keeps falling with depth, but validation error is U-shaped.",
+   "idea": "A tree's **capacity** is how complicated a pattern it can fit, and it grows with depth. A deep tree can fit almost any training set perfectly, even noise. Perfect training accuracy does not mean good accuracy on new rows. That gap is **overfitting**. Limiting the depth, or pruning, trades some training accuracy for better accuracy on new data.",
+   "definition": "$$\\text{leaves}\\le2^{d}\\ \\text{for depth } d,\\qquad \\text{training error}\\ \\downarrow\\ \\text{with depth},\\qquad \\text{validation error: U-shaped}$$\n\nSymbols: depth $d$ is the longest path from the root to a leaf, counted in splits. A fully grown tree reaches 0 training error whenever no two rows with the same inputs have different labels. Pruning removes splits.",
+   "intuition_full": "Each extra split lets the tree carve a smaller region, so it can bend the boundary around more points. With enough leaves it can give every training row its own region, and the training error is then 0. Some of those regions are carved around noise, such as a mislabelled row. On new data the noise is different, so those tiny regions give wrong answers. This is high variance: a different training sample would give a very different tree. A shallow tree has the opposite problem. It cannot bend enough, so even the training error is high. This is high bias. Depth is the dial between the two. You tune it with a validation set or cross-validation, and the validation error traces a U shape. Two facts for exam questions. A tree can fit XOR, which no single line can, because it can ask a second question inside each branch. And a fully grown tree cannot beat conflicting data: two rows with identical inputs and different labels will always cost at least one mistake.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Trees of depth 1 to 6 give training errors $22,14,8,4,1,0$ (in %) and validation errors $25,17,13,14,18,23$. Which depth would you choose, and which depths over- or underfit?",
+     "steps": [
+      "A tree of depth $d$ has at most $2^d$ leaves: $2,4,8,16,32,64$. Deeper trees are more flexible.",
+      "Training error: $22,14,8,4,1,0$. It only falls, because every extra split helps on the rows already seen.",
+      "Validation error: $25,17,13,14,18,23$. It falls, then rises.",
+      "The smallest validation error is $13\\%$, at depth 3. Choose depth 3.",
+      "At depth 6: training $0\\%$ but validation $23\\%$, a gap of $23$ points, so the tree overfits. At depth 1 both errors are high ($22\\%$ and $25\\%$), so it underfits."
+     ],
+     "answer": "Choose depth 3 (validation error 13%). Depth 6 overfits and depth 1 underfits. Never choose the depth from training error: it always prefers the deepest tree."
+    },
+    {
+     "level": "gate",
+     "setup": "Training data: class $+$ at $(2,2)$ and class $-$ at $(0,2),(4,2),(2,0),(2,4)$. Which of these can reach $100\\%$ training accuracy: a fully grown decision tree, logistic regression, a linear SVM, LDA?",
+     "steps": [
+      "The five points are distinct, so no two identical inputs carry different labels. A fully grown tree can isolate each point. Training accuracy $100\\%$.",
+      "$(2,2)$ is the midpoint of $(0,2)$ and $(4,2)$, so it lies inside the band of the $-$ points. No straight line separates the classes.",
+      "Logistic regression, a linear SVM and LDA all draw a straight line. The best a line can do is label everything $-$, which gets $4$ of $5$ right, $80\\%$."
+     ],
+     "answer": "Only the decision tree reaches $100\\%$. The three linear models are capped at $80\\%$ on this data."
+    },
+    {
+     "level": "twist",
+     "setup": "A data set has 10 rows. Two of them have identical inputs but different labels. What is the highest training accuracy any decision tree can reach?",
+     "steps": [
+      "Identical inputs follow the same path and land in the same leaf, so they get the same prediction.",
+      "That prediction is wrong for one of the two rows. All other 8 rows can be fit exactly by a deep enough tree.",
+      "Best accuracy $=9/10=90\\%$."
+     ],
+     "answer": "$90\\%$. Depth cannot fix a conflict that sits in the data. The 'always 100%' rule needs consistent data."
+    }
+   ],
+   "why": "Overfitting is the main weakness of trees, and the reason depth limits and pruning exist. In GATE: say whether a model can reach 100% training accuracy, which depth to choose from a table, or what pruning does to bias and variance.",
+   "how": [
+    "Ask whether the data are consistent: no identical inputs with different labels. If so, a fully grown tree reaches 100% training accuracy.",
+    "For linear models, check separability first. Enclosed points and XOR cap them below 100%.",
+    "From a table, choose the depth with the lowest validation error.",
+    "Pruning or a depth limit raises bias and lowers variance."
+   ],
+   "mistake": "Believing 100% training accuracy means a good model. It can mean the tree memorised noise. Also wrong: believing a 100% tree implies a 100% linear model. A tree can fit XOR but a line cannot.",
+   "edge_cases": [
+    "Identical inputs with different labels cap training accuracy below 100%.",
+    "A depth-$d$ binary tree has at most $2^d$ leaves.",
+    "Training error never rises as you add splits. Validation error can.",
+    "Shallow tree: high bias and low variance. Deep tree: low bias and high variance."
+   ],
+   "connections": [
+    "Bias and variance: the Underfitting and overfitting card covers the U-shaped test error. Cross-validation is how to choose the depth without peeking at the test set.",
+    "Logistic regression and SVM chapters: why XOR and enclosed points defeat a linear boundary.",
+    "Previous card: training error counts the minority rows in each leaf."
+   ],
+   "check": [
+    {
+     "q": "What is the largest number of leaves in a binary tree of depth 4?",
+     "a": "$2^4=16$."
+    },
+    {
+     "q": "A tree has 0% training error and 30% validation error. What does that suggest?",
+     "a": "Overfitting. The tree memorised the training rows and does not generalise."
+    },
+    {
+     "q": "You prune a decision tree. What happens to its bias and its variance?",
+     "a": "Bias goes up and variance goes down."
+    }
+   ],
+   "asked": "Asked: 2024 DA sample Q13 (a decision tree reaches 100% training accuracy on XOR-type data, while linear and naive Bayes models cannot).",
+   "scene": "ml.dt.depth",
+   "try": {
+    "id": "gen.ml.dt.012",
+    "label": "Training accuracy of a fully grown tree"
+   },
+   "example": {
+    "level": "basic",
+    "setup": "Trees of depth 1 to 6 give training errors $22,14,8,4,1,0$ (in %) and validation errors $25,17,13,14,18,23$. Which depth would you choose, and which depths over- or underfit?",
+    "steps": [
+     "A tree of depth $d$ has at most $2^d$ leaves: $2,4,8,16,32,64$. Deeper trees are more flexible.",
+     "Training error: $22,14,8,4,1,0$. It only falls, because every extra split helps on the rows already seen.",
+     "Validation error: $25,17,13,14,18,23$. It falls, then rises.",
+     "The smallest validation error is $13\\%$, at depth 3. Choose depth 3.",
+     "At depth 6: training $0\\%$ but validation $23\\%$, a gap of $23$ points, so the tree overfits. At depth 1 both errors are high ($22\\%$ and $25\\%$), so it underfits."
+    ],
+    "answer": "Choose depth 3 (validation error 13%). Depth 6 overfits and depth 1 underfits. Never choose the depth from training error: it always prefers the deepest tree."
+   },
+   "what": "A tree's **capacity** is how complicated a pattern it can fit, and it grows with depth. A deep tree can fit almost any training set perfectly, even noise. Perfect training accuracy does not mean good accuracy on new rows. That gap is **overfitting**. Limiting the depth, or pruning, trades some training accuracy for better accuracy on new data.",
+   "what_full": "A tree's **capacity** is how complicated a pattern it can fit, and it grows with depth. A deep tree can fit almost any training set perfectly, even noise. Perfect training accuracy does not mean good accuracy on new rows. That gap is **overfitting**. Limiting the depth, or pruning, trades some training accuracy for better accuracy on new data.\n\n$$\\text{leaves}\\le2^{d}\\ \\text{for depth } d,\\qquad \\text{training error}\\ \\downarrow\\ \\text{with depth},\\qquad \\text{validation error: U-shaped}$$\n\nSymbols: depth $d$ is the longest path from the root to a leaf, counted in splits. A fully grown tree reaches 0 training error whenever no two rows with the same inputs have different labels. Pruning removes splits.\n\n**Worked example.** Trees of depth 1 to 6 give training errors $22,14,8,4,1,0$ (in %) and validation errors $25,17,13,14,18,23$. Which depth would you choose, and which depths over- or underfit?\n\n1. A tree of depth $d$ has at most $2^d$ leaves: $2,4,8,16,32,64$. Deeper trees are more flexible.\n2. Training error: $22,14,8,4,1,0$. It only falls, because every extra split helps on the rows already seen.\n3. Validation error: $25,17,13,14,18,23$. It falls, then rises.\n4. The smallest validation error is $13\\%$, at depth 3. Choose depth 3.\n5. At depth 6: training $0\\%$ but validation $23\\%$, a gap of $23$ points, so the tree overfits. At depth 1 both errors are high ($22\\%$ and $25\\%$), so it underfits.\n\n**Answer:** Choose depth 3 (validation error 13%). Depth 6 overfits and depth 1 underfits. Never choose the depth from training error: it always prefers the deepest tree.\n\n**Check yourself:** What is the largest number of leaves in a binary tree of depth 4?\n\n*Answer:* $2^4=16$.",
+   "why_full": "Overfitting is the main weakness of trees, and the reason depth limits and pruning exist. In GATE: say whether a model can reach 100% training accuracy, which depth to choose from a table, or what pruning does to bias and variance.\n\nAsked: 2024 DA sample Q13 (a decision tree reaches 100% training accuracy on XOR-type data, while linear and naive Bayes models cannot).",
+   "trap": "Believing 100% training accuracy means a good model. It can mean the tree memorised noise. Also wrong: believing a 100% tree implies a 100% linear model. A tree can fit XOR but a line cannot.",
+   "trap_full": "Believing 100% training accuracy means a good model. It can mean the tree memorised noise. Also wrong: believing a 100% tree implies a 100% linear model. A tree can fit XOR but a line cannot."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "ml.dt.impurity",
+   "title": "Entropy of a node with 9 yes and 5 no",
+   "viewBox": [
+    0,
+    0,
+    360,
+    304
+   ],
+   "objects": [
+    {
+     "id": "ay",
+     "kind": "array",
+     "x": 16,
+     "y": 24,
+     "cells": [
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y"
+     ],
+     "cw": 22,
+     "ch": 26,
+     "indices": false,
+     "tone": "good"
+    },
+    {
+     "id": "an",
+     "kind": "array",
+     "x": 228,
+     "y": 24,
+     "cells": [
+      "N",
+      "N",
+      "N",
+      "N",
+      "N"
+     ],
+     "cw": 22,
+     "ch": 26,
+     "indices": false,
+     "tone": "mid"
+    },
+    {
+     "id": "tr",
+     "kind": "text",
+     "x": 180,
+     "y": 72,
+     "text": "9 yes + 5 no = 14 rows",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "bp",
+     "kind": "bar",
+     "x": 20,
+     "y": 104,
+     "w": 130,
+     "h": 64,
+     "max": 1,
+     "values": [
+      0.643,
+      0.357
+     ],
+     "labels": [
+      "p yes",
+      "p no"
+     ]
+    },
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 168,
+     "y": 112,
+     "text": "yes term:\n0.643 x 0.637 = 0.410",
+     "size": 12,
+     "anchor": "start",
+     "tone": "good"
+    },
+    {
+     "id": "c2",
+     "kind": "text",
+     "x": 168,
+     "y": 154,
+     "text": "no term:\n0.357 x 1.485 = 0.530",
+     "size": 12,
+     "anchor": "start",
+     "tone": "mid"
+    },
+    {
+     "id": "c3",
+     "kind": "text",
+     "x": 180,
+     "y": 198,
+     "text": "H = 0.410 + 0.530 = 0.940 bits",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "bh",
+     "kind": "bar",
+     "x": 90,
+     "y": 236,
+     "w": 180,
+     "h": 44,
+     "max": 1,
+     "values": [
+      0.94,
+      1
+     ],
+     "labels": [
+      "this node",
+      "even mix"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A node holds 14 rows: 9 are yes and 5 are no.",
+     "show": [
+      "ay",
+      "an",
+      "tr"
+     ],
+     "highlight": [
+      {
+       "id": "ay",
+       "tone": "good"
+      },
+      {
+       "id": "an",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Fractions: p(yes) = 9/14 = 0.643 and p(no) = 5/14 = 0.357.",
+     "show": "bp",
+     "highlight": "bp"
+    },
+    {
+     "caption": "Yes term. log2(0.643) = ln(0.643) / ln(2) = -0.442 / 0.693 = -0.637. The term is -0.643 x (-0.637) = 0.410.",
+     "show": "c1",
+     "highlight": [
+      "c1",
+      {
+       "id": "bp",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "No term. log2(0.357) = ln(0.357) / ln(2) = -1.030 / 0.693 = -1.485. The term is 0.357 x 1.485 = 0.530.",
+     "show": "c2",
+     "highlight": [
+      "c2",
+      {
+       "id": "bp",
+       "cells": [
+        1
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Entropy is the sum: 0.410 + 0.530 = 0.940 bits. An even mix would give 1 bit, so this node is close to the most mixed it can be.",
+     "show": [
+      "c3",
+      "bh"
+     ],
+     "highlight": [
+      {
+       "id": "bh",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ml.dt.gini",
+   "title": "Gini impurity of a node with 8 yes and 4 no",
+   "viewBox": [
+    0,
+    0,
+    360,
+    276
+   ],
+   "objects": [
+    {
+     "id": "ay",
+     "kind": "array",
+     "x": 28,
+     "y": 22,
+     "cells": [
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y",
+      "Y"
+     ],
+     "cw": 24,
+     "ch": 26,
+     "indices": false,
+     "tone": "good"
+    },
+    {
+     "id": "an",
+     "kind": "array",
+     "x": 236,
+     "y": 22,
+     "cells": [
+      "N",
+      "N",
+      "N",
+      "N"
+     ],
+     "cw": 24,
+     "ch": 26,
+     "indices": false,
+     "tone": "mid"
+    },
+    {
+     "id": "tr",
+     "kind": "text",
+     "x": 180,
+     "y": 70,
+     "text": "8 yes + 4 no = 12 rows",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "bp",
+     "kind": "bar",
+     "x": 20,
+     "y": 96,
+     "w": 130,
+     "h": 60,
+     "max": 1,
+     "values": [
+      0.667,
+      0.333
+     ],
+     "labels": [
+      "p yes",
+      "p no"
+     ]
+    },
+    {
+     "id": "bs",
+     "kind": "bar",
+     "x": 200,
+     "y": 96,
+     "w": 130,
+     "h": 60,
+     "max": 1,
+     "values": [
+      0.444,
+      0.111
+     ],
+     "labels": [
+      "p yes²",
+      "p no²"
+     ]
+    },
+    {
+     "id": "ta",
+     "kind": "text",
+     "x": 180,
+     "y": 198,
+     "text": "(2/3)² = 4/9 = 0.444     (1/3)² = 1/9 = 0.111",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "tb",
+     "kind": "text",
+     "x": 180,
+     "y": 222,
+     "text": "sum = 4/9 + 1/9 = 5/9 = 0.556",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "tc",
+     "kind": "text",
+     "x": 180,
+     "y": 250,
+     "text": "Gini = 1 - 5/9 = 4/9 = 0.444",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A node holds 12 rows: 8 yes and 4 no.",
+     "show": [
+      "ay",
+      "an",
+      "tr"
+     ],
+     "highlight": [
+      {
+       "id": "ay",
+       "tone": "good"
+      },
+      {
+       "id": "an",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Fractions: p(yes) = 8/12 = 2/3 = 0.667 and p(no) = 4/12 = 1/3 = 0.333.",
+     "show": "bp",
+     "highlight": "bp"
+    },
+    {
+     "caption": "Square each fraction: (2/3)² = 4/9 = 0.444 and (1/3)² = 1/9 = 0.111. Each square is the chance that two random draws are both of that class.",
+     "show": [
+      "bs",
+      "ta"
+     ],
+     "highlight": [
+      "bs",
+      "ta"
+     ]
+    },
+    {
+     "caption": "Add the squares: 4/9 + 1/9 = 5/9 = 0.556. That is the chance that two random draws have the same label.",
+     "show": "tb",
+     "highlight": "tb"
+    },
+    {
+     "caption": "Gini is the chance that they differ: 1 - 5/9 = 4/9 = 0.444. For two classes the most it can be is 0.5.",
+     "show": "tc",
+     "highlight": "tc"
+    }
+   ]
+  },
+  {
+   "id": "ml.dt.gain",
+   "title": "Information gain of a split on Study",
+   "viewBox": [
+    0,
+    0,
+    360,
+    318
+   ],
+   "objects": [
+    {
+     "id": "par",
+     "kind": "node",
+     "x": 180,
+     "y": 36,
+     "r": 30,
+     "label": "6P 6F"
+    },
+    {
+     "id": "c1",
+     "kind": "node",
+     "x": 90,
+     "y": 118,
+     "r": 30,
+     "label": "5P 1F"
+    },
+    {
+     "id": "c2",
+     "kind": "node",
+     "x": 270,
+     "y": 118,
+     "r": 30,
+     "label": "1P 5F"
+    },
+    {
+     "id": "e1",
+     "kind": "arrow",
+     "from": "par",
+     "to": "c1",
+     "label": "high"
+    },
+    {
+     "id": "e2",
+     "kind": "arrow",
+     "from": "par",
+     "to": "c2",
+     "label": "low"
+    },
+    {
+     "id": "hp",
+     "kind": "text",
+     "x": 226,
+     "y": 36,
+     "text": "H = 1",
+     "size": 13,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 90,
+     "y": 160,
+     "text": "H = 0.650",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "h2",
+     "kind": "text",
+     "x": 270,
+     "y": 160,
+     "text": "H = 0.650",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "tf",
+     "kind": "text",
+     "x": 180,
+     "y": 184,
+     "text": "0.833 x 0.263 + 0.167 x 2.585 = 0.650",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "tw",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "weighted: (6/12)(0.650) + (6/12)(0.650) = 0.650",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "tg",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "gain = 1 - 0.650 = 0.350",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "bw",
+     "kind": "bar",
+     "x": 60,
+     "y": 248,
+     "w": 240,
+     "h": 40,
+     "max": 1,
+     "values": [
+      1,
+      0.65,
+      0.35
+     ],
+     "labels": [
+      "parent H",
+      "weighted",
+      "gain"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "12 students: 6 pass (P) and 6 fail (F). An even mix has entropy 1 bit.",
+     "show": [
+      "par",
+      "hp"
+     ],
+     "highlight": [
+      "par"
+     ]
+    },
+    {
+     "caption": "Split on the attribute Study. The high-study child gets 5 P and 1 F. The low-study child gets 1 P and 5 F. Each child has 6 of the 12 rows.",
+     "show": [
+      "c1",
+      "c2",
+      "e1",
+      "e2"
+     ],
+     "draw": [
+      "e1",
+      "e2"
+     ],
+     "highlight": [
+      "c1",
+      "c2"
+     ]
+    },
+    {
+     "caption": "Entropy of a (5, 1) child: 0.833 x 0.263 + 0.167 x 2.585 = 0.219 + 0.431 = 0.650. The (1, 5) child has the same value.",
+     "show": [
+      "h1",
+      "h2",
+      "tf"
+     ],
+     "highlight": [
+      "h1",
+      "h2",
+      "tf"
+     ]
+    },
+    {
+     "caption": "Weight each child by its share of the rows: 6/12 each. Average entropy left after the split = 0.5 x 0.650 + 0.5 x 0.650 = 0.650.",
+     "show": "tw",
+     "highlight": "tw"
+    },
+    {
+     "caption": "Information gain = parent entropy - weighted child entropy = 1 - 0.650 = 0.350 bits.",
+     "show": [
+      "tg",
+      "bw"
+     ],
+     "highlight": [
+      {
+       "id": "bw",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      },
+      "tg"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ml.dt.split",
+   "title": "Choose the split with the largest information gain",
+   "viewBox": [
+    0,
+    0,
+    360,
+    290
+   ],
+   "objects": [
+    {
+     "id": "par",
+     "kind": "node",
+     "x": 180,
+     "y": 32,
+     "r": 26,
+     "label": "6Y 4N"
+    },
+    {
+     "id": "c1",
+     "kind": "node",
+     "x": 95,
+     "y": 104,
+     "r": 26,
+     "label": "4Y 0N"
+    },
+    {
+     "id": "c2",
+     "kind": "node",
+     "x": 265,
+     "y": 104,
+     "r": 26,
+     "label": "2Y 4N"
+    },
+    {
+     "id": "e1",
+     "kind": "arrow",
+     "from": "par",
+     "to": "c1",
+     "label": "A=0"
+    },
+    {
+     "id": "e2",
+     "kind": "arrow",
+     "from": "par",
+     "to": "c2",
+     "label": "A=1"
+    },
+    {
+     "id": "hp",
+     "kind": "text",
+     "x": 218,
+     "y": 34,
+     "text": "H = 0.971",
+     "size": 12,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 95,
+     "y": 144,
+     "text": "H = 0",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "h2",
+     "kind": "text",
+     "x": 265,
+     "y": 144,
+     "text": "H = 0.918",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "g",
+     "kind": "text",
+     "x": 180,
+     "y": 112,
+     "text": "gain 0.420",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "b",
+     "kind": "bar",
+     "x": 50,
+     "y": 182,
+     "w": 260,
+     "h": 46,
+     "max": 1,
+     "values": [
+      0.971,
+      0.551
+     ],
+     "labels": [
+      "parent",
+      "after split"
+     ]
+    },
+    {
+     "id": "rb",
+     "kind": "text",
+     "x": 180,
+     "y": 268,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "10 rows: 6 yes and 4 no. Try the split on attribute A. The A = 0 branch gets 4 yes and 0 no. The A = 1 branch gets 2 yes and 4 no.",
+     "show": [
+      "par",
+      "c1",
+      "c2",
+      "e1",
+      "e2"
+     ],
+     "draw": [
+      "e1",
+      "e2"
+     ],
+     "highlight": [
+      "par"
+     ]
+    },
+    {
+     "caption": "The parent entropy is 0.971. The left child is pure, so 0. The right child, with 2 of 6 yes, has entropy 0.918.",
+     "show": [
+      "hp",
+      "h1",
+      "h2"
+     ],
+     "highlight": [
+      "hp",
+      "h1",
+      "h2"
+     ]
+    },
+    {
+     "caption": "Entropy left after the split: 0.4 x 0 + 0.6 x 0.918 = 0.551. Gain for A = 0.971 - 0.551 = 0.420.",
+     "show": [
+      "b",
+      "g"
+     ],
+     "math": "$IG_A=0.971-(0.4\\cdot0+0.6\\cdot0.918)=0.420$",
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      },
+      "g"
+     ],
+     "set": {
+      "id": "rb",
+      "text": "A: gain 0.420"
+     }
+    },
+    {
+     "caption": "Now try attribute B. 5 rows go left (4 yes, 1 no, entropy 0.722) and 5 go right (2 yes, 3 no, entropy 0.971). Both children stay mixed. Weighted entropy 0.846, gain 0.125.",
+     "set": [
+      {
+       "id": "c1",
+       "label": "4Y 1N"
+      },
+      {
+       "id": "c2",
+       "label": "2Y 3N"
+      },
+      {
+       "id": "e1",
+       "label": "B=0"
+      },
+      {
+       "id": "e2",
+       "label": "B=1"
+      },
+      {
+       "id": "h1",
+       "text": "H = 0.722"
+      },
+      {
+       "id": "h2",
+       "text": "H = 0.971"
+      },
+      {
+       "id": "g",
+       "text": "gain 0.125",
+       "tone": "bad"
+      },
+      {
+       "id": "b",
+       "values": [
+        0.971,
+        0.846
+       ]
+      },
+      {
+       "id": "rb",
+       "text": "A: gain 0.420      B: gain 0.125",
+       "tone": "accent"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "b",
+       "cells": [
+        1
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "g",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "A leaves less entropy behind (0.551 against 0.846), so its gain is larger. The greedy tree splits on A. The left child is pure, so it becomes a leaf (green). The right child (2 yes, 4 no) is split again.",
+     "set": [
+      {
+       "id": "c1",
+       "label": "4Y 0N"
+      },
+      {
+       "id": "c2",
+       "label": "2Y 4N"
+      },
+      {
+       "id": "e1",
+       "label": "A=0"
+      },
+      {
+       "id": "e2",
+       "label": "A=1"
+      },
+      {
+       "id": "h1",
+       "text": "H = 0"
+      },
+      {
+       "id": "h2",
+       "text": "H = 0.918"
+      },
+      {
+       "id": "g",
+       "text": "gain 0.420",
+       "tone": "good"
+      },
+      {
+       "id": "b",
+       "values": [
+        0.971,
+        0.551
+       ]
+      },
+      {
+       "id": "rb",
+       "text": "split on A: 0.420 > 0.125",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "c1",
+       "tone": "good"
+      },
+      {
+       "id": "c2",
+       "tone": "mid"
+      },
+      {
+       "id": "b",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ml.dt.threshold",
+   "title": "Trying the cuts of a numeric attribute",
+   "viewBox": [
+    0,
+    0,
+    360,
+    296
+   ],
+   "objects": [
+    {
+     "id": "ax",
+     "kind": "axis",
+     "x": 24,
+     "y": 66,
+     "unit": 31,
+     "xr": [
+      0,
+      10
+     ],
+     "yr": [
+      0,
+      1
+     ]
+    },
+    {
+     "id": "p0",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      1,
+      0
+     ],
+     "label": "N",
+     "tone": "mid"
+    },
+    {
+     "id": "p1",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      2,
+      0
+     ],
+     "label": "N",
+     "tone": "mid"
+    },
+    {
+     "id": "p2",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      4,
+      0
+     ],
+     "label": "Y",
+     "tone": "good"
+    },
+    {
+     "id": "p3",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      5,
+      0
+     ],
+     "label": "Y",
+     "tone": "good"
+    },
+    {
+     "id": "p4",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      6,
+      0
+     ],
+     "label": "Y",
+     "tone": "good"
+    },
+    {
+     "id": "p5",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      8,
+      0
+     ],
+     "label": "N",
+     "tone": "mid"
+    },
+    {
+     "id": "p6",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      9,
+      0
+     ],
+     "label": "Y",
+     "tone": "good"
+    },
+    {
+     "id": "p7",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      10,
+      0
+     ],
+     "label": "Y",
+     "tone": "good"
+    },
+    {
+     "id": "t3",
+     "kind": "curve",
+     "axis": "ax",
+     "points": [
+      [
+       3,
+       0
+      ],
+      [
+       3,
+       1.1
+      ]
+     ],
+     "tone": "accent",
+     "dash": true
+    },
+    {
+     "id": "t7",
+     "kind": "curve",
+     "axis": "ax",
+     "points": [
+      [
+       7,
+       0
+      ],
+      [
+       7,
+       1.1
+      ]
+     ],
+     "tone": "accent",
+     "dash": true
+    },
+    {
+     "id": "t85",
+     "kind": "curve",
+     "axis": "ax",
+     "points": [
+      [
+       8.5,
+       0
+      ],
+      [
+       8.5,
+       1.1
+      ]
+     ],
+     "tone": "accent",
+     "dash": true
+    },
+    {
+     "id": "l3",
+     "kind": "text",
+     "x": 117,
+     "y": 22,
+     "text": "t=3",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "l7",
+     "kind": "text",
+     "x": 241,
+     "y": 22,
+     "text": "t=7",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "l85",
+     "kind": "text",
+     "x": 288,
+     "y": 22,
+     "text": "t=8.5",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "r1",
+     "kind": "text",
+     "x": 180,
+     "y": 104,
+     "text": "8 students: 3 fail (N), 5 pass (Y).  H = 0.954",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "r2",
+     "kind": "text",
+     "x": 180,
+     "y": 126,
+     "text": "cuts: 2|4 -> 3,   6|8 -> 7,   8|9 -> 8.5",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "r3",
+     "kind": "text",
+     "x": 180,
+     "y": 148,
+     "text": "t = 3:  left 0,  right 0.650,  IG = 0.467",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "r4",
+     "kind": "text",
+     "x": 180,
+     "y": 170,
+     "text": "t = 7: IG = 0.003     t = 8.5: IG = 0.204",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "r5",
+     "kind": "text",
+     "x": 180,
+     "y": 194,
+     "text": "best cut: t = 3   (hours < 3: fail)",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "bi",
+     "kind": "bar",
+     "x": 70,
+     "y": 218,
+     "w": 220,
+     "h": 44,
+     "max": 0.5,
+     "values": [
+      0.467,
+      0.003,
+      0.204
+     ],
+     "labels": [
+      "t = 3",
+      "t = 7",
+      "t = 8.5"
+     ]
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Eight students: hours studied on the line and the result, N for fail and Y for pass. In order of hours the labels are N N Y Y Y N Y Y. Parent: 3 N and 5 Y, entropy 0.954.",
+     "show": "r1",
+     "highlight": [
+      {
+       "id": "p0",
+       "tone": "mid"
+      },
+      {
+       "id": "p1",
+       "tone": "mid"
+      },
+      {
+       "id": "p2",
+       "tone": "good"
+      },
+      {
+       "id": "p3",
+       "tone": "good"
+      },
+      {
+       "id": "p4",
+       "tone": "good"
+      },
+      {
+       "id": "p5",
+       "tone": "mid"
+      },
+      {
+       "id": "p6",
+       "tone": "good"
+      },
+      {
+       "id": "p7",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "A cut only needs checking where the label changes between neighbours: between 2 and 4 (cut 3), between 6 and 8 (cut 7), and between 8 and 9 (cut 8.5). The cut sits halfway.",
+     "show": [
+      "t3",
+      "t7",
+      "t85",
+      "l3",
+      "l7",
+      "l85",
+      "r2"
+     ],
+     "draw": [
+      "t3",
+      "t7",
+      "t85"
+     ]
+    },
+    {
+     "caption": "Cut at 3: the left side {1, 2} is all N, entropy 0. The right side has 5 Y and 1 N, entropy 0.650. Gain = 0.954 - (6/8)(0.650) = 0.467.",
+     "show": "r3",
+     "highlight": [
+      "t3",
+      "l3",
+      "r3"
+     ]
+    },
+    {
+     "caption": "Cut at 7: the left (2 N, 3 Y) has entropy 0.971 and the right (1 N, 2 Y) has 0.918, so the gain is only 0.003. Cut at 8.5: the left is 3 N and 3 Y, entropy 1, and the right is all Y. Gain = 0.954 - 0.75 = 0.204.",
+     "show": "r4",
+     "highlight": [
+      "t7",
+      "t85",
+      "r4"
+     ]
+    },
+    {
+     "caption": "The best cut is 3, with gain 0.467. The rule is: hours below 3 means fail, otherwise pass.",
+     "show": [
+      "r5",
+      "bi"
+     ],
+     "highlight": [
+      {
+       "id": "bi",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      },
+      "t3"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ml.dt.leaf",
+   "title": "Leaf predictions and the training error of a tree",
+   "viewBox": [
+    0,
+    0,
+    360,
+    298
+   ],
+   "objects": [
+    {
+     "id": "rt",
+     "kind": "node",
+     "x": 180,
+     "y": 30,
+     "r": 26,
+     "label": "12Y 8N"
+    },
+    {
+     "id": "l1",
+     "kind": "node",
+     "x": 60,
+     "y": 112,
+     "r": 28,
+     "label": "7Y 1N"
+    },
+    {
+     "id": "l2",
+     "kind": "node",
+     "x": 180,
+     "y": 112,
+     "r": 28,
+     "label": "2Y 5N"
+    },
+    {
+     "id": "l3",
+     "kind": "node",
+     "x": 300,
+     "y": 112,
+     "r": 28,
+     "label": "3Y 2N"
+    },
+    {
+     "id": "e1",
+     "kind": "arrow",
+     "from": "rt",
+     "to": "l1",
+     "label": "low"
+    },
+    {
+     "id": "e2",
+     "kind": "arrow",
+     "from": "rt",
+     "to": "l2",
+     "label": "mid"
+    },
+    {
+     "id": "e3",
+     "kind": "arrow",
+     "from": "rt",
+     "to": "l3",
+     "label": "high"
+    },
+    {
+     "id": "p1",
+     "kind": "text",
+     "x": 60,
+     "y": 156,
+     "text": "predict Y",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "p2",
+     "kind": "text",
+     "x": 180,
+     "y": 156,
+     "text": "predict N",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "mid"
+    },
+    {
+     "id": "p3",
+     "kind": "text",
+     "x": 300,
+     "y": 156,
+     "text": "predict Y",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "w1",
+     "kind": "text",
+     "x": 60,
+     "y": 178,
+     "text": "1 wrong",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "w2",
+     "kind": "text",
+     "x": 180,
+     "y": 178,
+     "text": "2 wrong",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "w3",
+     "kind": "text",
+     "x": 300,
+     "y": 178,
+     "text": "2 wrong",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "t1",
+     "kind": "text",
+     "x": 180,
+     "y": 208,
+     "text": "errors: 1 + 2 + 2 = 5 out of all 20 rows",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "t2",
+     "kind": "text",
+     "x": 180,
+     "y": 232,
+     "text": "training error = 5/20 = 25%     accuracy 75%",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    },
+    {
+     "id": "t3",
+     "kind": "text",
+     "x": 180,
+     "y": 260,
+     "text": "leaf rates: 1/8 = 12.5%,  2/7 = 28.6%,  2/5 = 40%",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "t4",
+     "kind": "text",
+     "x": 180,
+     "y": 282,
+     "text": "their plain mean 27.0% is wrong: weight by size",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "bad"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A tree has 3 leaves and was trained on 20 rows (12 yes, 8 no). Leaf 1 holds 7 yes and 1 no. Leaf 2 holds 2 yes and 5 no. Leaf 3 holds 3 yes and 2 no.",
+     "show": [
+      "rt",
+      "l1",
+      "l2",
+      "l3",
+      "e1",
+      "e2",
+      "e3"
+     ],
+     "draw": [
+      "e1",
+      "e2",
+      "e3"
+     ],
+     "highlight": [
+      "rt"
+     ]
+    },
+    {
+     "caption": "Each leaf predicts its majority class. Leaf 1 says yes (7 against 1), leaf 2 says no (5 against 2), leaf 3 says yes (3 against 2).",
+     "show": [
+      "p1",
+      "p2",
+      "p3"
+     ],
+     "set": [
+      {
+       "id": "l1",
+       "tone": "good"
+      },
+      {
+       "id": "l2",
+       "tone": "mid"
+      },
+      {
+       "id": "l3",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      "p1",
+      "p2",
+      "p3"
+     ]
+    },
+    {
+     "caption": "The rows in the minority are misclassified. Leaf 1 gets 1 row wrong, leaf 2 gets 2 wrong and leaf 3 gets 2 wrong.",
+     "show": [
+      "w1",
+      "w2",
+      "w3"
+     ],
+     "highlight": [
+      "w1",
+      "w2",
+      "w3"
+     ]
+    },
+    {
+     "caption": "Total wrong = 1 + 2 + 2 = 5 out of all 20 rows. Training error = 5/20 = 25%, so accuracy is 75%.",
+     "show": [
+      "t1",
+      "t2"
+     ],
+     "highlight": [
+      "t1",
+      "t2"
+     ]
+    },
+    {
+     "caption": "Check with the leaf error rates: 1/8 = 12.5%, 2/7 = 28.6%, 2/5 = 40%. Their plain average is 27.0%, not 25%, because the leaves have different sizes.",
+     "show": [
+      "t3",
+      "t4"
+     ],
+     "highlight": [
+      "t3",
+      "t4"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ml.dt.depth",
+   "title": "Training and validation error against tree depth",
+   "viewBox": [
+    0,
+    0,
+    360,
+    256
+   ],
+   "objects": [
+    {
+     "id": "tT",
+     "kind": "text",
+     "x": 98,
+     "y": 18,
+     "text": "training error %",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "tV",
+     "kind": "text",
+     "x": 268,
+     "y": 18,
+     "text": "validation error %",
+     "size": 12,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "bT",
+     "kind": "bar",
+     "x": 16,
+     "y": 40,
+     "w": 164,
+     "h": 104,
+     "max": 25,
+     "values": [
+      22,
+      14,
+      8,
+      4,
+      1,
+      0
+     ],
+     "labels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+     ]
+    },
+    {
+     "id": "bV",
+     "kind": "bar",
+     "x": 186,
+     "y": 40,
+     "w": 164,
+     "h": 104,
+     "max": 25,
+     "values": [
+      25,
+      17,
+      13,
+      14,
+      18,
+      23
+     ],
+     "labels": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+     ]
+    },
+    {
+     "id": "dT",
+     "kind": "text",
+     "x": 98,
+     "y": 176,
+     "text": "tree depth",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "dV",
+     "kind": "text",
+     "x": 268,
+     "y": 176,
+     "text": "tree depth",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "rb",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "at most 2^depth leaves: 2, 4, 8, 16, 32, 64",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "rc",
+     "kind": "text",
+     "x": 180,
+     "y": 232,
+     "text": "",
+     "size": 12,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "We train trees of depth 1 to 6. The depth is the number of splits from the root to a leaf, so a depth-d tree has at most 2^d leaves: 2, 4, 8, 16, 32, 64. Deeper trees are more flexible.",
+     "show": [
+      "tT",
+      "dT",
+      "rb"
+     ]
+    },
+    {
+     "caption": "Training error (%) for depths 1 to 6 is 22, 14, 8, 4, 1, 0. It only falls with depth, because every extra split can only help on the rows the tree has already seen.",
+     "show": "bT",
+     "highlight": "bT",
+     "set": {
+      "id": "rb",
+      "text": "training error only falls"
+     }
+    },
+    {
+     "caption": "Validation error (%) on unseen rows is 25, 17, 13, 14, 18, 23. It falls at first, then rises again.",
+     "show": [
+      "tV",
+      "dV",
+      "bV"
+     ],
+     "highlight": "bV",
+     "set": {
+      "id": "rb",
+      "text": "validation error falls, then rises"
+     }
+    },
+    {
+     "caption": "The lowest validation error is 13% at depth 3, so depth 3 is the best choice. Pick the depth by validation error, never by training error.",
+     "highlight": [
+      {
+       "id": "bV",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "bT",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "rb",
+       "text": "best depth = 3 (validation 13%)",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "At depth 6 the training error is 0% but the validation error is 23%. The tree has memorised the training rows: overfitting. At depth 1 both errors are high: underfitting.",
+     "show": "rc",
+     "highlight": [
+      {
+       "id": "bV",
+       "cells": [
+        5
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "bT",
+       "cells": [
+        5
+       ],
+       "tone": "bad"
+      }
+     ],
+     "set": [
+      {
+       "id": "rb",
+       "text": "depth 6: 0% on training, 23% on new rows",
+       "tone": "bad"
+      },
+      {
+       "id": "rc",
+       "text": "gap of 23 points = overfitting"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

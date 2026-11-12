@@ -1,0 +1,1687 @@
+{
+  "topic_id": "cd.icg_dataflow",
+  "blueprint": {
+    "atoms": [
+      {
+        "id": "d1",
+        "name": "Three-address code and triples",
+        "one_line": "One operator per instruction; quadruples name results, triples use positions."
+      },
+      {
+        "id": "d2",
+        "name": "DAG of a basic block",
+        "one_line": "Reuse a node for the same operator on the same operand nodes."
+      },
+      {
+        "id": "d3",
+        "name": "Basic blocks and CFG",
+        "one_line": "Leaders split the code; edges are jumps plus fall-through."
+      },
+      {
+        "id": "d4",
+        "name": "Liveness analysis",
+        "one_line": "Backward may analysis: IN = USE ∪ (OUT − DEF)."
+      },
+      {
+        "id": "d5",
+        "name": "Reaching definitions",
+        "one_line": "Forward may analysis with GEN and KILL, union at joins."
+      },
+      {
+        "id": "d6",
+        "name": "Available expressions and CSE",
+        "one_line": "Forward must analysis, intersection at joins; reuse available expressions."
+      },
+      {
+        "id": "d7",
+        "name": "Constant propagation and folding",
+        "one_line": "Constants through the CFG; different constants meet to not-a-constant."
+      },
+      {
+        "id": "d8",
+        "name": "Register need",
+        "one_line": "Sethi-Ullman labels for trees; maximum live set for straight-line code."
+      },
+      {
+        "id": "d9",
+        "name": "SSA form",
+        "one_line": "Fresh name per assignment, latest name at each use, φ where definitions merge."
+      }
+    ],
+    "patterns": [
+      {
+        "name": "Liveness sets over a CFG",
+        "years": [
+          "2023-CS-q37",
+          "2026-CS2-q45",
+          "2021-CS2-q48",
+          "2015-CS1-q50"
+        ],
+        "freq": 4,
+        "note": "Iterate backward through loops; OUT is the union of successors' IN."
+      },
+      {
+        "name": "Basic blocks and CFG counts",
+        "years": [
+          "2024-CS1-q39",
+          "2025-CS1-q52",
+          "2015-CS2-q29"
+        ],
+        "freq": 3,
+        "note": "Mark leaders; count blocks, sizes, nodes and edges."
+      },
+      {
+        "name": "DAG node and edge counts",
+        "years": [
+          "2021-CS1-q60",
+          "2014-CS3-q34"
+        ],
+        "freq": 2,
+        "note": "Value-number; redefined variables make new nodes."
+      },
+      {
+        "name": "Common subexpression and available expressions",
+        "years": [
+          "2026-CS1-q42",
+          "2021-CS2-q40",
+          "2014-CS1-q17",
+          "2006-CS-q60"
+        ],
+        "freq": 4,
+        "note": "Intersect paths; operand kills; count operations after CSE."
+      },
+      {
+        "name": "Register count and spills",
+        "years": [
+          "2017-CS1-q52",
+          "2010-CS-q37",
+          "2004-CS-q10",
+          "2025-CS1-q13"
+        ],
+        "freq": 4,
+        "note": "Sethi-Ullman or maximum live set."
+      },
+      {
+        "name": "SSA renaming and counting",
+        "years": [
+          "2017-CS1-q12",
+          "2015-CS1-q55",
+          "2016-CS1-q19"
+        ],
+        "freq": 3,
+        "note": "Fresh name per assignment; inputs count too."
+      },
+      {
+        "name": "Triples and IR facts",
+        "years": [
+          "2024-CS2-q43",
+          "2021-CS2-q23",
+          "2025-CS2-q21",
+          "2014-CS3-q17",
+          "2014-CS2-q34"
+        ],
+        "freq": 5,
+        "note": "Read/write array triples; IR kinds; backpatching; address arithmetic."
+      }
+    ],
+    "traps": [
+      "Using union at joins for available expressions, or intersection for reaching definitions.",
+      "Single pass over a loop for liveness or constant propagation: iterate to a fixed point.",
+      "Reusing a DAG node after an operand was redefined.",
+      "Missing the leader after an unconditional goto, or after a conditional jump.",
+      "Counting ENTRY and EXIT nodes inconsistently in CFG node and edge counts.",
+      "Counting constants as registers in Sethi-Ullman labelling.",
+      "Forgetting the loop counter's additions when counting operations after optimisation.",
+      "Counting only new names when asked for all SSA variables (inputs count too)."
+    ],
+    "hardest_pyq": "2026-CS1-q42",
+    "summary_md": "**Payoff:** solve block, CFG and data-flow questions by iterating a few set equations.\n\n- **Blocks**: leaders split the code; edges follow jumps.\n- **Liveness**: backward; **reaching**: forward union.\n- **Available expressions**: forward, intersect at joins.\n\n$$\\text{IN}[B] = \\text{USE}[B] \\cup (\\text{OUT}[B] - \\text{DEF}[B])$$\n\nNext: try the Level 1 questions.",
+    "summary_full_md": "## Core idea\nAfter parsing, a compiler lowers the program to three-address code, splits it into basic blocks, and analyses the control flow graph. GATE asks you to count blocks and edges, build DAGs, and solve a data-flow problem on a small CFG.\n\n## Intermediate code\nA three-address instruction has at most one operator. Quadruples store (op, arg1, arg2, result). Triples drop the result and refer to earlier results by position; indirect triples add a list to allow reordering. An array read is =[] a i and an array store is []= a i followed by an assignment triple. Backpatching leaves jump targets blank on truelist and falselist and fills them when the label is known, in one pass.\n\n## Basic blocks and DAGs\nLeaders are the first instruction, every jump target, and every instruction after a jump. A block runs from a leader to just before the next leader. The CFG has an edge for every jump and every fall-through. In a block's DAG, an operation gets a new node unless the same operator already applies to the same operand nodes. A redefined variable is a different operand node.\n\n## Data-flow analyses\n1. **Liveness** (backward, may): IN = USE ∪ (OUT − DEF); OUT = union of the successors' IN.\n2. **Reaching definitions** (forward, may): OUT = GEN ∪ (IN − KILL); IN = union of the predecessors' OUT.\n3. **Available expressions** (forward, must): IN = intersection of the predecessors' OUT; an operand redefinition kills the expression.\n4. **Constant propagation** (forward): at a join a variable is constant only if all paths agree.\nLoops need iteration until the sets stop changing.\n\n## Optimisation and registers\nCommon subexpression elimination removes a computation that is available. Constant folding evaluates constants at compile time. For an expression tree, Sethi-Ullman labelling gives the registers needed: a leaf needs 1, an immediate 0, and a node with children m and n needs m + 1 if they are equal, otherwise max(m, n). For straight-line code the register need is the largest live set. In SSA each assignment gets a new name and each use refers to the latest name; φ-functions go where different definitions merge.\n\n## What GATE asks\nLiveness sets (4), block and CFG counts (3), DAG counts (2), CSE and available expressions (4), register counts (4), SSA (3), IR facts (5). The hardest pyq is 2026 CS1 Q42: available expressions across a diamond with a kill."
+  },
+  "pyq_enrichment": [
+    {
+      "id": "2017-CS1-q12",
+      "difficulty": 3,
+      "quick_method": "- SSA: new name per **assignment**; uses take the latest.",
+      "solution": "- Four **assignments** give p1, q1, p2, q2 style names.\n- Option B uses distinct **names** with latest uses.\n- **Answer: B**",
+      "explanation": "- Each use refers to the most recent **definition**.",
+      "trap_note": "- Don't **reuse** a name, do number every assignment.",
+      "hints": [
+        "How many assignments define p and q?",
+        "In the last line, which versions of p and q are the latest?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. Rename every assignment with a fresh name and make each use point at the latest definition on its path.\n2. Option B: p3 = a - b; q4 = p3 * c (uses p3, the latest p); p4 = u * v; q5 = p4 + q4 (uses the latest p4 and q4).\n3. Option A reuses the names p1 and q1, so it is not single assignment. Option C refers to p2, q3 and p4, which are not the latest definitions. Option D leaves uses as plain p and q.\n4. Option B is the only one that is both single assignment and consistent.",
+      "explanation_full": "SSA renaming needs two rules: unique definitions, and each use pointing at the latest definition on its path.",
+      "trap_note_full": "Choosing A or D because the first lines look right. Names must be unique throughout."
+    },
+    {
+      "id": "2017-CS1-q52",
+      "difficulty": 4,
+      "quick_method": "- Sethi-Ullman labels: immediates cost **0**.",
+      "solution": "- (a-1) is **1**; b+c is 2; /3 and +d stay 2.\n- Root: children 1 and 2 give **2**.\n- **Answer: 2**",
+      "explanation": "- Equal labels add one; otherwise take the **larger**.",
+      "trap_note": "- Don't **count** constants as registers, do treat them as immediates.",
+      "hints": [
+        "Leaves that are variables need a register, immediates do not.",
+        "Label (b+c) first."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. a - 1: variable a needs 1 register, the constant is an immediate: label 1.\n2. b + c: two variables, equal labels: 2. (b + c) / 3: immediate right operand: 2.\n3. ((b + c) / 3) + d: left 2, right 1: max = 2.\n4. Root *: left 1, right 2: max = 2.\n5. X = 2.",
+      "explanation_full": "Evaluate the heavier subtree first and keep its result in one register while the lighter one uses at most the rest.",
+      "trap_note_full": "Answering 3 by counting each of a, b, c, d as needing its own register."
+    },
+    {
+      "id": "2021-CS1-q60",
+      "difficulty": 3,
+      "quick_method": "- Same op, same operand **nodes**: one DAG node.",
+      "solution": "- **Leaves** b, c, 1: 3 nodes.\n- b+c, +1 (shared), e+f: **three** more.\n- **Answer: 6**",
+      "explanation": "- Repeated b+c makes f repeat **e** too.",
+      "trap_note": "- Don't **count** one node per statement, do merge repeats.",
+      "hints": [
+        "Is d = b + c the same as a = b + c?",
+        "If d merges with a, what happens to f?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. Leaves: b, c, 1 (3 nodes).\n2. a = b + c (node 4). e = a + 1 (node 5).\n3. d = b + c reuses node 4. f = d + 1 is node 4 + 1, which is node 5.\n4. g = e + f is node 5 + node 5 (node 6).\n5. Total 6. Script agrees.",
+      "explanation_full": "A DAG question reduces to value numbering. Always propagate merges upward.",
+      "trap_note_full": "Counting 8 (one node per statement and the leaves)."
+    },
+    {
+      "id": "2021-CS2-q23",
+      "difficulty": 2,
+      "quick_method": "- Symbol table is a **data** structure, not an IR.",
+      "solution": "- Three-**address** code, AST and CFG are IRs.\n- The symbol **table** is not.\n- **Answer: D**",
+      "explanation": "- IRs represent the **program**; the table holds names.",
+      "trap_note": "- Don't **call** CFG a non-IR, do list graphs as IRs.",
+      "hints": [
+        "Which options represent the program's structure or flow?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. Three-address code is a linear IR. AST is a tree IR. CFG is a graph IR.\n2. The symbol table stores identifiers and their attributes. It is a supporting structure, not an IR.\n3. The one that is NOT an IR: D.",
+      "explanation_full": "The question is an MSQ with a single correct option.",
+      "trap_note_full": "Selecting CFG because it is not code. It is still an IR."
+    },
+    {
+      "id": "2021-CS2-q40",
+      "difficulty": 3,
+      "quick_method": "- CSE: **x+3** once; y->f1 and y->f2 once each.",
+      "solution": "- **Additions**: 3 before the loop, 2 per iteration, 1 for i.\n- 3 + 300 = **303**; dereferences 2.\n- **Answer: D**",
+      "explanation": "- Count additions executed, including the **loop** counter.",
+      "trap_note": "- Don't **skip** i = i + 2, do count loop additions.",
+      "hints": [
+        "Which sub-expressions repeat: x + 3 and the two dereferences.",
+        "The loop runs 100 times."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "The official key is D (303 and 2). The question's own answer field is empty in our data; the crosscheck file has D.",
+      "solution_full": "1. Before the loop: t = x + 3 (1 addition); z = t + y->f1 + y->f2 (2 additions, 2 dereferences). That is 3.\n2. Each iteration: i = i + 2 (1 addition); then either p = p + t and q = q + (y->f1 reused): 2 additions, or p = p + (y->f2 reused) and q = q + t: 2 additions.\n3. 100 iterations (i from 0 to 198 by 2): 100 × 3 = 300 additions.\n4. Total 303 additions; dereferences 2.",
+      "explanation_full": "The trap is to count dereferences and additions separately and forget i = i + 2. Both y->f1 and y->f2 can be saved in registers because y does not change.",
+      "trap_note_full": "Choosing 203 by not counting the loop counter additions."
+    },
+    {
+      "id": "2021-CS2-q48",
+      "difficulty": 3,
+      "quick_method": "- A statement's OUT equals its successor's **IN**.",
+      "solution": "- In a **block** S1 flows into S2.\n- Live at exit of S1 equals live at entry of **S2**.\n- **Answer: A**",
+      "explanation": "- **Within** a block: OUT(S1) = IN(S2).",
+      "trap_note": "- Don't **add** OUT(S2), do match the straight edge.",
+      "hints": [
+        "Which statement follows S1?",
+        "Does OUT(S1) depend on anything but its successor?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. Liveness is a backward analysis: OUT(S) is the union of IN of successors.\n2. S1 has the single successor S2, so OUT(S1) = IN(S2).\n3. C adds OUT(S2), D adds USE(S1), B uses IN(S1): all wrong. Option A.",
+      "explanation_full": "Equations: IN(S) = USE(S) ∪ (OUT(S) − DEF(S)), OUT(S) = ∪ IN(successors).",
+      "trap_note_full": "Choosing D because USE(S1) sounds like it should matter. It belongs to IN(S1)."
+    },
+    {
+      "id": "2023-CS-q37",
+      "difficulty": 3,
+      "quick_method": "- Backward: OUT = union of successors' **IN**; iterate the loop.",
+      "solution": "- a is used in B4 and the loop **keeps** it live.\n- i is redefined before use; j is live around the **loop**.\n- **Answer: D**",
+      "explanation": "- Variables redefined before any use are not live **before**.",
+      "trap_note": "- Don't **trust** one pass over a loop, do iterate.",
+      "hints": [
+        "B4 uses a and defines i. B2 uses i and j.",
+        "B4 flows back into B2."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "Solver result: OUT(B1) = {a,i,j}, OUT(B2) = {a,j}, OUT(B3) = {a,j}, OUT(B4) = {a,i,j}.",
+      "solution_full": "1. Edges: B1 to B2, B2 to B3, B2 to B4, B3 to B4, B4 to B2. B4 also reaches EXIT.\n2. B4 (i = a + 1): IN(B4) = {a} ∪ (OUT(B4) − {i}).\n3. B3 (a = 20): IN(B3) = OUT(B3) − {a}. B2 (i = i + 1, j = j - 1): IN(B2) = {i, j} ∪ (OUT(B2) − {i, j}).\n4. Iterate the loop. OUT(B2) = IN(B3) ∪ IN(B4) = {a, j}. So IN(B2) = {a, i, j}, and OUT(B4) = IN(B2) = {a, i, j}.\n5. OUT(B3) = IN(B4) = {a, j}. OUT(B1) = IN(B2) = {a, i, j}.\n6. Option D: B1 {a,i,j}, B2 {a,j}, B3 {a,j}, B4 {a,i,j}.",
+      "explanation_full": "Draw the CFG with the back edge B4 to B2 and iterate twice. A solver run gives the sets above.",
+      "trap_note_full": "Choosing C by forgetting that i is redefined in B4 before the loop re-reads it."
+    },
+    {
+      "id": "2024-CS1-q39",
+      "difficulty": 3,
+      "quick_method": "- **Leaders**: L1, L3, L4, L11, L12, L13, L15.",
+      "solution": "- Jump targets: L11, L4, L3; **instructions** after jumps.\n- **Seven** blocks; largest is L4-L9, six lines.\n- **Answer: D**",
+      "explanation": "- Targets plus instructions after jumps give the **leaders**.",
+      "trap_note": "- Don't **miss** L10 after the jump, do mark successors.",
+      "hints": [
+        "Find the jumps at L9, L12, L14 and their targets.",
+        "A leader follows each jump."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "Script: block sizes 2, 1, 6, 1, 2, 2, 1.",
+      "solution_full": "1. Jumps: L9 (to L11), L12 (to L4), L14 (to L3).\n2. Leaders: L1 (first); L3 (target of L14); L4 (target of L12); L10 (after L9); L11 (target of L9); L13 (after L12); L15 (after L14).\n3. Blocks: {L1, L2}, {L3}, {L4 to L9}, {L10}, {L11, L12}, {L13, L14}, {L15}.\n4. That is 7 blocks, and the largest is {L4 to L9} with 6 instructions.\n5. Option D: 7 and 6.",
+      "explanation_full": "In GATE 2024, the largest block was the array-index computation (L4 to L9). The solver confirms the sizes.",
+      "trap_note_full": "Choosing 6 and 6 by missing the leader at L10 after the conditional jump."
+    },
+    {
+      "id": "2024-CS2-q43",
+      "difficulty": 3,
+      "quick_method": "- Triples refer by **position**; array reads and writes need their own.",
+      "solution": "- (1) is the **read** =[] s i; (6) is the store.\n- (7) **assigns** (5) to the element.\n- **Answer: A**",
+      "explanation": "- Postorder: operands first, then the **operator**.",
+      "trap_note": "- Don't **swap** =[] and []=, do tell read from write.",
+      "hints": [
+        "Which triple reads s[i]?",
+        "Which triple makes the address of x[i]?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. (0) + p r.\n2. (1) =[] s i reads s[i]. (2) uminus (1) negates it.\n3. (3) * (0) (2) multiplies (p + r) by -s[i].\n4. (4) / u w, (5) + (3) (4).\n5. (6) []= x i builds the target element, (7) = (6) (5) stores the sum.\n6. Option A.",
+      "explanation_full": "Read of a[i] is =[] a i; store to a[i] is []= a i followed by an assignment triple.",
+      "trap_note_full": "Choosing option B or D, which swap the read and write forms or use the wrong operator for (3)."
+    },
+    {
+      "id": "2025-CS1-q13",
+      "difficulty": 2,
+      "quick_method": "- Register assignment uses **liveness**.",
+      "solution": "- Two **variables** share a register if never live together.\n- That needs **live** variable analysis.\n- **Answer: B**",
+      "explanation": "- Liveness feeds **allocation**, not folding or strength reduction.",
+      "trap_note": "- Don't **link** liveness to folding, do link it to registers.",
+      "hints": [
+        "Which technique decides which values need registers at the same time?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. Register assignment must know which variables are live at once to share registers.\n2. Constant folding and strength reduction are local rewrites.\n3. Run-time function call management is a run-time topic. Option B.",
+      "explanation_full": "Liveness also powers dead code elimination.",
+      "trap_note_full": "Choosing constant folding because it also uses data flow. It uses constant propagation instead."
+    },
+    {
+      "id": "2025-CS1-q52",
+      "difficulty": 3,
+      "quick_method": "- Count **leaders**: 1, 2, 3, 10, 12, 13.",
+      "solution": "- Targets: 1003, 1002, 1013; **instructions** after jumps.\n- Six leaders, six **blocks**.\n- **Answer: 6**",
+      "explanation": "- Blocks equal the number of **leaders**.",
+      "trap_note": "- Don't **skip** 1012, do mark the line after a jump.",
+      "hints": [
+        "List jumps at 1009, 1011, 1017.",
+        "Targets are 1003, 1002, 1013."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "Script: block sizes 1, 1, 7, 2, 1, 5.",
+      "solution_full": "1. Leaders: 1001 (first); 1002 (target of 1011); 1003 (target of 1009); 1010 (after 1009); 1012 (after 1011); 1013 (target of 1017).\n2. Blocks: {1001}, {1002}, {1003..1009}, {1010, 1011}, {1012}, {1013..1017}.\n3. Six blocks.",
+      "explanation_full": "Same rule as the ladder question on the 8-instruction listing.",
+      "trap_note_full": "Answering 5 by missing 1012 as a leader."
+    },
+    {
+      "id": "2025-CS2-q21",
+      "difficulty": 2,
+      "quick_method": "- Backpatching handles forward jumps in **one pass**.",
+      "solution": "- It fills **unknown** jump targets later.\n- Works for boolean and flow-of-control code in **one** pass.\n- **Answer: C**",
+      "explanation": "- Backpatching: lists of **holes**, filled when labels are known.",
+      "trap_note": "- Don't **pick** only (I), do include flow-of-control too.",
+      "hints": [
+        "What problem does backpatching solve?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. When generating a jump to a label not yet known, leave it blank and put it on a list.\n2. When the label becomes known, patch all instructions on the list.\n3. Both boolean expressions and flow-of-control statements use this in a single pass: option C.",
+      "explanation_full": "Truelist and falselist are the standard attributes.",
+      "trap_note_full": "Choosing 'only (I)' because booleans seem to be the main use."
+    },
+    {
+      "id": "2026-CS1-q42",
+      "difficulty": 4,
+      "quick_method": "- Intersect the **OUT** sets of both predecessors.",
+      "solution": "- B4 gets g*k from both **paths**; b+i is killed in B3.\n- B5: c+m only on **one** path.\n- **Answer: D**",
+      "explanation": "- Redundant means available on **every** path.",
+      "trap_note": "- Don't **count** killed expressions, do intersect both paths.",
+      "hints": [
+        "Which block redefines b?",
+        "Which blocks compute c + m?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "Script: IN(B4) = {g*k}, IN(B5) = {g*k, b+i}.",
+      "solution_full": "1. B1 computes b + i. B2 computes g * k and c * 4. B3 computes g * k, then b = c + m kills b + i and computes c + m.\n2. IN(B4) = OUT(B2) ∩ OUT(B3). b + i is killed on the B3 path; g * k is on both. IN(B4) = {g * k}.\n3. B4 computes b + i (not redundant) and g * k (redundant). B5's c + m: B2 path never computes it, so not available.\n4. B4: {g * k}, B5: {}. Option D.",
+      "explanation_full": "The same trick appears in the ladder question on the u, v, w, x CFG.",
+      "trap_note_full": "Marking c + m redundant in B5 because B3 computes it. B2 does not."
+    },
+    {
+      "id": "2026-CS2-q45",
+      "difficulty": 3,
+      "quick_method": "- Iterate **backward** over the loop B1-B3.",
+      "solution": "- B3 **uses** a and f; B4 uses d, e.\n- B1's exit unions B2 and B3 **IN**s.\n- **Answer: A**",
+      "explanation": "- OUT(B1) = IN(B2) ∪ **IN**(B3).",
+      "trap_note": "- Don't **drop** the back edge, do iterate to a fixed point.",
+      "hints": [
+        "B2 uses a and e and defines d.",
+        "B3 uses a and f and defines e."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "Solver result: OUT(B1) = {a,b,c,e,f}, OUT(B2) = {d,e}, OUT(B3) = {b,c,e,f}, OUT(B4) = {}.",
+      "solution_full": "1. Edges: B1 to B2, B1 to B3, B3 to B1, B2 to B4.\n2. B4 (g = d + e): IN(B4) = {d, e}. So OUT(B2) = {d, e}.\n3. B2 (d = a + e): IN(B2) = {a, e} ∪ (OUT(B2) − {d}) = {a, e}.\n4. B3 (e = a + f) flows to B1 and B1 (a = b + c) flows to B2 and B3. Iterating: IN(B3) = {a, f} ∪ (OUT(B3) − {e}); OUT(B3) = IN(B1); IN(B1) = {b, c} ∪ (OUT(B1) − {a}).\n5. Fixed point: IN(B1) = {b, c, e, f}, IN(B3) = {a, b, c, f}. Then OUT(B1) = IN(B2) ∪ IN(B3) = {a, b, c, e, f} and OUT(B3) = IN(B1) = {b, c, e, f}.\n6. Option A.",
+      "explanation_full": "Loops force a second pass. The answer in option C is what you get from a single pass that misses the back edge.",
+      "trap_note_full": "Choosing C by dropping the values carried by the back edge."
+    },
+    {
+      "id": "2014-CS1-q17",
+      "difficulty": 2,
+      "quick_method": "- 4*5 → 20 is constant **folding**, not CSE.",
+      "solution": "- Basic block, available **expressions** and liveness uses are true.\n- Folding is not **CSE**.\n- **Answer: D**",
+      "explanation": "- CSE removes a repeated **computation**.",
+      "trap_note": "- Don't **equate** folding with CSE, do compare the definitions.",
+      "hints": [
+        "Does x = 4*5 repeat an earlier computation?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. A is the definition of a basic block. True.\n2. B: available expressions drive CSE. True.\n3. C: live variable analysis finds dead code. True.\n4. D: replacing 4*5 by 20 is constant folding. False statement.",
+      "explanation_full": "Folding evaluates constants at compile time; CSE reuses values.",
+      "trap_note_full": "Treating all compile-time simplification as CSE."
+    },
+    {
+      "id": "2014-CS2-q34",
+      "difficulty": 3,
+      "quick_method": "- Byte offsets give the **dimensions**.",
+      "solution": "- k*4: int **elements**.\n- j*32: last dim 8; i*1024: middle dim **32**.\n- **Answer: A**",
+      "explanation": "- Stride of each index equals the product of later **dimensions**.",
+      "trap_note": "- Don't **pick** char arrays, do use the 4-byte step.",
+      "hints": [
+        "k's stride is 4 bytes: which type?",
+        "j's stride 32 means the last dimension has how many elements?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. The innermost stride 4 bytes means an int element.\n2. j * 32 bytes: the last dimension has 32 / 4 = 8 ints.\n3. i * 1024 bytes: one row of j holds 1024 / 32 = 32 rows.\n4. So X is int X[?][32][8]; option A is int X[32][32][8].",
+      "explanation_full": "The first dimension never appears in the offset formula.",
+      "trap_note_full": "Choosing a char array because 4 bytes look like byte units."
+    },
+    {
+      "id": "2014-CS3-q11",
+      "difficulty": 3,
+      "quick_method": "- Horner form with one **temporary**.",
+      "solution": "- t = X*X, t+4, t*X, t*X: 4 **operations**.\n- t+6, t*X, t+5: **7**.\n- **Answer: 7**",
+      "explanation": "- Horner's rule reduces the **operation** count.",
+      "trap_note": "- Don't **compute** powers separately, do reuse t.",
+      "hints": [
+        "Write P as X(X²(X²+4)+6)+5."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. P = X(X²(X² + 4) + 6) + 5.\n2. t = X * X (1). t = t + 4 (2). t = t * X (3). t = t * X (4): t is now X⁴ + 4X².\n3. t = t + 6 (5). t = t * X (6). t = t + 5 (7).\n4. 7 operations.",
+      "explanation_full": "With extra temporaries the count would be smaller; the single-temporary constraint drives this answer.",
+      "trap_note_full": "Counting 9 or more by computing each power separately."
+    },
+    {
+      "id": "2014-CS3-q17",
+      "difficulty": 1,
+      "quick_method": "- IR lets many front ends reuse **one** optimiser.",
+      "solution": "- **Intermediate** code decouples front and back ends.\n- Optimiser is **machine** independent.\n- **Answer: C**",
+      "explanation": "- IR enables reuse of the machine-independent **optimiser**.",
+      "trap_note": "- Don't **credit** IR with parsing, do credit optimiser reuse.",
+      "hints": [
+        "What does the optimiser read?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. The front end produces IR; the optimiser and back end work on IR.\n2. A machine-independent optimiser can be reused across languages and targets.\n3. Option C.",
+      "explanation_full": "Same fact appears in 2008 CS Q12.",
+      "trap_note_full": "Choosing parsing because it also sits at the front."
+    },
+    {
+      "id": "2014-CS3-q34",
+      "difficulty": 3,
+      "quick_method": "- Value-number the block: leaves b, c, d plus five **operations**.",
+      "solution": "- a, c, d, e, a each get a new **node**.\n- 3 leaves + 5 **operators** = 8 nodes, 10 edges.\n- **Answer: B**",
+      "explanation": "- **Redefined** operands make new nodes.",
+      "trap_note": "- Don't **merge** b+c twice, do check c changed.",
+      "hints": [
+        "Is the second b + c using the same c as the first?",
+        "Count leaves and interior nodes."
+      ],
+      "answer_check": "disagrees",
+      "answer_check_note": "Textbook value numbering gives 8 nodes and 10 edges (option B). The community key is A (6 and 6). Verify against the official key.",
+      "solution_full": "1. Leaves: b, c, d (initial values).\n2. a = b + c: node 4 (2 edges).\n3. c = a + d: node 5 (2 edges).\n4. d = b + c: c is now node 5, so this is new node 6 (2 edges).\n5. e = d - b: node 7 (2 edges).\n6. a = e + b: node 8 (2 edges).\n7. Nodes 3 + 5 = 8, edges 10 (option B).",
+      "explanation_full": "No two statements here repeat an operator with the same operand nodes, so the DAG has one node per statement plus the leaves.",
+      "trap_note_full": "Merging the two b + c computations. The second one uses the redefined c."
+    },
+    {
+      "id": "2015-CS1-q55",
+      "difficulty": 3,
+      "quick_method": "- One **temporary** per operator in SSA.",
+      "solution": "- **Operators**: /, +, +, ×, −, ×, /, +.\n- Eight operators: **8** temporaries.\n- **Answer: 8**",
+      "explanation": "- SSA: every temporary is assigned **once**.",
+      "trap_note": "- Don't **reuse** temporaries, do count the operators.",
+      "hints": [
+        "List each operator in the expression."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. Operators: r/3, q + t1, + s, t*5, minus, u*v, /w, final +.\n2. That is 8 operators.\n3. In SSA each result needs its own name, so 8 temporaries.",
+      "explanation_full": "Reusing temporaries would reduce the count but violate SSA.",
+      "trap_note_full": "Answering 5 by reusing temporaries."
+    },
+    {
+      "id": "2015-CS2-q14",
+      "difficulty": 2,
+      "quick_method": "- Successors depend on the **program** in both.",
+      "solution": "- Maximum **successors** of a node depends on the program.\n- AST has no cycles, CFG may have **cycles**.\n- **Answer: C**",
+      "explanation": "- A CFG node can have many **successors** (switch).",
+      "trap_note": "- Don't **assume** both are acyclic, do remember loops.",
+      "hints": [
+        "Does a loop create a cycle?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. A: successors in AST are children, in CFG are next blocks, so the property differs.\n2. B: CFGs have cycles for loops.\n3. C: AST fan-out depends on operator arity or call arguments, CFG fan-out on a switch statement. True.\n4. D: a CFG node (basic block) may correspond to several statements.",
+      "explanation_full": "AST: syntax. CFG: flow.",
+      "trap_note_full": "Choosing B because the AST has no cycles."
+    },
+    {
+      "id": "2015-CS2-q29",
+      "difficulty": 3,
+      "quick_method": "- Blocks plus ENTRY and **EXIT**; count edges.",
+      "solution": "- **Blocks**: {1}, {2}, {3-9}, {10-11}.\n- 6 nodes with ENTRY/EXIT; **7** edges.\n- **Answer: B**",
+      "explanation": "- Add ENTRY and EXIT nodes to the **block** count.",
+      "trap_note": "- Don't **omit** ENTRY and EXIT, do count them.",
+      "hints": [
+        "Find the leaders: 1, 2, 3, 10.",
+        "Edges: ENTRY→B1, B1→B2, B2→B3, B3→B3, B3→B4, B4→B2, B4→EXIT."
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. Leaders: 1, 2 (target of 11), 3 (target of 9), 10 (after 9).\n2. Blocks: {1}, {2}, {3,...,9}, {10, 11}: 4 blocks. Add ENTRY and EXIT: 6 nodes.\n3. Edges: ENTRY to B1, B1 to B2, B2 to B3, B3 to B3 (loop), B3 to B4, B4 to B2, B4 to EXIT: 7.\n4. Option B (6 and 7).",
+      "explanation_full": "The ladder question on the 9-line listing excludes ENTRY and EXIT; this one includes them.",
+      "trap_note_full": "Choosing 5 and 7 by leaving out one of the two special nodes."
+    },
+    {
+      "id": "2016-CS1-q19",
+      "difficulty": 3,
+      "quick_method": "- SSA names: **inputs** plus one per assignment.",
+      "solution": "- **Inputs**: u, t, v, w, z.\n- **Assignments**: five new names.\n- **Answer: 10**",
+      "explanation": "- Count inputs separately from defined **names**.",
+      "trap_note": "- Don't **forget** inputs, do add them to new names.",
+      "hints": [
+        "Which variables are read before being assigned?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. Inputs (read but not assigned before): u, t, v, w, z (5).\n2. Five assignments, each a new name: x1, y1, x2, y2, y3 (5).\n3. 5 + 5 = 10.",
+      "explanation_full": "Compare the ladder SSA item, which counts only defined names.",
+      "trap_note_full": "Answering 5 by counting only the new names."
+    },
+    {
+      "id": "2006-CS-q60",
+      "difficulty": 3,
+      "quick_method": "- Dead code needs proof of **no use**; none shown.",
+      "solution": "- 5*i is loop **invariant**; 4*j repeats.\n- 4*j is a strength-reduction **candidate**.\n- **Answer: D**",
+      "explanation": "- Check each claim against the **code** shown.",
+      "trap_note": "- Don't **assume** x and y are dead, do see they are accumulators.",
+      "hints": [
+        "Which sub-expression repeats inside the loop?",
+        "Does the inner loop change i?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. A true: 5*i does not change in the inner loop (loop-invariant).\n2. B true: 4*j appears twice.\n3. C true: 4*j can be replaced by repeated addition.\n4. D false: x and y are updated, and nothing shown proves their values unused.\n5. D is false: the answer.",
+      "explanation_full": "The question asks for the false statement.",
+      "trap_note_full": "Choosing A, B or C, which all hold."
+    },
+    {
+      "id": "2010-CS-q37",
+      "difficulty": 3,
+      "quick_method": "- Registers = maximum number of **live** variables.",
+      "solution": "- At most three **variables** are live together.\n- Live ranges overlap at most **3**.\n- **Answer: B**",
+      "explanation": "- Compute live ranges, find the **overlap**.",
+      "trap_note": "- Don't **count** six names, do count live overlap.",
+      "hints": [
+        "Which variables are live after e = c + d?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "Script: maximum live set size is 3.",
+      "solution_full": "1. Compute live variables backward from the return (d and f).\n2. After d = 5 + e: d, f live (2).\n3. After e = b + f: e, f (and b is dead): 2. Earlier points: after f = c + e: c, e, f, with b = c + e needing c, e: 3.\n4. The maximum is 3, so 3 registers suffice.",
+      "explanation_full": "Reusing a register for a variable whose live range ended is what makes 3 enough.",
+      "trap_note_full": "Choosing 6 for six names."
+    },
+    {
+      "id": "2004-CS-q10",
+      "difficulty": 2,
+      "quick_method": "- Evaluate **E2** first, then E1, so E1 is in the register.",
+      "solution": "- **Subtraction** needs E1 in the register.\n- Do E2 first so E1 finishes **last**.\n- **Answer: B**",
+      "explanation": "- The left operand must be in the register at the **end**.",
+      "trap_note": "- Don't **evaluate** E1 first, do evaluate E2 first.",
+      "hints": [
+        "Where must the first operand be when the subtraction runs?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. The subtraction instruction needs E1 in the register and E2 in memory.\n2. Evaluate E2 first and save to a temporary in memory.\n3. Then evaluate E1 into the register and subtract. Shortest code: option B.",
+      "explanation_full": "With one register, the order of evaluation matters because a result in the register would be destroyed by the next subexpression.",
+      "trap_note_full": "Choosing E1 first because it is the left operand."
+    },
+    {
+      "id": "2008-CS-q12",
+      "difficulty": 2,
+      "quick_method": "- Analysis is more **precise** on IR than machine code.",
+      "solution": "- IR keeps types and **structure**.\n- **Dataflow** is easier on IR.\n- **Answer: B**",
+      "explanation": "- Machine code hides **structure**.",
+      "trap_note": "- Don't **credit** portability, do credit analysis precision.",
+      "hints": [
+        "Which representation keeps operands and structure visible?"
+      ],
+      "answer_check": "disagrees",
+      "answer_check_note": "The dataset's community answer is A (portability). I believe the official key is B (program analysis is more accurate on intermediate code). Verify against the official key.",
+      "solution_full": "1. Optimisation needs data-flow information on operands.\n2. IR keeps operands, types and control structure explicit, so analysis is more accurate than on machine code.\n3. Portability is a benefit of using IR, but it is not the reason for optimising on it.\n4. Option B (the dataset lists A).",
+      "explanation_full": "The sibling question (2014 CS3 Q17) asks why IR is used at all and answers C.",
+      "trap_note_full": "Choosing portability because it is a benefit of IR."
+    },
+    {
+      "id": "2006-CS-q55",
+      "difficulty": 3,
+      "quick_method": "- Both statements are **false**: j may alias i+2.",
+      "solution": "- a[j] = x+1 may **overwrite** a[i+2].\n- The transformation is **invalid**; speed is not guaranteed.\n- **Answer: A**",
+      "explanation": "- Aliasing blocks reusing a **load**.",
+      "trap_note": "- Don't **ignore** aliasing, do test j = i+2.",
+      "hints": [
+        "What if j equals i+2?"
+      ],
+      "answer_check": "agrees",
+      "answer_check_note": "",
+      "solution_full": "1. In work1 the final return re-reads a[i+2]. If j = i + 2, the store a[j] = x + 1 changes a[i+2], so the return value is (x + 1) - 3.\n2. work2 returns t2 - 3 = x - 3 using the old value. They differ: S1 false.\n3. S2: transformations do not always reduce CPU time: false.\n4. Option A.",
+      "explanation_full": "A compiler must prove no alias before replacing a load.",
+      "trap_note_full": "Marking S1 true by ignoring aliasing."
+    }
+  ],
+  "ladder": [
+    {
+      "id": "gen.ic.001",
+      "level": 1,
+      "order_in_topic": 1,
+      "atoms": [
+        "d1"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "Which of the following is a valid three-address instruction?",
+      "options": [
+        {
+          "key": "A",
+          "text": "`t1 = a + b`"
+        },
+        {
+          "key": "B",
+          "text": "`t1 = a + b * c`"
+        },
+        {
+          "key": "C",
+          "text": "`t1 = a + b + c + d`"
+        },
+        {
+          "key": "D",
+          "text": "`t1 = (a + b) * c`"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "A three-address instruction names at most three addresses: two operands and one result.",
+        "It has at most one operator on the right side.",
+        "Which option has exactly one operator?"
+      ],
+      "solution": "- At most **one** operator on the right.\n- Only `t1 = a + b` **qualifies**.\n- **Answer: A**",
+      "quick_method": "- Result, operand, operand: at most **one** operator.",
+      "trap_note": "- Don't **nest** operators, do break them into temporaries.",
+      "explanation": "- Temporaries hold each **intermediate** result.",
+      "verified": true,
+      "solution_full": "1. A three-address instruction is x = y op z, with at most three addresses.\n2. Option A has one operator. B, C and D have two or more operators, so they must be split into several instructions with temporaries.\n3. Answer A.",
+      "explanation_full": "Three-address code is a linearised syntax tree: each interior node gets a temporary name.",
+      "trap_note_full": "Picking D because the parentheses 'show the order'. The instruction still has two operators."
+    },
+    {
+      "id": "gen.ic.002",
+      "level": 1,
+      "order_in_topic": 2,
+      "atoms": [
+        "d1"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "How does a triple differ from a quadruple?",
+      "options": [
+        {
+          "key": "A",
+          "text": "A triple has no result field; later instructions refer to its position"
+        },
+        {
+          "key": "B",
+          "text": "A triple has two operators"
+        },
+        {
+          "key": "C",
+          "text": "A triple stores the result in a named temporary"
+        },
+        {
+          "key": "D",
+          "text": "A triple cannot represent assignments"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "A quadruple has four fields: op, arg1, arg2, result.",
+        "Triples drop one field to save space.",
+        "How does a later instruction then refer to a result?"
+      ],
+      "solution": "- Triples drop the **result** field.\n- Later code refers to the **triple's** position.\n- **Answer: A**",
+      "quick_method": "- Quadruple: named temp. Triple: **position** number.",
+      "trap_note": "- Don't **reorder** triples freely, do use indirect triples for that.",
+      "explanation": "- Triples save space but are tied to **order**.",
+      "verified": true,
+      "solution_full": "1. Quadruple: (op, arg1, arg2, result) with named temporaries.\n2. Triple: (op, arg1, arg2); the result is referred to by the triple's index, such as (3).\n3. Because positions are used as names, moving a triple breaks references. Indirect triples add a list that can be reordered.",
+      "explanation_full": "GATE 2024 asked you to fill missing triples for an expression with array accesses.",
+      "trap_note_full": "Thinking triples hold fewer operands. They have the same operands but no result name."
+    },
+    {
+      "id": "gen.ic.003",
+      "level": 1,
+      "order_in_topic": 3,
+      "atoms": [
+        "d3"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "Which instruction of three-address code is a leader of a basic block?",
+      "options": [
+        {
+          "key": "A",
+          "text": "The target of a jump"
+        },
+        {
+          "key": "B",
+          "text": "Any instruction containing an assignment"
+        },
+        {
+          "key": "C",
+          "text": "The last instruction of the program only"
+        },
+        {
+          "key": "D",
+          "text": "Any instruction using a temporary"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Leaders start blocks. There are three kinds.",
+        "The first instruction, the target of a jump, and the instruction after a jump.",
+        "Which option matches one of them?"
+      ],
+      "solution": "- Leaders: first instruction, **jump** targets, and the one after a jump.\n- **Option** A is a jump target.\n- **Answer: A**",
+      "quick_method": "- Three leader kinds: first, **target**, successor of a jump.",
+      "trap_note": "- Don't **start** a block at every assignment, do mark only leaders.",
+      "explanation": "- A block runs from a leader to just before the next **leader**.",
+      "verified": true,
+      "solution_full": "1. The first instruction of the program is a leader.\n2. Any instruction that is the target of a conditional or unconditional jump is a leader.\n3. Any instruction immediately following a jump is a leader.\n4. Option A matches rule 2. The others describe ordinary instructions.",
+      "explanation_full": "Each basic block runs from a leader up to, but not including, the next leader.",
+      "trap_note_full": "Starting a new block at every assignment, which gives too many blocks."
+    },
+    {
+      "id": "gen.ic.004",
+      "level": 1,
+      "order_in_topic": 4,
+      "atoms": [
+        "d4"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "A variable $x$ is live at a program point if:",
+      "options": [
+        {
+          "key": "A",
+          "text": "its current value may be used later, before $x$ is redefined"
+        },
+        {
+          "key": "B",
+          "text": "it has been assigned before this point"
+        },
+        {
+          "key": "C",
+          "text": "it is used at this point"
+        },
+        {
+          "key": "D",
+          "text": "it is declared in the enclosing block"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Liveness looks forward in the program from the point.",
+        "A redefinition on the path kills the old value.",
+        "Which option talks about a later use?"
+      ],
+      "solution": "- Live means a **future** use of the current value.\n- A **redefinition** on the path ends liveness.\n- **Answer: A**",
+      "quick_method": "- Look **forward** for a use before a redefinition.",
+      "trap_note": "- Don't **confuse** it with 'assigned earlier', do look ahead.",
+      "explanation": "- Liveness is a **backward** analysis, answering a forward question.",
+      "verified": true,
+      "solution_full": "1. Live at p: there is a path from p to a use of x along which x is not redefined.\n2. So the question looks at the future of the program.\n3. Option A states exactly this. B talks about the past; C is just a use; D is a declaration.",
+      "explanation_full": "The analysis runs backward through the CFG (IN = USE ∪ (OUT − DEF)) because liveness depends on what happens later.",
+      "trap_note_full": "Choosing 'assigned before'. That is reaching definitions, not liveness."
+    },
+    {
+      "id": "gen.ic.005",
+      "level": 1,
+      "order_in_topic": 5,
+      "atoms": [
+        "d5"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "A definition $d$ of variable $x$ reaches a point $p$ if:",
+      "options": [
+        {
+          "key": "A",
+          "text": "there is a path from $d$ to $p$ along which $x$ is not redefined"
+        },
+        {
+          "key": "B",
+          "text": "$x$ is used at $p$"
+        },
+        {
+          "key": "C",
+          "text": "$d$ is the only definition of $x$"
+        },
+        {
+          "key": "D",
+          "text": "$d$ dominates $p$"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Reaching definitions look backward from the point: which assignments may supply a value here?",
+        "A later assignment to x on the path kills d.",
+        "Which option talks about a path with no redefinition?"
+      ],
+      "solution": "- A **path** from d to p with no redefinition.\n- The **analysis** runs forward, using GEN and KILL.\n- **Answer: A**",
+      "quick_method": "- Reaching: forward path with no **kill**.",
+      "trap_note": "- Don't **require** domination, do accept any one path.",
+      "explanation": "- It is a **may** analysis: union at joins.",
+      "verified": true,
+      "solution_full": "1. d reaches p if some path from d to p has no other definition of x.\n2. Option A states this. Domination is not required; one path is enough.\n3. The sets are computed forward: OUT = GEN ∪ (IN − KILL), IN = union of predecessors' OUT.",
+      "explanation_full": "Compare liveness (backward, may) with reaching definitions (forward, may) and available expressions (forward, must).",
+      "trap_note_full": "Requiring d to be the only definition. Several definitions can reach one point."
+    },
+    {
+      "id": "gen.ic.006",
+      "level": 2,
+      "order_in_topic": 6,
+      "atoms": [
+        "d2"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "Consider the basic block:\n\n```\nt1 = a + b\nt2 = a + b\nt3 = t1 * t2\n```\n\nHow many nodes does its DAG have (including leaves)?",
+      "answer": "4",
+      "hints": [
+        "A DAG shares nodes for identical operations on identical operands.",
+        "The leaves are a and b.",
+        "t1 and t2 are the same node, so t3 multiplies that node by itself."
+      ],
+      "solution": "- Leaves **a** and b: 2 nodes.\n- One **shared** + node, one * node.\n- **Answer: 4**",
+      "quick_method": "- Same op, same operands: **one** node.",
+      "trap_note": "- Don't **create** a second + node, do reuse it.",
+      "explanation": "- Value numbering reuses a node for an identical **expression**.",
+      "verified": true,
+      "solution_full": "1. Leaves: a and b (2 nodes).\n2. t1 = a + b creates a + node (3).\n3. t2 = a + b matches it, so no new node.\n4. t3 = t1 * t2 creates a * node with both children equal to the + node (4).\n5. Total 4 nodes.",
+      "explanation_full": "A DAG counts leaves as nodes. GATE 2021 asked the same for a five-statement block (answer 6).",
+      "trap_note_full": "Counting 5, with a separate + node for t2."
+    },
+    {
+      "id": "gen.ic.007",
+      "level": 2,
+      "order_in_topic": 7,
+      "atoms": [
+        "d3"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "Consider the three-address code:\n\n```\n1: i = 0\n2: t = i * 4\n3: s = s + t\n4: i = i + 1\n5: if i < n goto 2\n6: r = s\n7: x = r + 1\n8: return x\n```\n\nHow many basic blocks does it have?",
+      "answer": "3",
+      "hints": [
+        "Mark the leaders: first instruction, jump targets, instruction after a jump.",
+        "The jump at 5 targets 2, and instruction 6 follows the jump.",
+        "Leaders are 1, 2 and 6."
+      ],
+      "solution": "- Leaders: **1**, 2 (jump target), 6 (after the jump).\n- Three **leaders**, three blocks.\n- **Answer: 3**",
+      "quick_method": "- Blocks equal the number of **leaders**.",
+      "trap_note": "- Don't **split** on assignments, do split only at leaders.",
+      "explanation": "- Every leader starts exactly one **block**.",
+      "verified": true,
+      "solution_full": "1. Instruction 1 is a leader (first).\n2. Instruction 2 is the target of the jump at 5.\n3. Instruction 6 follows the jump at 5.\n4. Blocks: {1}, {2, 3, 4, 5}, {6, 7, 8}. Total 3.",
+      "explanation_full": "GATE 2025 CS1 Q52 (answer 6) uses the same rule on a 17-instruction listing with two loops.",
+      "trap_note_full": "Counting 8 blocks by treating each instruction as its own block."
+    },
+    {
+      "id": "gen.ic.008",
+      "level": 2,
+      "order_in_topic": 8,
+      "atoms": [
+        "d6"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "An expression $e$ is available at a point $p$ if:",
+      "options": [
+        {
+          "key": "A",
+          "text": "$e$ is computed on every path to $p$ and no operand of $e$ is redefined after the last computation"
+        },
+        {
+          "key": "B",
+          "text": "$e$ is computed on at least one path to $p$"
+        },
+        {
+          "key": "C",
+          "text": "$e$ is used after $p$"
+        },
+        {
+          "key": "D",
+          "text": "$e$ has no operands"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Available expressions let you replace a recomputation by an earlier value.",
+        "That is safe only if every path computed it.",
+        "And the operands must not have changed since."
+      ],
+      "solution": "- Computed on **every** path to p.\n- No operand **redefined** since.\n- **Answer: A**",
+      "quick_method": "- Available = **all** paths; reaching = some path.",
+      "trap_note": "- Don't **settle** for one path, do require every path.",
+      "explanation": "- Available expressions use **intersection** at joins.",
+      "verified": true,
+      "solution_full": "1. To reuse a value of e at p, every path into p must have computed e.\n2. No path may have redefined an operand of e afterwards.\n3. That is option A. It is a forward, must analysis with intersection at joins.",
+      "explanation_full": "Common subexpression elimination removes a computation that is available at its own point.",
+      "trap_note_full": "Using 'at least one path'. That would allow reuse of a value that does not exist on another path."
+    },
+    {
+      "id": "gen.ic.009",
+      "level": 2,
+      "order_in_topic": 9,
+      "atoms": [
+        "d7"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "Given the code `a = 4; b = a * 2; c = b + 1; d = c - a`, what does it become after constant propagation and folding?",
+      "options": [
+        {
+          "key": "A",
+          "text": "`a = 4; b = 8; c = 9; d = 5`"
+        },
+        {
+          "key": "B",
+          "text": "`a = 4; b = a * 2; c = 9; d = 5`"
+        },
+        {
+          "key": "C",
+          "text": "`a = 4; b = 8; c = b + 1; d = 5`"
+        },
+        {
+          "key": "D",
+          "text": "`a = 4; b = 8; c = 9; d = 9`"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Propagation replaces a variable by its known constant value.",
+        "Folding evaluates an operation on constants at compile time.",
+        "Work down the lines: a is 4, then b, then c, then d."
+      ],
+      "solution": "- a = 4 gives **b = 8**.\n- Then c = **9** and d = 9 − 4 = 5.\n- **Answer: A**",
+      "quick_method": "- Propagate, fold, repeat down the **block**.",
+      "trap_note": "- Don't **stop** after one step, do chain through all lines.",
+      "explanation": "- Each folded value becomes the next **constant**.",
+      "verified": true,
+      "solution_full": "1. a = 4 is a constant.\n2. b = a * 2 becomes 4 * 2, which folds to 8.\n3. c = b + 1 becomes 8 + 1 = 9.\n4. d = c - a becomes 9 - 4 = 5.\n5. Option A. Option D has the wrong value for d.",
+      "explanation_full": "Constant propagation is a forward data-flow analysis. In straight-line code it needs one pass.",
+      "trap_note_full": "Folding only the first step, leaving b + 1 as is."
+    },
+    {
+      "id": "gen.ic.010",
+      "level": 2,
+      "order_in_topic": 10,
+      "atoms": [
+        "d8"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "On a load/store machine, arithmetic instructions take register operands only, and nothing may be stored to memory while evaluating. What is the minimum number of registers needed to evaluate $(a + b) * (c + d)$, where $a, b, c, d$ are in memory?",
+      "answer": "3",
+      "hints": [
+        "Label each tree node with the registers it needs: a leaf needs 1.",
+        "For a node with children needing m and n: if m = n the node needs m + 1, otherwise max(m, n).",
+        "Each + node has two leaves, so it needs 2."
+      ],
+      "solution": "- Each **sum** needs 2 registers.\n- Equal **children**: the product needs 2 + 1.\n- **Answer: 3**",
+      "quick_method": "- Equal labels: add **one**. Unequal: take the larger.",
+      "trap_note": "- Don't **answer** 4, do reuse a register when a result is ready.",
+      "explanation": "- Evaluate one subtree, keep one **register**, do the other.",
+      "verified": true,
+      "solution_full": "1. Leaf: 1 register.\n2. a + b: two leaves with label 1 each, equal, so label 2. c + d is also 2.\n3. Root *: children 2 and 2, equal, so label 3.\n4. Plan: compute a + b in 2 registers, keep the result in 1. Evaluate c + d using 2 more registers (1 + 2 = 3).",
+      "explanation_full": "This is the Sethi-Ullman labelling. GATE 2017 CS1 and 2011 CS ask it with different trees.",
+      "trap_note_full": "Using 4 registers by loading all four variables first."
+    },
+    {
+      "id": "gen.ic.011",
+      "level": 2,
+      "order_in_topic": 11,
+      "atoms": [
+        "d9"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "Convert the code `x = 1; y = x + 2; x = y * 3; y = x - 1` to static single assignment form. How many distinct variable names appear (such as $x_1, y_1, \\dots$)?",
+      "answer": "4",
+      "hints": [
+        "In SSA, every assignment defines a new version of its variable.",
+        "There are four assignments, each to a new name.",
+        "The names are x1, y1, x2, y2."
+      ],
+      "solution": "- Every assignment gets a **new** name.\n- The names are x1, y1, x2, **y2**.\n- **Answer: 4**",
+      "quick_method": "- One new name per **assignment**.",
+      "trap_note": "- Don't **reuse** x for the second assignment, do number it x2.",
+      "explanation": "- Uses refer to the **latest** version.",
+      "verified": true,
+      "solution_full": "1. x1 = 1\n2. y1 = x1 + 2\n3. x2 = y1 * 3\n4. y2 = x2 - 1\n5. Four assignments give four names. There are no inputs, so no extra names appear.",
+      "explanation_full": "GATE 2016 CS1 counted all variables, including inputs: those add to the number of assignments. Count inputs separately.",
+      "trap_note_full": "Counting 2, the number of source variables x and y."
+    },
+    {
+      "id": "gen.ic.012",
+      "level": 3,
+      "order_in_topic": 12,
+      "atoms": [
+        "d1"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "Which three-address code correctly evaluates $x = (a + b) * (c - d)$ ?",
+      "options": [
+        {
+          "key": "A",
+          "text": "`t1 = a + b; t2 = c - d; x = t1 * t2`"
+        },
+        {
+          "key": "B",
+          "text": "`t1 = a + b; t2 = t1 * c; x = t2 - d`"
+        },
+        {
+          "key": "C",
+          "text": "`t1 = c - d; t2 = a + t1; x = t2 * b`"
+        },
+        {
+          "key": "D",
+          "text": "`t1 = a + b; x = t1 * c - d`"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Evaluate the two bracketed parts first.",
+        "Each interior node of the expression tree becomes one instruction.",
+        "The final instruction combines the two bracket results with *."
+      ],
+      "solution": "- Two **brackets**, then the product.\n- Only option A mirrors the **tree**.\n- **Answer: A**",
+      "quick_method": "- One instruction per **tree** node.",
+      "trap_note": "- Don't **rebalance** the expression, do follow the tree.",
+      "explanation": "- Check each option against the **parse** tree.",
+      "verified": true,
+      "solution_full": "1. The expression tree has + and - as children of *.\n2. Postorder gives t1 = a + b, then t2 = c - d, then x = t1 * t2.\n3. Option B computes ((a + b) * c) - d. C computes (a + (c - d)) * b. D has two operators in one instruction.",
+      "explanation_full": "This is why syntax-directed translation of expressions emits code in postorder.",
+      "trap_note_full": "Choosing D because it is short. It has two operators in one instruction."
+    },
+    {
+      "id": "gen.ic.013",
+      "level": 3,
+      "order_in_topic": 13,
+      "atoms": [
+        "d1"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "How many triples are needed to represent $x[i] = (p + r) * s[i]$ ? (Use one triple for each of: array read, array write, and each arithmetic or assignment step.)",
+      "answer": "5",
+      "hints": [
+        "List the operations: p + r, the read s[i], the product, the array store.",
+        "An array store x[i] = v needs a store triple and then an assignment triple.",
+        "Count: + , =[] , * , []= , =."
+      ],
+      "solution": "- p+r, s[i] read, and the **product**.\n- Then a store triple and an **assignment** triple.\n- **Answer: 5**",
+      "quick_method": "- Count operations: 3 + a **store pair**.",
+      "trap_note": "- Don't **merge** store and assignment, do count two triples.",
+      "explanation": "- Triples refer to earlier results by **position**.",
+      "verified": true,
+      "solution_full": "1. (0) + p r\n2. (1) =[] s i (read s[i])\n3. (2) * (0) (1)\n4. (3) []= x i (address of x[i])\n5. (4) = (3) (2) (store the product)\nTotal 5. This matches the layout GATE 2024 CS2 used for a similar expression.",
+      "explanation_full": "In triples, an array store takes two entries because there is no result name to carry the address.",
+      "trap_note_full": "Counting 4 by merging the address and the store."
+    },
+    {
+      "id": "gen.ic.014",
+      "level": 3,
+      "order_in_topic": 14,
+      "atoms": [
+        "d2"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "How many nodes (including leaves) does the DAG of this basic block have?\n\n```\na = b + c\nb = a - d\nc = b + c\nd = a - d\n```",
+      "answer": "6",
+      "hints": [
+        "Treat each variable's value as a node; a redefinition creates a new value.",
+        "Leaves: the initial b, c and d.",
+        "d = a - d repeats b = a - d: same operator, same operands."
+      ],
+      "solution": "- Leaves b, c, d: **3** nodes.\n- a, b, c each add a node; d **reuses** b's.\n- **Answer: 6**",
+      "quick_method": "- Same op and same **operand values**: reuse.",
+      "trap_note": "- Don't **reuse** b+c after b changed, do check operands.",
+      "explanation": "- Redefined variables mean **different** operand nodes.",
+      "verified": true,
+      "solution_full": "1. Leaves: b0, c0, d0 (3 nodes).\n2. a = b0 + c0 (4). b = a - d0 (5).\n3. c = b + c0: b is now the new node, so this is a new node (6).\n4. d = a - d0 has the same operator and operands as b = a - d0, so it reuses node 5.\n5. Total 6.",
+      "explanation_full": "The trap in DAG questions is a statement that looks like an earlier one but uses a redefined variable.",
+      "trap_note_full": "Reusing a + node for c = b + c because the text matches. b changed in between."
+    },
+    {
+      "id": "gen.ic.015",
+      "level": 3,
+      "order_in_topic": 15,
+      "atoms": [
+        "d3"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "Consider the three-address code:\n\n```\n1: i = 0\n2: s = 0\n3: if i >= n goto 9\n4: t = a[i]\n5: if t < 0 goto 7\n6: s = s + t\n7: i = i + 1\n8: goto 3\n9: return s\n```\n\nHow many edges does its control flow graph have, not counting the ENTRY and EXIT nodes?",
+      "answer": "7",
+      "hints": [
+        "First find the leaders: 1, 3, 4, 6, 7, 9.",
+        "Blocks: {1,2}, {3}, {4,5}, {6}, {7,8}, {9}.",
+        "Add an edge for each possible transfer of control, including fall-through."
+      ],
+      "solution": "- Six **blocks**: {1,2} {3} {4,5} {6} {7,8} {9}.\n- **Edges**: 1→2, 2→3, 2→6, 3→4, 3→5, 4→5, 5→2.\n- **Answer: 7**",
+      "quick_method": "- Edges: fall-through plus each **jump** target.",
+      "trap_note": "- Don't **skip** fall-through edges, do add one per conditional.",
+      "explanation": "- A conditional jump gives **two** out-edges.",
+      "verified": true,
+      "solution_full": "1. Leaders: 1 (first), 3 (target of 8), 4 (after conditional 3), 6 (after conditional 5), 7 (target of 5), 9 (target of 3).\n2. Blocks: B1 {1,2}, B2 {3}, B3 {4,5}, B4 {6}, B5 {7,8}, B6 {9}.\n3. Edges: B1 to B2; B2 to B3 (fall-through) and B2 to B6 (jump); B3 to B4 (fall-through) and B3 to B5 (jump); B4 to B5; B5 to B2 (goto 3).\n4. 1 + 2 + 2 + 1 + 1 = 7 edges.",
+      "explanation_full": "GATE 2015 CS2 asked for nodes and edges including ENTRY and EXIT (6 and 7). Here ENTRY and EXIT are excluded.",
+      "trap_note_full": "Dropping the fall-through edge of a conditional jump, which gives 5."
+    },
+    {
+      "id": "gen.ic.016",
+      "level": 3,
+      "order_in_topic": 16,
+      "atoms": [
+        "d4"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "A basic block is `a = b + c; d = a * 2; e = d + b`. The variables live at its exit are $\\{e, f\\}$. How many variables are live at its entry?",
+      "answer": "3",
+      "hints": [
+        "Work backward through the block, maintaining the live set.",
+        "Start with {e, f}. e = d + b removes e and adds d and b.",
+        "Continue: d = a * 2 and then a = b + c."
+      ],
+      "solution": "- Backward from {e, f}: e out, **d** and b in.\n- Then a **replaces** d; b, c replace a.\n- **Answer: 3**",
+      "quick_method": "- Remove the defined variable, add the **used** ones.",
+      "trap_note": "- Don't **forget** f, do carry it through unchanged.",
+      "explanation": "- Variables not touched in the block stay **live**.",
+      "verified": true,
+      "solution_full": "1. Live after the block: {e, f}.\n2. Before e = d + b: remove e, add d and b: {f, d, b}.\n3. Before d = a * 2: remove d, add a: {f, b, a}.\n4. Before a = b + c: remove a, add b and c: {f, b, c}.\n5. Three variables: b, c, f.",
+      "explanation_full": "Rule per statement, backward: live-before = (live-after − defined) ∪ used.",
+      "trap_note_full": "Answering 2 by forgetting f, which no statement mentions."
+    },
+    {
+      "id": "gen.ic.017",
+      "level": 3,
+      "order_in_topic": 17,
+      "atoms": [
+        "d5"
+      ],
+      "type": "NAT",
+      "marks": 1,
+      "stem": "Consider the CFG: B1 {d1: x = 1; d2: y = 2} branches to B2 {d3: x = 3} and B3 {d4: y = 4; d5: z = 5}. Both B2 and B3 flow into B4. How many definitions reach the entry of B4?",
+      "answer": "5",
+      "hints": [
+        "Compute OUT of B2 and OUT of B3, then take the union.",
+        "B2 kills d1 and keeps d2. B3 kills d2 and keeps d1.",
+        "OUT(B2) = {d2, d3}; OUT(B3) = {d1, d4, d5}."
+      ],
+      "solution": "- **OUT** sets: B2 gives d2, d3; B3 gives d1, d4, d5.\n- Reaching is a **union** over paths.\n- **Answer: 5**",
+      "quick_method": "- Union of the predecessors' **OUT** sets.",
+      "trap_note": "- Don't **intersect** at the join, do union.",
+      "explanation": "- A **may** analysis keeps anything that reaches along any path.",
+      "verified": true,
+      "solution_full": "1. B2 defines x (d3), killing d1. OUT(B2) = {d3} ∪ ({d1, d2} − {d1}) = {d2, d3}.\n2. B3 defines y (d4) and z (d5), killing d2. OUT(B3) = {d4, d5} ∪ ({d1, d2} − {d2}) = {d1, d4, d5}.\n3. IN(B4) = {d2, d3} ∪ {d1, d4, d5} = {d1, d2, d3, d4, d5}. Five definitions.",
+      "explanation_full": "Reaching definitions use union at joins. Compare available expressions, which use intersection.",
+      "trap_note_full": "Intersecting the two sets, which gives zero."
+    },
+    {
+      "id": "gen.ic.018",
+      "level": 3,
+      "order_in_topic": 18,
+      "atoms": [
+        "d6"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "Which computations are redundant (common subexpressions) in the code below?\n\n```\nx = a + b\ny = c * d\na = x - 1\nz = a + b\nw = c * d\n```",
+      "options": [
+        {
+          "key": "A",
+          "text": "`a + b` in z and `c * d` in w"
+        },
+        {
+          "key": "B",
+          "text": "only `c * d` in w"
+        },
+        {
+          "key": "C",
+          "text": "only `a + b` in z"
+        },
+        {
+          "key": "D",
+          "text": "none"
+        }
+      ],
+      "answer": "B",
+      "hints": [
+        "An expression is redundant only if it is available and its operands are unchanged.",
+        "Check a + b: is a modified between x and z?",
+        "Check c * d: are c and d modified?"
+      ],
+      "solution": "- `a` changes before z: a+b is **killed**.\n- c and d **unchanged**: c*d repeats.\n- **Answer: B**",
+      "quick_method": "- Check each operand for a **redefinition** in between.",
+      "trap_note": "- Don't **match** text alone, do check operand changes.",
+      "explanation": "- A kill removes an expression from the **available** set.",
+      "verified": true,
+      "solution_full": "1. x = a + b makes a + b available.\n2. a = x - 1 redefines a, which kills a + b. So the later z = a + b is not redundant.\n3. y = c * d makes c * d available. Neither c nor d changes, so w = c * d is redundant.\n4. Option B.",
+      "explanation_full": "GATE 2026 CS1 Q42 builds the same trap into a CFG: an expression computed on both branches but killed on one.",
+      "trap_note_full": "Marking a + b redundant because the text repeats it."
+    },
+    {
+      "id": "gen.ic.019",
+      "level": 3,
+      "order_in_topic": 19,
+      "atoms": [
+        "d7"
+      ],
+      "type": "MCQ",
+      "marks": 1,
+      "stem": "```\nx = 2\nif (c) { y = x + 1; z = 5; } else { y = 3; z = x * 2; }\nw = y + z\n```\n\nAfter constant propagation (path-insensitive, merging at the join), which variables are known constants just before `w = y + z` ?",
+      "options": [
+        {
+          "key": "A",
+          "text": "y and w"
+        },
+        {
+          "key": "B",
+          "text": "only y"
+        },
+        {
+          "key": "C",
+          "text": "y and z"
+        },
+        {
+          "key": "D",
+          "text": "none"
+        }
+      ],
+      "answer": "B",
+      "hints": [
+        "At a join, a variable is constant only if every incoming path gives the same constant.",
+        "y is 3 on both paths. z is 5 on one and 4 on the other.",
+        "w depends on z."
+      ],
+      "solution": "- y = 3 on both paths: **constant**.\n- z = 5 versus 4: not **constant**.\n- **Answer: B**",
+      "quick_method": "- Join rule: same value on **all** paths, else not constant.",
+      "trap_note": "- Don't **average** or pick one branch, do compare them.",
+      "explanation": "- Meet of different constants is **not-a-constant**.",
+      "verified": true,
+      "solution_full": "1. x = 2 is a constant on both paths.\n2. Then-branch: y = 3, z = 5. Else-branch: y = 3, z = 2 × 2 = 4.\n3. At the join: y = 3 on both (constant). z is 5 or 4 (not a constant).\n4. w = y + z is therefore not a constant. Only y is constant: option B.",
+      "explanation_full": "The lattice for each variable has three levels: undefined, a constant, not-a-constant. The meet of two different constants is not-a-constant.",
+      "trap_note_full": "Choosing y and w because y alone looks like it fixes w."
+    },
+    {
+      "id": "gen.ic.020",
+      "level": 4,
+      "order_in_topic": 20,
+      "atoms": [
+        "d2"
+      ],
+      "type": "NAT",
+      "marks": 2,
+      "stem": "How many nodes (including leaves) does the DAG of this basic block have?\n\n```\nt1 = a + b\nt2 = t1 * c\nt3 = a + b\nt4 = t3 * c\nt5 = t2 + t4\nt6 = t5 - a\nt7 = t5 - a\nt8 = t6 * t7\n```",
+      "answer": "8",
+      "hints": [
+        "Leaves: a, b, c.",
+        "t3 repeats t1, so t4 repeats t2.",
+        "t7 repeats t6, so t8 multiplies one node by itself."
+      ],
+      "solution": "- **Leaves**: a, b, c. Then +, *, + (t5).\n- t3, t4, t7 are **repeats**.\n- **Answer: 8**",
+      "quick_method": "- Cascading repeats: when t3 merges, t4 **merges** too.",
+      "trap_note": "- Don't **count** t4 separately, do see it equals t2.",
+      "explanation": "- Merging one node can merge everything **above** it.",
+      "verified": true,
+      "solution_full": "1. Leaves a, b, c (3).\n2. t1 = a + b (4). t2 = t1 * c (5).\n3. t3 = a + b reuses 4. t4 = t3 * c is then (4) * c, which reuses 5.\n4. t5 = t2 + t4 is node 5 + node 5 (6).\n5. t6 = t5 - a (7). t7 reuses it. t8 = t6 * t7 is node 7 * node 7 (8).\n6. Total 8 nodes.",
+      "explanation_full": "Check each statement in order. Once a node matches, all nodes built from it also match.",
+      "trap_note_full": "Counting t4 as new because its operand name is t3, not t1."
+    },
+    {
+      "id": "gen.ic.021",
+      "level": 4,
+      "order_in_topic": 21,
+      "atoms": [
+        "d3"
+      ],
+      "type": "MCQ",
+      "marks": 2,
+      "stem": "Consider the three-address code:\n\n```\n1: s = 0\n2: i = 0\n3: t1 = i * 4\n4: t2 = a[t1]\n5: if t2 < 0 goto 8\n6: s = s + t2\n7: goto 9\n8: s = s - t2\n9: i = i + 1\n10: if i < n goto 3\n11: r = s * 2\n12: print r\n```\n\nWhat are the number of basic blocks and the number of instructions in the largest block, respectively?",
+      "options": [
+        {
+          "key": "A",
+          "text": "6 and 3"
+        },
+        {
+          "key": "B",
+          "text": "6 and 2"
+        },
+        {
+          "key": "C",
+          "text": "5 and 3"
+        },
+        {
+          "key": "D",
+          "text": "7 and 3"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Leaders: first instruction; targets 8, 9 and 3; instructions after jumps.",
+        "Instructions after jumps: 6 (after 5), 8 (after 7), 11 (after 10).",
+        "Write the blocks and count their sizes."
+      ],
+      "solution": "- **Leaders**: 1, 3, 6, 8, 9, 11.\n- Blocks: 2, 3, 2, **1**, 2, 2 instructions.\n- **Answer: A**",
+      "quick_method": "- List leaders, split, then take the **longest**.",
+      "trap_note": "- Don't **miss** leaders after unconditional gotos, do check every jump.",
+      "explanation": "- Each jump creates up to two **leaders**.",
+      "verified": true,
+      "solution_full": "1. Leaders: 1 (first); 3 (target of 10); 8 (target of 5, and after goto 7); 9 (target of 7); 6 (after the conditional 5); 11 (after 10).\n2. Blocks: {1,2}, {3,4,5}, {6,7}, {8}, {9,10}, {11,12}.\n3. That is 6 blocks. The largest has 3 instructions.",
+      "explanation_full": "Same procedure as GATE 2024 CS1 Q39 (7 blocks, largest 6). Check for leaders after a goto.",
+      "trap_note_full": "Missing instruction 8 as a leader, which gives 5 blocks."
+    },
+    {
+      "id": "gen.ic.022",
+      "level": 4,
+      "order_in_topic": 22,
+      "atoms": [
+        "d4"
+      ],
+      "type": "MCQ",
+      "marks": 2,
+      "stem": "Consider the CFG with edges B1 to B2, B2 to B3, B2 to B4, B3 to B2:\n\n- B1: `a = 1; b = 2`\n- B2: `c = a + b`\n- B3: `d = c * 2; a = d`\n- B4: `print(a, c)`\n\nWhich option lists the live variables at the exit of B1, B2, B3, B4 in order?",
+      "options": [
+        {
+          "key": "A",
+          "text": "{a,b}, {a,b,c}, {a,b}, {}"
+        },
+        {
+          "key": "B",
+          "text": "{a,b}, {c}, {a,b}, {}"
+        },
+        {
+          "key": "C",
+          "text": "{}, {a,b,c}, {a,b}, {}"
+        },
+        {
+          "key": "D",
+          "text": "{a,b}, {a,b,c}, {b,c}, {a,c}"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Start from B4: it uses a and c and has no successors.",
+        "Propagate backward; B3 loops to B2, so iterate.",
+        "IN(B2) = {a, b}; IN(B3) = {b, c}; IN(B4) = {a, c}."
+      ],
+      "solution": "- IN(B4) = {a,c}; IN(B2) = {**a**,b}.\n- **OUT**(B2) = IN(B3) ∪ IN(B4) = {a,b,c}.\n- **Answer: A**",
+      "quick_method": "- Iterate backward until the loop **stabilises**.",
+      "trap_note": "- Don't **treat** the loop edge as a single pass, do iterate.",
+      "explanation": "- OUT is the union of successors' **IN**.",
+      "verified": true,
+      "solution_full": "1. IN(B4) = {a, c}; OUT(B4) = {}.\n2. IN(B3): d = c * 2 uses c; a = d redefines a. With OUT(B3) = IN(B2).\n3. IN(B2) = {a, b} ∪ (OUT(B2) − {c}); OUT(B2) = IN(B3) ∪ IN(B4).\n4. Iterate: IN(B3) = {c} ∪ ({a,b} − {d,a}) = {b, c}. OUT(B2) = {b,c} ∪ {a,c} = {a,b,c}. IN(B2) = {a,b}.\n5. OUT(B1) = IN(B2) = {a,b}; OUT(B3) = IN(B2) = {a,b}.\nSolver run gives the same sets. Option A.",
+      "explanation_full": "Loops need iteration to a fixed point. Option D is what you get when you compute IN instead of OUT.",
+      "trap_note_full": "Reporting the IN sets as the exit sets."
+    },
+    {
+      "id": "gen.ic.023",
+      "level": 4,
+      "order_in_topic": 23,
+      "atoms": [
+        "d5"
+      ],
+      "type": "NAT",
+      "marks": 2,
+      "stem": "Consider the CFG with edges B1 to B2, B2 to B3, B3 to B2, B2 to B4:\n\n- B1: `d1: x = 0; d2: y = 1`\n- B2: `d3: x = x + y`\n- B3: `d4: y = y + 1`\n- B4: `print(x, y)`\n\nHow many definitions reach the entry of B4?",
+      "answer": "3",
+      "hints": [
+        "B4 is entered only from B2, so IN(B4) = OUT(B2).",
+        "B2 defines x (d3), which kills d1.",
+        "y has two definitions that may arrive: d2 from B1 and d4 from the loop body."
+      ],
+      "solution": "- IN(B4) = OUT(B2) = {d3} + **survivors**.\n- d1 is **killed**; d2 and d4 both arrive.\n- **Answer: 3**",
+      "quick_method": "- Kill by redefinition; union over the **loop**.",
+      "trap_note": "- Don't **drop** d2, do remember the loop may be skipped.",
+      "explanation": "- A loop that may be skipped keeps the **old** definition alive.",
+      "verified": true,
+      "solution_full": "1. OUT(B1) = {d1, d2}.\n2. IN(B2) = OUT(B1) ∪ OUT(B3). OUT(B3) = {d4} ∪ (IN(B3) − {d2, d4}).\n3. OUT(B2) = {d3} ∪ (IN(B2) − {d1, d3}). It contains d2 (from B1 when the loop is skipped) and d4 (from the loop).\n4. IN(B4) = OUT(B2) = {d2, d3, d4}. Three definitions.",
+      "explanation_full": "Reaching definitions are a may analysis: if one path delivers a definition, it reaches.",
+      "trap_note_full": "Answering 2 because d2 'should be replaced by d4'. Both can arrive."
+    },
+    {
+      "id": "gen.ic.024",
+      "level": 4,
+      "order_in_topic": 24,
+      "atoms": [
+        "d6"
+      ],
+      "type": "MCQ",
+      "marks": 2,
+      "stem": "Consider the CFG with edges B1 to B2, B1 to B3, B2 to B4, B3 to B4:\n\n- B1: `u = a + b`\n- B2: `v = a * c; b = u`\n- B3: `w = a + b; z = a * c`\n- B4: `x = a + b; y = a * c`\n\nWhich option lists the redundant expressions in B4?",
+      "options": [
+        {
+          "key": "A",
+          "text": "{a + b, a * c}"
+        },
+        {
+          "key": "B",
+          "text": "{a * c}"
+        },
+        {
+          "key": "C",
+          "text": "{a + b}"
+        },
+        {
+          "key": "D",
+          "text": "{}"
+        }
+      ],
+      "answer": "B",
+      "hints": [
+        "Compute which expressions are available on entry to B4: intersect the two paths.",
+        "In B2, b = u redefines b after v = a * c. What does that kill?",
+        "In B3 both expressions are computed and nothing is killed."
+      ],
+      "solution": "- Path via B2: **a*c** kept, a+b **killed**.\n- Path via B3: both **available**.\n- **Answer: B**",
+      "quick_method": "- Intersect the **OUT** sets of both paths.",
+      "trap_note": "- Don't **union** the paths, do intersect.",
+      "explanation": "- One path killing an expression removes it at the **join**.",
+      "verified": true,
+      "solution_full": "1. OUT(B1) = {a+b}.\n2. B2: v = a * c adds a * c; b = u redefines b, killing a + b. OUT(B2) = {a*c}.\n3. B3: computes both; OUT(B3) = {a+b, a*c}.\n4. IN(B4) = OUT(B2) ∩ OUT(B3) = {a*c}.\n5. Only a * c is redundant in B4: option B.",
+      "explanation_full": "Same shape as GATE 2026 CS1 Q42 (answer: only g*k redundant in B4, nothing in B5).",
+      "trap_note_full": "Choosing both because a + b is computed on the B3 path."
+    },
+    {
+      "id": "gen.ic.025",
+      "level": 4,
+      "order_in_topic": 25,
+      "atoms": [
+        "d7"
+      ],
+      "type": "NAT",
+      "marks": 2,
+      "stem": "Constant propagation runs on a CFG with edges B1 to B2, B2 to B3, B3 to B2, B2 to B4:\n\n- B1: `x = 1; y = 2; z = x + y`\n- B2: `w = x * y`\n- B3: `x = x + 1`\n- B4: exit\n\nAt the entry of B2 (after the analysis converges), how many of the variables $x, y, z$ are known constants?",
+      "answer": "2",
+      "hints": [
+        "At the loop head, merge the value from B1 with the value from the back edge.",
+        "y and z are never changed inside the loop.",
+        "x is 1 on entry but x + 1 on the back edge."
+      ],
+      "solution": "- y = 2 and z = 3 never change: **constants**.\n- x = 1 from B1, but 2 from the **loop**.\n- **Answer: 2**",
+      "quick_method": "- New value inside the loop: **not** constant.",
+      "trap_note": "- Don't **trust** the first iteration, do merge the back edge.",
+      "explanation": "- The loop head sees both the entry value and the **loop** value.",
+      "verified": true,
+      "solution_full": "1. OUT(B1): x = 1, y = 2, z = 3.\n2. IN(B2) = meet(OUT(B1), OUT(B3)).\n3. B3 sets x = x + 1: on the first pass x = 2 on the back edge. Meet of 1 and 2 is not-a-constant.\n4. y and z are not touched: they stay 2 and 3 on both edges.\n5. Two constants (y and z). A solver run confirms.",
+      "explanation_full": "Constant propagation needs a fixed-point iteration over the loop. Treating the loop as straight-line code gives 3.",
+      "trap_note_full": "Answering 3 by looking only at B1."
+    },
+    {
+      "id": "gen.ic.026",
+      "level": 4,
+      "order_in_topic": 26,
+      "atoms": [
+        "d8"
+      ],
+      "type": "NAT",
+      "marks": 2,
+      "stem": "On a load/store machine, memory operands only in loads and stores, and arithmetic instructions have register or immediate operands, with no register spills. All variables start in memory. What is the minimum number of registers needed to evaluate\n\n$$((a + 1) * (b - 2)) + ((c / 4) * (d + e))$$",
+      "answer": "3",
+      "hints": [
+        "Label each node: a variable leaf needs 1; an immediate operand needs 0.",
+        "a + 1 needs 1 (one register for a, constant is an immediate). d + e needs 2.",
+        "For a node with children labels m and n: m + 1 if equal, else max(m, n)."
+      ],
+      "solution": "- (a+1), (b-2), (c/4): label **1**; (d+e): 2.\n- **Products**: 2 and 2; the root joins them to 3.\n- **Answer: 3**",
+      "quick_method": "- Immediates are free; equal labels add **one**.",
+      "trap_note": "- Don't **count** constants as registers, do treat them as immediates.",
+      "explanation": "- The root of equal subtrees needs **one** extra register.",
+      "verified": true,
+      "solution_full": "1. a + 1, b - 2, c / 4: one register each (labels 1) since the constant is an immediate.\n2. d + e: two variable leaves, equal, label 2.\n3. (a + 1) * (b - 2): children 1 and 1, label 2. (c / 4) * (d + e): children 1 and 2, label 2.\n4. Root +: children 2 and 2, equal, label 3.",
+      "explanation_full": "GATE 2017 CS1 Q52 used an expression with immediates and answered 2. The rule is the same.",
+      "trap_note_full": "Answering 4 by counting each constant or each variable once."
+    },
+    {
+      "id": "gen.ic.027",
+      "level": 5,
+      "order_in_topic": 27,
+      "atoms": [
+        "d4",
+        "d5"
+      ],
+      "type": "MCQ",
+      "marks": 2,
+      "stem": "Consider the CFG with edges B1 to B2, B2 to B3, B3 to B2, B2 to B4, B4 to B5, B5 to B4, B5 to B6:\n\n- B1: `a = 0; b = 1`\n- B2: `c = a + b`\n- B3: `a = c`\n- B4: `d = c * 2`\n- B5: `b = b + d`\n- B6: `print(a, b)`\n\nWhich option gives the live variables at the exit of B4 and B5, respectively?",
+      "options": [
+        {
+          "key": "A",
+          "text": "{a,b,c,d} and {a,b,c}"
+        },
+        {
+          "key": "B",
+          "text": "{a,b,c,d} and {a,b,d}"
+        },
+        {
+          "key": "C",
+          "text": "{c,d} and {a,b,c}"
+        },
+        {
+          "key": "D",
+          "text": "{a,b,c} and {a,b,c,d}"
+        }
+      ],
+      "answer": "A",
+      "hints": [
+        "Start with B6: it uses a and b. Then work through B5, B4 with the inner loop.",
+        "B5 flows to B4 (loop) and B6 (exit): OUT(B5) = IN(B4) ∪ IN(B6).",
+        "IN(B4) holds c, since d = c * 2 uses it, and anything B4 does not redefine."
+      ],
+      "solution": "- IN(B6) = {a,b}; IN(B4) **needs** c, a, b.\n- OUT(B5) = IN(B4) ∪ **IN(B6)** = {a,b,c}.\n- **Answer: A**",
+      "quick_method": "- Two loops: iterate until **both** stabilise.",
+      "trap_note": "- Don't **drop** a from OUT(B4), do track it through loops.",
+      "explanation": "- a is used in B6, so it stays **live** throughout.",
+      "verified": true,
+      "solution_full": "1. IN(B6) = {a, b}; OUT(B6) = {}.\n2. OUT(B5) = IN(B4) ∪ IN(B6). IN(B5) = {b, d} ∪ (OUT(B5) − {b}).\n3. IN(B4) = {c} ∪ (OUT(B4) − {d}) where OUT(B4) = IN(B5).\n4. Iterating: IN(B5) = {a, b, c, d}, so OUT(B4) = {a, b, c, d}. IN(B4) = {a, b, c}. OUT(B5) = {a, b, c} ∪ {a, b} = {a, b, c}.\n5. Option A. A solver run gives the same sets.",
+      "explanation_full": "GATE 2023 and 2026 CS2 both give a loop CFG and ask for the OUT sets of every block. Iterate to a fixed point and check the loop edge.",
+      "trap_note_full": "Dropping a from OUT(B4) because no block in the inner loop uses it."
+    },
+    {
+      "id": "gen.ic.028",
+      "level": 5,
+      "order_in_topic": 28,
+      "atoms": [
+        "d6",
+        "d2"
+      ],
+      "type": "NAT",
+      "marks": 2,
+      "stem": "Common subexpression elimination is applied to the code below. How many additions appear in the optimised code (count the additions in the program text, including `i += 2`)?\n\n```\ns = (m + n) + 7;\nfor (i = 0; i < 100; i += 2) {\n    if (s > i) p = p + (m + n);\n    else       q = q + (m + n) + 7;\n}\n```\n\nAssume `m` and `n` are never modified.",
+      "answer": "6",
+      "hints": [
+        "m + n is computed in several places and its operands never change.",
+        "Replace every m + n by one temporary u = m + n, computed once.",
+        "Count the additions that remain: u, s, i, p, and the two in q."
+      ],
+      "solution": "- Compute **u = m + n** once: 1 add.\n- Remaining: s, i, p give **three** adds; q gives two.\n- **Answer: 6**",
+      "quick_method": "- One temporary replaces **every** m + n.",
+      "trap_note": "- Don't **merge** u+7 into q's sum, do group (q+u)+7.",
+      "explanation": "- Associativity of the source decides which **sub**expressions exist.",
+      "verified": true,
+      "solution_full": "1. Before CSE: s has 2 additions, i += 2 has 1, p has 2, q has 3. That is 8.\n2. m + n is available everywhere (m and n never change), so use u = m + n (1 addition).\n3. s = u + 7 (1). i += 2 (1). p = p + u (1). q = q + u + 7 parses as (q + u) + 7 (2).\n4. Total: 1 + 1 + 1 + 1 + 2 = 6.",
+      "explanation_full": "GATE 2021 CS2 Q40 (answer D) has the same structure, with dereferences and the loop counter. Count carefully what the loop counter contributes.",
+      "trap_note_full": "Treating u + 7 as a second common subexpression: q + u + 7 groups the other way.",
+      "variant_of": "2021-CS2-q40"
+    },
+    {
+      "id": "gen.ic.029",
+      "level": 5,
+      "order_in_topic": 29,
+      "atoms": [
+        "d4",
+        "d8"
+      ],
+      "type": "NAT",
+      "marks": 2,
+      "stem": "```\na = 1\nb = 2\nc = a + b\nd = c * a\ne = d + b\nf = e * c\ng = f + d\nh = g + a\nr = h + f\nreturn r\n```\n\nAll operations take operands from registers and write a register. What is the minimum number of registers needed to execute this code without spilling?",
+      "answer": "4",
+      "hints": [
+        "Registers needed equals the largest number of variables live at the same time.",
+        "Compute live sets backward, starting with r used at the return.",
+        "Find the point where the most variables are live together."
+      ],
+      "solution": "- Max live set is the **register** need.\n- After `d = c * a`: a, b, c, d all **live**.\n- **Answer: 4**",
+      "quick_method": "- Registers = largest **live** set.",
+      "trap_note": "- Don't **count** all 9 variables, do count the overlap.",
+      "explanation": "- A variable occupies a register only while it is **live**.",
+      "verified": true,
+      "solution_full": "1. Live variables after each statement, forward: after c: {a, b, c}; after d: {a, b, c, d} (a is needed at h, b at e, c at f, d at e and g).\n2. After e: {a, c, d, e}; after f: c is dead, so {a, d, f}.\n3. The largest set has 4 variables (after d and after e).\n4. So 4 registers suffice and are necessary. A script on the live ranges agrees.",
+      "explanation_full": "GATE 2010 CS Q37 (answer 3) works the same way: compute live ranges and find the point of maximum overlap.",
+      "trap_note_full": "Answering 9 or 5 by counting variables instead of overlapping live ranges.",
+      "variant_of": "2010-CS-q37"
+    },
+    {
+      "id": "gen.ic.030",
+      "level": 5,
+      "order_in_topic": 30,
+      "atoms": [
+        "d9"
+      ],
+      "type": "NAT",
+      "marks": 2,
+      "stem": "A CFG has blocks B1 to B6 with edges B1 to B2, B2 to B3, B2 to B4, B3 to B5, B4 to B5, B5 to B2, B5 to B6. Variable $x$ is assigned in B1 and B3. Variable $y$ is assigned in B1 and B4. How many $\\varphi$-functions does minimal SSA form insert in total (over both variables)?",
+      "answer": "4",
+      "hints": [
+        "φ-functions go at the dominance frontier of every block that assigns the variable (and iterate).",
+        "B3 and B4 each have B5 in their dominance frontier. B5 and B1's loop give B2.",
+        "Each of x and y gets φ at B2 and at B5."
+      ],
+      "solution": "- For each variable φ at **B5**, the join of B3/B4.\n- The loop back edge adds **B2**.\n- **Answer: 4**",
+      "quick_method": "- φ at joins where different definitions **meet**.",
+      "trap_note": "- Don't **forget** the loop header, do add it too.",
+      "explanation": "- Iterated dominance frontier reaches the loop **header**.",
+      "verified": true,
+      "solution_full": "1. Dominance frontier: DF(B3) = DF(B4) = {B5}; DF(B5) = {B2}; DF(B2) = {B2} (it is a loop header reached by the back edge from B5).\n2. For x (assigned in B1, B3): φ at B5 (from B3). A φ is a new definition, so DF(B5) = {B2} gets a φ too.\n3. The same for y (assigned in B1, B4): φ at B5 and B2.\n4. Total 2 + 2 = 4 φ-functions.",
+      "explanation_full": "GATE 2017 CS1 and 2016 CS1 ask for SSA renaming only. The φ placement rule is the next layer of the same idea.",
+      "trap_note_full": "Counting only the diamond join B5 and forgetting the loop header B2, which gives 2."
+    }
+  ],
+  "flashcards": [
+    {
+      "front": "Three-address instruction",
+      "back": "x = y op z: at most one operator, so nested expressions get temporaries.",
+      "kind": "definition"
+    },
+    {
+      "front": "Quadruple vs triple",
+      "back": "Quadruple: (op, a1, a2, result). Triple: no result field; refer by position.",
+      "kind": "definition"
+    },
+    {
+      "front": "Leaders of a basic block",
+      "back": "First instruction, any jump target, any instruction after a jump.",
+      "kind": "definition"
+    },
+    {
+      "front": "DAG node rule",
+      "back": "Same operator and same operand nodes: reuse. A redefined operand makes a new node.",
+      "kind": "trap"
+    },
+    {
+      "front": "Liveness equations",
+      "back": "IN = USE ∪ (OUT − DEF); OUT = ∪ IN of successors. Backward, may.",
+      "kind": "formula"
+    },
+    {
+      "front": "Reaching definitions",
+      "back": "OUT = GEN ∪ (IN − KILL); IN = ∪ OUT of predecessors. Forward, may.",
+      "kind": "formula"
+    },
+    {
+      "front": "Available expressions",
+      "back": "OUT = GEN ∪ (IN − KILL); IN = ∩ OUT of predecessors. Forward, must.",
+      "kind": "formula"
+    },
+    {
+      "front": "Compare the three analyses",
+      "back": "Liveness: backward union. Reaching: forward union. Available: forward intersection.",
+      "kind": "trap"
+    },
+    {
+      "front": "Constant propagation at a join",
+      "back": "Constant only if every path gives the same constant; else not-a-constant.",
+      "kind": "definition"
+    },
+    {
+      "front": "Sethi-Ullman label",
+      "back": "Leaf 1 (immediate 0). Children m, n: m+1 if equal, else max(m, n).",
+      "kind": "formula"
+    },
+    {
+      "front": "Registers without spilling",
+      "back": "Largest number of simultaneously live variables.",
+      "kind": "formula"
+    },
+    {
+      "front": "SSA",
+      "back": "One definition per name, uses refer to the latest; φ at joins of different definitions.",
+      "kind": "definition"
+    },
+    {
+      "front": "Counting SSA variables",
+      "back": "Inputs plus one new name per assignment.",
+      "kind": "trap"
+    },
+    {
+      "front": "Backpatching",
+      "back": "Leave jump targets blank on truelist/falselist, fill them when the label is known: one pass.",
+      "kind": "definition"
+    }
+  ]
+}

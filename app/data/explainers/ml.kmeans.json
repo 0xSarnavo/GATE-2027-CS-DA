@@ -1,0 +1,2724 @@
+{
+  "topic_id": "ml.kmeans",
+  "title": "k-means clustering",
+  "chapter_note": {
+    "about": "k-means splits unlabelled points into k groups by repeating two steps: assign each point to its nearest centroid, then move each centroid to the mean of its group. This chapter covers what k-means minimises and why its clusters are convex, the assignment and update steps, local optima and starting points, computing the SSE (WSS, BSS and TSS), k-medoid, and choosing k with the elbow.",
+    "concept_map": [
+      {
+        "atom_id": "k1",
+        "title": "Objective and geometry",
+        "one_line": "Minimise the within-cluster sum of squares. Clusters are convex cells split by bisectors."
+      },
+      {
+        "atom_id": "k2",
+        "title": "Assignment step",
+        "one_line": "Each point joins the nearest centroid. Compare squared distances, all coordinates."
+      },
+      {
+        "atom_id": "k3",
+        "title": "Update step and convergence",
+        "one_line": "Each centroid moves to its cluster mean. SSE never rises, so the loop stops."
+      },
+      {
+        "atom_id": "k3b",
+        "title": "Local optima and starting points",
+        "one_line": "It stops at a local optimum that depends on the start. Restart and keep the best."
+      },
+      {
+        "atom_id": "k4",
+        "title": "Computing SSE by hand",
+        "one_line": "Measure from the cluster mean. TSS = WSS + BSS."
+      },
+      {
+        "atom_id": "k5",
+        "title": "k-medoid",
+        "one_line": "Centres are data points. Works with any distance and resists outliers."
+      },
+      {
+        "atom_id": "k6",
+        "title": "Choosing k and key properties",
+        "one_line": "WSS falls as k grows and is 0 at k = n. Pick the elbow."
+      }
+    ],
+    "gate_patterns": [
+      "Which point must share a cluster: take the midpoint of two members, because k-means clusters are convex. Asked in 2024 DA (Q19).",
+      "One iteration by hand: assign each point to the nearest of three centroids, then average one cluster. Asked in the 2024 DA sample paper (Q42).",
+      "Match tasks to algorithms: k-medoid for clustering, naive Bayes for classification, LDA for feature extraction. Asked in 2026 DA (Q23). About 0.67 marks per DA paper."
+    ],
+    "simple": "K-means sorts a pile of points into k groups without being told the groups. It picks k starting middles, lets every point join the nearest middle, moves each middle to the average of its group, and repeats until nobody switches. The total squared distance from points to their middles can only go down, so it always stops, but the result depends on where the middles started. k-medoid does the same with real data points as the middles, which makes it tough against outliers. To choose how many groups, plot the total spread against k and pick the bend. In the exam you do one or two rounds by hand, so the work is careful arithmetic."
+  },
+  "cards": [
+    {
+      "atom_id": "k1",
+      "title": "Objective and geometry",
+      "simple": "Imagine sorting a pile of photos of your classmates' houses into two piles by location. K-means tries to make each pile as tight as possible. For each pile it finds the middle spot, which is the average position. Then it adds up how far each house is from the middle of its own pile, squaring every distance so that far-away houses count extra. The best grouping is the one with the smallest total. A neat side effect is that the border between two piles is a straight line halfway between their middles, so each pile is a solid blob with no dents or holes. In exam words: k-means minimises the within-cluster sum of squares, and with Euclidean distance each cluster is a convex Voronoi cell.",
+      "idea": "**k-means** splits n points into k groups so that the total squared distance from each point to its own group's mean is as small as possible. That total is the **within-cluster sum of squares** (WSS, also called SSE). With Euclidean distance the border between two clusters is a straight line, so every cluster is a **convex** region. If two points share a cluster, every point on the straight segment between them does too.",
+      "definition": "$$\\min_{C_1,\\dots,C_k}\\ \\sum_{j=1}^{k}\\ \\sum_{x\\in C_j}\\lVert x-\\mu_j\\rVert^2,\\qquad \\mu_j=\\frac{1}{|C_j|}\\sum_{x\\in C_j}x$$\n\nSymbols: $C_j$ is cluster $j$ and $\\mu_j$ is its centroid, the mean of its points. $\\lVert x-\\mu_j\\rVert^2$ is the squared Euclidean distance from point $x$ to its centroid. The boundary between two centroids $\\mu_a$ and $\\mu_b$ is their perpendicular bisector: the line of points equally far from both.",
+      "intuition_full": "Each point pays a fee equal to its squared distance from its cluster's centre. The best clustering is the one where the fees add up to the least. Squaring makes a point twice as far cost four times as much, so k-means dislikes far-away points and prefers compact groups. Once the centres are fixed, each point simply joins the nearest one. The set of points nearer to centre A than to centre B is a half-plane: the side of the perpendicular bisector where A sits. A cluster is the overlap of several such half-planes, one against every other centre, and an overlap of half-planes has no dents. That is what convex means. This gives the exam rule: if two points are in the same cluster, so is every point on the segment between them, and in particular their midpoint. It also means k-means cannot find a ring or a crescent as a single cluster.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Six points: (1, 1), (3, 1), (2, 4) on the left and (5, 1), (7, 1), (6, 4) on the right. With k = 2 the clusters are the left three and the right three. Find the centroids, the WSS and the boundary, and check that a segment between two members stays inside the cluster.",
+          "steps": [
+            "Centroids: μ1 = ((1+3+2)/3, (1+1+4)/3) = (2, 2) and μ2 = ((5+7+6)/3, (1+1+4)/3) = (6, 2).",
+            "Squared distances to the own centroid on the left: (1,1): 1² + 1² = 2, (3,1): 1² + 1² = 2, (2,4): 0² + 2² = 4. The right side is the same. WSS = 8 + 8 = 16.",
+            "A point is equally far from μ1 and μ2 when x = 4, halfway between 2 and 6. This perpendicular bisector is the boundary. Left of it is cluster 1.",
+            "Take (1,1) and (2,4) from cluster 1. The segment between them has x between 1 and 2, so it stays left of x = 4. Its midpoint (1.5, 2.5) is in cluster 1.",
+            "Every cluster is cut out by straight boundaries, so it is convex: no dents and no holes."
+          ],
+          "answer": "μ1 = (2, 2), μ2 = (6, 2), WSS = 16 and the boundary is x = 4. A segment between two members of a cluster stays inside it."
+        },
+        {
+          "level": "gate",
+          "setup": "A k-means run with Euclidean distance puts the points P = (−2, 1) and Q = (4, 5) in the same cluster. Which of these points must also be in that cluster? (A) (1, 3)  (B) (1, 1)  (C) (0, 0)  (D) (3, 3)",
+          "steps": [
+            "Clusters are convex, so the whole segment PQ lies in the cluster. Find which option is on that segment.",
+            "The midpoint of PQ is ((−2+4)/2, (1+5)/2) = (1, 3). That is option A.",
+            "Check D = (3, 3). The segment has slope (5−1)/(4−(−2)) = 4/6 = 2/3, so at x = 3 its height is 1 + (2/3)×5 = 4.33, not 3. D is not on the segment.",
+            "For B and C: at x = 1 the segment is at y = 3, and at x = 0 it is at y = 2.33. Neither (1, 1) nor (0, 0) is on it."
+          ],
+          "answer": "(A) (1, 3), the midpoint. Only points on the segment are forced."
+        },
+        {
+          "level": "twist",
+          "setup": "A dataset has five points: A = (4, 0), B = (−4, 0), C = (0, 0), D = (0, 4) and E = (0, −4). That is a ring of four points around a centre point. Can a k-means clustering with k = 2 put C alone in one cluster and the four ring points together in the other?",
+          "steps": [
+            "Suppose A, B, D and E are in one cluster.",
+            "A and B are in it, so the midpoint of AB, which is (0, 0) = C, must be in it too (convexity).",
+            "So C cannot be alone. The split 'centre against ring' is impossible for k-means.",
+            "In general k-means cannot isolate a blob that sits inside the convex hull of another cluster."
+          ],
+          "answer": "No. C is the midpoint of A and B, so it is forced into their cluster."
+        }
+      ],
+      "why": "The objective explains what the loop is trying to do, and the straight-line boundaries explain what shapes it can find. In GATE: decide which point must share a cluster, or recognise that k-means clusters are convex.",
+      "how": [
+        "Find the centroids. Each is the mean of its points.",
+        "For WSS, square each point's distance to its own centroid and add everything up.",
+        "The boundary between two centroids is their perpendicular bisector.",
+        "For a 'must be in the cluster' question, take the midpoint of two members, or any point on the segment between them.",
+        "Reject options that are merely close but not on the segment."
+      ],
+      "mistake": "Choosing a point because it looks close to the cluster, or believing that k-means finds the best possible clusters. Convexity forces only the points on the segment between members. Closeness forces nothing.",
+      "edge_cases": [
+        "A point exactly on the bisector is equally close to both centroids. A tie rule (usually the lower index) decides.",
+        "With k = 1 the centroid is the mean of all points and the WSS is the total sum of squares.",
+        "Another distance, such as Manhattan, changes the boundary shape. These results are for Euclidean distance.",
+        "A cluster with one point has WSS 0."
+      ],
+      "connections": [
+        "Foundations: Algebra. Midpoints and squared distances are plain arithmetic.",
+        "Linear algebra: Vector spaces covers the Euclidean norm used in the objective.",
+        "Next cards: the assignment and update steps are how the loop lowers this objective.",
+        "k-NN also uses Euclidean distance, but it votes with labelled neighbours, while k-means groups unlabelled data."
+      ],
+      "check": [
+        {
+          "q": "A cluster contains (1, 2) and (5, 6). Which of these must it also contain: (3, 4) or (3, 3)?",
+          "a": "(3, 4), the midpoint of the two."
+        },
+        {
+          "q": "Two centroids are (0, 0) and (6, 0). What is the boundary between their clusters?",
+          "a": "The line x = 3, the perpendicular bisector."
+        },
+        {
+          "q": "A cluster has the points 0 and 4 on a line. What is its WSS?",
+          "a": "The mean is 2, so WSS = 2² + 2² = 8."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q19 (which point must share a cluster: the midpoint, by convexity).",
+      "scene": "ml.kmeans.geom",
+      "try": {
+        "id": "gen.ml.kmeans.001",
+        "label": "What k-means minimises"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Six points: (1, 1), (3, 1), (2, 4) on the left and (5, 1), (7, 1), (6, 4) on the right. With k = 2 the clusters are the left three and the right three. Find the centroids, the WSS and the boundary, and check that a segment between two members stays inside the cluster.",
+        "steps": [
+          "Centroids: μ1 = ((1+3+2)/3, (1+1+4)/3) = (2, 2) and μ2 = ((5+7+6)/3, (1+1+4)/3) = (6, 2).",
+          "Squared distances to the own centroid on the left: (1,1): 1² + 1² = 2, (3,1): 1² + 1² = 2, (2,4): 0² + 2² = 4. The right side is the same. WSS = 8 + 8 = 16.",
+          "A point is equally far from μ1 and μ2 when x = 4, halfway between 2 and 6. This perpendicular bisector is the boundary. Left of it is cluster 1.",
+          "Take (1,1) and (2,4) from cluster 1. The segment between them has x between 1 and 2, so it stays left of x = 4. Its midpoint (1.5, 2.5) is in cluster 1.",
+          "Every cluster is cut out by straight boundaries, so it is convex: no dents and no holes."
+        ],
+        "answer": "μ1 = (2, 2), μ2 = (6, 2), WSS = 16 and the boundary is x = 4. A segment between two members of a cluster stays inside it."
+      },
+      "what": "**k-means** splits n points into k groups so that the total squared distance from each point to its own group's mean is as small as possible. That total is the **within-cluster sum of squares** (WSS, also called SSE). With Euclidean distance the border between two clusters is a straight line, so every cluster is a **convex** region. If two points share a cluster, every point on the straight segment between them does too.",
+      "what_full": "**k-means** splits n points into k groups so that the total squared distance from each point to its own group's mean is as small as possible. That total is the **within-cluster sum of squares** (WSS, also called SSE). With Euclidean distance the border between two clusters is a straight line, so every cluster is a **convex** region. If two points share a cluster, every point on the straight segment between them does too.\n\n$$\\min_{C_1,\\dots,C_k}\\ \\sum_{j=1}^{k}\\ \\sum_{x\\in C_j}\\lVert x-\\mu_j\\rVert^2,\\qquad \\mu_j=\\frac{1}{|C_j|}\\sum_{x\\in C_j}x$$\n\nSymbols: $C_j$ is cluster $j$ and $\\mu_j$ is its centroid, the mean of its points. $\\lVert x-\\mu_j\\rVert^2$ is the squared Euclidean distance from point $x$ to its centroid. The boundary between two centroids $\\mu_a$ and $\\mu_b$ is their perpendicular bisector: the line of points equally far from both.\n\n**Worked example.** Six points: (1, 1), (3, 1), (2, 4) on the left and (5, 1), (7, 1), (6, 4) on the right. With k = 2 the clusters are the left three and the right three. Find the centroids, the WSS and the boundary, and check that a segment between two members stays inside the cluster.\n\n1. Centroids: μ1 = ((1+3+2)/3, (1+1+4)/3) = (2, 2) and μ2 = ((5+7+6)/3, (1+1+4)/3) = (6, 2).\n2. Squared distances to the own centroid on the left: (1,1): 1² + 1² = 2, (3,1): 1² + 1² = 2, (2,4): 0² + 2² = 4. The right side is the same. WSS = 8 + 8 = 16.\n3. A point is equally far from μ1 and μ2 when x = 4, halfway between 2 and 6. This perpendicular bisector is the boundary. Left of it is cluster 1.\n4. Take (1,1) and (2,4) from cluster 1. The segment between them has x between 1 and 2, so it stays left of x = 4. Its midpoint (1.5, 2.5) is in cluster 1.\n5. Every cluster is cut out by straight boundaries, so it is convex: no dents and no holes.\n\n**Answer:** μ1 = (2, 2), μ2 = (6, 2), WSS = 16 and the boundary is x = 4. A segment between two members of a cluster stays inside it.\n\n**Check yourself:** A cluster contains (1, 2) and (5, 6). Which of these must it also contain: (3, 4) or (3, 3)?\n\n*Answer:* (3, 4), the midpoint of the two.",
+      "trap": "Choosing a point because it looks close to the cluster, or believing that k-means finds the best possible clusters. Convexity forces only the points on the segment between members. Closeness forces nothing.",
+      "why_full": "The objective explains what the loop is trying to do, and the straight-line boundaries explain what shapes it can find. In GATE: decide which point must share a cluster, or recognise that k-means clusters are convex.\n\nAsked: 2024 DA Q19 (which point must share a cluster: the midpoint, by convexity)."
+    },
+    {
+      "atom_id": "k2",
+      "title": "Assignment step",
+      "simple": "Imagine two ice-cream stalls on a beach and you must send each person to the nearer one. For every person you measure the distance to each stall and walk them to the closer one. K-means does the same: each data point joins the centre that is closest to it. We compare squared distances because the winner is the same and there are no square roots to calculate. Be careful to use the full distance, not only the left-right gap or only the up-down gap. In exam words: the assignment step gives each point to the nearest centroid, using the squared Euclidean distance d² = (x1 − c1)² + (x2 − c2)².",
+      "idea": "In the **assignment step**, every point joins the centroid it is closest to. Compare **squared** distances: the winner is the same as with plain distances, and there is no square root to calculate. Do this for every point and you have the clusters for the current centroids. If two centroids are equally close, a tie rule picks one.",
+      "definition": "$$d^2(x,\\mu_j)=\\sum_{i}(x_i-\\mu_{j,i})^2,\\qquad \\text{label}(x)=\\arg\\min_{j}\\ d^2(x,\\mu_j)$$\n\nSymbols: $x$ is a point and $\\mu_j$ is centroid $j$. $x_i$ is coordinate $i$ of $x$. The $\\arg\\min$ picks the $j$ with the smallest squared distance. In two dimensions, $d^2=(x-a)^2+(y-b)^2$ for a centroid $(a,b)$.",
+      "intuition_full": "Squared distance and distance rank the same way, because squaring keeps the order of positive numbers. So the nearest centroid by d² is also the nearest by d. Dropping the square root saves work and keeps the numbers whole. The assignment step is the 'which team do I join?' round. The centroids do not move, only the labels change. This step cuts the plane into regions by the perpendicular bisectors of the centroids, and a point's label is simply the region it lies in. With k centroids you compute k numbers per point and keep the smallest. In an exam, check the clear cases by eye and compute carefully only the points that sit near a boundary.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Six points: P1 (1,1), P2 (2,1), P3 (1,2), P4 (5,4), P5 (6,5), P6 (5,5). The starting centroids are μ1 = (1, 3) and μ2 = (4, 1). Assign each point to its nearest centroid.",
+          "steps": [
+            "Two centroids and six points. For each point compute d² to μ1 and to μ2, and keep the smaller.",
+            "P1 (1,1): d² to μ1 = 0² + 2² = 4 and to μ2 = 3² + 0² = 9. Nearest: μ1.",
+            "P2 (2,1): d² to μ1 = 1² + 2² = 5 and to μ2 = 2² + 0² = 4. Nearest: μ2, by a small margin.",
+            "P3 (1,2): d² to μ1 = 0² + 1² = 1 and to μ2 = 3² + 1² = 10. Nearest: μ1.",
+            "P4 (5,4): 17 against 10. P5 (6,5): 29 against 20. P6 (5,5): 20 against 17. All three go to μ2.",
+            "Result: cluster 1 = {P1, P3} and cluster 2 = {P2, P4, P5, P6}."
+          ],
+          "answer": "Cluster 1 = {P1, P3}, cluster 2 = {P2, P4, P5, P6}."
+        },
+        {
+          "level": "gate",
+          "setup": "Eight points: (1,1), (6,3), (5,7), (7,9), (7,1), (2,4), (6,5), (0,4). The centroids are μ1 = (2,2), μ2 = (8,2) and μ3 = (5,8). Do one assignment and then one update. Find the new μ3.",
+          "steps": [
+            "(1,1): d² to μ1, μ2, μ3 = 2, 50, 65. (2,4): 4, 40, 25. (0,4): 8, 68, 41. All three go to μ1.",
+            "(6,3): 17, 5, 26 goes to μ2. (7,1): 26, 2, 53 goes to μ2.",
+            "(5,7): 34, 34, 1 goes to μ3. (7,9): 74, 50, 5 goes to μ3.",
+            "The close one is (6,5): 25, 13, 10. The smallest is 10, so it goes to μ3, not μ2.",
+            "Cluster 3 = {(5,7), (7,9), (6,5)}. New μ3 = ((5+7+6)/3, (7+9+5)/3) = (18/3, 21/3) = (6, 7)."
+          ],
+          "answer": "New μ3 = (6, 7). (The other new centroids are μ1 = (1, 3) and μ2 = (6.5, 2).)"
+        },
+        {
+          "level": "twist",
+          "setup": "A point X = (3, 0) and centroids μ1 = (0, 0) and μ2 = (4, 4). Someone says: 'The x-coordinate 3 is closer to 4 than to 0, so X goes to μ2.' Is that right?",
+          "steps": [
+            "Compare the whole distance, not one coordinate.",
+            "d² to μ1 = (3−0)² + (0−0)² = 9.",
+            "d² to μ2 = (3−4)² + (0−4)² = 1 + 16 = 17.",
+            "9 < 17, so X goes to μ1. The large gap in y outweighs the small gap in x."
+          ],
+          "answer": "X goes to μ1 (9 against 17). Always add the squared gaps of all coordinates."
+        }
+      ],
+      "why": "The assignment step is half of every iteration, and it is where most arithmetic slips happen. In GATE: one assign-then-average iteration on a small data set. Get the assignment right and the average is easy.",
+      "how": [
+        "For each point, compute d² to every centroid: add the squared gap in each coordinate.",
+        "Pick the smallest d² and write the cluster number next to the point.",
+        "Take extra care with points that sit near the middle between two centroids.",
+        "Do not move the centroids yet. That is the next step."
+      ],
+      "mistake": "Comparing only one coordinate, or leaving a coordinate out of the sum. Another slip is moving a centroid before all points have been assigned. Compute the full d² for every pair, then compare.",
+      "edge_cases": [
+        "A tie (equal d²): the question usually states a rule or avoids ties. The common rule is the lower-numbered centroid.",
+        "A centroid can win no points. It then has an empty cluster, and its mean is undefined.",
+        "A point sitting exactly on a centroid has d² = 0 and always joins it.",
+        "k-medoid uses the same assignment idea, with data points as the centres."
+      ],
+      "connections": [
+        "Foundations: Algebra. Squares and sums of signed gaps.",
+        "Linear algebra: Vector spaces covers the norm that d² is built from.",
+        "k-NN: both methods rank points by squared distance.",
+        "Next card: the update step moves each centroid to the mean of what it received."
+      ],
+      "check": [
+        {
+          "q": "A point (2, 2) and centroids (0, 0) and (3, 3). Which does it join?",
+          "a": "d² to (0,0) is 8 and to (3,3) is 2. It joins (3, 3)."
+        },
+        {
+          "q": "Why can we skip the square root when comparing distances?",
+          "a": "Squaring keeps the order of positive numbers, so the smallest squared distance is also the smallest distance."
+        },
+        {
+          "q": "A point (1, 5) and centroids (1, 1) and (4, 5). Which does it join?",
+          "a": "d² to (1,1) is 16 and to (4,5) is 9. It joins (4, 5)."
+        }
+      ],
+      "asked": "Asked: 2024 DA sample Q42 (one assign-then-average iteration with three centroids).",
+      "scene": "ml.kmeans.assign",
+      "try": {
+        "id": "gen.ml.kmeans.005",
+        "label": "Squared distance between two points"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Six points: P1 (1,1), P2 (2,1), P3 (1,2), P4 (5,4), P5 (6,5), P6 (5,5). The starting centroids are μ1 = (1, 3) and μ2 = (4, 1). Assign each point to its nearest centroid.",
+        "steps": [
+          "Two centroids and six points. For each point compute d² to μ1 and to μ2, and keep the smaller.",
+          "P1 (1,1): d² to μ1 = 0² + 2² = 4 and to μ2 = 3² + 0² = 9. Nearest: μ1.",
+          "P2 (2,1): d² to μ1 = 1² + 2² = 5 and to μ2 = 2² + 0² = 4. Nearest: μ2, by a small margin.",
+          "P3 (1,2): d² to μ1 = 0² + 1² = 1 and to μ2 = 3² + 1² = 10. Nearest: μ1.",
+          "P4 (5,4): 17 against 10. P5 (6,5): 29 against 20. P6 (5,5): 20 against 17. All three go to μ2.",
+          "Result: cluster 1 = {P1, P3} and cluster 2 = {P2, P4, P5, P6}."
+        ],
+        "answer": "Cluster 1 = {P1, P3}, cluster 2 = {P2, P4, P5, P6}."
+      },
+      "what": "In the **assignment step**, every point joins the centroid it is closest to. Compare **squared** distances: the winner is the same as with plain distances, and there is no square root to calculate. Do this for every point and you have the clusters for the current centroids. If two centroids are equally close, a tie rule picks one.",
+      "what_full": "In the **assignment step**, every point joins the centroid it is closest to. Compare **squared** distances: the winner is the same as with plain distances, and there is no square root to calculate. Do this for every point and you have the clusters for the current centroids. If two centroids are equally close, a tie rule picks one.\n\n$$d^2(x,\\mu_j)=\\sum_{i}(x_i-\\mu_{j,i})^2,\\qquad \\text{label}(x)=\\arg\\min_{j}\\ d^2(x,\\mu_j)$$\n\nSymbols: $x$ is a point and $\\mu_j$ is centroid $j$. $x_i$ is coordinate $i$ of $x$. The $\\arg\\min$ picks the $j$ with the smallest squared distance. In two dimensions, $d^2=(x-a)^2+(y-b)^2$ for a centroid $(a,b)$.\n\n**Worked example.** Six points: P1 (1,1), P2 (2,1), P3 (1,2), P4 (5,4), P5 (6,5), P6 (5,5). The starting centroids are μ1 = (1, 3) and μ2 = (4, 1). Assign each point to its nearest centroid.\n\n1. Two centroids and six points. For each point compute d² to μ1 and to μ2, and keep the smaller.\n2. P1 (1,1): d² to μ1 = 0² + 2² = 4 and to μ2 = 3² + 0² = 9. Nearest: μ1.\n3. P2 (2,1): d² to μ1 = 1² + 2² = 5 and to μ2 = 2² + 0² = 4. Nearest: μ2, by a small margin.\n4. P3 (1,2): d² to μ1 = 0² + 1² = 1 and to μ2 = 3² + 1² = 10. Nearest: μ1.\n5. P4 (5,4): 17 against 10. P5 (6,5): 29 against 20. P6 (5,5): 20 against 17. All three go to μ2.\n6. Result: cluster 1 = {P1, P3} and cluster 2 = {P2, P4, P5, P6}.\n\n**Answer:** Cluster 1 = {P1, P3}, cluster 2 = {P2, P4, P5, P6}.\n\n**Check yourself:** A point (2, 2) and centroids (0, 0) and (3, 3). Which does it join?\n\n*Answer:* d² to (0,0) is 8 and to (3,3) is 2. It joins (3, 3).",
+      "trap": "Comparing only one coordinate, or leaving a coordinate out of the sum. Another slip is moving a centroid before all points have been assigned. Compute the full d² for every pair, then compare.",
+      "why_full": "The assignment step is half of every iteration, and it is where most arithmetic slips happen. In GATE: one assign-then-average iteration on a small data set. Get the assignment right and the average is easy.\n\nAsked: 2024 DA sample Q42 (one assign-then-average iteration with three centroids)."
+    },
+    {
+      "atom_id": "k3",
+      "title": "Update step and convergence",
+      "simple": "After everyone has joined a team, each team works out its middle spot, which is the average position of its members. The team flag moves there. Then everyone checks again which flag is closest, and some people may switch teams. Then the flags move again. Each round the total distance from members to their own flag can only stay the same or go down, so the shuffling must stop. When nobody switches any more, the process is finished. It may stop at a decent grouping, but not always the best one. In exam words: update each centroid to the mean of its cluster and repeat until the assignments stop changing. The SSE never increases.",
+      "idea": "In the **update step**, each centroid moves to the **mean** of the points assigned to it. Then you assign again with the new centroids. Repeat until no point changes cluster. Each step either lowers the SSE or leaves it unchanged, so the loop always stops.",
+      "definition": "$$\\mu_j\\ \\leftarrow\\ \\frac{1}{|C_j|}\\sum_{x\\in C_j}x$$\n\nSymbols: $C_j$ is the set of points currently assigned to centroid $j$, and $|C_j|$ is how many there are. The mean is taken coordinate by coordinate. For fixed clusters, the mean is the point with the smallest total squared distance to the cluster's members. Stop when the assignments no longer change.",
+      "intuition_full": "K-means alternates two moves, and neither can increase the SSE. In the assignment move, the centroids are fixed and each point moves to its nearest centroid, which lowers or keeps its own squared distance. In the update move, the clusters are fixed and the mean is exactly the point that minimises the sum of squared distances to the members, so moving the centroid there lowers or keeps the SSE. The SSE can never go up, and there are only finitely many ways to split the points into clusters, so the loop must stop after finitely many rounds. But stopping does not mean the answer is the best: the final clusters depend on where the loop started. This two-step rhythm is the same as the EM algorithm, where assignment is the E-step and the mean update is the M-step.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Continue the six-point example. After the first assignment, cluster 1 = {P1, P3} and cluster 2 = {P2, P4, P5, P6}, with P1 (1,1), P2 (2,1), P3 (1,2), P4 (5,4), P5 (6,5), P6 (5,5). The starting centroids were μ1 = (1,3) and μ2 = (4,1). Update the centroids, assign again, and repeat until nothing changes. Track the SSE.",
+          "steps": [
+            "After assignment 1, the SSE with the starting centroids is (4 + 1) + (4 + 10 + 20 + 17) = 5 + 51 = 56.",
+            "Update 1: μ1 = mean of (1,1) and (1,2) = (1, 1.5). μ2 = mean of (2,1), (5,4), (6,5), (5,5) = (18/4, 15/4) = (4.5, 3.75). The SSE falls to 20.25.",
+            "Assign 2: P2 (2,1) is now 1.25 from μ1 but 13.81 from μ2, so it switches to cluster 1. The SSE falls to 7.69.",
+            "Update 2: μ1 = mean of (1,1), (2,1), (1,2) = (4/3, 4/3) ≈ (1.33, 1.33). μ2 = mean of (5,4), (6,5), (5,5) = (16/3, 14/3) ≈ (5.33, 4.67). The SSE falls to 8/3 ≈ 2.67.",
+            "Assign 3: nobody changes cluster, so the algorithm has converged. The SSE went 56, 20.25, 7.69, 2.67."
+          ],
+          "answer": "Converged with μ1 ≈ (1.33, 1.33), μ2 ≈ (5.33, 4.67) and SSE = 8/3 ≈ 2.67."
+        },
+        {
+          "level": "gate",
+          "setup": "Seven points: (5,7), (8,9), (7,1), (4,0), (8,8), (7,6), (7,5). Start with μ1 = (2,9) and μ2 = (7,0). Run k-means to convergence and find the final SSE.",
+          "steps": [
+            "Assign 1 (d² to μ1, μ2): (5,7): 13, 53. (8,9): 36, 82. (8,8): 37, 65. (7,6): 34, 36. These four go to μ1. (7,1): 89, 1. (4,0): 85, 9. (7,5): 41, 25. These three go to μ2.",
+            "Update 1: μ1 = mean of (5,7), (8,9), (8,8), (7,6) = (28/4, 30/4) = (7, 7.5). μ2 = mean of (7,1), (4,0), (7,5) = (18/3, 6/3) = (6, 2).",
+            "Assign 2: (7,5) is 6.25 from μ1 but 10 from μ2, so it switches to cluster 1. The others stay.",
+            "Update 2: μ1 = mean of (5,7), (8,9), (8,8), (7,6), (7,5) = (35/5, 35/5) = (7, 7). μ2 = mean of (7,1), (4,0) = (5.5, 0.5).",
+            "Assign 3: nobody changes. SSE = cluster 1: 4 + 5 + 2 + 1 + 4 = 16, cluster 2: 2.5 + 2.5 = 5. Total 21."
+          ],
+          "answer": "Final centroids (7, 7) and (5.5, 0.5), SSE = 21."
+        },
+        {
+          "level": "twist",
+          "setup": "Four points (1,1), (3,1), (1,3), (3,3). Start with μ1 = (2,2) and μ2 = (9,9). What goes wrong in the update step?",
+          "steps": [
+            "d² to μ1 is 2 for every point. d² to μ2 is at least 72, for example (3,3): 6² + 6² = 72. So all four points join μ1.",
+            "Cluster 2 is empty, so its mean is 0/0: undefined.",
+            "μ1 = mean of the four points = (2, 2), unchanged. Programs keep the old μ2 or re-seed it at a far point.",
+            "Nothing changes, and the run 'converges' with SSE = 4 × 2 = 8 and one useless centroid."
+          ],
+          "answer": "Cluster 2 is empty and has no mean. The centroid has to be re-seeded."
+        }
+      ],
+      "why": "This loop is the whole algorithm, so convergence is what exams probe: what does it guarantee, and what does it not? In GATE: one assign-then-average iteration, or statements about convergence.",
+      "how": [
+        "For each cluster, add up the coordinates of its members.",
+        "Divide each sum by the number of members. That is the new centroid.",
+        "Assign again, using the new centroids.",
+        "Stop when no point changes cluster. Otherwise repeat.",
+        "Check that the SSE has not increased. If it has, something is wrong."
+      ],
+      "mistake": "Using the old centroid in the next assignment, or averaging the wrong set of points. After the update the old centroids are gone. Average only the members of that cluster, then compare every point with the new centroids.",
+      "edge_cases": [
+        "An empty cluster has no mean. Keep the old centroid or re-seed it.",
+        "The SSE may stay equal for a step. That is allowed. Convergence means the labels stop changing.",
+        "The loop reaches a local optimum, not necessarily the best one (next card).",
+        "It is the EM algorithm for equal, round Gaussians: assignment is E and the update is M."
+      ],
+      "connections": [
+        "Foundations: Algebra. Averaging the coordinates of a few points.",
+        "Previous card: the assignment step that this step follows.",
+        "Next card: why the end result depends on where the centroids start.",
+        "SSE card: shows why the mean is the best centre for a cluster."
+      ],
+      "check": [
+        {
+          "q": "A cluster holds (2, 6), (4, 2) and (6, 4). What is its new centroid?",
+          "a": "((2+4+6)/3, (6+2+4)/3) = (4, 4)."
+        },
+        {
+          "q": "Can the SSE increase from one step of k-means to the next?",
+          "a": "No. Each step lowers it or keeps it the same."
+        },
+        {
+          "q": "Name the two steps of every iteration.",
+          "a": "Assign each point to its nearest centroid, then move each centroid to the mean of its points."
+        }
+      ],
+      "asked": "Asked: 2024 DA sample Q42 (one iteration: assign, then average).",
+      "scene": "ml.kmeans.update",
+      "try": {
+        "id": "gen.ml.kmeans.002",
+        "label": "Where the update step moves each centroid"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Continue the six-point example. After the first assignment, cluster 1 = {P1, P3} and cluster 2 = {P2, P4, P5, P6}, with P1 (1,1), P2 (2,1), P3 (1,2), P4 (5,4), P5 (6,5), P6 (5,5). The starting centroids were μ1 = (1,3) and μ2 = (4,1). Update the centroids, assign again, and repeat until nothing changes. Track the SSE.",
+        "steps": [
+          "After assignment 1, the SSE with the starting centroids is (4 + 1) + (4 + 10 + 20 + 17) = 5 + 51 = 56.",
+          "Update 1: μ1 = mean of (1,1) and (1,2) = (1, 1.5). μ2 = mean of (2,1), (5,4), (6,5), (5,5) = (18/4, 15/4) = (4.5, 3.75). The SSE falls to 20.25.",
+          "Assign 2: P2 (2,1) is now 1.25 from μ1 but 13.81 from μ2, so it switches to cluster 1. The SSE falls to 7.69.",
+          "Update 2: μ1 = mean of (1,1), (2,1), (1,2) = (4/3, 4/3) ≈ (1.33, 1.33). μ2 = mean of (5,4), (6,5), (5,5) = (16/3, 14/3) ≈ (5.33, 4.67). The SSE falls to 8/3 ≈ 2.67.",
+          "Assign 3: nobody changes cluster, so the algorithm has converged. The SSE went 56, 20.25, 7.69, 2.67."
+        ],
+        "answer": "Converged with μ1 ≈ (1.33, 1.33), μ2 ≈ (5.33, 4.67) and SSE = 8/3 ≈ 2.67."
+      },
+      "what": "In the **update step**, each centroid moves to the **mean** of the points assigned to it. Then you assign again with the new centroids. Repeat until no point changes cluster. Each step either lowers the SSE or leaves it unchanged, so the loop always stops.",
+      "what_full": "In the **update step**, each centroid moves to the **mean** of the points assigned to it. Then you assign again with the new centroids. Repeat until no point changes cluster. Each step either lowers the SSE or leaves it unchanged, so the loop always stops.\n\n$$\\mu_j\\ \\leftarrow\\ \\frac{1}{|C_j|}\\sum_{x\\in C_j}x$$\n\nSymbols: $C_j$ is the set of points currently assigned to centroid $j$, and $|C_j|$ is how many there are. The mean is taken coordinate by coordinate. For fixed clusters, the mean is the point with the smallest total squared distance to the cluster's members. Stop when the assignments no longer change.\n\n**Worked example.** Continue the six-point example. After the first assignment, cluster 1 = {P1, P3} and cluster 2 = {P2, P4, P5, P6}, with P1 (1,1), P2 (2,1), P3 (1,2), P4 (5,4), P5 (6,5), P6 (5,5). The starting centroids were μ1 = (1,3) and μ2 = (4,1). Update the centroids, assign again, and repeat until nothing changes. Track the SSE.\n\n1. After assignment 1, the SSE with the starting centroids is (4 + 1) + (4 + 10 + 20 + 17) = 5 + 51 = 56.\n2. Update 1: μ1 = mean of (1,1) and (1,2) = (1, 1.5). μ2 = mean of (2,1), (5,4), (6,5), (5,5) = (18/4, 15/4) = (4.5, 3.75). The SSE falls to 20.25.\n3. Assign 2: P2 (2,1) is now 1.25 from μ1 but 13.81 from μ2, so it switches to cluster 1. The SSE falls to 7.69.\n4. Update 2: μ1 = mean of (1,1), (2,1), (1,2) = (4/3, 4/3) ≈ (1.33, 1.33). μ2 = mean of (5,4), (6,5), (5,5) = (16/3, 14/3) ≈ (5.33, 4.67). The SSE falls to 8/3 ≈ 2.67.\n5. Assign 3: nobody changes cluster, so the algorithm has converged. The SSE went 56, 20.25, 7.69, 2.67.\n\n**Answer:** Converged with μ1 ≈ (1.33, 1.33), μ2 ≈ (5.33, 4.67) and SSE = 8/3 ≈ 2.67.\n\n**Check yourself:** A cluster holds (2, 6), (4, 2) and (6, 4). What is its new centroid?\n\n*Answer:* ((2+4+6)/3, (6+2+4)/3) = (4, 4).",
+      "trap": "Using the old centroid in the next assignment, or averaging the wrong set of points. After the update the old centroids are gone. Average only the members of that cluster, then compare every point with the new centroids.",
+      "why_full": "This loop is the whole algorithm, so convergence is what exams probe: what does it guarantee, and what does it not? In GATE: one assign-then-average iteration, or statements about convergence.\n\nAsked: 2024 DA sample Q42 (one iteration: assign, then average)."
+    },
+    {
+      "atom_id": "k3b",
+      "title": "Local optima and starting points",
+      "simple": "Imagine rolling a marble into a valley. Wherever you drop it, it rolls to the bottom of the nearest valley, but a different valley nearby might be deeper. K-means behaves the same way. It always settles down, but where it settles depends on where the starting centres were placed. One start may give a good grouping and another start a poor one, and k-means cannot tell the difference. The usual fix is to run it several times from different starts and keep the grouping with the smallest total. In exam words: k-means converges to a local optimum of the SSE that depends on the initial centroids, not necessarily the global minimum.",
+      "idea": "k-means always stops, but not always at the best answer. It stops at a **local optimum**: a clustering that no single assign or update step can improve. A different set of **starting centroids** can end at a different clustering with a different SSE. So run it from several starts and keep the lowest SSE, or choose spread-out starts (k-means++).",
+      "definition": "$$\\text{fixed point:}\\quad \\text{assign}(\\mu)=C\\quad\\text{and}\\quad \\mu_j=\\operatorname{mean}(C_j)\\ \\text{ for every } j$$\n\nA clustering $C$ with centroids $\\mu$ is a fixed point (a local optimum) when assigning each point to its nearest centroid reproduces $C$, and every centroid is the mean of its cluster. The same data can have several fixed points with different SSE. The one with the smallest SSE is the global optimum.",
+      "intuition_full": "Think of the SSE as a bumpy landscape and k-means as a ball that only ever rolls downhill. Once it reaches a dip it stays there, even if a deeper dip is next door. The rectangle example shows this in the simplest case. The four corners of a rectangle can be split into a left pair and a right pair, or into a bottom pair and a top pair. Both splits are stable, because each centroid is the mean of its pair and each point is closer to its own centroid. For a long thin rectangle the top and bottom split is far worse, but the algorithm cannot tell, because it only looks at nearby moves. Practical remedies are several random restarts, or k-means++, which picks starting centroids far apart from each other. Neither guarantees the global optimum. They only make a bad one less likely.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Four points form a rectangle: (1,1), (1,3), (5,1), (5,3), 4 wide and 2 tall. Run k-means with k = 2 from two starts. Start A: μ1 = (2,1) and μ2 = (4,3). Start B: μ1 = (2,1) and μ2 = (2,3).",
+          "steps": [
+            "Four corners of a rectangle, 4 wide and 2 tall. We try two different starts.",
+            "Start A: (1,3) is 5 from μ1 and 9 from μ2, so it joins μ1. (5,1) is 9 from μ1 and 5 from μ2, so it joins μ2. The groups are left and right.",
+            "Update: μ1 = (1, 2) and μ2 = (5, 2). Assigning again changes nothing. SSE = (1 + 1) + (1 + 1) = 4.",
+            "Start B: (5,1) is 9 from μ1 and 13 from μ2, so it joins μ1. (5,3) is 13 from μ1 and 9 from μ2, so it joins μ2. The groups are bottom and top.",
+            "Update: μ1 = (3, 1) and μ2 = (3, 3). Assigning again changes nothing, since (1,1) is 4 from μ1 and 8 from μ2. SSE = (4 + 4) + (4 + 4) = 16.",
+            "Both runs are stable. Same data, SSE 4 against 16."
+          ],
+          "answer": "Start A ends with SSE 4 and start B with SSE 16. k-means cannot tell which is better."
+        },
+        {
+          "level": "gate",
+          "setup": "One-dimensional points 3, 4, 6, 7, 10, 15 and k = 2. The run starts from μ = (6, 15). Find the SSE at convergence. The best possible clustering has SSE 22.5. Is the run stuck?",
+          "steps": [
+            "Assign: the points 3, 4, 6, 7 and 10 are nearer 6 than 15 (for 10: |10−6| = 4 against |10−15| = 5). Point 15 goes to μ2.",
+            "Update: μ1 = (3+4+6+7+10)/5 = 30/5 = 6 and μ2 = 15. Nothing moves, so the run stops.",
+            "SSE = (9 + 4 + 0 + 1 + 16) + 0 = 30.",
+            "The clustering {3, 4, 6, 7} and {10, 15} has means 5 and 12.5 and SSE (4 + 1 + 1 + 4) + (6.25 + 6.25) = 22.5."
+          ],
+          "answer": "SSE = 30. The run is stuck in a local optimum, because 22.5 is possible."
+        },
+        {
+          "level": "twist",
+          "setup": "Stretch the rectangle to 10 wide and 2 tall: (1,1), (1,3), (11,1), (11,3). Compare the two stable clusterings.",
+          "steps": [
+            "Left and right: the means are (1, 2) and (11, 2), and SSE = (1 + 1) + (1 + 1) = 4.",
+            "Bottom and top: the means are (6, 1) and (6, 3). Each cluster has two points at distance 5 from its mean, so SSE = (25 + 25) + (25 + 25) = 100.",
+            "The bottom and top split is still stable: (1,1) is 25 from (6,1) and 29 from (6,3).",
+            "The bad local optimum is now 25 times worse than the good one."
+          ],
+          "answer": "SSE 4 against 100. The longer the rectangle, the worse the bad local optimum gets."
+        }
+      ],
+      "why": "Exams test whether you know that k-means is not guaranteed to find the best clustering. In GATE: statements about k-means (does it converge, is the result global, does it depend on the start) and small runs from given centroids.",
+      "how": [
+        "Run the algorithm from the given start until the labels stop changing.",
+        "Compute the final SSE.",
+        "To judge the result, compare it with another sensible clustering.",
+        "For statements: it converges (yes), it finds the global optimum (not guaranteed), it depends on the start (yes)."
+      ],
+      "mistake": "Saying that k-means always finds the clustering with the smallest SSE, or that it might never stop. It always terminates, and not always at the best clustering.",
+      "edge_cases": [
+        "Different starts can reach the same final clustering. Then the result is reliable for that data.",
+        "k-means++ picks each new starting centroid far from the earlier ones. It improves the expected result but gives no guarantee.",
+        "Two starting centroids at the same point leave one cluster empty.",
+        "More restarts give a better chance of a good result but cost more time."
+      ],
+      "connections": [
+        "Foundations: Algebra. The runs use only means and squared distances.",
+        "Previous card: the update step and why the loop converges.",
+        "Feed-forward networks: gradient descent there also stops in local minima.",
+        "Hierarchical clustering has no starting-point problem: its result is fixed by the data and the linkage."
+      ],
+      "check": [
+        {
+          "q": "True or false: k-means always reaches the clustering with the smallest SSE.",
+          "a": "False. It reaches a local optimum that depends on the start."
+        },
+        {
+          "q": "Does k-means always stop?",
+          "a": "Yes. The SSE never rises and there are only finitely many clusterings."
+        },
+        {
+          "q": "How can you lower the risk of a bad local optimum?",
+          "a": "Run from several different starts and keep the lowest SSE, or use k-means++ starts."
+        }
+      ],
+      "asked": "Asked: no past paper isolates it. It decides which statement about k-means is true.",
+      "scene": "ml.kmeans.optima",
+      "try": {
+        "id": "gen.ml.kmeans.004",
+        "label": "True statement about k-means"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Four points form a rectangle: (1,1), (1,3), (5,1), (5,3), 4 wide and 2 tall. Run k-means with k = 2 from two starts. Start A: μ1 = (2,1) and μ2 = (4,3). Start B: μ1 = (2,1) and μ2 = (2,3).",
+        "steps": [
+          "Four corners of a rectangle, 4 wide and 2 tall. We try two different starts.",
+          "Start A: (1,3) is 5 from μ1 and 9 from μ2, so it joins μ1. (5,1) is 9 from μ1 and 5 from μ2, so it joins μ2. The groups are left and right.",
+          "Update: μ1 = (1, 2) and μ2 = (5, 2). Assigning again changes nothing. SSE = (1 + 1) + (1 + 1) = 4.",
+          "Start B: (5,1) is 9 from μ1 and 13 from μ2, so it joins μ1. (5,3) is 13 from μ1 and 9 from μ2, so it joins μ2. The groups are bottom and top.",
+          "Update: μ1 = (3, 1) and μ2 = (3, 3). Assigning again changes nothing, since (1,1) is 4 from μ1 and 8 from μ2. SSE = (4 + 4) + (4 + 4) = 16.",
+          "Both runs are stable. Same data, SSE 4 against 16."
+        ],
+        "answer": "Start A ends with SSE 4 and start B with SSE 16. k-means cannot tell which is better."
+      },
+      "what": "k-means always stops, but not always at the best answer. It stops at a **local optimum**: a clustering that no single assign or update step can improve. A different set of **starting centroids** can end at a different clustering with a different SSE. So run it from several starts and keep the lowest SSE, or choose spread-out starts (k-means++).",
+      "what_full": "k-means always stops, but not always at the best answer. It stops at a **local optimum**: a clustering that no single assign or update step can improve. A different set of **starting centroids** can end at a different clustering with a different SSE. So run it from several starts and keep the lowest SSE, or choose spread-out starts (k-means++).\n\n$$\\text{fixed point:}\\quad \\text{assign}(\\mu)=C\\quad\\text{and}\\quad \\mu_j=\\operatorname{mean}(C_j)\\ \\text{ for every } j$$\n\nA clustering $C$ with centroids $\\mu$ is a fixed point (a local optimum) when assigning each point to its nearest centroid reproduces $C$, and every centroid is the mean of its cluster. The same data can have several fixed points with different SSE. The one with the smallest SSE is the global optimum.\n\n**Worked example.** Four points form a rectangle: (1,1), (1,3), (5,1), (5,3), 4 wide and 2 tall. Run k-means with k = 2 from two starts. Start A: μ1 = (2,1) and μ2 = (4,3). Start B: μ1 = (2,1) and μ2 = (2,3).\n\n1. Four corners of a rectangle, 4 wide and 2 tall. We try two different starts.\n2. Start A: (1,3) is 5 from μ1 and 9 from μ2, so it joins μ1. (5,1) is 9 from μ1 and 5 from μ2, so it joins μ2. The groups are left and right.\n3. Update: μ1 = (1, 2) and μ2 = (5, 2). Assigning again changes nothing. SSE = (1 + 1) + (1 + 1) = 4.\n4. Start B: (5,1) is 9 from μ1 and 13 from μ2, so it joins μ1. (5,3) is 13 from μ1 and 9 from μ2, so it joins μ2. The groups are bottom and top.\n5. Update: μ1 = (3, 1) and μ2 = (3, 3). Assigning again changes nothing, since (1,1) is 4 from μ1 and 8 from μ2. SSE = (4 + 4) + (4 + 4) = 16.\n6. Both runs are stable. Same data, SSE 4 against 16.\n\n**Answer:** Start A ends with SSE 4 and start B with SSE 16. k-means cannot tell which is better.\n\n**Check yourself:** True or false: k-means always reaches the clustering with the smallest SSE.\n\n*Answer:* False. It reaches a local optimum that depends on the start.",
+      "trap": "Saying that k-means always finds the clustering with the smallest SSE, or that it might never stop. It always terminates, and not always at the best clustering.",
+      "why_full": "Exams test whether you know that k-means is not guaranteed to find the best clustering. In GATE: statements about k-means (does it converge, is the result global, does it depend on the start) and small runs from given centroids.\n\nAsked: no past paper isolates it. It decides which statement about k-means is true."
+    },
+    {
+      "atom_id": "k4",
+      "title": "Computing SSE by hand",
+      "simple": "The SSE is the score card for a grouping. For each group, find the middle, measure how far each member is from the middle, square it so that big gaps hurt more, and add everything up. A small score means tight groups. Why measure from the middle, the mean? Of all the places you could put the flag, the average position is the one that makes the total squared distance smallest. Put the flag anywhere else and the score gets worse. There is also a neat split: the spread of all points together equals the spread inside the groups plus the spread between the group middles. In exam words: SSE = WSS = ΣΣ‖x − μ‖², and TSS = WSS + BSS.",
+      "idea": "The **SSE** (also written WSS) adds up the squared distance from every point to the **mean of its own cluster**. The mean is the best centre: any other centre gives a larger total. The overall spread splits as **TSS = WSS + BSS**: total spread equals within-cluster spread plus between-cluster spread.",
+      "definition": "$$\\mathrm{WSS}=\\sum_{j}\\sum_{x\\in C_j}\\lVert x-\\mu_j\\rVert^2,\\qquad \\mathrm{BSS}=\\sum_{j}n_j\\lVert\\mu_j-\\mu\\rVert^2,\\qquad \\mathrm{TSS}=\\sum_{x}\\lVert x-\\mu\\rVert^2$$\n\nSymbols: $\\mu$ is the mean of all the points, $\\mu_j$ is the mean of cluster $j$ and $n_j$ is the number of points in it. The three quantities satisfy $\\mathrm{TSS}=\\mathrm{WSS}+\\mathrm{BSS}$. TSS does not depend on how you cluster.",
+      "intuition_full": "Pick a centre c for a group of points and slide it along the line. The total squared distance f(c) = Σ(x − c)² is a bowl shape, a parabola, with its lowest point exactly at the mean. Moving away from the mean by a distance d adds exactly n × d² to the total, where n is the number of points. So f(c) = SSE at the mean + n(c − mean)². That shows the mean is the unique best centre, and any other centre, such as one of the data points, pays an extra n(c − mean)². The TSS split follows from the same idea: the spread of all points around the global mean breaks into the spread inside each group around its own mean, plus the spread of the group means around the global mean, weighted by group size. TSS stays fixed whatever clustering you choose, so when WSS falls, BSS rises by exactly the same amount.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A cluster holds the points 2, 4 and 9 on a line. Find its SSE about the cluster mean.",
+          "steps": [
+            "The cluster has three points on a line: 2, 4 and 9.",
+            "The mean is (2 + 4 + 9) / 3 = 15 / 3 = 5.",
+            "The gaps from the mean: 2 − 5 = −3, 4 − 5 = −1, 9 − 5 = +4.",
+            "Square each gap: (−3)² = 9, (−1)² = 1, 4² = 16.",
+            "Add them: SSE = 9 + 1 + 16 = 26. (Measuring from the data point 4 would give 4 + 0 + 25 = 29, which is larger.)"
+          ],
+          "answer": "SSE = 26."
+        },
+        {
+          "level": "gate",
+          "setup": "Six points 2, 4, 6, 8, 10, 12 on a line are split into the clusters {2, 4} and {6, 8, 10, 12}. Find WSS, BSS and TSS, and check that TSS = WSS + BSS.",
+          "steps": [
+            "The means: cluster A has mean 3, cluster B has mean (6+8+10+12)/4 = 9, and all six points have mean 42/6 = 7.",
+            "WSS: cluster A gives 1 + 1 = 2, cluster B gives 9 + 1 + 1 + 9 = 20. WSS = 22.",
+            "BSS = 2 × (3 − 7)² + 4 × (9 − 7)² = 2 × 16 + 4 × 4 = 32 + 16 = 48.",
+            "TSS = (2−7)² + (4−7)² + (6−7)² + (8−7)² + (10−7)² + (12−7)² = 25 + 9 + 1 + 1 + 9 + 25 = 70.",
+            "Check: WSS + BSS = 22 + 48 = 70 = TSS."
+          ],
+          "answer": "WSS = 22, BSS = 48, TSS = 70."
+        },
+        {
+          "level": "twist",
+          "setup": "For the cluster 2, 4, 9 (mean 5, SSE 26), compute the total squared distance f(c) when the centre is the data point c = 4, and when it is c = 6. Compare with the mean.",
+          "steps": [
+            "f(4) = (2−4)² + (4−4)² + (9−4)² = 4 + 0 + 25 = 29.",
+            "f(6) = (2−6)² + (4−6)² + (9−6)² = 16 + 4 + 9 = 29.",
+            "The formula f(c) = 26 + 3 × (c − 5)² gives 26 + 3 × 1 = 29 for both.",
+            "Any centre other than 5 costs extra, so the mean is the unique minimiser."
+          ],
+          "answer": "Both give 29, which is 26 + 3. Only the mean gives 26."
+        }
+      ],
+      "why": "SSE is the number that k-means tries to shrink, so you compute it at the end of a run, and TSS = WSS + BSS lets you find a missing value. In GATE: practice items compute the SSE of a final clustering or the between-cluster sum of squares.",
+      "how": [
+        "Find the mean of each cluster.",
+        "Square the distance from each point to its own cluster's mean.",
+        "Add within each cluster, then across clusters. That is WSS.",
+        "For BSS, use (cluster size) × (squared distance between cluster mean and global mean) for each cluster, or TSS − WSS.",
+        "Sanity check: WSS is never bigger than TSS."
+      ],
+      "mistake": "Measuring from a data point or from the old centroid instead of the cluster mean, which gives a larger, wrong number. Another slip is forgetting to square. Compute the mean first, then the squared gaps.",
+      "edge_cases": [
+        "A cluster with one point has SSE 0.",
+        "With k = 1, WSS equals TSS and BSS is 0.",
+        "With k = n, WSS is 0 and BSS equals TSS.",
+        "SSE is in squared units. Do not take a square root unless the question asks."
+      ],
+      "connections": [
+        "Foundations: Algebra. Squares and sums such as (a − b)².",
+        "Probability: Descriptive statistics and moments covers the mean and variance.",
+        "LDA: the within-class scatter matrix is the matrix version of WSS.",
+        "Choosing k card: the elbow plot is a plot of this WSS against k."
+      ],
+      "check": [
+        {
+          "q": "Points 1 and 5 form one cluster. What is its SSE?",
+          "a": "The mean is 3, so SSE = 2² + 2² = 8."
+        },
+        {
+          "q": "TSS = 100 and WSS = 36. Find BSS.",
+          "a": "BSS = TSS − WSS = 64."
+        },
+        {
+          "q": "A cluster has a single point. What is its SSE?",
+          "a": "0."
+        }
+      ],
+      "asked": "Asked: not alone in past papers. It follows every iteration question, and the elbow method uses it.",
+      "scene": "ml.kmeans.sse",
+      "try": {
+        "id": "gen.ml.kmeans.008",
+        "label": "SSE of the points 1, 2 and 6"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "A cluster holds the points 2, 4 and 9 on a line. Find its SSE about the cluster mean.",
+        "steps": [
+          "The cluster has three points on a line: 2, 4 and 9.",
+          "The mean is (2 + 4 + 9) / 3 = 15 / 3 = 5.",
+          "The gaps from the mean: 2 − 5 = −3, 4 − 5 = −1, 9 − 5 = +4.",
+          "Square each gap: (−3)² = 9, (−1)² = 1, 4² = 16.",
+          "Add them: SSE = 9 + 1 + 16 = 26. (Measuring from the data point 4 would give 4 + 0 + 25 = 29, which is larger.)"
+        ],
+        "answer": "SSE = 26."
+      },
+      "what": "The **SSE** (also written WSS) adds up the squared distance from every point to the **mean of its own cluster**. The mean is the best centre: any other centre gives a larger total. The overall spread splits as **TSS = WSS + BSS**: total spread equals within-cluster spread plus between-cluster spread.",
+      "what_full": "The **SSE** (also written WSS) adds up the squared distance from every point to the **mean of its own cluster**. The mean is the best centre: any other centre gives a larger total. The overall spread splits as **TSS = WSS + BSS**: total spread equals within-cluster spread plus between-cluster spread.\n\n$$\\mathrm{WSS}=\\sum_{j}\\sum_{x\\in C_j}\\lVert x-\\mu_j\\rVert^2,\\qquad \\mathrm{BSS}=\\sum_{j}n_j\\lVert\\mu_j-\\mu\\rVert^2,\\qquad \\mathrm{TSS}=\\sum_{x}\\lVert x-\\mu\\rVert^2$$\n\nSymbols: $\\mu$ is the mean of all the points, $\\mu_j$ is the mean of cluster $j$ and $n_j$ is the number of points in it. The three quantities satisfy $\\mathrm{TSS}=\\mathrm{WSS}+\\mathrm{BSS}$. TSS does not depend on how you cluster.\n\n**Worked example.** A cluster holds the points 2, 4 and 9 on a line. Find its SSE about the cluster mean.\n\n1. The cluster has three points on a line: 2, 4 and 9.\n2. The mean is (2 + 4 + 9) / 3 = 15 / 3 = 5.\n3. The gaps from the mean: 2 − 5 = −3, 4 − 5 = −1, 9 − 5 = +4.\n4. Square each gap: (−3)² = 9, (−1)² = 1, 4² = 16.\n5. Add them: SSE = 9 + 1 + 16 = 26. (Measuring from the data point 4 would give 4 + 0 + 25 = 29, which is larger.)\n\n**Answer:** SSE = 26.\n\n**Check yourself:** Points 1 and 5 form one cluster. What is its SSE?\n\n*Answer:* The mean is 3, so SSE = 2² + 2² = 8.",
+      "trap": "Measuring from a data point or from the old centroid instead of the cluster mean, which gives a larger, wrong number. Another slip is forgetting to square. Compute the mean first, then the squared gaps.",
+      "why_full": "SSE is the number that k-means tries to shrink, so you compute it at the end of a run, and TSS = WSS + BSS lets you find a missing value. In GATE: practice items compute the SSE of a final clustering or the between-cluster sum of squares.\n\nAsked: not alone in past papers. It follows every iteration question, and the elbow method uses it."
+    },
+    {
+      "atom_id": "k5",
+      "title": "k-medoid",
+      "simple": "Suppose you must choose a meeting spot for a group of friends, and the spot has to be one of the friends' own houses. The house with the smallest total walking distance to everyone else is the medoid. If one friend lives very far away, the average spot shifts a lot towards them, but the best house to pick barely moves. That is why k-medoid is not thrown off by outliers. It also works when you only know the distances between people and not their coordinates. In exam words: k-medoid uses actual data points as centres, chooses them to minimise the total dissimilarity, works with any distance and resists outliers.",
+      "idea": "**k-medoid** is like k-means, but each cluster centre is an actual **data point**, called the medoid. The medoid is the member with the smallest total dissimilarity to the other members. It needs only pairwise **distances**, not coordinates, and a far-away outlier barely moves it.",
+      "definition": "$$m_j=\\arg\\min_{y\\in C_j}\\ \\sum_{x\\in C_j}d(x,y)$$\n\nSymbols: $d(x,y)$ is any dissimilarity between two points, for example $|x-y|$ or the Manhattan distance. $m_j$ is the medoid of cluster $j$. The cost of a clustering is the sum, over all points, of the distance to the nearest medoid. A swap replaces one medoid by another point and is kept only if the cost drops.",
+      "intuition_full": "The mean of a cluster is a computed position. It may fall in empty space, and it is dragged by outliers, because squared distance punishes far points heavily. The medoid is chosen from the data and minimises a sum of plain distances, which grow much more slowly. On a line the medoid is the median, so a point 1,000 away adds 1,000 to the cost, not 1,000,000. Because only d(x, y) is needed, k-medoid also works for objects without coordinates, such as strings compared with edit distance: you can compute a distance table, but you cannot average strings. The price is speed. Finding the best medoid means trying every member as the centre, which takes about n² distance evaluations per cluster.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "One cluster on a line: 3, 4, 5, 6 and 60. Find the mean and the medoid, and say which one the outlier 60 disturbs.",
+          "steps": [
+            "The points 3, 4, 5 and 6 are close together, and 60 is a far outlier.",
+            "The mean is (3 + 4 + 5 + 6 + 60) / 5 = 78 / 5 = 15.6. It is not a data point, and the outlier has dragged it far from the group.",
+            "A medoid must be a data point. Add up the distances from each candidate to all five points: 3 gives 63, 4 gives 60, 5 gives 59, 6 gives 60 and 60 gives 222. For 5: 2 + 1 + 0 + 1 + 55 = 59.",
+            "The smallest total is 59, so the medoid is 5, in the middle of the group.",
+            "Without the outlier the mean would be 4.5. With it, the mean jumps to 15.6. The medoid stays at 5."
+          ],
+          "answer": "Mean 15.6 (disturbed by the outlier) and medoid 5 with cost 59."
+        },
+        {
+          "level": "gate",
+          "setup": "Six points on a line: 1, 3, 4, 9, 10, 14. The current medoids are 3 and 10. The cost is the sum of the distances from each point to its nearest medoid. Find the cost, and test the swap that replaces the medoid 10 by 9.",
+          "steps": [
+            "Cost with {3, 10}: 1 is 2 from 3, 3 is 0, 4 is 1 from 3, 9 is 1 from 10, 10 is 0, 14 is 4 from 10. Total 2 + 0 + 1 + 1 + 0 + 4 = 8.",
+            "Cost with {3, 9}: 1 is 2, 3 is 0, 4 is 1, 9 is 0, 10 is 1 from 9, 14 is 5 from 9. Total 2 + 0 + 1 + 0 + 1 + 5 = 9.",
+            "The cost rises from 8 to 9, so the swap is rejected.",
+            "Another swap, 3 replaced by 4, gives {4, 10} with cost 3 + 1 + 0 + 1 + 0 + 4 = 9. Also worse, so keep {3, 10}."
+          ],
+          "answer": "The cost is 8. The swap to {3, 9} costs 9, so it is rejected."
+        },
+        {
+          "level": "twist",
+          "setup": "Four objects A, B, C, D have only a distance table, with no coordinates: AB = 2, AC = 6, AD = 10, BC = 5, BD = 9, CD = 4. Which object is the best single medoid, and what is its cost?",
+          "steps": [
+            "A mean cannot be computed here, because there are no coordinates to average. A medoid only needs the table.",
+            "Total distance to the others: A: 2 + 6 + 10 = 18. B: 2 + 5 + 9 = 16. C: 6 + 5 + 4 = 15. D: 10 + 9 + 4 = 23.",
+            "The smallest is 15, for C."
+          ],
+          "answer": "C, with cost 15."
+        }
+      ],
+      "why": "In GATE the usual question is matching tasks to algorithms: clustering goes with k-medoid, classification with naive Bayes and feature extraction with LDA. Statements that compare k-medoid with k-means also appear.",
+      "how": [
+        "Remember that the centres are data points.",
+        "To cost a set of medoids, assign each point to its nearest medoid and add up the distances.",
+        "To test a swap, replace one medoid, recompute the cost, and keep the swap only if the cost drops.",
+        "In a matching question, k-medoid is the clustering algorithm."
+      ],
+      "mistake": "Using the mean of a cluster as a k-medoid centre. A mean may not be a data point, but a medoid always is. Also, the usual cost adds plain distances, not squared ones.",
+      "edge_cases": [
+        "On a line with an even number of points, the two middle points can tie.",
+        "It works with any dissimilarity that you can compute, even one that is not a true distance.",
+        "It is slower than k-means for large n.",
+        "The medoid can differ from the data point closest to the mean."
+      ],
+      "connections": [
+        "k-means card: the same assign-and-update rhythm, with a different centre.",
+        "Probability: Descriptive statistics and moments covers the median, which is the one-dimensional medoid.",
+        "Naive Bayes and LDA: the other two algorithms in the matching question.",
+        "Foundations: Algebra. Absolute values and sums."
+      ],
+      "check": [
+        {
+          "q": "Is a medoid always one of the data points?",
+          "a": "Yes."
+        },
+        {
+          "q": "Points 2, 5 and 9. Which is the medoid?",
+          "a": "Costs: 2 gives 3 + 7 = 10, 5 gives 3 + 4 = 7, 9 gives 7 + 4 = 11. The medoid is 5."
+        },
+        {
+          "q": "Why does k-medoid work with only a table of distances?",
+          "a": "It only compares and adds distances. It never averages coordinates."
+        }
+      ],
+      "asked": "Asked: 2026 DA Q23 (matching: clustering goes with k-medoid, classification with naive Bayes, feature extraction with LDA).",
+      "scene": "ml.kmeans.medoid",
+      "try": {
+        "id": "gen.ml.kmeans.003",
+        "label": "What a k-medoid centre is"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "One cluster on a line: 3, 4, 5, 6 and 60. Find the mean and the medoid, and say which one the outlier 60 disturbs.",
+        "steps": [
+          "The points 3, 4, 5 and 6 are close together, and 60 is a far outlier.",
+          "The mean is (3 + 4 + 5 + 6 + 60) / 5 = 78 / 5 = 15.6. It is not a data point, and the outlier has dragged it far from the group.",
+          "A medoid must be a data point. Add up the distances from each candidate to all five points: 3 gives 63, 4 gives 60, 5 gives 59, 6 gives 60 and 60 gives 222. For 5: 2 + 1 + 0 + 1 + 55 = 59.",
+          "The smallest total is 59, so the medoid is 5, in the middle of the group.",
+          "Without the outlier the mean would be 4.5. With it, the mean jumps to 15.6. The medoid stays at 5."
+        ],
+        "answer": "Mean 15.6 (disturbed by the outlier) and medoid 5 with cost 59."
+      },
+      "what": "**k-medoid** is like k-means, but each cluster centre is an actual **data point**, called the medoid. The medoid is the member with the smallest total dissimilarity to the other members. It needs only pairwise **distances**, not coordinates, and a far-away outlier barely moves it.",
+      "what_full": "**k-medoid** is like k-means, but each cluster centre is an actual **data point**, called the medoid. The medoid is the member with the smallest total dissimilarity to the other members. It needs only pairwise **distances**, not coordinates, and a far-away outlier barely moves it.\n\n$$m_j=\\arg\\min_{y\\in C_j}\\ \\sum_{x\\in C_j}d(x,y)$$\n\nSymbols: $d(x,y)$ is any dissimilarity between two points, for example $|x-y|$ or the Manhattan distance. $m_j$ is the medoid of cluster $j$. The cost of a clustering is the sum, over all points, of the distance to the nearest medoid. A swap replaces one medoid by another point and is kept only if the cost drops.\n\n**Worked example.** One cluster on a line: 3, 4, 5, 6 and 60. Find the mean and the medoid, and say which one the outlier 60 disturbs.\n\n1. The points 3, 4, 5 and 6 are close together, and 60 is a far outlier.\n2. The mean is (3 + 4 + 5 + 6 + 60) / 5 = 78 / 5 = 15.6. It is not a data point, and the outlier has dragged it far from the group.\n3. A medoid must be a data point. Add up the distances from each candidate to all five points: 3 gives 63, 4 gives 60, 5 gives 59, 6 gives 60 and 60 gives 222. For 5: 2 + 1 + 0 + 1 + 55 = 59.\n4. The smallest total is 59, so the medoid is 5, in the middle of the group.\n5. Without the outlier the mean would be 4.5. With it, the mean jumps to 15.6. The medoid stays at 5.\n\n**Answer:** Mean 15.6 (disturbed by the outlier) and medoid 5 with cost 59.\n\n**Check yourself:** Is a medoid always one of the data points?\n\n*Answer:* Yes.",
+      "trap": "Using the mean of a cluster as a k-medoid centre. A mean may not be a data point, but a medoid always is. Also, the usual cost adds plain distances, not squared ones.",
+      "why_full": "In GATE the usual question is matching tasks to algorithms: clustering goes with k-medoid, classification with naive Bayes and feature extraction with LDA. Statements that compare k-medoid with k-means also appear.\n\nAsked: 2026 DA Q23 (matching: clustering goes with k-medoid, classification with naive Bayes, feature extraction with LDA)."
+    },
+    {
+      "atom_id": "k6",
+      "title": "Choosing k and key properties",
+      "simple": "How many groups should you make? More groups always gives tighter groups: if every person is their own group, the spread is zero, but that is useless. So we look for the point where adding another group stops helping much. Draw a graph of the total spread against the number of groups. It drops steeply at first and then flattens, like an arm bending at the elbow. Pick the number at the bend, and remember that you must choose k before you run k-means. In exam words: WSS decreases as k grows and is 0 at k = n, so choose k at the elbow, never at the minimum.",
+      "idea": "More clusters always lower the **WSS**, down to 0 when k = n. So the smallest WSS is never the answer. Plot WSS against k and pick the **elbow**: the k after which the drops become small. The number k is chosen **before** running k-means.",
+      "definition": "$$\\mathrm{WSS}(1)=\\mathrm{TSS}\\ \\ge\\ \\mathrm{WSS}(2)\\ \\ge\\ \\cdots\\ \\ge\\ \\mathrm{WSS}(n)=0$$\n\nSymbols: $\\mathrm{WSS}(k)$ is the within-cluster sum of squares of the best clustering with $k$ clusters, and $n$ is the number of points. The elbow is the $k$ where the drop $\\mathrm{WSS}(k-1)-\\mathrm{WSS}(k)$ suddenly becomes small.",
+      "intuition_full": "Adding a cluster splits an existing one, and splitting never increases the total spread, so WSS can only go down as k grows. The question is how much each extra cluster buys. If the data really has three blobs, going from 2 to 3 clusters splits a big blob and pays a lot. Going from 3 to 4 only trims a blob that was already tight, and pays little. The graph of WSS against k therefore drops steeply until the true number of blobs and then flattens. The bend is the elbow. Looking at the drops WSS(k−1) − WSS(k) shows it even more clearly. When the data has no clear blobs, the curve is smooth and the elbow is a judgement call. The same warning appears for model complexity elsewhere: a training score that always improves as you add flexibility is a poor guide on its own.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Nine points on a line: 1, 5, 6, 13, 15, 17, 25, 27, 29. The best clustering for each k = 1 to 9 has WSS = 824, 211.5, 30, 16.5, 10.5, 4.5, 2.5, 0.5, 0. Find the elbow.",
+          "steps": [
+            "k = 1: one cluster with mean 138/9 = 15.33. WSS = TSS = 824.",
+            "k = 3: the clusters {1, 5, 6}, {13, 15, 17}, {25, 27, 29} have means 4, 15, 27. WSS = (9 + 1 + 4) + (4 + 0 + 4) + (4 + 0 + 4) = 14 + 8 + 8 = 30.",
+            "k = 9: every point is its own cluster, so WSS = 0.",
+            "Plot WSS against k: 824, 211.5, 30, 16.5, 10.5, 4.5, 2.5, 0.5, 0. It drops steeply and then flattens.",
+            "The drops are 612.5 and 181.5 up to k = 3, then 13.5, 6, 6, 2, 2 and 0.5. The bend is at k = 3. The lowest WSS (k = 9) is useless."
+          ],
+          "answer": "The elbow is at k = 3."
+        },
+        {
+          "level": "gate",
+          "setup": "Runs of k-means for k = 1, 2, 3, 4, 5 give WSS = 120, 70, 40, 36, 33. Which k is at the elbow? Which k would 'minimise WSS' pick?",
+          "steps": [
+            "Compute the drops: 120 → 70 is 50, 70 → 40 is 30, 40 → 36 is 4, 36 → 33 is 3.",
+            "The drops are large up to k = 3 and tiny afterwards. The bend is at k = 3.",
+            "The smallest WSS is at k = 5, the largest k tried. Minimising WSS always picks the largest k."
+          ],
+          "answer": "The elbow is k = 3. Minimising WSS would wrongly pick k = 5."
+        },
+        {
+          "level": "twist",
+          "setup": "Runs for k = 1 to 6 give WSS = 100, 70, 50, 36, 26, 19. Is there an elbow?",
+          "steps": [
+            "The drops are 30, 20, 14, 10, 7.",
+            "Each drop is about 0.7 times the previous one: 20/30 = 0.67, 14/20 = 0.70, 10/14 = 0.71, 7/10 = 0.70.",
+            "The curve decays smoothly. There is no sudden collapse, so no clear bend."
+          ],
+          "answer": "No clear elbow. The WSS curve alone cannot choose k here."
+        }
+      ],
+      "why": "Exams test that WSS alone cannot choose k, and that k-means needs k in advance. In GATE: statements about how WSS changes with k and about the elbow.",
+      "how": [
+        "Take (or compute) WSS for k = 1, 2, 3, ...",
+        "Compute the drop from each k to the next.",
+        "Find where the drops suddenly become small.",
+        "Choose that k, the bend, not the minimum.",
+        "State the facts: k is fixed in advance, and WSS(k = n) = 0."
+      ],
+      "mistake": "Choosing the k with the lowest WSS. That is always k = n, one point per cluster, which is useless. Look for the bend, not the bottom.",
+      "edge_cases": [
+        "k = 1: WSS equals TSS.",
+        "k = n: WSS is 0.",
+        "Because k-means can get stuck, one run with more clusters can have a higher WSS than a good run with fewer. Use the best of several starts.",
+        "A smooth curve has no elbow. Use other criteria or knowledge of the problem."
+      ],
+      "connections": [
+        "Foundations: Functions and graphs. Reading a falling curve and finding its bend.",
+        "Bias and variance: more clusters means a more flexible model, like a more complex model that always fits the training data better.",
+        "Cross-validation: choosing a setting using held-out data instead of the training score."
+      ],
+      "check": [
+        {
+          "q": "What is WSS when k = n?",
+          "a": "0. Every point is its own cluster."
+        },
+        {
+          "q": "WSS for k = 1, 2, 3, 4 is 90, 30, 25, 23. Which k is the elbow?",
+          "a": "k = 2. The drops are 60, 5 and 2."
+        },
+        {
+          "q": "Does k-means choose k by itself?",
+          "a": "No. You fix k before you run it."
+        }
+      ],
+      "asked": "Asked: statements about WSS and k appear in practice items. 2026 DA Q23 puts clustering among other tasks.",
+      "scene": "ml.kmeans.elbow",
+      "try": {
+        "id": "gen.ml.kmeans.010",
+        "label": "WSS as k grows from 1 to n"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Nine points on a line: 1, 5, 6, 13, 15, 17, 25, 27, 29. The best clustering for each k = 1 to 9 has WSS = 824, 211.5, 30, 16.5, 10.5, 4.5, 2.5, 0.5, 0. Find the elbow.",
+        "steps": [
+          "k = 1: one cluster with mean 138/9 = 15.33. WSS = TSS = 824.",
+          "k = 3: the clusters {1, 5, 6}, {13, 15, 17}, {25, 27, 29} have means 4, 15, 27. WSS = (9 + 1 + 4) + (4 + 0 + 4) + (4 + 0 + 4) = 14 + 8 + 8 = 30.",
+          "k = 9: every point is its own cluster, so WSS = 0.",
+          "Plot WSS against k: 824, 211.5, 30, 16.5, 10.5, 4.5, 2.5, 0.5, 0. It drops steeply and then flattens.",
+          "The drops are 612.5 and 181.5 up to k = 3, then 13.5, 6, 6, 2, 2 and 0.5. The bend is at k = 3. The lowest WSS (k = 9) is useless."
+        ],
+        "answer": "The elbow is at k = 3."
+      },
+      "what": "More clusters always lower the **WSS**, down to 0 when k = n. So the smallest WSS is never the answer. Plot WSS against k and pick the **elbow**: the k after which the drops become small. The number k is chosen **before** running k-means.",
+      "what_full": "More clusters always lower the **WSS**, down to 0 when k = n. So the smallest WSS is never the answer. Plot WSS against k and pick the **elbow**: the k after which the drops become small. The number k is chosen **before** running k-means.\n\n$$\\mathrm{WSS}(1)=\\mathrm{TSS}\\ \\ge\\ \\mathrm{WSS}(2)\\ \\ge\\ \\cdots\\ \\ge\\ \\mathrm{WSS}(n)=0$$\n\nSymbols: $\\mathrm{WSS}(k)$ is the within-cluster sum of squares of the best clustering with $k$ clusters, and $n$ is the number of points. The elbow is the $k$ where the drop $\\mathrm{WSS}(k-1)-\\mathrm{WSS}(k)$ suddenly becomes small.\n\n**Worked example.** Nine points on a line: 1, 5, 6, 13, 15, 17, 25, 27, 29. The best clustering for each k = 1 to 9 has WSS = 824, 211.5, 30, 16.5, 10.5, 4.5, 2.5, 0.5, 0. Find the elbow.\n\n1. k = 1: one cluster with mean 138/9 = 15.33. WSS = TSS = 824.\n2. k = 3: the clusters {1, 5, 6}, {13, 15, 17}, {25, 27, 29} have means 4, 15, 27. WSS = (9 + 1 + 4) + (4 + 0 + 4) + (4 + 0 + 4) = 14 + 8 + 8 = 30.\n3. k = 9: every point is its own cluster, so WSS = 0.\n4. Plot WSS against k: 824, 211.5, 30, 16.5, 10.5, 4.5, 2.5, 0.5, 0. It drops steeply and then flattens.\n5. The drops are 612.5 and 181.5 up to k = 3, then 13.5, 6, 6, 2, 2 and 0.5. The bend is at k = 3. The lowest WSS (k = 9) is useless.\n\n**Answer:** The elbow is at k = 3.\n\n**Check yourself:** What is WSS when k = n?\n\n*Answer:* 0. Every point is its own cluster.",
+      "trap": "Choosing the k with the lowest WSS. That is always k = n, one point per cluster, which is useless. Look for the bend, not the bottom.",
+      "why_full": "Exams test that WSS alone cannot choose k, and that k-means needs k in advance. In GATE: statements about how WSS changes with k and about the elbow.\n\nAsked: statements about WSS and k appear in practice items. 2026 DA Q23 puts clustering among other tasks."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "ml.kmeans.geom",
+      "title": "k-means clusters are convex cells split by a bisector",
+      "viewBox": [
+        0,
+        0,
+        360,
+        295
+      ],
+      "objects": [
+        {
+          "id": "cell1",
+          "kind": "box",
+          "x": 24,
+          "y": 56.400000000000006,
+          "w": 152,
+          "h": 178.6,
+          "tone": "accent"
+        },
+        {
+          "id": "cell2",
+          "kind": "box",
+          "x": 176,
+          "y": 56.400000000000006,
+          "w": 152,
+          "h": 178.6,
+          "tone": "mid"
+        },
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 24,
+          "y": 235,
+          "unit": 38,
+          "xr": [
+            0,
+            8
+          ],
+          "yr": [
+            0,
+            4.7
+          ],
+          "xlabel": "x1",
+          "ylabel": "x2"
+        },
+        {
+          "id": "a0",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            1
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "a1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            1
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "a2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            4
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "b0",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            1
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "b1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            7,
+            1
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "b2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            6,
+            4
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "m1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            2
+          ],
+          "tone": "accent",
+          "label": "μ1",
+          "hollow": true
+        },
+        {
+          "id": "m2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            6,
+            2
+          ],
+          "tone": "mid",
+          "label": "μ2",
+          "hollow": true
+        },
+        {
+          "id": "la0",
+          "kind": "edge",
+          "x1": 62,
+          "y1": 197,
+          "x2": 100,
+          "y2": 159,
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "la1",
+          "kind": "edge",
+          "x1": 138,
+          "y1": 197,
+          "x2": 100,
+          "y2": 159,
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "la2",
+          "kind": "edge",
+          "x1": 100,
+          "y1": 83,
+          "x2": 100,
+          "y2": 159,
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "lb0",
+          "kind": "edge",
+          "x1": 214,
+          "y1": 197,
+          "x2": 252,
+          "y2": 159,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "lb1",
+          "kind": "edge",
+          "x1": 290,
+          "y1": 197,
+          "x2": 252,
+          "y2": 159,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "lb2",
+          "kind": "edge",
+          "x1": 252,
+          "y1": 83,
+          "x2": 252,
+          "y2": 159,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "bis",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              4,
+              0
+            ],
+            [
+              4,
+              4.7
+            ]
+          ],
+          "tone": "bad",
+          "dash": true
+        },
+        {
+          "id": "bl",
+          "kind": "text",
+          "x": 184,
+          "y": 71.6,
+          "text": "x = 4",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "bad"
+        },
+        {
+          "id": "seg",
+          "kind": "edge",
+          "x1": 62,
+          "y1": 197,
+          "x2": 100,
+          "y2": 83,
+          "tone": "good"
+        },
+        {
+          "id": "mid",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1.5,
+            2.5
+          ],
+          "tone": "good",
+          "hollow": true
+        },
+        {
+          "id": "ml",
+          "kind": "text",
+          "x": 93.0,
+          "y": 124.0,
+          "text": "(1.5, 2.5)",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 275,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Six points and k = 2. The left group has mean μ1 = (2, 2) and the right group has mean μ2 = (6, 2). Each centroid is the average of its points.",
+          "set": {
+            "id": "t",
+            "text": "μ1 = (2, 2)     μ2 = (6, 2)"
+          }
+        },
+        {
+          "caption": "The objective: square each point's distance to its own centroid and add. Left: 1+1 = 2, 1+1 = 2 and 0+4 = 4. The right side is the same. WSS = 8 + 8 = 16.",
+          "show": [
+            "la0",
+            "la1",
+            "la2",
+            "lb0",
+            "lb1",
+            "lb2"
+          ],
+          "set": {
+            "id": "t",
+            "text": "WSS = (2+2+4) + (2+2+4) = 16"
+          },
+          "highlight": [
+            "la0",
+            "la1",
+            "la2",
+            "lb0",
+            "lb1",
+            "lb2"
+          ]
+        },
+        {
+          "caption": "A point is equally far from both centroids on the line x = 4, halfway between 2 and 6. This perpendicular bisector is the boundary. Left of it is cluster 1, right of it is cluster 2.",
+          "hide": [
+            "la0",
+            "la1",
+            "la2",
+            "lb0",
+            "lb1",
+            "lb2"
+          ],
+          "show": [
+            "cell1",
+            "cell2",
+            "bis",
+            "bl"
+          ],
+          "set": {
+            "id": "t",
+            "text": "boundary: x = 4 (the perpendicular bisector)"
+          }
+        },
+        {
+          "caption": "Take two members of cluster 1: (1, 1) and (2, 4). The segment between them has x between 1 and 2, so it stays left of x = 4. Its midpoint (1.5, 2.5) is in cluster 1.",
+          "show": [
+            "seg",
+            "mid",
+            "ml"
+          ],
+          "highlight": [
+            "seg",
+            "mid"
+          ],
+          "set": {
+            "id": "t",
+            "text": "segment between members stays inside the cell"
+          }
+        },
+        {
+          "caption": "Every cluster is a region cut out by straight boundaries, so it is convex. Two members always bring every point between them into the same cluster.",
+          "highlight": [
+            "cell1",
+            "cell2"
+          ],
+          "set": {
+            "id": "t",
+            "text": "convex cells: no dents, no holes"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.kmeans.assign",
+      "title": "Assignment step: each point joins the nearest centroid",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 30,
+          "y": 222,
+          "unit": 36,
+          "xr": [
+            0,
+            8
+          ],
+          "yr": [
+            0,
+            5.4
+          ],
+          "xlabel": "x",
+          "ylabel": "y"
+        },
+        {
+          "id": "p1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            1
+          ],
+          "tone": "muted",
+          "label": "P1"
+        },
+        {
+          "id": "p2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            1
+          ],
+          "tone": "muted",
+          "label": "P2"
+        },
+        {
+          "id": "p3",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            2
+          ],
+          "tone": "muted",
+          "label": "P3"
+        },
+        {
+          "id": "p4",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            4
+          ],
+          "tone": "muted",
+          "label": "P4"
+        },
+        {
+          "id": "p5",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            6,
+            5
+          ],
+          "tone": "muted",
+          "label": "P5"
+        },
+        {
+          "id": "p6",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            5
+          ],
+          "tone": "muted",
+          "label": "P6"
+        },
+        {
+          "id": "m1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            3
+          ],
+          "tone": "accent",
+          "label": "μ1",
+          "hollow": true
+        },
+        {
+          "id": "m2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            1
+          ],
+          "tone": "mid",
+          "label": "μ2",
+          "hollow": true
+        },
+        {
+          "id": "e1a",
+          "kind": "edge",
+          "x1": 66,
+          "y1": 186,
+          "x2": 66,
+          "y2": 114,
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "e1b",
+          "kind": "edge",
+          "x1": 66,
+          "y1": 186,
+          "x2": 174,
+          "y2": 186,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "e2a",
+          "kind": "edge",
+          "x1": 102,
+          "y1": 186,
+          "x2": 66,
+          "y2": 114,
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "e2b",
+          "kind": "edge",
+          "x1": 102,
+          "y1": 186,
+          "x2": 174,
+          "y2": 186,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "e3a",
+          "kind": "edge",
+          "x1": 66,
+          "y1": 150,
+          "x2": 66,
+          "y2": 114,
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "e3b",
+          "kind": "edge",
+          "x1": 66,
+          "y1": 150,
+          "x2": 174,
+          "y2": 186,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "e4b",
+          "kind": "edge",
+          "x1": 210,
+          "y1": 78,
+          "x2": 174,
+          "y2": 186,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "e5b",
+          "kind": "edge",
+          "x1": 246,
+          "y1": 42,
+          "x2": 174,
+          "y2": 186,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "e6b",
+          "kind": "edge",
+          "x1": 210,
+          "y1": 42,
+          "x2": 174,
+          "y2": 186,
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 180,
+          "y": 282,
+          "text": "",
+          "size": 12,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Six points, k = 2, and starting centroids μ1 = (1, 3) and μ2 = (4, 1). For each point we compute the squared distance to both centroids and keep the smaller.",
+          "set": [
+            {
+              "id": "t1",
+              "text": "μ1 = (1, 3)     μ2 = (4, 1)"
+            },
+            {
+              "id": "t2",
+              "text": "keep the smaller d²"
+            }
+          ]
+        },
+        {
+          "caption": "P1 (1, 1): d² to μ1 = 0² + 2² = 4 and to μ2 = 3² + 0² = 9. The nearest is μ1.",
+          "show": [
+            "e1a",
+            "e1b"
+          ],
+          "highlight": [
+            {
+              "id": "e1a",
+              "tone": "accent"
+            },
+            {
+              "id": "p1"
+            }
+          ],
+          "set": [
+            {
+              "id": "p1",
+              "tone": "accent"
+            },
+            {
+              "id": "t1",
+              "text": "P1 → μ1"
+            },
+            {
+              "id": "t2",
+              "text": "d² to μ1 = 0+4 = 4,    d² to μ2 = 9+0 = 9"
+            }
+          ]
+        },
+        {
+          "caption": "P2 (2, 1): d² to μ1 = 1² + 2² = 5 and to μ2 = 2² + 0² = 4. The nearest is μ2, by a small margin.",
+          "hide": [
+            "e1a",
+            "e1b"
+          ],
+          "show": [
+            "e2a",
+            "e2b"
+          ],
+          "highlight": [
+            {
+              "id": "e2b",
+              "tone": "mid"
+            },
+            {
+              "id": "p2"
+            }
+          ],
+          "set": [
+            {
+              "id": "p2",
+              "tone": "mid"
+            },
+            {
+              "id": "t1",
+              "text": "P2 → μ2"
+            },
+            {
+              "id": "t2",
+              "text": "d² to μ1 = 1+4 = 5,    d² to μ2 = 4+0 = 4"
+            }
+          ]
+        },
+        {
+          "caption": "P3 (1, 2): d² to μ1 = 0² + 1² = 1 and to μ2 = 3² + 1² = 10. The nearest is μ1.",
+          "hide": [
+            "e2a",
+            "e2b"
+          ],
+          "show": [
+            "e3a",
+            "e3b"
+          ],
+          "highlight": [
+            {
+              "id": "e3a",
+              "tone": "accent"
+            },
+            {
+              "id": "p3"
+            }
+          ],
+          "set": [
+            {
+              "id": "p3",
+              "tone": "accent"
+            },
+            {
+              "id": "t1",
+              "text": "P3 → μ1"
+            },
+            {
+              "id": "t2",
+              "text": "d² to μ1 = 0+1 = 1,    d² to μ2 = 9+1 = 10"
+            }
+          ]
+        },
+        {
+          "caption": "The three upper points are far from μ1. P4: 17 against 10. P5: 29 against 20. P6: 20 against 17. All three go to μ2.",
+          "hide": [
+            "e3a",
+            "e3b"
+          ],
+          "show": [
+            "e4b",
+            "e5b",
+            "e6b"
+          ],
+          "highlight": [
+            {
+              "id": "e4b",
+              "tone": "mid"
+            },
+            {
+              "id": "e5b",
+              "tone": "mid"
+            },
+            {
+              "id": "e6b",
+              "tone": "mid"
+            }
+          ],
+          "set": [
+            {
+              "id": "p4",
+              "tone": "mid"
+            },
+            {
+              "id": "p5",
+              "tone": "mid"
+            },
+            {
+              "id": "p6",
+              "tone": "mid"
+            },
+            {
+              "id": "t1",
+              "text": "P4, P5, P6 → μ2"
+            },
+            {
+              "id": "t2",
+              "text": "17 vs 10,     29 vs 20,     20 vs 17"
+            }
+          ]
+        },
+        {
+          "caption": "Result of the assignment: cluster 1 = {P1, P3} and cluster 2 = {P2, P4, P5, P6}. The centroids have not moved yet.",
+          "hide": [
+            "e4b",
+            "e5b",
+            "e6b"
+          ],
+          "highlight": [
+            "p1",
+            "p3",
+            "p2",
+            "p4",
+            "p5",
+            "p6"
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "cluster 1 = {P1, P3}"
+            },
+            {
+              "id": "t2",
+              "text": "cluster 2 = {P2, P4, P5, P6}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.kmeans.update",
+      "title": "Update step: centroids move to the mean, SSE keeps falling",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 30,
+          "y": 222,
+          "unit": 36,
+          "xr": [
+            0,
+            8
+          ],
+          "yr": [
+            0,
+            5.4
+          ],
+          "xlabel": "x",
+          "ylabel": "y"
+        },
+        {
+          "id": "p1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            1
+          ],
+          "tone": "accent",
+          "label": "P1"
+        },
+        {
+          "id": "p2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            1
+          ],
+          "tone": "mid",
+          "label": "P2"
+        },
+        {
+          "id": "p3",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            2
+          ],
+          "tone": "accent",
+          "label": "P3"
+        },
+        {
+          "id": "p4",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            4
+          ],
+          "tone": "mid",
+          "label": "P4"
+        },
+        {
+          "id": "p5",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            6,
+            5
+          ],
+          "tone": "mid",
+          "label": "P5"
+        },
+        {
+          "id": "p6",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            5
+          ],
+          "tone": "mid",
+          "label": "P6"
+        },
+        {
+          "id": "g1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            3
+          ],
+          "tone": "muted",
+          "hollow": true
+        },
+        {
+          "id": "g2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            1
+          ],
+          "tone": "muted",
+          "hollow": true
+        },
+        {
+          "id": "v1",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            1,
+            3
+          ],
+          "to": [
+            1,
+            1.5
+          ],
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "v2",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            4,
+            1
+          ],
+          "to": [
+            4.5,
+            3.75
+          ],
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "m1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            3
+          ],
+          "tone": "accent",
+          "label": "μ1",
+          "hollow": true
+        },
+        {
+          "id": "m2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            1
+          ],
+          "tone": "mid",
+          "label": "μ2",
+          "hollow": true
+        },
+        {
+          "id": "w1",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            1,
+            1.5
+          ],
+          "to": [
+            1.3333333333333333,
+            1.3333333333333333
+          ],
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "w2",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            4.5,
+            3.75
+          ],
+          "to": [
+            5.333333333333333,
+            4.666666666666667
+          ],
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 180,
+          "y": 282,
+          "text": "",
+          "size": 12,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Start from the assignment: cluster 1 = {P1, P3} (blue) and cluster 2 = {P2, P4, P5, P6} (orange). With the starting centroids μ1 = (1, 3) and μ2 = (4, 1) the SSE is 5 + 51 = 56.",
+          "set": [
+            {
+              "id": "t1",
+              "text": "after assign 1"
+            },
+            {
+              "id": "t2",
+              "text": "SSE = (4+1) + (4+10+20+17) = 56"
+            }
+          ]
+        },
+        {
+          "caption": "Update 1: each centroid moves to the mean of its points. μ1 = mean of (1,1), (1,2) = (1, 1.5). μ2 = mean of (2,1), (5,4), (6,5), (5,5) = (4.5, 3.75). The SSE falls to 20.25.",
+          "show": [
+            "g1",
+            "g2",
+            "v1",
+            "v2"
+          ],
+          "move": [
+            {
+              "id": "m1",
+              "x": 1,
+              "y": 1.5
+            },
+            {
+              "id": "m2",
+              "x": 4.5,
+              "y": 3.75
+            }
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "update 1"
+            },
+            {
+              "id": "t2",
+              "text": "μ1 = (1, 1.5)   μ2 = (4.5, 3.75)   SSE = 20.25"
+            }
+          ]
+        },
+        {
+          "caption": "Assign again. P2 (2, 1) is now 1.25 from μ1 but 13.81 from μ2, so it switches to cluster 1. The SSE falls to 7.69.",
+          "hide": [
+            "g1",
+            "g2",
+            "v1",
+            "v2"
+          ],
+          "set": [
+            {
+              "id": "p2",
+              "tone": "accent"
+            },
+            {
+              "id": "t1",
+              "text": "assign 2: P2 switches to μ1"
+            },
+            {
+              "id": "t2",
+              "text": "SSE = 1.75 + 5.94 = 7.69"
+            }
+          ],
+          "highlight": "p2"
+        },
+        {
+          "caption": "Update 2: μ1 = mean of (1,1), (2,1), (1,2) = (1.33, 1.33). μ2 = mean of (5,4), (6,5), (5,5) = (5.33, 4.67). The SSE falls to 2.67.",
+          "show": [
+            "w1",
+            "w2"
+          ],
+          "move": [
+            {
+              "id": "m1",
+              "x": 1.3333333333333333,
+              "y": 1.3333333333333333
+            },
+            {
+              "id": "m2",
+              "x": 5.333333333333333,
+              "y": 4.666666666666667
+            }
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "update 2"
+            },
+            {
+              "id": "t2",
+              "text": "μ1 = (1.33, 1.33)   μ2 = (5.33, 4.67)   SSE = 2.67"
+            }
+          ]
+        },
+        {
+          "caption": "Assign a third time: no point changes cluster, so the algorithm has converged. The SSE went 56, 20.25, 7.69, 2.67 and never rose.",
+          "hide": [
+            "w1",
+            "w2"
+          ],
+          "highlight": [
+            "p1",
+            "p2",
+            "p3",
+            "p4",
+            "p5",
+            "p6"
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "assign 3: nobody switches. Converged"
+            },
+            {
+              "id": "t2",
+              "text": "SSE: 56 → 20.25 → 7.69 → 2.67"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.kmeans.optima",
+      "title": "Same data, two starts, two different stable answers",
+      "viewBox": [
+        0,
+        0,
+        360,
+        305
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 24,
+          "y": 225,
+          "unit": 50,
+          "xr": [
+            0,
+            6.4
+          ],
+          "yr": [
+            0,
+            3.6
+          ],
+          "xlabel": "x",
+          "ylabel": "y"
+        },
+        {
+          "id": "r1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            1
+          ],
+          "tone": "muted"
+        },
+        {
+          "id": "r2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            3
+          ],
+          "tone": "muted"
+        },
+        {
+          "id": "r3",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            1
+          ],
+          "tone": "muted"
+        },
+        {
+          "id": "r4",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            3
+          ],
+          "tone": "muted"
+        },
+        {
+          "id": "ma1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            1
+          ],
+          "tone": "accent",
+          "label": "μ1",
+          "hollow": true
+        },
+        {
+          "id": "ma2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            3
+          ],
+          "tone": "mid",
+          "label": "μ2",
+          "hollow": true
+        },
+        {
+          "id": "mb1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            1
+          ],
+          "tone": "accent",
+          "label": "μ1",
+          "hollow": true
+        },
+        {
+          "id": "mb2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            3
+          ],
+          "tone": "mid",
+          "label": "μ2",
+          "hollow": true
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 180,
+          "y": 270,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 180,
+          "y": 290,
+          "text": "",
+          "size": 12,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Four points at the corners of a rectangle, 4 wide and 2 tall. k = 2. We will run k-means from two different starts.",
+          "set": [
+            {
+              "id": "t1",
+              "text": "same data, two starts"
+            },
+            {
+              "id": "t2",
+              "text": "rectangle: 4 wide, 2 tall"
+            }
+          ]
+        },
+        {
+          "caption": "Start A: μ1 = (2, 1), μ2 = (4, 3). (1, 3) is nearer μ1 (5 against 9) and (5, 1) is nearer μ2 (5 against 9). The groups are left and right.",
+          "show": [
+            "ma1",
+            "ma2"
+          ],
+          "set": [
+            {
+              "id": "r1",
+              "tone": "accent"
+            },
+            {
+              "id": "r2",
+              "tone": "accent"
+            },
+            {
+              "id": "r3",
+              "tone": "mid"
+            },
+            {
+              "id": "r4",
+              "tone": "mid"
+            },
+            {
+              "id": "t1",
+              "text": "start A: μ1 = (2, 1), μ2 = (4, 3)"
+            },
+            {
+              "id": "t2",
+              "text": "groups: left pair and right pair"
+            }
+          ]
+        },
+        {
+          "caption": "Update: μ1 moves to (1, 2) and μ2 to (5, 2). Assigning again changes nothing. SSE = (1+1) + (1+1) = 4.",
+          "move": [
+            {
+              "id": "ma1",
+              "x": 1,
+              "y": 2
+            },
+            {
+              "id": "ma2",
+              "x": 5,
+              "y": 2
+            }
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "run A stops"
+            },
+            {
+              "id": "t2",
+              "text": "SSE = 2 + 2 = 4"
+            }
+          ]
+        },
+        {
+          "caption": "Start B: μ1 = (2, 1), μ2 = (2, 3). (5, 1) is nearer μ1 (9 against 13) and (5, 3) is nearer μ2 (9 against 13). The groups are bottom and top.",
+          "hide": [
+            "ma1",
+            "ma2"
+          ],
+          "show": [
+            "mb1",
+            "mb2"
+          ],
+          "set": [
+            {
+              "id": "r1",
+              "tone": "mid"
+            },
+            {
+              "id": "r2",
+              "tone": "accent"
+            },
+            {
+              "id": "r3",
+              "tone": "mid"
+            },
+            {
+              "id": "r4",
+              "tone": "accent"
+            },
+            {
+              "id": "t1",
+              "text": "start B: μ1 = (2, 1), μ2 = (2, 3)"
+            },
+            {
+              "id": "t2",
+              "text": "groups: bottom pair and top pair"
+            }
+          ]
+        },
+        {
+          "caption": "Update: μ1 moves to (3, 1) and μ2 to (3, 3). Assigning again changes nothing: (1, 1) is 4 from μ1 and 8 from μ2. SSE = (4+4) + (4+4) = 16.",
+          "move": [
+            {
+              "id": "mb1",
+              "x": 3,
+              "y": 1
+            },
+            {
+              "id": "mb2",
+              "x": 3,
+              "y": 3
+            }
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "run B stops"
+            },
+            {
+              "id": "t2",
+              "text": "SSE = 8 + 8 = 16"
+            }
+          ]
+        },
+        {
+          "caption": "Both runs are stable, but SSE 4 is four times better than SSE 16. k-means only looks at nearby moves, so it cannot tell. The start decides.",
+          "highlight": [
+            "r1",
+            "r2",
+            "r3",
+            "r4"
+          ],
+          "set": [
+            {
+              "id": "t1",
+              "text": "run A: SSE 4        run B: SSE 16"
+            },
+            {
+              "id": "t2",
+              "text": "both are local optima"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.kmeans.sse",
+      "title": "SSE of one cluster, measured from its mean",
+      "viewBox": [
+        0,
+        0,
+        360,
+        335
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 20,
+          "y": 130,
+          "unit": 32,
+          "xr": [
+            0,
+            10
+          ],
+          "yr": [
+            0,
+            3.4
+          ]
+        },
+        {
+          "id": "p2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            0
+          ],
+          "tone": "accent",
+          "label": "2"
+        },
+        {
+          "id": "p4",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            0
+          ],
+          "tone": "accent",
+          "label": "4"
+        },
+        {
+          "id": "p9",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            9,
+            0
+          ],
+          "tone": "accent",
+          "label": "9"
+        },
+        {
+          "id": "gm",
+          "kind": "edge",
+          "x1": 180,
+          "y1": 130,
+          "x2": 180,
+          "y2": 27.599999999999994,
+          "tone": "good",
+          "dash": true
+        },
+        {
+          "id": "mn",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            0
+          ],
+          "tone": "good",
+          "hollow": true
+        },
+        {
+          "id": "mt",
+          "kind": "text",
+          "x": 180,
+          "y": 160,
+          "text": "mean 5",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "g2",
+          "kind": "edge",
+          "x1": 84,
+          "y1": 130,
+          "x2": 84,
+          "y2": 98,
+          "tone": "muted",
+          "dash": true
+        },
+        {
+          "id": "g4",
+          "kind": "edge",
+          "x1": 148,
+          "y1": 130,
+          "x2": 148,
+          "y2": 66,
+          "tone": "muted",
+          "dash": true
+        },
+        {
+          "id": "g9",
+          "kind": "edge",
+          "x1": 308,
+          "y1": 130,
+          "x2": 308,
+          "y2": 34,
+          "tone": "muted",
+          "dash": true
+        },
+        {
+          "id": "d2",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            5,
+            1
+          ],
+          "to": [
+            2,
+            1
+          ],
+          "tone": "accent",
+          "label": "−3"
+        },
+        {
+          "id": "d4",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            5,
+            2
+          ],
+          "to": [
+            4,
+            2
+          ],
+          "tone": "accent",
+          "label": "−1"
+        },
+        {
+          "id": "d9",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            5,
+            3
+          ],
+          "to": [
+            9,
+            3
+          ],
+          "tone": "accent",
+          "label": "+4"
+        },
+        {
+          "id": "bt",
+          "kind": "text",
+          "x": 180,
+          "y": 184,
+          "text": "squared gaps",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "sq",
+          "kind": "bar",
+          "x": 30,
+          "y": 205,
+          "w": 300,
+          "h": 70,
+          "max": 16,
+          "values": [
+            9,
+            1,
+            16
+          ],
+          "labels": [
+            "2",
+            "4",
+            "9"
+          ]
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 318,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "One cluster with three points on a line: 2, 4 and 9. We want its SSE, the sum of squared distances to the cluster mean.",
+          "set": {
+            "id": "t",
+            "text": "points 2, 4, 9"
+          }
+        },
+        {
+          "caption": "The mean is (2 + 4 + 9) / 3 = 15 / 3 = 5. This is the centre we measure from.",
+          "show": [
+            "gm",
+            "mn",
+            "mt"
+          ],
+          "highlight": "mn",
+          "set": {
+            "id": "t",
+            "text": "mean = 15 / 3 = 5"
+          }
+        },
+        {
+          "caption": "The gaps from the mean: 2 − 5 = −3, 4 − 5 = −1 and 9 − 5 = +4.",
+          "show": [
+            "g2",
+            "g4",
+            "g9",
+            "d2",
+            "d4",
+            "d9"
+          ],
+          "set": {
+            "id": "t",
+            "text": "gaps: −3,  −1,  +4"
+          }
+        },
+        {
+          "caption": "Square each gap: (−3)² = 9, (−1)² = 1 and 4² = 16. Squaring removes the signs and makes far points count more.",
+          "show": [
+            "bt",
+            "sq"
+          ],
+          "set": {
+            "id": "t",
+            "text": "9,   1,   16"
+          }
+        },
+        {
+          "caption": "Add them: SSE = 9 + 1 + 16 = 26. Measuring from the data point 4 instead would give 4 + 0 + 25 = 29, which is larger. The mean is the best centre.",
+          "highlight": "sq",
+          "set": {
+            "id": "t",
+            "text": "SSE = 9 + 1 + 16 = 26"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.kmeans.medoid",
+      "title": "k-medoid: the centre is a data point, outliers barely move it",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "data",
+          "kind": "array",
+          "cells": [
+            3,
+            4,
+            5,
+            6,
+            60
+          ],
+          "x": 50,
+          "y": 60,
+          "cw": 52,
+          "ch": 36,
+          "indices": false,
+          "label": "points on a line"
+        },
+        {
+          "id": "mt",
+          "kind": "text",
+          "x": 180,
+          "y": 124,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "bad"
+        },
+        {
+          "id": "cost",
+          "kind": "array",
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "x": 50,
+          "y": 176,
+          "cw": 52,
+          "ch": 36,
+          "indices": false,
+          "label": "total distance if this point is the centre"
+        },
+        {
+          "id": "pm",
+          "kind": "pointer",
+          "array": "cost",
+          "index": 2,
+          "label": "medoid",
+          "side": "below",
+          "tone": "good"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 282,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "One cluster on a line: 3, 4, 5 and 6 are close together, and 60 is a far outlier.",
+          "set": {
+            "id": "t",
+            "text": "outlier: 60"
+          }
+        },
+        {
+          "caption": "The mean is (3 + 4 + 5 + 6 + 60) / 5 = 78 / 5 = 15.6. It is not a data point, and the outlier has dragged it far from the group.",
+          "highlight": {
+            "id": "data",
+            "cells": [
+              4
+            ],
+            "tone": "bad"
+          },
+          "set": [
+            {
+              "id": "mt",
+              "text": "mean = 15.6"
+            },
+            {
+              "id": "t",
+              "text": "(3+4+5+6+60) / 5 = 15.6"
+            }
+          ]
+        },
+        {
+          "caption": "A medoid must be a data point. Try each one as the centre and add up the distances to all five points: 63, 60, 59, 60 and 222.",
+          "set": [
+            {
+              "id": "cost",
+              "cells": [
+                63,
+                60,
+                59,
+                60,
+                222
+              ]
+            },
+            {
+              "id": "t",
+              "text": "cost(5) = 2+1+0+1+55 = 59"
+            }
+          ]
+        },
+        {
+          "caption": "The smallest total is 59, for the point 5. So the medoid is 5, in the middle of the group.",
+          "show": "pm",
+          "highlight": [
+            {
+              "id": "cost",
+              "cells": [
+                2
+              ],
+              "tone": "good"
+            },
+            {
+              "id": "data",
+              "cells": [
+                2
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "smallest cost 59  →  medoid = 5"
+          }
+        },
+        {
+          "caption": "Without the outlier the mean would be 4.5. With it, the mean jumps to 15.6. The medoid stays at 5. That is why k-medoid resists outliers.",
+          "set": [
+            {
+              "id": "mt",
+              "text": "mean 4.5 → 15.6"
+            },
+            {
+              "id": "t",
+              "text": "medoid stays at 5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.kmeans.elbow",
+      "title": "WSS against k and the elbow",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "b",
+          "kind": "bar",
+          "x": 22,
+          "y": 60,
+          "w": 316,
+          "h": 150,
+          "max": 824,
+          "values": [
+            824,
+            211.5,
+            30,
+            16.5,
+            10.5,
+            4.5,
+            2.5,
+            0.5,
+            0
+          ],
+          "labels": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ]
+        },
+        {
+          "id": "hdr",
+          "kind": "text",
+          "x": 180,
+          "y": 24,
+          "text": "WSS for the best clustering with k clusters",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "xl",
+          "kind": "text",
+          "x": 180,
+          "y": 244,
+          "text": "number of clusters k",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 276,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Nine points on a line: 1, 5, 6, 13, 15, 17, 25, 27, 29. For k = 1 there is one cluster and WSS is the total spread: 824.",
+          "highlight": {
+            "id": "b",
+            "cells": [
+              0
+            ],
+            "tone": "bad"
+          },
+          "set": {
+            "id": "t",
+            "text": "k = 1: WSS = TSS = 824"
+          }
+        },
+        {
+          "caption": "For k = 3 the clusters {1, 5, 6}, {13, 15, 17} and {25, 27, 29} have means 4, 15 and 27. WSS = 14 + 8 + 8 = 30.",
+          "highlight": {
+            "id": "b",
+            "cells": [
+              2
+            ],
+            "tone": "good"
+          },
+          "set": {
+            "id": "t",
+            "text": "k = 3: WSS = 14 + 8 + 8 = 30"
+          }
+        },
+        {
+          "caption": "For k = 9 every point is its own cluster, so WSS = 0. More clusters always give a smaller or equal WSS.",
+          "highlight": {
+            "id": "b",
+            "cells": [
+              8
+            ],
+            "tone": "bad"
+          },
+          "set": {
+            "id": "t",
+            "text": "k = 9: WSS = 0"
+          }
+        },
+        {
+          "caption": "Plot WSS against k. It drops steeply and then flattens: 824, 211.5, 30, 16.5, 10.5, 4.5, 2.5, 0.5, 0.",
+          "highlight": "b",
+          "set": {
+            "id": "t",
+            "text": "steep drop, then a long flat tail"
+          }
+        },
+        {
+          "caption": "The drops are 612.5 and 181.5 up to k = 3, and then 13.5, 6, 6, 2, 2 and 0.5. The bend is at k = 3. Pick k = 3, not the k with the smallest WSS.",
+          "dim": {
+            "id": "b",
+            "cells": [
+              0,
+              1,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          "highlight": {
+            "id": "b",
+            "cells": [
+              2
+            ],
+            "tone": "good"
+          },
+          "set": {
+            "id": "t",
+            "text": "elbow at k = 3"
+          }
+        }
+      ]
+    }
+  ]
+}

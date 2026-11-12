@@ -1,0 +1,2984 @@
+{
+  "topic_id": "coa.isa",
+  "title": "Instruction set architecture",
+  "chapter_note": {
+    "about": "The instruction set architecture (ISA) is the contract between hardware and software: what instructions exist, how they are encoded, and where their operands live. This chapter starts with the bit layout of an instruction, then the address formats and addressing modes, then the counting skills that GATE loves: field widths, expanding opcodes, branch offsets and endianness. It ends with RISC versus CISC and with tracing short programs. Most questions are small calculations once the layout is clear.",
+    "simple": "An instruction is a row of bits with fixed seats for the operation, the registers and the address or number. The first skill is counting how many bits each seat needs, always rounding up. The second is understanding the ways an instruction can point at its data: directly, through a pointer, or by adding a counter. The third is the bookkeeping of the program counter, so branches land in the right place, and the order in which bytes of a number sit in memory. Finally you practise following small loops by hand. In exam words: instruction fields, address formats, addressing modes and effective address, field bit counts, expanding opcodes, PC and branches, endianness, RISC versus CISC, and tracing.",
+    "concept_map": [
+      {
+        "atom_id": "i1",
+        "title": "Instruction fields and bit counts",
+        "one_line": "Field widths add up to the word size; k bits name 2ᵏ things."
+      },
+      {
+        "atom_id": "i2",
+        "title": "Address formats",
+        "one_line": "Zero, one, two, three address; load-store keeps arithmetic on registers."
+      },
+      {
+        "atom_id": "i3",
+        "title": "Addressing modes and effective address",
+        "one_line": "Immediate, direct, indirect, register, indexed, base, PC-relative, auto-increment."
+      },
+      {
+        "atom_id": "i4",
+        "title": "Effective address and memory accesses",
+        "one_line": "Each indirection adds one read; registers and immediates cost none."
+      },
+      {
+        "atom_id": "i5",
+        "title": "Bits for fields",
+        "one_line": "⌈log₂ N⌉ bits for N items; the immediate gets the leftover."
+      },
+      {
+        "atom_id": "i6",
+        "title": "Expanding opcodes",
+        "one_line": "Free codes × 2^(extra bits), level by level."
+      },
+      {
+        "atom_id": "i7",
+        "title": "PC, instruction size and branches",
+        "one_line": "Offset = target − (address + length); PC steps by the length."
+      },
+      {
+        "atom_id": "i8",
+        "title": "Endianness",
+        "one_line": "Little endian puts the least significant byte first; big endian the reverse."
+      },
+      {
+        "atom_id": "i9",
+        "title": "ISA versus microarchitecture, RISC versus CISC",
+        "one_line": "ISA is what programs see; RISC is load-store, fixed length, hardwired."
+      },
+      {
+        "atom_id": "i10",
+        "title": "Tracing instruction sequences",
+        "one_line": "Count the trips first, then step each register per trip."
+      }
+    ],
+    "gate_patterns": [
+      "Field widths and encodings: ⌈log₂⌉ for opcodes, registers and modes, then the leftover for an immediate, or a byte-aligned total (2024 CS2 Q57, 2024 CS2 Q61, 2025 CS1 Q37, 2014 CS1 Q9, 2016 CS2 Q31).",
+      "Expanding opcodes and addressing-mode matching: subtract the used codes at each level, multiply by 2 per extra bit, and match each mode to its use (2018 CS Q61, 2020 CS Q54, 2026 CS2 Q44, 2017 CS1 Q11, 2026 CS1 Q14).",
+      "Tracing and addresses: count loop trips, convert words to bytes, find PC-relative offsets and endianness effects (2021 CS1 Q65, 2017 CS1 Q49, 2021 CS2 Q54, 2007 CS Q71 to Q73). Weightage: about 1.7 marks per CS paper."
+    ]
+  },
+  "cards": [
+    {
+      "atom_id": "i1",
+      "title": "Instruction fields and bit counts",
+      "simple": "An instruction is a row of bits, like a train with a fixed number of seats. The seats are shared out between the parts: which operation to do, how to find the data, which register, and sometimes an address or a number. Every part needs enough seats to name all its choices, and the seats must add up to the full length of the train. A part with 3 seats can name 8 things. Whatever seats are left over go to the address or immediate part. In exam words: an instruction word is divided into opcode, mode, register and address fields, the field widths add up to the word size, and a field of k bits can name 2ᵏ choices.",
+      "idea": "An instruction is a fixed number of bits divided into **fields**: opcode, addressing mode, register numbers and an address or immediate value. **The widths add up to the word size.** A field of k bits can name 2ᵏ different things.",
+      "definition": "Word size $W=\\sum(\\text{field widths})$.\n\n- A field of $k$ bits distinguishes $2^k$ values.\n- Address (or immediate) field width = $W-(\\text{opcode}+\\text{mode}+\\text{register fields})$.\n- Directly addressable words with an $a$-bit address field: $2^a$.",
+      "intuition_full": "The processor must decode an instruction in a fixed number of bits, so the layout is a budget. Each field spends bits to buy choices: more opcode bits buy more operations, more register bits buy more registers, more address bits buy more memory reach. The budget is fixed by the word size, so a wider field always takes bits from another one. This is the trade-off GATE exploits. If a question gives all fields but one, the missing one is the leftover. If it gives the field you want, work backwards: the opcode must have at least ⌈log₂ N⌉ bits for N operations. The same tool gives limits. With an address field of a bits, an instruction can name only 2ᵃ words directly, and an immediate field of i bits holds unsigned values up to 2ⁱ − 1.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A 16-bit instruction has a 5-bit opcode, a 2-bit addressing mode and a 3-bit register number. The rest of the word is the address field. How many bits is the address field, and how many operations, modes, registers and directly addressable words does the format allow?",
+          "steps": [
+            "A 16-bit instruction word is split into fields. The fields must add up to exactly 16 bits.",
+            "Opcode: 5 bits can name 2⁵ = 32 different operations.",
+            "Addressing mode: 2 bits can name 2² = 4 modes. Register number: 3 bits can name 2³ = 8 registers.",
+            "Bits used so far: 5 + 2 + 3 = 10. The address field gets the leftover: 16 − 10 = 6 bits.",
+            "A 6-bit address reaches 2⁶ = 64 words directly. Check the total: 5 + 2 + 3 + 6 = 16."
+          ],
+          "answer": "Address field 6 bits. The format allows 32 operations, 4 modes, 8 registers and 64 directly addressable words."
+        },
+        {
+          "level": "gate",
+          "setup": "A 32-bit instruction format has 6 addressing modes, two register fields (24 registers in the machine) and a 12-bit scalar field. All remaining bits are the opcode. How many different opcodes can the format have?",
+          "steps": [
+            "6 modes need ⌈log₂ 6⌉ = 3 bits, because 2² = 4 < 6 ≤ 8.",
+            "24 registers need ⌈log₂ 24⌉ = 5 bits per field, because 16 < 24 ≤ 32. Two register fields use 10 bits.",
+            "Bits used outside the opcode: 3 + 10 + 12 = 25. Opcode bits: 32 − 25 = 7.",
+            "Number of opcodes: 2⁷ = 128."
+          ],
+          "answer": "128 opcodes. Rounding the mode field down to 2 bits would give a wrong 256."
+        },
+        {
+          "level": "twist",
+          "setup": "An instruction format totals 38 bits (7-bit opcode, two 6-bit register fields for 40 registers, a 19-bit immediate). Instructions are stored in whole bytes. How many bytes do 60 instructions take?",
+          "steps": [
+            "Check the fields: 7 + 6 + 6 + 19 = 38 bits.",
+            "Memory is byte addressable, so each instruction rounds up to ⌈38 ÷ 8⌉ = 5 bytes.",
+            "60 instructions take 60 × 5 = 300 bytes. Packing bits tightly would give 60 × 38 ÷ 8 = 285 bytes, which is not allowed."
+          ],
+          "answer": "300 bytes. Each instruction is padded to a whole number of bytes."
+        }
+      ],
+      "why": "Every ISA question starts from the field layout. In GATE: find the number of bits in the missing field, the maximum immediate value, or the number of opcodes, from the word size and the other fields.",
+      "how": [
+        "List all fields and the choices each must name.",
+        "For each field with N choices use ⌈log₂ N⌉ bits.",
+        "Add the known fields and subtract from the word size.",
+        "If instructions are stored in bytes, round the total bits up to a multiple of 8."
+      ],
+      "mistake": "Rounding log₂ N down. With N = 6 modes the field needs 3 bits, not 2, because 2 bits cannot name 6 things.",
+      "edge_cases": [
+        "If N is an exact power of two, ⌈log₂ N⌉ = log₂ N, with no spare codes.",
+        "The immediate field gets the leftover bits after all other fields.",
+        "The maximum unsigned value of a k-bit field is 2ᵏ − 1; a signed field reaches −2ᵏ⁻¹ to 2ᵏ⁻¹ − 1.",
+        "Some fields (mode, register) may be absent in some instruction types."
+      ],
+      "connections": [
+        "Bits for fields (card i5) works out each width from its count.",
+        "Expanding opcodes (card i6) fit more operations into the same word.",
+        "Foundations: **Binary** (found.binary) gives the powers of two used in every field-width calculation."
+      ],
+      "check": [
+        {
+          "q": "How many bits name 40 registers?",
+          "a": "6, because 2⁵ = 32 < 40 ≤ 64."
+        },
+        {
+          "q": "A 24-bit instruction has a 9-bit opcode and a 6-bit register. How many bits are left?",
+          "a": "24 − 15 = 9."
+        },
+        {
+          "q": "What is the largest unsigned value in a 10-bit immediate field?",
+          "a": "2¹⁰ − 1 = 1023."
+        }
+      ],
+      "asked": "Asked: 2024 CS2 Q57, 2024 CS2 Q61, 2025 CS1 Q37, 2014 CS1 Q9, 2016 CS2 Q10, 2016 CS2 Q31.",
+      "try": {
+        "id": "gen.coa.isa.010",
+        "label": "A 32-bit instruction has a 7-bit opcode and two register fields. The machine has 32 registers. How many bits remain for an immediate field? (L2)"
+      },
+      "scene": "coa.isa.i1.fields",
+      "example": {
+        "setup": "A 16-bit instruction has a 5-bit opcode, a 2-bit addressing mode and a 3-bit register number. The rest of the word is the address field. How many bits is the address field, and how many operations, modes, registers and directly addressable words does the format allow?",
+        "steps": [
+          "A 16-bit instruction word is split into fields. The fields must add up to exactly 16 bits.",
+          "Opcode: 5 bits can name 2⁵ = 32 different operations.",
+          "Addressing mode: 2 bits can name 2² = 4 modes. Register number: 3 bits can name 2³ = 8 registers.",
+          "Bits used so far: 5 + 2 + 3 = 10. The address field gets the leftover: 16 − 10 = 6 bits.",
+          "A 6-bit address reaches 2⁶ = 64 words directly. Check the total: 5 + 2 + 3 + 6 = 16."
+        ],
+        "answer": "Address field 6 bits. The format allows 32 operations, 4 modes, 8 registers and 64 directly addressable words."
+      },
+      "what": "An instruction is a fixed number of bits divided into **fields**: opcode, addressing mode, register numbers and an address or immediate value. **The widths add up to the word size.** A field of k bits can name 2ᵏ different things.",
+      "what_full": "An instruction is a fixed number of bits divided into **fields**: opcode, addressing mode, register numbers and an address or immediate value. **The widths add up to the word size.** A field of k bits can name 2ᵏ different things.\n\nWord size $W=\\sum(\\text{field widths})$.\n\n- A field of $k$ bits distinguishes $2^k$ values.\n- Address (or immediate) field width = $W-(\\text{opcode}+\\text{mode}+\\text{register fields})$.\n- Directly addressable words with an $a$-bit address field: $2^a$.\n\n**Worked example.** A 16-bit instruction has a 5-bit opcode, a 2-bit addressing mode and a 3-bit register number. The rest of the word is the address field. How many bits is the address field, and how many operations, modes, registers and directly addressable words does the format allow?\n\n1. A 16-bit instruction word is split into fields. The fields must add up to exactly 16 bits.\n2. Opcode: 5 bits can name 2⁵ = 32 different operations.\n3. Addressing mode: 2 bits can name 2² = 4 modes. Register number: 3 bits can name 2³ = 8 registers.\n4. Bits used so far: 5 + 2 + 3 = 10. The address field gets the leftover: 16 − 10 = 6 bits.\n5. A 6-bit address reaches 2⁶ = 64 words directly. Check the total: 5 + 2 + 3 + 6 = 16.\n\n**Answer:** Address field 6 bits. The format allows 32 operations, 4 modes, 8 registers and 64 directly addressable words.",
+      "why_full": "Every ISA question starts from the field layout. In GATE: find the number of bits in the missing field, the maximum immediate value, or the number of opcodes, from the word size and the other fields.\n\nAsked: 2024 CS2 Q57, 2024 CS2 Q61, 2025 CS1 Q37, 2014 CS1 Q9, 2016 CS2 Q10, 2016 CS2 Q31.",
+      "trap": "Rounding log₂ N down. With N = 6 modes the field needs 3 bits, not 2, because 2 bits cannot name 6 things."
+    },
+    {
+      "atom_id": "i2",
+      "title": "Address formats",
+      "simple": "An instruction can say as much or as little as it likes about where its numbers come from. A three-address instruction names everything: 'put A plus B into C'. A one-address instruction uses a hidden helper called the accumulator, like a calculator display: 'add B to whatever is showing'. A zero-address instruction uses a stack of plates: 'add' takes the top two plates and puts the answer back. The more the instruction names, the longer it is, but the fewer instructions the program needs. In exam words: three-address, two-address, one-address (accumulator) and zero-address (stack) formats trade instruction length against instruction count; a load-store machine keeps arithmetic on registers.",
+      "idea": "The **address format** says how many operands an instruction names. **Three-address:** ADD X,Y,Z. **Two-address:** ADD X,Y. **One-address:** ADD Y (the accumulator is implicit). **Zero-address:** ADD (uses the stack). Fewer names means shorter instructions but more of them.",
+      "definition": "- 3-address: `OP dest, src1, src2`  (X = Y op Z)\n- 2-address: `OP dest/src1, src2`  (X = X op Y)\n- 1-address: `OP src`  (ACC = ACC op src)\n- 0-address: `OP`  (pops two values, pushes the result)\n\nIn a **load-store** machine only LOAD and STORE touch memory; arithmetic works on registers.",
+      "intuition_full": "Each operand needs an address field, so a three-address instruction is long: it can hold a whole expression step in one go. A zero-address instruction is tiny, because the stack makes the operands implicit, but you need PUSH and POP instructions to bring the data in and out. A program for the same expression therefore needs fewer instructions on a wide-format machine and more on a narrow one. The total number of bits does not always favour either. A stack machine also makes expression evaluation mechanical: write the expression in postfix order and push, operate, pop. Modern RISC machines are load-store with three register operands: arithmetic instructions are three-address, but their operands are registers, which are cheap to name. LOAD and STORE are the only two-field memory instructions.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Evaluate Y = (P − Q) × R on a zero-address (stack) machine for P = 9, Q = 4, R = 3. The program is PUSH P, PUSH Q, SUB, PUSH R, MUL, POP Y. Trace the stack.",
+          "steps": [
+            "A stack machine's arithmetic instructions name no operands: they use the top of the stack. We run the six instructions with P = 9, Q = 4, R = 3. The stack starts empty.",
+            "PUSH P puts 9 on the stack.",
+            "PUSH Q puts 4 on top. The stack holds 9, 4 (4 on top).",
+            "SUB pops 4 and then 9 and pushes 9 − 4 = 5.",
+            "PUSH R puts 3 on top. The stack holds 5, 3.",
+            "MUL pops 3 and 5 and pushes 5 × 3 = 15.",
+            "POP Y stores 15 in Y. Six instructions in all, whereas a three-address machine needs 2 (SUB T,P,Q then MUL Y,T,R)."
+          ],
+          "answer": "Y = 15 after 6 stack instructions."
+        },
+        {
+          "level": "gate",
+          "setup": "Count the instructions needed to compute Y = (P − Q) × R on each format: three-address, two-address, one-address and zero-address.",
+          "steps": [
+            "Three-address: SUB T,P,Q then MUL Y,T,R. That is 2 instructions.",
+            "Two-address (the destination is also the first source): MOV T,P; SUB T,Q; MUL T,R; MOV Y,T. That is 4.",
+            "One-address (accumulator): LOAD P; SUB Q; MUL R; STORE Y. That is 4.",
+            "Zero-address (stack): PUSH P; PUSH Q; SUB; PUSH R; MUL; POP Y. That is 6."
+          ],
+          "answer": "2, 4, 4 and 6 instructions. The fewer operands each instruction names, the more instructions are needed."
+        },
+        {
+          "level": "twist",
+          "setup": "The same Y = (P − Q) × R must run on a load-store machine whose arithmetic instructions are three-address on registers. How many instructions are needed?",
+          "steps": [
+            "All data are in memory, so each value must be loaded first: LOAD R1,P; LOAD R2,Q.",
+            "SUB R1,R1,R2 computes P − Q. Then LOAD R2,R brings R in.",
+            "MUL R1,R1,R2 computes the product. STORE Y,R1 writes it back.",
+            "Count: 3 loads + 2 arithmetic + 1 store = 6 instructions."
+          ],
+          "answer": "6 instructions, not 2. Load-store forbids memory operands in SUB and MUL."
+        }
+      ],
+      "why": "The format decides program length and instruction length, and it is a standard comparison question. In GATE: count the instructions for an expression on a given format, or identify a format from an instruction sequence.",
+      "how": [
+        "Write the expression as a sequence of single operations.",
+        "For stack code, use postfix order: push operands, operate, pop result.",
+        "For accumulator code, LOAD the first operand, apply each operation with the next operand, STORE.",
+        "For load-store code, load every memory operand into a register first."
+      ],
+      "mistake": "Using memory operands in arithmetic on a load-store machine. Only LOAD and STORE may touch memory; add them to the count.",
+      "edge_cases": [
+        "A zero-address ADD pops two values; the result is pushed back, so the stack height drops by one.",
+        "For SUB and DIV on a stack, the value pushed first is the left operand.",
+        "Two-address instructions overwrite one source, so a copy MOV is needed to keep it.",
+        "A one-address machine with an accumulator needs LOAD and STORE for every result."
+      ],
+      "connections": [
+        "Fields and bit counts (card i1) give the instruction length each format needs.",
+        "RISC versus CISC (card i9) compares load-store designs with memory-operand designs.",
+        "ds.stacks covers the push and pop behaviour used in the stack machine."
+      ],
+      "check": [
+        {
+          "q": "How many address fields does an accumulator instruction ADD X have?",
+          "a": "One. The accumulator is implicit."
+        },
+        {
+          "q": "On a stack machine, which operand of SUB is pushed first: the left or the right?",
+          "a": "The left operand (the one subtracted from)."
+        },
+        {
+          "q": "How many instructions does X = A + B take on a three-address machine?",
+          "a": "1: ADD X,A,B."
+        }
+      ],
+      "asked": "Asked: 2018 CS Q15, 2026 CS1 Q15, 2025 CS2 Q28.",
+      "try": {
+        "id": "gen.coa.isa.005",
+        "label": "An instruction $\\text{ADD}$ takes both operands from the top of the stack, removes them, and pushes the sum. Which instruction format is this? (L1)"
+      },
+      "scene": "coa.isa.i2.stack",
+      "example": {
+        "setup": "Evaluate Y = (P − Q) × R on a zero-address (stack) machine for P = 9, Q = 4, R = 3. The program is PUSH P, PUSH Q, SUB, PUSH R, MUL, POP Y. Trace the stack.",
+        "steps": [
+          "A stack machine's arithmetic instructions name no operands: they use the top of the stack. We run the six instructions with P = 9, Q = 4, R = 3. The stack starts empty.",
+          "PUSH P puts 9 on the stack.",
+          "PUSH Q puts 4 on top. The stack holds 9, 4 (4 on top).",
+          "SUB pops 4 and then 9 and pushes 9 − 4 = 5.",
+          "PUSH R puts 3 on top. The stack holds 5, 3.",
+          "MUL pops 3 and 5 and pushes 5 × 3 = 15.",
+          "POP Y stores 15 in Y. Six instructions in all, whereas a three-address machine needs 2 (SUB T,P,Q then MUL Y,T,R)."
+        ],
+        "answer": "Y = 15 after 6 stack instructions."
+      },
+      "what": "The **address format** says how many operands an instruction names. **Three-address:** ADD X,Y,Z. **Two-address:** ADD X,Y. **One-address:** ADD Y (the accumulator is implicit). **Zero-address:** ADD (uses the stack). Fewer names means shorter instructions but more of them.",
+      "what_full": "The **address format** says how many operands an instruction names. **Three-address:** ADD X,Y,Z. **Two-address:** ADD X,Y. **One-address:** ADD Y (the accumulator is implicit). **Zero-address:** ADD (uses the stack). Fewer names means shorter instructions but more of them.\n\n- 3-address: `OP dest, src1, src2`  (X = Y op Z)\n- 2-address: `OP dest/src1, src2`  (X = X op Y)\n- 1-address: `OP src`  (ACC = ACC op src)\n- 0-address: `OP`  (pops two values, pushes the result)\n\nIn a **load-store** machine only LOAD and STORE touch memory; arithmetic works on registers.\n\n**Worked example.** Evaluate Y = (P − Q) × R on a zero-address (stack) machine for P = 9, Q = 4, R = 3. The program is PUSH P, PUSH Q, SUB, PUSH R, MUL, POP Y. Trace the stack.\n\n1. A stack machine's arithmetic instructions name no operands: they use the top of the stack. We run the six instructions with P = 9, Q = 4, R = 3. The stack starts empty.\n2. PUSH P puts 9 on the stack.\n3. PUSH Q puts 4 on top. The stack holds 9, 4 (4 on top).\n4. SUB pops 4 and then 9 and pushes 9 − 4 = 5.\n5. PUSH R puts 3 on top. The stack holds 5, 3.\n6. MUL pops 3 and 5 and pushes 5 × 3 = 15.\n7. POP Y stores 15 in Y. Six instructions in all, whereas a three-address machine needs 2 (SUB T,P,Q then MUL Y,T,R).\n\n**Answer:** Y = 15 after 6 stack instructions.",
+      "why_full": "The format decides program length and instruction length, and it is a standard comparison question. In GATE: count the instructions for an expression on a given format, or identify a format from an instruction sequence.\n\nAsked: 2018 CS Q15, 2026 CS1 Q15, 2025 CS2 Q28.",
+      "trap": "Using memory operands in arithmetic on a load-store machine. Only LOAD and STORE may touch memory; add them to the count."
+    },
+    {
+      "atom_id": "i3",
+      "title": "Addressing modes and effective address",
+      "simple": "The address field of an instruction is like a note that says '40'. The mode tells you how to read the note. Immediate: the note itself is the thing you want. Direct: go to house number 40 and take what is there. Indirect: house 40 contains another house number, go there. Indexed: add your counter to 40 first, so you can walk down a street house by house. Register: the thing is in a pocket, not in a house. The house number where the data really lives is called the effective address. In exam words: addressing modes (immediate, direct, indirect, register, register indirect, indexed, base, PC-relative, auto-increment) differ in how the effective address is computed from the field and registers.",
+      "idea": "The **addressing mode** tells the CPU how to turn the instruction's address field into the operand. The memory address finally used is the **effective address (EA)**. Immediate has no EA, direct EA = field, indirect EA = M[field], indexed EA = field + index register.",
+      "definition": "| Mode | Effective address | Operand |\n|---|---|---|\n| Immediate | none | field |\n| Direct | field | M[field] |\n| Indirect | M[field] | M[M[field]] |\n| Register | none | R |\n| Register indirect | R | M[R] |\n| Indexed / base | field + R | M[field + R] |\n| PC-relative | PC + field | M[PC + field] |\n| Auto-increment | R, then R += size | M[R] |",
+      "intuition_full": "Modes exist because programs need different shapes of data. A constant is immediate. A global variable is direct. A pointer is indirect or register indirect. An array element changes address each pass of a loop, so the base address stays in the field and the changing index sits in a register: indexed. A field of a record has a fixed distance from the record's start: base register plus offset. A branch target close to the current instruction is PC-relative, which also keeps code position-independent. Auto-increment steps a pointer through memory in a loop and updates it for free. The effective address is the central idea. Once you know the EA, the number of memory accesses and the operand follow directly (card i4).",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "An instruction has the address field 40. Register R2 holds 8. Memory holds M[8] = 63, M[40] = 72, M[48] = 99 and M[72] = 15. What operand does the instruction use in each mode: immediate, direct, indirect, indexed (with R2), register indirect (R2) and register (R2)?",
+          "steps": [
+            "The address field is 40 and R2 = 8. Memory: M[8] = 63, M[40] = 72, M[48] = 99, M[72] = 15. Each mode turns the same field into a different operand.",
+            "Immediate: the field itself is the operand: 40. No memory access.",
+            "Direct: the field is the operand's address. Operand = M[40] = 72. One memory read.",
+            "Indirect: the field is the address of a pointer. M[40] = 72 is an address, so the operand is M[72] = 15. Two reads.",
+            "Indexed: effective address = field + R2 = 40 + 8 = 48. Operand = M[48] = 99. One read.",
+            "Register indirect: R2 holds the address. Operand = M[8] = 63. One read.",
+            "Register: the operand is R2 itself, 8. No memory access."
+          ],
+          "answer": "Immediate 40, direct 72, indirect 15, indexed 99, register indirect 63, register 8."
+        },
+        {
+          "level": "gate",
+          "setup": "Match each use with its mode: (P) a constant in the code, (Q) a pointer stored in memory, (R) an element of an array whose index changes in a loop, (S) a field at a fixed distance from the start of a record held in a register.",
+          "steps": [
+            "(P) A constant that sits in the instruction is immediate.",
+            "(Q) A pointer in memory holds the address of the data, which is indirect (or register indirect if the pointer is in a register).",
+            "(R) Array element with a varying index: base address in the field plus the index register, which is indexed (or base-indexed) addressing.",
+            "(S) A fixed offset from a base register is base-register addressing (displacement)."
+          ],
+          "answer": "P: immediate, Q: indirect, R: indexed, S: base with offset. Index varies per access; base and offset are fixed in the code."
+        },
+        {
+          "level": "twist",
+          "setup": "R1 = 50 and memory holds M[50] = 120, M[120] = 75 and M[70] = 330. Which operands do the specifications (R1), @(R1) and 20(R1) give?",
+          "steps": [
+            "(R1) is register indirect: EA = R1 = 50, so the operand is M[50] = 120.",
+            "@(R1) adds one more level: M[50] = 120 is itself an address, so the operand is M[120] = 75.",
+            "20(R1) is displacement: EA = 20 + 50 = 70, so the operand is M[70] = 330."
+          ],
+          "answer": "120, 75 and 330. One extra level of indirection changes the operand and adds a read."
+        }
+      ],
+      "why": "Addressing modes appear in every ISA question and are matched to data structures in GATE. In GATE: match a mode to a use, compute the effective address, or count memory accesses.",
+      "how": [
+        "Decide whether the field is a constant, an address, or an offset.",
+        "Write the effective address as a formula in the field and the registers.",
+        "Read the memory at the EA to get the operand; repeat for each level of indirection.",
+        "Match the mode to the use: pointer, array element, record field, constant."
+      ],
+      "mistake": "Confusing index (varies per access, in a register) with base and offset (fixed in the code). Indexed is for arrays; base plus displacement is for records and for relocating code.",
+      "edge_cases": [
+        "Immediate and register modes need no memory access for the operand.",
+        "Auto-increment changes the register after the access, by the operand size.",
+        "PC-relative offsets are measured from the next instruction (card i7).",
+        "Indirect addressing through memory can chain for several levels."
+      ],
+      "connections": [
+        "Effective address and memory accesses (card i4) count the reads each mode needs.",
+        "PC-relative mode is the one used by branch instructions (card i7).",
+        "ds.c covers the pointer and array ideas these modes implement."
+      ],
+      "check": [
+        {
+          "q": "Which mode gives an effective address of field + index register?",
+          "a": "Indexed addressing."
+        },
+        {
+          "q": "Field = 50, index register = 6. What is the indexed effective address?",
+          "a": "56."
+        },
+        {
+          "q": "Which mode suits stepping through an array in a loop?",
+          "a": "Indexed, or auto-increment."
+        }
+      ],
+      "asked": "Asked: 2017 CS1 Q11, 2026 CS1 Q14, 2005 CS Q66, 2011 CS Q21, 2000 CS Q1_10, 2001 CS Q2_9.",
+      "try": {
+        "id": "gen.coa.isa.002",
+        "label": "In immediate addressing, where is the operand? (L1)"
+      },
+      "scene": "coa.isa.i3.modes",
+      "example": {
+        "setup": "An instruction has the address field 40. Register R2 holds 8. Memory holds M[8] = 63, M[40] = 72, M[48] = 99 and M[72] = 15. What operand does the instruction use in each mode: immediate, direct, indirect, indexed (with R2), register indirect (R2) and register (R2)?",
+        "steps": [
+          "The address field is 40 and R2 = 8. Memory: M[8] = 63, M[40] = 72, M[48] = 99, M[72] = 15. Each mode turns the same field into a different operand.",
+          "Immediate: the field itself is the operand: 40. No memory access.",
+          "Direct: the field is the operand's address. Operand = M[40] = 72. One memory read.",
+          "Indirect: the field is the address of a pointer. M[40] = 72 is an address, so the operand is M[72] = 15. Two reads.",
+          "Indexed: effective address = field + R2 = 40 + 8 = 48. Operand = M[48] = 99. One read.",
+          "Register indirect: R2 holds the address. Operand = M[8] = 63. One read.",
+          "Register: the operand is R2 itself, 8. No memory access."
+        ],
+        "answer": "Immediate 40, direct 72, indirect 15, indexed 99, register indirect 63, register 8."
+      },
+      "what": "The **addressing mode** tells the CPU how to turn the instruction's address field into the operand. The memory address finally used is the **effective address (EA)**. Immediate has no EA, direct EA = field, indirect EA = M[field], indexed EA = field + index register.",
+      "what_full": "The **addressing mode** tells the CPU how to turn the instruction's address field into the operand. The memory address finally used is the **effective address (EA)**. Immediate has no EA, direct EA = field, indirect EA = M[field], indexed EA = field + index register.\n\n| Mode | Effective address | Operand |\n|---|---|---|\n| Immediate | none | field |\n| Direct | field | M[field] |\n| Indirect | M[field] | M[M[field]] |\n| Register | none | R |\n| Register indirect | R | M[R] |\n| Indexed / base | field + R | M[field + R] |\n| PC-relative | PC + field | M[PC + field] |\n| Auto-increment | R, then R += size | M[R] |\n\n**Worked example.** An instruction has the address field 40. Register R2 holds 8. Memory holds M[8] = 63, M[40] = 72, M[48] = 99 and M[72] = 15. What operand does the instruction use in each mode: immediate, direct, indirect, indexed (with R2), register indirect (R2) and register (R2)?\n\n1. The address field is 40 and R2 = 8. Memory: M[8] = 63, M[40] = 72, M[48] = 99, M[72] = 15. Each mode turns the same field into a different operand.\n2. Immediate: the field itself is the operand: 40. No memory access.\n3. Direct: the field is the operand's address. Operand = M[40] = 72. One memory read.\n4. Indirect: the field is the address of a pointer. M[40] = 72 is an address, so the operand is M[72] = 15. Two reads.\n5. Indexed: effective address = field + R2 = 40 + 8 = 48. Operand = M[48] = 99. One read.\n6. Register indirect: R2 holds the address. Operand = M[8] = 63. One read.\n7. Register: the operand is R2 itself, 8. No memory access.\n\n**Answer:** Immediate 40, direct 72, indirect 15, indexed 99, register indirect 63, register 8.",
+      "why_full": "Addressing modes appear in every ISA question and are matched to data structures in GATE. In GATE: match a mode to a use, compute the effective address, or count memory accesses.\n\nAsked: 2017 CS1 Q11, 2026 CS1 Q14, 2005 CS Q66, 2011 CS Q21, 2000 CS Q1_10, 2001 CS Q2_9.",
+      "trap": "Confusing index (varies per access, in a register) with base and offset (fixed in the code). Indexed is for arrays; base plus displacement is for records and for relocating code."
+    },
+    {
+      "atom_id": "i4",
+      "title": "Effective address and memory accesses",
+      "simple": "Think of treasure hunting. Direct means the clue tells you where the treasure is: one trip. Indirect means the clue tells you where the next clue is: two trips. Each extra level of pointing adds a trip. Looking in your own pocket (a register) costs no trip at all, and a clue that already contains the treasure (an immediate) costs none either. When an exam asks how many memory references an instruction makes, you count the trips that go to memory. In exam words: the effective address is where the operand lives; each level of indirection adds one memory read, register and immediate operands add none, and writing a result back adds one more access.",
+      "idea": "Count memory accesses by following the **effective address**. Direct mode needs 1 read. Each extra level of indirection adds 1 read. **Register and immediate operands cost 0** reads. A result written back to memory costs 1 write.",
+      "definition": "Reads for the operand: immediate 0, register 0, register indirect 1, direct 1, indirect 2, double indirect 3.\n\nIndexed / base: 1 read (the addition is done in the CPU, not in memory).\n\nTotal data accesses = operand reads + writes. The instruction fetch is counted separately.",
+      "intuition_full": "Memory is slow compared with the registers, so counting accesses is the standard way to compare modes. The count follows from the structure: a read happens each time the CPU must look something up in memory. A pointer chain of depth d needs d reads to reach the data. An addition in the CPU (index plus field) costs no memory read. An instruction that is read-modify-write, such as incrementing a memory location, reads the old value and writes the new one, so it costs two accesses plus any pointer reads. Questions usually ask for the data references only, not counting the instruction fetch. When the instruction occupies more than one word, the extra words are read during the fetch. They are part of the instruction fetch, not of the data accesses.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The address field is 24 and R1 = 24. Memory holds M[24] = 60, M[60] = 88 and M[88] = 5. Not counting the instruction fetch, how many memory reads does each mode need, and what is the operand: register, direct, indirect, and two-level indirect?",
+          "steps": [
+            "Start: field = 24, R1 = 24, M[24] = 60, M[60] = 88, M[88] = 5.",
+            "Register mode: the operand is R1 = 24. No memory read: 0 reads.",
+            "Direct: the field is the address. Read M[24] = 60. The operand is 60 after 1 read.",
+            "Indirect: M[24] = 60 is an address, not the data. Read M[60] = 88. The operand is 88 after 2 reads.",
+            "Two-level indirect: 88 is again an address. Read M[88] = 5. The operand is 5 after 3 reads.",
+            "Rule: each level of indirection adds one read, and the final read gets the operand. Registers and immediates cost none."
+          ],
+          "answer": "Register: 24 with 0 reads. Direct: 60 with 1 read. Indirect: 88 with 2 reads. Two-level indirect: 5 with 3 reads."
+        },
+        {
+          "level": "gate",
+          "setup": "The instruction INC @P adds 1 to the memory word whose address is stored in location P (memory-indirect, read-modify-write). How many data memory references does it make, not counting the instruction fetch?",
+          "steps": [
+            "Read the pointer: M[P] gives the operand's address. That is 1 read.",
+            "Read the operand at that address. That is a second read.",
+            "Write the incremented value back to the same address. That is 1 write.",
+            "Total data references: 2 reads + 1 write = 3."
+          ],
+          "answer": "3 data references. The write-back of a read-modify-write instruction counts."
+        },
+        {
+          "level": "twist",
+          "setup": "MOV R2,(R1)+ uses auto-increment with 4-byte words: R2 receives the word at address R1 and then R1 grows by 4. R1 = 1000. How many memory accesses, and what is R1 afterwards?",
+          "steps": [
+            "The effective address is R1 = 1000. One memory read fetches the operand.",
+            "R1 ← R1 + 4 happens inside the CPU and is not a memory access.",
+            "After the instruction, R1 = 1004."
+          ],
+          "answer": "1 memory read; R1 = 1004. The register update is free."
+        }
+      ],
+      "why": "Memory references are the usual cost measure for addressing modes. In GATE: count the data accesses of an instruction or a loop, or find the effective address for a mode.",
+      "how": [
+        "Find the effective address for the mode.",
+        "Count one read per pointer lookup and one for the operand.",
+        "Add one write if the result goes back to memory.",
+        "Do not count register operands, immediates or the instruction fetch."
+      ],
+      "mistake": "Counting instruction fetches as data references, or forgetting the write-back. Read only the data accesses the question asks for.",
+      "edge_cases": [
+        "Register indirect is 1 read, but the pointer is in a register, so there is no pointer read.",
+        "A two-word instruction fetches its second word during the fetch phase.",
+        "A store with a direct address is 1 write and 0 reads.",
+        "Indexed addressing computes field + index in the CPU: still only 1 read."
+      ],
+      "connections": [
+        "Addressing modes (card i3) define the effective address being followed.",
+        "Tracing instruction sequences (card i10) totals these counts over a loop.",
+        "coa.memory covers how fast those memory accesses are with a cache."
+      ],
+      "check": [
+        {
+          "q": "How many reads does indirect addressing need for the operand?",
+          "a": "2: the pointer, then the operand."
+        },
+        {
+          "q": "How many data accesses does ADD R1,R2 make?",
+          "a": "0, both operands are registers."
+        },
+        {
+          "q": "A load from a direct address followed by a store to a direct address: how many data accesses?",
+          "a": "2: one read, one write."
+        }
+      ],
+      "asked": "Asked: 2005 CS Q65, 2007 CS Q71, 2021 CS1 Q65.",
+      "try": {
+        "id": "gen.coa.isa.003",
+        "label": "In register indirect addressing, as in $\\text{MOV R1,(R2)}$, which statement is correct? (L1)"
+      },
+      "scene": "coa.isa.i4.chain",
+      "example": {
+        "setup": "The address field is 24 and R1 = 24. Memory holds M[24] = 60, M[60] = 88 and M[88] = 5. Not counting the instruction fetch, how many memory reads does each mode need, and what is the operand: register, direct, indirect, and two-level indirect?",
+        "steps": [
+          "Start: field = 24, R1 = 24, M[24] = 60, M[60] = 88, M[88] = 5.",
+          "Register mode: the operand is R1 = 24. No memory read: 0 reads.",
+          "Direct: the field is the address. Read M[24] = 60. The operand is 60 after 1 read.",
+          "Indirect: M[24] = 60 is an address, not the data. Read M[60] = 88. The operand is 88 after 2 reads.",
+          "Two-level indirect: 88 is again an address. Read M[88] = 5. The operand is 5 after 3 reads.",
+          "Rule: each level of indirection adds one read, and the final read gets the operand. Registers and immediates cost none."
+        ],
+        "answer": "Register: 24 with 0 reads. Direct: 60 with 1 read. Indirect: 88 with 2 reads. Two-level indirect: 5 with 3 reads."
+      },
+      "what": "Count memory accesses by following the **effective address**. Direct mode needs 1 read. Each extra level of indirection adds 1 read. **Register and immediate operands cost 0** reads. A result written back to memory costs 1 write.",
+      "what_full": "Count memory accesses by following the **effective address**. Direct mode needs 1 read. Each extra level of indirection adds 1 read. **Register and immediate operands cost 0** reads. A result written back to memory costs 1 write.\n\nReads for the operand: immediate 0, register 0, register indirect 1, direct 1, indirect 2, double indirect 3.\n\nIndexed / base: 1 read (the addition is done in the CPU, not in memory).\n\nTotal data accesses = operand reads + writes. The instruction fetch is counted separately.\n\n**Worked example.** The address field is 24 and R1 = 24. Memory holds M[24] = 60, M[60] = 88 and M[88] = 5. Not counting the instruction fetch, how many memory reads does each mode need, and what is the operand: register, direct, indirect, and two-level indirect?\n\n1. Start: field = 24, R1 = 24, M[24] = 60, M[60] = 88, M[88] = 5.\n2. Register mode: the operand is R1 = 24. No memory read: 0 reads.\n3. Direct: the field is the address. Read M[24] = 60. The operand is 60 after 1 read.\n4. Indirect: M[24] = 60 is an address, not the data. Read M[60] = 88. The operand is 88 after 2 reads.\n5. Two-level indirect: 88 is again an address. Read M[88] = 5. The operand is 5 after 3 reads.\n6. Rule: each level of indirection adds one read, and the final read gets the operand. Registers and immediates cost none.\n\n**Answer:** Register: 24 with 0 reads. Direct: 60 with 1 read. Indirect: 88 with 2 reads. Two-level indirect: 5 with 3 reads.",
+      "why_full": "Memory references are the usual cost measure for addressing modes. In GATE: count the data accesses of an instruction or a loop, or find the effective address for a mode.\n\nAsked: 2005 CS Q65, 2007 CS Q71, 2021 CS1 Q65.",
+      "trap": "Counting instruction fetches as data references, or forgetting the write-back. Read only the data accesses the question asks for."
+    },
+    {
+      "atom_id": "i5",
+      "title": "Bits for fields",
+      "simple": "To label N things with binary numbers, you need enough bits to count up to N. With 3 bits you can label 8 things, with 4 bits 16 things. If you have 90 things, 6 bits only reach 64, so you need 7 bits, and you will waste some labels. You always round up to the next whole bit, never down. After every field has its bits, whatever is left in the word goes to the number or address field. In exam words: a field naming N items needs ⌈log₂ N⌉ bits; the immediate takes the leftover bits and its maximum unsigned value is 2ᵏ − 1.",
+      "idea": "A field that must name **N** things needs **⌈log₂ N⌉ bits**: the smallest k with 2ᵏ ≥ N. Always round up. The immediate or address field takes the leftover bits, and its largest unsigned value is 2ᵏ − 1.",
+      "definition": "$$k=\\lceil\\log_2 N\\rceil \\iff 2^{k-1}<N\\le 2^k$$\n\n- $N$ = number of items (opcodes, registers, modes).\n- $k$ = bits in the field.\n- Largest unsigned value in a $k$-bit field: $2^k-1$. Signed range: $-2^{k-1}\\dots 2^{k-1}-1$.",
+      "intuition_full": "A k-bit field has exactly 2ᵏ patterns. To give each of N items its own pattern, the field needs 2ᵏ ≥ N. A smaller field would have fewer patterns than items, so some items could not be named. Rounding up wastes a few patterns when N is not a power of two, which is why 100 registers use 7 bits and leave 28 unused codes. Those unused codes are not free to use for something else unless the question says so. In the instruction word the register fields are repeated, once per register operand, so the register bits are counted several times. After all the named fields are added, the remaining bits are what the immediate field has. A typical error is to forget that a field appears more than once, or to round down.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A 32-bit instruction format must name 90 operations and has two register fields for a machine with 100 registers, followed by an immediate field. How many bits does each field take, and what is the largest unsigned immediate?",
+          "steps": [
+            "90 operations: compare with powers of two. 2⁶ = 64 is too small, 2⁷ = 128 is enough. The opcode needs 7 bits.",
+            "The bar for N = 90 is taller than 2⁶ = 64 but shorter than 2⁷ = 128, so we take the next power of two above it: 7 bits.",
+            "100 registers: 2⁶ = 64 < 100 ≤ 128 = 2⁷, so 7 bits per register field. Two fields use 14 bits.",
+            "The fixed fields use 7 + 7 + 7 = 21 bits of the 32.",
+            "The immediate gets the leftover: 32 − 21 = 11 bits. Its largest unsigned value is 2¹¹ − 1 = 2047."
+          ],
+          "answer": "Opcode 7 bits, registers 7 + 7, immediate 11 bits, maximum immediate 2047."
+        },
+        {
+          "level": "gate",
+          "setup": "A machine has 200 instructions split equally between an R-type and an I-type, and one extra bit tells the two types apart. There are 40 registers. R-type has three register fields. I-type has two register fields and an immediate, and the instruction is 32 bits. Find the opcode bits and the immediate size.",
+          "steps": [
+            "Each type has 200 ÷ 2 = 100 instructions. ⌈log₂ 100⌉ = 7 bits, since 64 < 100 ≤ 128.",
+            "With the 1 type bit, the opcode field is 7 + 1 = 8 bits.",
+            "40 registers need ⌈log₂ 40⌉ = 6 bits per register field, since 32 < 40 ≤ 64.",
+            "I-type: 8 + 6 + 6 = 20 bits used, so the immediate has 32 − 20 = 12 bits."
+          ],
+          "answer": "Opcode 8 bits, immediate 12 bits for I-type. R-type uses 8 + 18 = 26 bits, leaving 6 unused."
+        },
+        {
+          "level": "twist",
+          "setup": "How many bits name exactly 64 registers, and how many bits name 65?",
+          "steps": [
+            "64 = 2⁶, so 6 bits are exactly enough.",
+            "65 is one more than 64. 6 bits give only 64 patterns, so 7 bits are needed.",
+            "The 7-bit field then wastes 128 − 65 = 63 patterns."
+          ],
+          "answer": "6 bits for 64 registers, 7 bits for 65. One extra item costs a whole extra bit."
+        }
+      ],
+      "why": "Every instruction-format question rests on this one rounding rule. In GATE: bits for opcodes and registers, the size of the immediate field, or its maximum value.",
+      "how": [
+        "For each field write N and find the smallest k with 2ᵏ ≥ N.",
+        "Multiply register bits by the number of register fields.",
+        "Subtract all fixed fields from the word size to get the immediate.",
+        "Maximum unsigned immediate = 2^(immediate bits) − 1."
+      ],
+      "mistake": "Rounding log₂ N down, or counting a field once when it appears several times. 90 opcodes need 7 bits, and an instruction with two register fields uses the register width twice.",
+      "edge_cases": [
+        "N exactly a power of two gives no waste, for example 64 registers need 6 bits.",
+        "N = 1 needs 0 bits in theory, but real formats keep at least the field.",
+        "A signed immediate loses one bit for the sign.",
+        "If a separate type bit is used, add it to the opcode field."
+      ],
+      "connections": [
+        "Instruction fields (card i1) combine these widths into the full word.",
+        "Expanding opcodes (card i6) reuse unused opcode codes for longer opcodes.",
+        "Foundations: **Binary** (found.binary) covers powers of two and the largest value 2ᵏ − 1."
+      ],
+      "check": [
+        {
+          "q": "How many bits name 100 opcodes?",
+          "a": "7, since 64 < 100 ≤ 128."
+        },
+        {
+          "q": "A 12-bit immediate field: largest unsigned value?",
+          "a": "2¹² − 1 = 4095."
+        },
+        {
+          "q": "How many bits name 33 registers?",
+          "a": "6, since 32 < 33 ≤ 64."
+        }
+      ],
+      "asked": "Asked: 2014 CS1 Q9, 2016 CS2 Q10, 2016 CS2 Q31, 2024 CS2 Q57, 2024 CS2 Q61, 2025 CS1 Q37.",
+      "try": {
+        "id": "gen.coa.isa.004",
+        "label": "What is the minimum number of bits needed to encode 50 distinct opcodes? (L1)"
+      },
+      "scene": "coa.isa.i5.bits",
+      "example": {
+        "setup": "A 32-bit instruction format must name 90 operations and has two register fields for a machine with 100 registers, followed by an immediate field. How many bits does each field take, and what is the largest unsigned immediate?",
+        "steps": [
+          "90 operations: compare with powers of two. 2⁶ = 64 is too small, 2⁷ = 128 is enough. The opcode needs 7 bits.",
+          "The bar for N = 90 is taller than 2⁶ = 64 but shorter than 2⁷ = 128, so we take the next power of two above it: 7 bits.",
+          "100 registers: 2⁶ = 64 < 100 ≤ 128 = 2⁷, so 7 bits per register field. Two fields use 14 bits.",
+          "The fixed fields use 7 + 7 + 7 = 21 bits of the 32.",
+          "The immediate gets the leftover: 32 − 21 = 11 bits. Its largest unsigned value is 2¹¹ − 1 = 2047."
+        ],
+        "answer": "Opcode 7 bits, registers 7 + 7, immediate 11 bits, maximum immediate 2047."
+      },
+      "what": "A field that must name **N** things needs **⌈log₂ N⌉ bits**: the smallest k with 2ᵏ ≥ N. Always round up. The immediate or address field takes the leftover bits, and its largest unsigned value is 2ᵏ − 1.",
+      "what_full": "A field that must name **N** things needs **⌈log₂ N⌉ bits**: the smallest k with 2ᵏ ≥ N. Always round up. The immediate or address field takes the leftover bits, and its largest unsigned value is 2ᵏ − 1.\n\n$$k=\\lceil\\log_2 N\\rceil \\iff 2^{k-1}<N\\le 2^k$$\n\n- $N$ = number of items (opcodes, registers, modes).\n- $k$ = bits in the field.\n- Largest unsigned value in a $k$-bit field: $2^k-1$. Signed range: $-2^{k-1}\\dots 2^{k-1}-1$.\n\n**Worked example.** A 32-bit instruction format must name 90 operations and has two register fields for a machine with 100 registers, followed by an immediate field. How many bits does each field take, and what is the largest unsigned immediate?\n\n1. 90 operations: compare with powers of two. 2⁶ = 64 is too small, 2⁷ = 128 is enough. The opcode needs 7 bits.\n2. The bar for N = 90 is taller than 2⁶ = 64 but shorter than 2⁷ = 128, so we take the next power of two above it: 7 bits.\n3. 100 registers: 2⁶ = 64 < 100 ≤ 128 = 2⁷, so 7 bits per register field. Two fields use 14 bits.\n4. The fixed fields use 7 + 7 + 7 = 21 bits of the 32.\n5. The immediate gets the leftover: 32 − 21 = 11 bits. Its largest unsigned value is 2¹¹ − 1 = 2047.\n\n**Answer:** Opcode 7 bits, registers 7 + 7, immediate 11 bits, maximum immediate 2047.",
+      "why_full": "Every instruction-format question rests on this one rounding rule. In GATE: bits for opcodes and registers, the size of the immediate field, or its maximum value.\n\nAsked: 2014 CS1 Q9, 2016 CS2 Q10, 2016 CS2 Q31, 2024 CS2 Q57, 2024 CS2 Q61, 2025 CS1 Q37.",
+      "trap": "Rounding log₂ N down, or counting a field once when it appears several times. 90 opcodes need 7 bits, and an instruction with two register fields uses the register width twice."
+    },
+    {
+      "atom_id": "i6",
+      "title": "Expanding opcodes",
+      "simple": "Imagine a phone book where short numbers are reserved for emergency services and the longer ones are for ordinary people. If you do not use a short number, you can hand it out as a prefix and add more digits, which gives many longer numbers. An expanding opcode does this. Instructions with many operands need few opcode bits, because the operands use up the room. Instructions with few operands get long opcodes, built from the short codes nobody used. You work level by level: count the unused short codes, multiply them by how many extra bits the next level has, subtract what that level uses, and repeat. In exam words: expanding opcodes reuse unused shorter opcodes as prefixes; free codes × 2^(extra bits) are the codes available at the next level.",
+      "idea": "Instructions with more operands get **shorter opcodes**. Unused short opcodes are used as **prefixes** for longer ones. At each level: free codes = codes available − codes used; next level has free × 2^(extra bits) codes.",
+      "definition": "Let level $L_i$ have opcode width $w_i$, with $w_1<w_2<\\dots$.\n\n- $A_1=2^{w_1}$ codes. Free after level 1: $F_1=A_1-u_1$ ($u_1$ = instructions used).\n- $A_{i+1}=F_i\\cdot 2^{\\,w_{i+1}-w_i}$ and $F_{i+1}=A_{i+1}-u_{i+1}$.\n- Maximum at the last level = $A_{last}$.\n\nOpcode width = word size − operand bits.",
+      "intuition_full": "The instruction word has a fixed total number of bit patterns. A type with k operand bits sets those bits aside, so its opcode has W − k bits, and each opcode it uses locks up 2ᵏ complete words. A short opcode that is not used is a prefix with nothing assigned. Instead of wasting it, a longer opcode can start with that prefix and use the extra bits to tell the longer instructions apart. Since the long opcodes carry the shorter prefix, there is no ambiguity: the decoder reads the first bits and sees a prefix that is not a real instruction, so it reads more. The key rule is that you extend only free prefixes. A prefix that is used as a complete opcode cannot also be extended. The level-by-level calculation (subtract used, multiply by 2 per extra bit) is exact. A second check by counting total words, 2^W − Σ used × 2^operand bits, gives the same final answer.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A 12-bit instruction has 3-bit register fields. Type 1 has two registers and 40 instructions. Type 2 has one register and 150 instructions. Type 3 has no registers. What is the maximum number of type 3 instructions?",
+          "steps": [
+            "Type 1 has 2 registers = 6 operand bits, so its opcode is 12 − 6 = 6 bits: 2⁶ = 64 codes. 40 are used, so 64 − 40 = 24 six-bit codes are free.",
+            "Type 2 has 1 register = 3 operand bits, so its opcode is 9 bits. Each free 6-bit code extends by 3 more bits: 24 × 2³ = 192 nine-bit codes.",
+            "Type 2 uses 150 of the 192 nine-bit codes. 192 − 150 = 42 are left.",
+            "Type 3 has no operand bits, so its opcode is all 12 bits. Each of the 42 free nine-bit codes extends by 3 more bits: 42 × 2³ = 336.",
+            "At most 336 type 3 instructions fit. Check by counting words: 4096 − 40 × 64 − 150 × 8 = 336."
+          ],
+          "answer": "336. Subtract the codes used at each level, then multiply by 2 for every extra opcode bit."
+        },
+        {
+          "level": "gate",
+          "setup": "A 16-bit instruction word has 3-bit register fields. A-type has one register and a 7-bit immediate, with 20 instructions. B-type has two registers, with 600 instructions. C-type has no operands. What is the maximum number of C-type instructions?",
+          "steps": [
+            "A-type: 3 + 7 = 10 operand bits, so the opcode is 6 bits: 2⁶ = 64 codes. 20 used, so 44 free.",
+            "B-type: 6 operand bits, so the opcode is 10 bits. Extend 44 free prefixes by 4 bits: 44 × 2⁴ = 704 codes.",
+            "B-type uses 600 of the 704. 704 − 600 = 104 are free.",
+            "C-type: 16-bit opcode. Extend 104 free prefixes by 6 bits: 104 × 2⁶ = 6656.",
+            "Check by counting words: 65536 − 20 × 2¹⁰ − 600 × 2⁶ = 65536 − 20480 − 38400 = 6656."
+          ],
+          "answer": "6656 C-type instructions."
+        },
+        {
+          "level": "twist",
+          "setup": "In the first example the designer decides type 1 has exactly 64 instructions, using every 6-bit code. How many type 2 and type 3 instructions can there be?",
+          "steps": [
+            "Type 1 uses all 64 six-bit opcodes: 64 − 64 = 0 codes are free.",
+            "With no free prefix there is nothing to extend: 0 × 2³ = 0 nine-bit codes for type 2.",
+            "Type 3 needs free nine-bit codes too: 0."
+          ],
+          "answer": "None. Using every short opcode leaves no prefix for longer instructions."
+        }
+      ],
+      "why": "Expanding opcodes show how a fixed word is shared across formats, and GATE asks for the maximum number of instructions at the last level. In GATE: compute the maximum number of one type given the counts of the others.",
+      "how": [
+        "Write the operand bits of each type and its opcode width = word size − operand bits.",
+        "Start at the shortest opcode: available = 2^width. Subtract the instructions used.",
+        "Multiply the free codes by 2 to the power of the extra opcode bits at the next level.",
+        "Repeat for each level. The last level's available count is the maximum."
+      ],
+      "mistake": "Treating the opcode space as one flat pool. Free codes at each level must be extended by the right number of bits, not subtracted from the total word count in one step.",
+      "edge_cases": [
+        "If a level uses all its codes, nothing is left to extend.",
+        "A level can use fewer instructions than available; the leftovers carry on.",
+        "Check with word counting: total words − Σ used × 2^(operand bits).",
+        "Some questions give maximum counts at a middle level; stop the process there."
+      ],
+      "connections": [
+        "Bits for fields (card i5) gives the opcode width of each type.",
+        "Instruction fields (card i1) fixes the total word size.",
+        "ds.trees covers the prefix-code idea this is based on."
+      ],
+      "check": [
+        {
+          "q": "A 5-bit opcode space has 12 codes used. How many are free?",
+          "a": "32 − 12 = 20."
+        },
+        {
+          "q": "Each free code is extended by 3 more bits. How many longer codes do 5 free codes give?",
+          "a": "5 × 2³ = 40."
+        },
+        {
+          "q": "Two free 4-bit codes extend to 8-bit opcodes. How many 8-bit codes?",
+          "a": "2 × 2⁴ = 32."
+        }
+      ],
+      "asked": "Asked: 2018 CS Q61, 2020 CS Q54, 2026 CS2 Q44.",
+      "try": {
+        "id": "gen.coa.isa.013",
+        "label": "A 6-bit opcode space has 64 codes. 20 of them are used as final opcodes. The remaining unused codes are each extended by 2 more bits into longer opcodes. How many longer opcodes can be made? (L2)"
+      },
+      "scene": "coa.isa.i6.expand",
+      "example": {
+        "setup": "A 12-bit instruction has 3-bit register fields. Type 1 has two registers and 40 instructions. Type 2 has one register and 150 instructions. Type 3 has no registers. What is the maximum number of type 3 instructions?",
+        "steps": [
+          "Type 1 has 2 registers = 6 operand bits, so its opcode is 12 − 6 = 6 bits: 2⁶ = 64 codes. 40 are used, so 64 − 40 = 24 six-bit codes are free.",
+          "Type 2 has 1 register = 3 operand bits, so its opcode is 9 bits. Each free 6-bit code extends by 3 more bits: 24 × 2³ = 192 nine-bit codes.",
+          "Type 2 uses 150 of the 192 nine-bit codes. 192 − 150 = 42 are left.",
+          "Type 3 has no operand bits, so its opcode is all 12 bits. Each of the 42 free nine-bit codes extends by 3 more bits: 42 × 2³ = 336.",
+          "At most 336 type 3 instructions fit. Check by counting words: 4096 − 40 × 64 − 150 × 8 = 336."
+        ],
+        "answer": "336. Subtract the codes used at each level, then multiply by 2 for every extra opcode bit."
+      },
+      "what": "Instructions with more operands get **shorter opcodes**. Unused short opcodes are used as **prefixes** for longer ones. At each level: free codes = codes available − codes used; next level has free × 2^(extra bits) codes.",
+      "what_full": "Instructions with more operands get **shorter opcodes**. Unused short opcodes are used as **prefixes** for longer ones. At each level: free codes = codes available − codes used; next level has free × 2^(extra bits) codes.\n\nLet level $L_i$ have opcode width $w_i$, with $w_1<w_2<\\dots$.\n\n- $A_1=2^{w_1}$ codes. Free after level 1: $F_1=A_1-u_1$ ($u_1$ = instructions used).\n- $A_{i+1}=F_i\\cdot 2^{\\,w_{i+1}-w_i}$ and $F_{i+1}=A_{i+1}-u_{i+1}$.\n- Maximum at the last level = $A_{last}$.\n\nOpcode width = word size − operand bits.\n\n**Worked example.** A 12-bit instruction has 3-bit register fields. Type 1 has two registers and 40 instructions. Type 2 has one register and 150 instructions. Type 3 has no registers. What is the maximum number of type 3 instructions?\n\n1. Type 1 has 2 registers = 6 operand bits, so its opcode is 12 − 6 = 6 bits: 2⁶ = 64 codes. 40 are used, so 64 − 40 = 24 six-bit codes are free.\n2. Type 2 has 1 register = 3 operand bits, so its opcode is 9 bits. Each free 6-bit code extends by 3 more bits: 24 × 2³ = 192 nine-bit codes.\n3. Type 2 uses 150 of the 192 nine-bit codes. 192 − 150 = 42 are left.\n4. Type 3 has no operand bits, so its opcode is all 12 bits. Each of the 42 free nine-bit codes extends by 3 more bits: 42 × 2³ = 336.\n5. At most 336 type 3 instructions fit. Check by counting words: 4096 − 40 × 64 − 150 × 8 = 336.\n\n**Answer:** 336. Subtract the codes used at each level, then multiply by 2 for every extra opcode bit.",
+      "why_full": "Expanding opcodes show how a fixed word is shared across formats, and GATE asks for the maximum number of instructions at the last level. In GATE: compute the maximum number of one type given the counts of the others.\n\nAsked: 2018 CS Q61, 2020 CS Q54, 2026 CS2 Q44.",
+      "trap": "Treating the opcode space as one flat pool. Free codes at each level must be extended by the right number of bits, not subtracted from the total word count in one step."
+    },
+    {
+      "atom_id": "i7",
+      "title": "PC, instruction size and branches",
+      "simple": "The program counter is a finger pointing at the next instruction to run. After reading an instruction, the finger moves forward by exactly the length of that instruction. A branch can move the finger sideways by an amount called the offset, but the offset is counted from where the finger already is, which is the next instruction. So if you want to go back to the start of a loop 12 bytes behind the finger, the offset is minus 12. Instruction addresses are always a whole number of instruction lengths apart. In exam words: the PC steps by the instruction length after the fetch; a PC-relative branch target is PC_next + offset, so offset = target − (branch address + length).",
+      "idea": "After fetching an instruction the **PC** moves forward by its length. A **PC-relative branch** adds a signed offset to this already-incremented PC. So **offset = target − (branch address + instruction length)**.",
+      "definition": "$$PC_{next}=PC+L,\\qquad PC_{target}=PC_{next}+\\text{offset}$$\n\n- $L$ = instruction length in bytes.\n- Valid instruction addresses are $A_0+kL$ for whole numbers $k$ (fixed-length code).\n- Negative offsets jump backwards.",
+      "intuition_full": "The CPU fetches an instruction and increments the PC at once, so that by the time the instruction executes, the PC already holds the address of the next one. A relative branch then adds its offset to that value. This is also why the offset in a self-looping branch is minus its own length: a branch that jumps to itself has target = branch address, and PC_next = address + L, so the offset is −L. Using relative offsets makes the code position-independent, because moving the whole program changes no offset. The offset field has a limited size, which bounds how far a branch can reach. For fixed-length instructions, every legal address is a multiple of the length away from the first one. That is how GATE tests whether an address could be the PC.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Instructions are 3 bytes long and stored from address 600: I0 at 600, I1 at 603, I2 at 606, a branch BR at 609 whose target is I0, and I4 at 612. The branch offset is PC-relative, in bytes, measured from the next instruction. Find the offset.",
+          "steps": [
+            "Each instruction takes 3 bytes, so the addresses step by 3: 600, 603, 606, 609, 612.",
+            "The PC points at the BR instruction at 609 while it is fetched.",
+            "As soon as BR is fetched, the PC moves on by the instruction length: PC = 609 + 3 = 612.",
+            "The offset is measured from this PC: target − PC = 600 − 612 = −12 bytes.",
+            "When the branch is taken, PC ← 612 + (−12) = 600, which is I0 again. The negative offset means a jump backwards."
+          ],
+          "answer": "Offset = −12 bytes."
+        },
+        {
+          "level": "gate",
+          "setup": "Instructions are 5 bytes long and the first is at address 1000. Which of the addresses 1020, 1042 and 1035 could hold an instruction, and what is the PC after fetching the instruction at 1020?",
+          "steps": [
+            "Every instruction starts at 1000 + 5k, so its distance from 1000 must be a multiple of 5.",
+            "1020 − 1000 = 20 is a multiple of 5. 1042 − 1000 = 42 is not. 1035 − 1000 = 35 is a multiple of 5.",
+            "After fetching the instruction at 1020 the PC is 1020 + 5 = 1025."
+          ],
+          "answer": "1020 and 1035 are possible; 1042 is not. The PC after the fetch is 1025."
+        },
+        {
+          "level": "twist",
+          "setup": "A branch at address 800 is 4 bytes long and has offset +20. A student computes the target as 800 + 20. What is the correct target?",
+          "steps": [
+            "The student measured from the branch address 800, which gives 820.",
+            "The PC has already moved to the next instruction: 800 + 4 = 804.",
+            "The correct target is 804 + 20 = 824."
+          ],
+          "answer": "824, not 820. The offset starts from the next instruction."
+        }
+      ],
+      "why": "PC arithmetic appears in every branch and return-address question. In GATE: find a branch offset or target, check which address a PC can have, or find the return address pushed on a call.",
+      "how": [
+        "Write the instruction length L and the branch address.",
+        "Compute PC_next = branch address + L.",
+        "Offset = target − PC_next, or target = PC_next + offset.",
+        "A saved return address is the PC after the call instruction."
+      ],
+      "mistake": "Measuring a PC-relative offset from the branch instruction instead of from the next instruction. The PC has already moved by the time the offset is added.",
+      "edge_cases": [
+        "A branch to itself has offset −L.",
+        "A branch to the very next instruction has offset 0.",
+        "Words versus bytes: convert units first if addresses are byte-based but instructions are in words.",
+        "Variable-length instructions make the PC step by different amounts."
+      ],
+      "connections": [
+        "Addressing modes (card i3) include PC-relative as one of the modes.",
+        "Tracing sequences (card i10) uses the same address arithmetic in loops.",
+        "coa.control shows PC ← PC + 1 inside the fetch micro-operations."
+      ],
+      "check": [
+        {
+          "q": "A branch at 500 is 2 bytes long and targets 480. What is the offset?",
+          "a": "480 − 502 = −22."
+        },
+        {
+          "q": "Instructions are 4 bytes. The call instruction is at 2000. What return address is pushed?",
+          "a": "2004."
+        },
+        {
+          "q": "What is the offset of a branch that jumps to its own address (length 4)?",
+          "a": "−4."
+        }
+      ],
+      "asked": "Asked: 2017 CS1 Q49, 2006 CS Q9, 2004 CS Q63, 2007 CS Q73.",
+      "try": {
+        "id": "gen.coa.isa.009",
+        "label": "An instruction at address 1000 is a 4-byte PC-relative branch with offset $+20$ bytes, measured from the next instruction. What is the branch target address? (L2)"
+      },
+      "scene": "coa.isa.i7.branch",
+      "example": {
+        "setup": "Instructions are 3 bytes long and stored from address 600: I0 at 600, I1 at 603, I2 at 606, a branch BR at 609 whose target is I0, and I4 at 612. The branch offset is PC-relative, in bytes, measured from the next instruction. Find the offset.",
+        "steps": [
+          "Each instruction takes 3 bytes, so the addresses step by 3: 600, 603, 606, 609, 612.",
+          "The PC points at the BR instruction at 609 while it is fetched.",
+          "As soon as BR is fetched, the PC moves on by the instruction length: PC = 609 + 3 = 612.",
+          "The offset is measured from this PC: target − PC = 600 − 612 = −12 bytes.",
+          "When the branch is taken, PC ← 612 + (−12) = 600, which is I0 again. The negative offset means a jump backwards."
+        ],
+        "answer": "Offset = −12 bytes."
+      },
+      "what": "After fetching an instruction the **PC** moves forward by its length. A **PC-relative branch** adds a signed offset to this already-incremented PC. So **offset = target − (branch address + instruction length)**.",
+      "what_full": "After fetching an instruction the **PC** moves forward by its length. A **PC-relative branch** adds a signed offset to this already-incremented PC. So **offset = target − (branch address + instruction length)**.\n\n$$PC_{next}=PC+L,\\qquad PC_{target}=PC_{next}+\\text{offset}$$\n\n- $L$ = instruction length in bytes.\n- Valid instruction addresses are $A_0+kL$ for whole numbers $k$ (fixed-length code).\n- Negative offsets jump backwards.\n\n**Worked example.** Instructions are 3 bytes long and stored from address 600: I0 at 600, I1 at 603, I2 at 606, a branch BR at 609 whose target is I0, and I4 at 612. The branch offset is PC-relative, in bytes, measured from the next instruction. Find the offset.\n\n1. Each instruction takes 3 bytes, so the addresses step by 3: 600, 603, 606, 609, 612.\n2. The PC points at the BR instruction at 609 while it is fetched.\n3. As soon as BR is fetched, the PC moves on by the instruction length: PC = 609 + 3 = 612.\n4. The offset is measured from this PC: target − PC = 600 − 612 = −12 bytes.\n5. When the branch is taken, PC ← 612 + (−12) = 600, which is I0 again. The negative offset means a jump backwards.\n\n**Answer:** Offset = −12 bytes.",
+      "why_full": "PC arithmetic appears in every branch and return-address question. In GATE: find a branch offset or target, check which address a PC can have, or find the return address pushed on a call.\n\nAsked: 2017 CS1 Q49, 2006 CS Q9, 2004 CS Q63, 2007 CS Q73.",
+      "trap": "Measuring a PC-relative offset from the branch instruction instead of from the next instruction. The PC has already moved by the time the offset is added."
+    },
+    {
+      "atom_id": "i8",
+      "title": "Endianness",
+      "simple": "Say you write the number 1234 on four index cards, one digit per card, and put the cards in a row of four slots. You can put the biggest digit in the first slot, which reads 1, 2, 3, 4. Or you can put the smallest digit first, which reads 4, 3, 2, 1. Computers do the same with the bytes of a number. 'Big endian' means the big end (most significant byte) goes at the lowest address. 'Little endian' means the little end goes first. The bytes are swapped but the bits inside each byte stay as they are. In exam words: big endian stores the most significant byte at the lowest address; little endian stores the least significant byte there. They differ only in byte order.",
+      "idea": "**Endianness** is the order of the bytes of a multi-byte number in memory. **Big endian:** most significant byte at the lowest address. **Little endian:** least significant byte at the lowest address. Single bytes and the bits inside each byte are not affected.",
+      "definition": "For a 2-byte value with memory bytes $b_0$ (lower address) and $b_1$:\n\n- Big endian value $=256\\,b_0+b_1$.\n- Little endian value $=256\\,b_1+b_0$.\n- Difference $=255\\,(b_1-b_0)$.\n\nFor a bit mask with a 1 at position $p$: `1 << p`.",
+      "intuition_full": "A number has a most significant end and a least significant end. Memory is a row of bytes with increasing addresses, and a 4-byte number needs four of them. Someone has to decide which end goes at the lowest address. Both choices work, as long as the writer and the reader agree. The trouble comes when data written by one machine is read by another, or when a program reads part of a number: reading the first byte of a word gives its high byte on a big-endian machine and its low byte on a little-endian one. Network protocols use big endian (network byte order), most desktop CPUs use little endian. The swap affects whole bytes only. A byte value such as 0x1A is the same on both. This is why a 2-byte value read the wrong way differs by exactly 255 × (b1 − b0).",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The 32-bit value 0xA1B2C3D4 is stored in a word starting at address 200. Which byte is at addresses 200 to 203 on a big-endian machine and on a little-endian machine, and what do the first two bytes read as a 16-bit value on each?",
+          "steps": [
+            "Split the value into bytes, most significant first: A1, B2, C3, D4.",
+            "Big endian puts the most significant byte at the lowest address: 200 = A1, 201 = B2, 202 = C3, 203 = D4.",
+            "Little endian puts the least significant byte at the lowest address: 200 = D4, 201 = C3, 202 = B2, 203 = A1.",
+            "Reading the single byte at address 200 gives A1 on a big-endian machine and D4 on a little-endian one.",
+            "Reading the 16-bit value at 200 and 201: big endian gives A1B2. Little endian gives the second byte first: C3D4."
+          ],
+          "answer": "Big endian: A1 B2 C3 D4. Little endian: D4 C3 B2 A1. The byte at 200 is A1 or D4."
+        },
+        {
+          "level": "gate",
+          "setup": "Two bytes 0x12 then 0x34 are stored at addresses 100 and 101. Find the 16-bit value read by a big-endian and by a little-endian machine, and their difference.",
+          "steps": [
+            "Big endian: the first byte is the high byte, so the value is 0x1234 = 4660.",
+            "Little endian: the first byte is the low byte, so the value is 0x3412 = 13330.",
+            "Difference: 13330 − 4660 = 8670.",
+            "Check with the formula: 255 × (b1 − b0) = 255 × (0x34 − 0x12) = 255 × 34 = 8670."
+          ],
+          "answer": "Big endian 4660, little endian 13330, difference 8670."
+        },
+        {
+          "level": "twist",
+          "setup": "Memory holds D4 C3 B2 A1 at addresses 200 to 203. What 32-bit value does a big-endian machine read? Is the byte 0xD4 changed?",
+          "steps": [
+            "A big-endian machine reads the lowest-address byte as the most significant: D4 C3 B2 A1 gives 0xD4C3B2A1.",
+            "The byte 0xD4 is read as D4 on both machines. Endianness changes the order of bytes, not the bits inside a byte."
+          ],
+          "answer": "0xD4C3B2A1. The bits of each byte stay the same; only the byte order changes."
+        }
+      ],
+      "why": "Endianness explains why the same bytes give different numbers on different machines. In GATE: write the bytes in memory for a value, read a value from given bytes, or find when a swap changes a value by a given amount.",
+      "how": [
+        "Split the value into bytes, most significant first.",
+        "Big endian: store in that order, from the lowest address up.",
+        "Little endian: store in reverse order.",
+        "To read, reverse the process for the machine's endianness."
+      ],
+      "mistake": "Reversing the bits inside each byte, or reversing the nibbles. Only whole bytes swap places.",
+      "edge_cases": [
+        "A one-byte value is the same on both machines.",
+        "A palindromic value such as 0x1212 reads the same either way.",
+        "Differences between the two readings of a 2-byte value are multiples of 255.",
+        "A byte-wise mask (1 << p) acts on the register value, not on memory bytes."
+      ],
+      "connections": [
+        "Instruction fields (card i1) have bit order inside the word; endianness orders bytes.",
+        "Tracing sequences (card i10) address words in memory, where byte order matters.",
+        "net.datalink and net.ipv4 use big-endian network byte order."
+      ],
+      "check": [
+        {
+          "q": "Which byte is at the lowest address on a little-endian machine?",
+          "a": "The least significant byte."
+        },
+        {
+          "q": "The value 0x0102 is stored at addresses 10 and 11 on a little-endian machine. What is at address 10?",
+          "a": "0x02."
+        },
+        {
+          "q": "Does endianness change the bits inside a byte?",
+          "a": "No."
+        }
+      ],
+      "asked": "Asked: 2021 CS2 Q54, 2006 CS Q43.",
+      "try": {
+        "id": "gen.coa.isa.006",
+        "label": "The 32-bit value $\\text{0x12345678}$ is stored in a word at address 100 on a little-endian machine. What is the byte at address 100? (L1)"
+      },
+      "scene": "coa.isa.i8.endian",
+      "example": {
+        "setup": "The 32-bit value 0xA1B2C3D4 is stored in a word starting at address 200. Which byte is at addresses 200 to 203 on a big-endian machine and on a little-endian machine, and what do the first two bytes read as a 16-bit value on each?",
+        "steps": [
+          "Split the value into bytes, most significant first: A1, B2, C3, D4.",
+          "Big endian puts the most significant byte at the lowest address: 200 = A1, 201 = B2, 202 = C3, 203 = D4.",
+          "Little endian puts the least significant byte at the lowest address: 200 = D4, 201 = C3, 202 = B2, 203 = A1.",
+          "Reading the single byte at address 200 gives A1 on a big-endian machine and D4 on a little-endian one.",
+          "Reading the 16-bit value at 200 and 201: big endian gives A1B2. Little endian gives the second byte first: C3D4."
+        ],
+        "answer": "Big endian: A1 B2 C3 D4. Little endian: D4 C3 B2 A1. The byte at 200 is A1 or D4."
+      },
+      "what": "**Endianness** is the order of the bytes of a multi-byte number in memory. **Big endian:** most significant byte at the lowest address. **Little endian:** least significant byte at the lowest address. Single bytes and the bits inside each byte are not affected.",
+      "what_full": "**Endianness** is the order of the bytes of a multi-byte number in memory. **Big endian:** most significant byte at the lowest address. **Little endian:** least significant byte at the lowest address. Single bytes and the bits inside each byte are not affected.\n\nFor a 2-byte value with memory bytes $b_0$ (lower address) and $b_1$:\n\n- Big endian value $=256\\,b_0+b_1$.\n- Little endian value $=256\\,b_1+b_0$.\n- Difference $=255\\,(b_1-b_0)$.\n\nFor a bit mask with a 1 at position $p$: `1 << p`.\n\n**Worked example.** The 32-bit value 0xA1B2C3D4 is stored in a word starting at address 200. Which byte is at addresses 200 to 203 on a big-endian machine and on a little-endian machine, and what do the first two bytes read as a 16-bit value on each?\n\n1. Split the value into bytes, most significant first: A1, B2, C3, D4.\n2. Big endian puts the most significant byte at the lowest address: 200 = A1, 201 = B2, 202 = C3, 203 = D4.\n3. Little endian puts the least significant byte at the lowest address: 200 = D4, 201 = C3, 202 = B2, 203 = A1.\n4. Reading the single byte at address 200 gives A1 on a big-endian machine and D4 on a little-endian one.\n5. Reading the 16-bit value at 200 and 201: big endian gives A1B2. Little endian gives the second byte first: C3D4.\n\n**Answer:** Big endian: A1 B2 C3 D4. Little endian: D4 C3 B2 A1. The byte at 200 is A1 or D4.",
+      "why_full": "Endianness explains why the same bytes give different numbers on different machines. In GATE: write the bytes in memory for a value, read a value from given bytes, or find when a swap changes a value by a given amount.\n\nAsked: 2021 CS2 Q54, 2006 CS Q43.",
+      "trap": "Reversing the bits inside each byte, or reversing the nibbles. Only whole bytes swap places."
+    },
+    {
+      "atom_id": "i9",
+      "title": "ISA versus microarchitecture, RISC versus CISC",
+      "simple": "The ISA is like a restaurant menu: it lists what you can order and what each dish is called, and all customers rely on it. The microarchitecture is the kitchen: how many cooks, which ovens, how fast. Two restaurants can serve the same menu from completely different kitchens, and your order works at both. A computer's ISA is the same for every chip that runs the same programs, and the kitchen (cache, pipeline, clock) differs. RISC chips have a short menu of simple dishes of the same size. CISC chips have a long menu with complicated dishes. In exam words: the ISA is the programmer-visible interface; the microarchitecture is its implementation; RISC is load-store, fixed length and hardwired, CISC has many modes, variable lengths and microcode.",
+      "idea": "The **ISA** (instruction set architecture) is everything a program can see: instructions, registers, addressing modes, data types. The **microarchitecture** is how a chip implements it: cache, pipeline, clock. **RISC** is simple, regular and load-store. **CISC** has many modes and complex instructions.",
+      "definition": "- ISA: opcodes, number and size of registers, addressing modes, instruction formats and lengths, endianness, memory model.\n- Microarchitecture: pipeline depth, cache sizes and levels, clock frequency, branch predictor, control-unit style.\n- RISC: load-store, fixed-length instructions, simple modes, many registers, usually hardwired control.\n- CISC: memory operands, variable length, many modes, usually microprogrammed control.",
+      "intuition_full": "The split exists so that hardware and software can change independently. As long as the ISA stays the same, old programs run on new chips, and each chip generation can use a faster cache or a deeper pipeline. This is why you can run the same executable on processors from different years. A feature is ISA if a program (or the compiler) can be affected by it: the number of registers matters because instructions name them, whereas cache size changes nothing but speed. RISC and CISC are two design philosophies within ISA design. RISC makes instructions uniform so that decoding is simple, pipelining is easy and the control unit can be a small block of gates. CISC makes each instruction do more, so programs are shorter and need fewer fetches, at the cost of complex decoding and microcode.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Six properties of a processor are listed: number of registers, addressing modes, instruction length, cache size, pipeline depth and clock speed. Which belong to the ISA and which to the microarchitecture?",
+          "steps": [
+            "The ISA is what a programmer or compiler can see and rely on: instructions, registers, addressing modes, data formats. The microarchitecture is how one particular chip implements it: caches, pipeline, clock.",
+            "A compiled program names registers, uses addressing modes and depends on instruction length. Number of registers, addressing modes and instruction length belong to the ISA.",
+            "Cache size, pipeline depth and clock speed can change from chip to chip and no program is affected, apart from speed. They belong to the microarchitecture.",
+            "RISC (typical): few simple instructions, fixed length, load-store, many registers, hardwired control. CISC (typical): many instructions and modes, variable length, memory operands, microprogrammed control.",
+            "Test: if changing it would stop an existing program from running, it is ISA. If it only changes speed, it is microarchitecture."
+          ],
+          "answer": "ISA: registers, addressing modes, instruction length. Microarchitecture: cache size, pipeline depth, clock speed."
+        },
+        {
+          "level": "gate",
+          "setup": "Statements about a load-store RISC processor: (I) arithmetic instructions use only register operands, (II) instructions have a fixed length, (III) the control unit is usually hardwired. Which are true? Which of these is an ISA feature: the number of general registers, the cache size, the clock frequency?",
+          "steps": [
+            "(I) Load-store means memory is reached only by LOAD and STORE, so arithmetic is on registers. True.",
+            "(II) A fixed length makes fetch and decode simple. True.",
+            "(III) A small regular instruction set can be decoded by gates, so RISC is usually hardwired. True.",
+            "The number of general registers decides how many registers an instruction can name: ISA. Cache size and clock frequency are implementation details: microarchitecture."
+          ],
+          "answer": "I, II and III are all true. Number of registers is ISA; cache size and clock frequency are not."
+        },
+        {
+          "level": "twist",
+          "setup": "Compute Z = X + Y with X, Y, Z in memory. How many instructions on a load-store RISC machine and on a CISC machine with a memory-to-memory ADD?",
+          "steps": [
+            "RISC: LOAD R1,X; LOAD R2,Y; ADD R3,R1,R2; STORE Z,R3. That is 4 instructions, each of one word.",
+            "CISC: ADD Z,X,Y (memory operands) is 1 instruction, but a long one that needs 3 memory accesses plus the fetch.",
+            "So CISC needs fewer instructions, while the RISC instructions are simple and fast."
+          ],
+          "answer": "RISC 4 instructions, CISC 1. Fewer instructions does not always mean faster."
+        }
+      ],
+      "why": "This is the vocabulary behind pipelines, control units and performance comparisons. In GATE: decide whether a feature is ISA, and judge RISC statements as true or false.",
+      "how": [
+        "Ask: could a compiled program notice the change? If yes, it is ISA.",
+        "For RISC: load-store, fixed length, simple modes, hardwired control.",
+        "For CISC: memory operands, variable length, many modes, microcode.",
+        "Check each statement against these lists."
+      ],
+      "mistake": "Treating cache or clock as part of the ISA. They only change speed; the ISA is what programs can name and use.",
+      "edge_cases": [
+        "Number of registers is ISA, but how they are physically renamed is microarchitecture.",
+        "A new chip may add instructions; that extends the ISA, not just the microarchitecture.",
+        "Modern CISC chips translate instructions into RISC-like micro-operations inside.",
+        "Hardwired control is typical, not mandatory, for RISC."
+      ],
+      "connections": [
+        "Addressing modes (card i3) are part of the ISA and differ between RISC and CISC.",
+        "Hardwired versus microprogrammed control (coa.control) is the control-unit side of this split.",
+        "coa.pipeline relies on RISC regularity."
+      ],
+      "check": [
+        {
+          "q": "Is the cache size part of the ISA?",
+          "a": "No, it is microarchitecture."
+        },
+        {
+          "q": "Which style has fixed-length instructions: RISC or CISC?",
+          "a": "RISC."
+        },
+        {
+          "q": "Does a load-store machine allow ADD to read a memory operand?",
+          "a": "No. ADD uses registers; LOAD and STORE use memory."
+        }
+      ],
+      "asked": "Asked: 2018 CS Q15, 2025 CS2 Q28, 2026 CS1 Q15, 2023 CS Q41.",
+      "try": {
+        "id": "gen.coa.isa.001",
+        "label": "Which of the following is part of the instruction set architecture (ISA) of a processor? (L1)"
+      },
+      "scene": "coa.isa.i9.sort",
+      "example": {
+        "setup": "Six properties of a processor are listed: number of registers, addressing modes, instruction length, cache size, pipeline depth and clock speed. Which belong to the ISA and which to the microarchitecture?",
+        "steps": [
+          "The ISA is what a programmer or compiler can see and rely on: instructions, registers, addressing modes, data formats. The microarchitecture is how one particular chip implements it: caches, pipeline, clock.",
+          "A compiled program names registers, uses addressing modes and depends on instruction length. Number of registers, addressing modes and instruction length belong to the ISA.",
+          "Cache size, pipeline depth and clock speed can change from chip to chip and no program is affected, apart from speed. They belong to the microarchitecture.",
+          "RISC (typical): few simple instructions, fixed length, load-store, many registers, hardwired control. CISC (typical): many instructions and modes, variable length, memory operands, microprogrammed control.",
+          "Test: if changing it would stop an existing program from running, it is ISA. If it only changes speed, it is microarchitecture."
+        ],
+        "answer": "ISA: registers, addressing modes, instruction length. Microarchitecture: cache size, pipeline depth, clock speed."
+      },
+      "what": "The **ISA** (instruction set architecture) is everything a program can see: instructions, registers, addressing modes, data types. The **microarchitecture** is how a chip implements it: cache, pipeline, clock. **RISC** is simple, regular and load-store. **CISC** has many modes and complex instructions.",
+      "what_full": "The **ISA** (instruction set architecture) is everything a program can see: instructions, registers, addressing modes, data types. The **microarchitecture** is how a chip implements it: cache, pipeline, clock. **RISC** is simple, regular and load-store. **CISC** has many modes and complex instructions.\n\n- ISA: opcodes, number and size of registers, addressing modes, instruction formats and lengths, endianness, memory model.\n- Microarchitecture: pipeline depth, cache sizes and levels, clock frequency, branch predictor, control-unit style.\n- RISC: load-store, fixed-length instructions, simple modes, many registers, usually hardwired control.\n- CISC: memory operands, variable length, many modes, usually microprogrammed control.\n\n**Worked example.** Six properties of a processor are listed: number of registers, addressing modes, instruction length, cache size, pipeline depth and clock speed. Which belong to the ISA and which to the microarchitecture?\n\n1. The ISA is what a programmer or compiler can see and rely on: instructions, registers, addressing modes, data formats. The microarchitecture is how one particular chip implements it: caches, pipeline, clock.\n2. A compiled program names registers, uses addressing modes and depends on instruction length. Number of registers, addressing modes and instruction length belong to the ISA.\n3. Cache size, pipeline depth and clock speed can change from chip to chip and no program is affected, apart from speed. They belong to the microarchitecture.\n4. RISC (typical): few simple instructions, fixed length, load-store, many registers, hardwired control. CISC (typical): many instructions and modes, variable length, memory operands, microprogrammed control.\n5. Test: if changing it would stop an existing program from running, it is ISA. If it only changes speed, it is microarchitecture.\n\n**Answer:** ISA: registers, addressing modes, instruction length. Microarchitecture: cache size, pipeline depth, clock speed.",
+      "why_full": "This is the vocabulary behind pipelines, control units and performance comparisons. In GATE: decide whether a feature is ISA, and judge RISC statements as true or false.\n\nAsked: 2018 CS Q15, 2025 CS2 Q28, 2026 CS1 Q15, 2023 CS Q41.",
+      "trap": "Treating cache or clock as part of the ISA. They only change speed; the ISA is what programs can name and use."
+    },
+    {
+      "atom_id": "i10",
+      "title": "Tracing instruction sequences",
+      "simple": "To follow a small program, do what the computer does: one instruction at a time, writing down the registers after each. For a loop, first find how many times it will run by looking at the counter. Then run the body once and write what changed, then again, until the counter hits zero. Work with the numbers, not with the idea of the program. A table with one column per register and one row per trip keeps you from losing track. Also keep an eye on units: the pointer may step in words or in bytes. In exam words: count the loop trips from the counter, track each register per trip, convert words to bytes where needed, and read the memory only after the trip count is known.",
+      "idea": "To trace a loop, first **count the trips** from the counter and the exit test. Then step the registers and memory trip by trip in a table. The saved return address is the address of the **next** instruction after a call or an interrupt.",
+      "definition": "Trace table: one row per trip, one column per register and per memory cell that changes.\n\n- Trips for a countdown register $R$ that starts at $n$ and is tested by BNZ after DEC: $n$ trips.\n- Data references per trip = number of memory reads + writes in the body.\n- Pointer step = operand size (1 for byte addressing, 4 for 32-bit words).",
+      "intuition_full": "A loop does the same sequence of steps again and again with small changes in a few registers. If you understand the first trip and the change per trip, you can predict every trip. The trick is to settle the number of trips before looking at memory: the exit test depends only on the counter. Then each trip touches a known address, which makes the memory contents after the loop easy to list. Many wrong answers come from an off-by-one: whether the test happens before or after the body, whether DEC comes before BNZ, and whether the last value is processed. Unit mismatches are the other source: a pointer that steps by 4 in a byte-addressed machine reaches addresses 2000, 2004, 2008, and so on. For an interrupt, the instruction in progress completes and the pushed PC is the address of the next instruction.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "R0 = 0, R1 = 4 and R3 = 100. Memory M[100..103] = 7, 2, 9, 4. The loop is: ADD R0,(R3)+  (add the word at R3 to R0, then R3 += 1); DEC R1; BNZ loop (branch back while R1 ≠ 0). Trace the loop and count the data reads.",
+          "steps": [
+            "Count the trips first. R1 = 4 and DEC runs once per trip, so the loop runs 4 times.",
+            "Trip 1: R0 = 0 + M[100] = 7, R3 = 101, R1 = 3. R1 ≠ 0, so branch back.",
+            "Trip 2: R0 = 7 + M[101] = 9, R3 = 102, R1 = 2.",
+            "Trip 3: R0 = 9 + M[102] = 18, R3 = 103, R1 = 1.",
+            "Trip 4: R0 = 18 + M[103] = 22, R3 = 104, R1 = 0. BNZ falls through. The loop made 4 data reads and R0 = 22."
+          ],
+          "answer": "R0 = 22, R3 = 104, R1 = 0 after 4 trips and 4 data reads."
+        },
+        {
+          "level": "gate",
+          "setup": "A copy loop runs 6 times. Each trip does MOV R2,(R3)+ (a read from memory) and MOV (R4)+,R2 (a write to memory), plus register-only instructions. How many data memory references does the loop make, not counting instruction fetches?",
+          "steps": [
+            "Per trip: 1 read (the first MOV) and 1 write (the second MOV). Register-only instructions add none.",
+            "That is 2 data references per trip.",
+            "6 trips × 2 = 12 data references."
+          ],
+          "answer": "12 data references."
+        },
+        {
+          "level": "twist",
+          "setup": "Instructions are 4 bytes long. An interrupt arrives while the instruction at address 1016 is executing. What return address is saved, and why is it not 1016?",
+          "steps": [
+            "The CPU finishes the instruction in progress, so the next instruction is the one at 1016 + 4 = 1020.",
+            "The saved PC must point to the instruction that has not run yet, so that execution resumes there.",
+            "Saving 1016 would run the interrupted instruction twice."
+          ],
+          "answer": "1020. The return address is the address of the next instruction."
+        }
+      ],
+      "why": "Program tracing combines counting, memory addressing and the PC, and it is the 2-mark question type of this chapter. In GATE: find a register or memory value after a loop, or the number of memory references.",
+      "how": [
+        "Find the trip count from the counter and the exit condition.",
+        "Make a table: a row per trip, a column per register that changes.",
+        "Update every register by the body's effect, in instruction order.",
+        "Check units and the first and last trips for off-by-one errors."
+      ],
+      "mistake": "Counting instruction fetches as data memory references, or mixing words and bytes when computing addresses and return addresses. State the unit before computing.",
+      "edge_cases": [
+        "If the counter is tested before the body (a while loop), the body may run zero times.",
+        "If DEC comes after BNZ, the trip count changes by one.",
+        "A pointer that steps by 1 in word-addressed memory steps by 4 in byte-addressed memory.",
+        "The last memory cell the loop touches is start + (trips − 1) × step."
+      ],
+      "connections": [
+        "Effective address and memory accesses (card i4) give the count per instruction.",
+        "PC and branches (card i7) provide the address arithmetic.",
+        "ds.recursion uses the same trace-table habit."
+      ],
+      "check": [
+        {
+          "q": "R1 = 7 is decremented once per trip and the loop exits at 0. How many trips?",
+          "a": "7."
+        },
+        {
+          "q": "A pointer starts at 400 and steps by 4 for 5 trips. What is the last address read?",
+          "a": "400 + 4 × 4 = 416."
+        },
+        {
+          "q": "A call instruction at 3000 is 2 words of 4 bytes. What return address is saved?",
+          "a": "3008."
+        }
+      ],
+      "asked": "Asked: 2021 CS1 Q65, 2007 CS Q71, 2007 CS Q72, 2007 CS Q73, 2003 CS Q48, 2015 CS2 Q42.",
+      "try": {
+        "id": "gen.coa.isa.012",
+        "label": "Register $\\text{R1}$ holds 1000 and words are 4 bytes. After $\\text{MOV R2,(R1)+}$ (auto-increment), what are the values? (L2)"
+      },
+      "scene": "coa.isa.i10.trace",
+      "example": {
+        "setup": "R0 = 0, R1 = 4 and R3 = 100. Memory M[100..103] = 7, 2, 9, 4. The loop is: ADD R0,(R3)+  (add the word at R3 to R0, then R3 += 1); DEC R1; BNZ loop (branch back while R1 ≠ 0). Trace the loop and count the data reads.",
+        "steps": [
+          "Count the trips first. R1 = 4 and DEC runs once per trip, so the loop runs 4 times.",
+          "Trip 1: R0 = 0 + M[100] = 7, R3 = 101, R1 = 3. R1 ≠ 0, so branch back.",
+          "Trip 2: R0 = 7 + M[101] = 9, R3 = 102, R1 = 2.",
+          "Trip 3: R0 = 9 + M[102] = 18, R3 = 103, R1 = 1.",
+          "Trip 4: R0 = 18 + M[103] = 22, R3 = 104, R1 = 0. BNZ falls through. The loop made 4 data reads and R0 = 22."
+        ],
+        "answer": "R0 = 22, R3 = 104, R1 = 0 after 4 trips and 4 data reads."
+      },
+      "what": "To trace a loop, first **count the trips** from the counter and the exit test. Then step the registers and memory trip by trip in a table. The saved return address is the address of the **next** instruction after a call or an interrupt.",
+      "what_full": "To trace a loop, first **count the trips** from the counter and the exit test. Then step the registers and memory trip by trip in a table. The saved return address is the address of the **next** instruction after a call or an interrupt.\n\nTrace table: one row per trip, one column per register and per memory cell that changes.\n\n- Trips for a countdown register $R$ that starts at $n$ and is tested by BNZ after DEC: $n$ trips.\n- Data references per trip = number of memory reads + writes in the body.\n- Pointer step = operand size (1 for byte addressing, 4 for 32-bit words).\n\n**Worked example.** R0 = 0, R1 = 4 and R3 = 100. Memory M[100..103] = 7, 2, 9, 4. The loop is: ADD R0,(R3)+  (add the word at R3 to R0, then R3 += 1); DEC R1; BNZ loop (branch back while R1 ≠ 0). Trace the loop and count the data reads.\n\n1. Count the trips first. R1 = 4 and DEC runs once per trip, so the loop runs 4 times.\n2. Trip 1: R0 = 0 + M[100] = 7, R3 = 101, R1 = 3. R1 ≠ 0, so branch back.\n3. Trip 2: R0 = 7 + M[101] = 9, R3 = 102, R1 = 2.\n4. Trip 3: R0 = 9 + M[102] = 18, R3 = 103, R1 = 1.\n5. Trip 4: R0 = 18 + M[103] = 22, R3 = 104, R1 = 0. BNZ falls through. The loop made 4 data reads and R0 = 22.\n\n**Answer:** R0 = 22, R3 = 104, R1 = 0 after 4 trips and 4 data reads.",
+      "why_full": "Program tracing combines counting, memory addressing and the PC, and it is the 2-mark question type of this chapter. In GATE: find a register or memory value after a loop, or the number of memory references.\n\nAsked: 2021 CS1 Q65, 2007 CS Q71, 2007 CS Q72, 2007 CS Q73, 2003 CS Q48, 2015 CS2 Q42.",
+      "trap": "Counting instruction fetches as data memory references, or mixing words and bytes when computing addresses and return addresses. State the unit before computing."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "coa.isa.i1.fields",
+      "title": "A 16-bit instruction word split into fields",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "f_opcode",
+          "kind": "box",
+          "x": 24,
+          "y": 70,
+          "w": 110,
+          "h": 50,
+          "label": "opcode"
+        },
+        {
+          "id": "b_opcode",
+          "kind": "text",
+          "x": 79.0,
+          "y": 56,
+          "text": "5 bits",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "f_mode",
+          "kind": "box",
+          "x": 134,
+          "y": 70,
+          "w": 44,
+          "h": 50,
+          "label": "mode"
+        },
+        {
+          "id": "b_mode",
+          "kind": "text",
+          "x": 156.0,
+          "y": 138,
+          "text": "2 bits",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "f_reg",
+          "kind": "box",
+          "x": 178,
+          "y": 70,
+          "w": 66,
+          "h": 50,
+          "label": "reg"
+        },
+        {
+          "id": "b_reg",
+          "kind": "text",
+          "x": 211.0,
+          "y": 56,
+          "text": "3 bits",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "f_address",
+          "kind": "box",
+          "x": 244,
+          "y": 70,
+          "w": 132,
+          "h": 50,
+          "label": "address"
+        },
+        {
+          "id": "b_address",
+          "kind": "text",
+          "x": 310.0,
+          "y": 138,
+          "text": "6 bits",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "word",
+          "kind": "box",
+          "x": 24,
+          "y": 70,
+          "w": 352,
+          "h": 50,
+          "fill": false
+        },
+        {
+          "id": "tot",
+          "kind": "text",
+          "x": 200,
+          "y": 26,
+          "text": "16 bits in all",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "c1",
+          "kind": "text",
+          "x": 100,
+          "y": 186,
+          "text": "2^5 = 32 operations",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "c2",
+          "kind": "text",
+          "x": 300,
+          "y": 186,
+          "text": "4 modes, 8 registers",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "c3",
+          "kind": "text",
+          "x": 200,
+          "y": 222,
+          "text": "16 - 10 = 6 bits, so 2^6 = 64 words",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "A 16-bit instruction word is split into fields. The fields must add up to exactly 16 bits.",
+          "show": [
+            "word",
+            "tot"
+          ],
+          "highlight": [
+            "word"
+          ]
+        },
+        {
+          "caption": "Opcode: 5 bits can name 2⁵ = 32 different operations.",
+          "show": [
+            "f_opcode",
+            "b_opcode",
+            "c1"
+          ],
+          "highlight": [
+            "f_opcode"
+          ]
+        },
+        {
+          "caption": "Addressing mode: 2 bits can name 2² = 4 modes. Register number: 3 bits can name 2³ = 8 registers.",
+          "show": [
+            "f_mode",
+            "b_mode",
+            "f_reg",
+            "b_reg",
+            "c2"
+          ],
+          "highlight": [
+            "f_mode",
+            "f_reg"
+          ]
+        },
+        {
+          "caption": "Bits used so far: 5 + 2 + 3 = 10. The address field gets the leftover: 16 − 10 = 6 bits.",
+          "show": [
+            "f_address",
+            "b_address"
+          ],
+          "highlight": [
+            {
+              "id": "f_address",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "A 6-bit address reaches 2⁶ = 64 words directly. Check the total: 5 + 2 + 3 + 6 = 16.",
+          "show": "c3",
+          "highlight": [
+            "c3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i2.stack",
+      "title": "Stack machine evaluating (P - Q) x R",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "ct",
+          "kind": "text",
+          "x": 70,
+          "y": 24,
+          "text": "program",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "c0",
+          "kind": "text",
+          "x": 30,
+          "y": 54,
+          "text": "PUSH P",
+          "size": 14,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c1",
+          "kind": "text",
+          "x": 30,
+          "y": 82,
+          "text": "PUSH Q",
+          "size": 14,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c2",
+          "kind": "text",
+          "x": 30,
+          "y": 110,
+          "text": "SUB",
+          "size": 14,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c3",
+          "kind": "text",
+          "x": 30,
+          "y": 138,
+          "text": "PUSH R",
+          "size": 14,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c4",
+          "kind": "text",
+          "x": 30,
+          "y": 166,
+          "text": "MUL",
+          "size": 14,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "c5",
+          "kind": "text",
+          "x": 30,
+          "y": 194,
+          "text": "POP Y",
+          "size": 14,
+          "anchor": "start",
+          "mono": true
+        },
+        {
+          "id": "vars",
+          "kind": "text",
+          "x": 70,
+          "y": 232,
+          "text": "P=9  Q=4  R=3",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "res",
+          "kind": "text",
+          "x": 290,
+          "y": 232,
+          "text": "Y = 15",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "stk",
+          "kind": "array",
+          "x": 250,
+          "y": 205,
+          "cw": 70,
+          "ch": 30,
+          "cells": [],
+          "dir": "up",
+          "slots": 3,
+          "indices": false,
+          "label": "stack"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "A stack machine's arithmetic instructions name no operands: they use the top of the stack. We run the six instructions with P = 9, Q = 4, R = 3. The stack starts empty.",
+          "highlight": [
+            "ct"
+          ]
+        },
+        {
+          "caption": "PUSH P puts 9 on the stack.",
+          "push": {
+            "id": "stk",
+            "value": 9
+          },
+          "highlight": [
+            "c0"
+          ]
+        },
+        {
+          "caption": "PUSH Q puts 4 on top. The stack holds 9, 4 (4 on top).",
+          "push": {
+            "id": "stk",
+            "value": 4
+          },
+          "highlight": [
+            "c1"
+          ]
+        },
+        {
+          "caption": "SUB pops 4 and then 9 and pushes 9 − 4 = 5.",
+          "pop": [
+            {
+              "id": "stk",
+              "end": "back"
+            },
+            {
+              "id": "stk",
+              "end": "back"
+            }
+          ],
+          "push": {
+            "id": "stk",
+            "value": 5
+          },
+          "highlight": [
+            "c2"
+          ]
+        },
+        {
+          "caption": "PUSH R puts 3 on top. The stack holds 5, 3.",
+          "push": {
+            "id": "stk",
+            "value": 3
+          },
+          "highlight": [
+            "c3"
+          ]
+        },
+        {
+          "caption": "MUL pops 3 and 5 and pushes 5 × 3 = 15.",
+          "pop": [
+            {
+              "id": "stk",
+              "end": "back"
+            },
+            {
+              "id": "stk",
+              "end": "back"
+            }
+          ],
+          "push": {
+            "id": "stk",
+            "value": 15
+          },
+          "highlight": [
+            "c4"
+          ]
+        },
+        {
+          "caption": "POP Y stores 15 in Y. Six instructions in all, whereas a three-address machine needs 2 (SUB T,P,Q then MUL Y,T,R).",
+          "pop": {
+            "id": "stk",
+            "end": "back"
+          },
+          "show": "res",
+          "highlight": [
+            "c5",
+            "res"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i3.modes",
+      "title": "One address field, six modes, six operands",
+      "viewBox": [
+        0,
+        0,
+        420,
+        268
+      ],
+      "objects": [
+        {
+          "id": "ins",
+          "kind": "box",
+          "x": 10,
+          "y": 14,
+          "w": 130,
+          "h": 40,
+          "label": "field = 40"
+        },
+        {
+          "id": "r2",
+          "kind": "box",
+          "x": 10,
+          "y": 190,
+          "w": 110,
+          "h": 36,
+          "label": "R2 = 8"
+        },
+        {
+          "id": "m8",
+          "kind": "box",
+          "x": 290,
+          "y": 16,
+          "w": 120,
+          "h": 30,
+          "label": "M[8] = 63"
+        },
+        {
+          "id": "m40",
+          "kind": "box",
+          "x": 290,
+          "y": 70,
+          "w": 120,
+          "h": 30,
+          "label": "M[40] = 72"
+        },
+        {
+          "id": "m48",
+          "kind": "box",
+          "x": 290,
+          "y": 124,
+          "w": 120,
+          "h": 30,
+          "label": "M[48] = 99"
+        },
+        {
+          "id": "m72",
+          "kind": "box",
+          "x": 290,
+          "y": 178,
+          "w": 120,
+          "h": 30,
+          "label": "M[72] = 15"
+        },
+        {
+          "id": "dir",
+          "kind": "arrow",
+          "from": "ins",
+          "to": "m40"
+        },
+        {
+          "id": "ind",
+          "kind": "arrow",
+          "from": "m40",
+          "to": "m72"
+        },
+        {
+          "id": "idx",
+          "kind": "arrow",
+          "from": "ins",
+          "to": "m48"
+        },
+        {
+          "id": "rin",
+          "kind": "arrow",
+          "from": "r2",
+          "to": "m8"
+        },
+        {
+          "id": "val",
+          "kind": "text",
+          "x": 200,
+          "y": 254,
+          "text": " ",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The address field is 40 and R2 = 8. Memory: M[8] = 63, M[40] = 72, M[48] = 99, M[72] = 15. Each mode turns the same field into a different operand.",
+          "highlight": [
+            "ins",
+            "r2"
+          ]
+        },
+        {
+          "caption": "Immediate: the field itself is the operand: 40. No memory access.",
+          "set": {
+            "id": "val",
+            "text": "immediate: operand = 40"
+          },
+          "highlight": [
+            "ins"
+          ]
+        },
+        {
+          "caption": "Direct: the field is the operand's address. Operand = M[40] = 72. One memory read.",
+          "set": {
+            "id": "val",
+            "text": "direct: operand = M[40] = 72"
+          },
+          "show": "dir",
+          "highlight": [
+            "m40",
+            "dir"
+          ]
+        },
+        {
+          "caption": "Indirect: the field is the address of a pointer. M[40] = 72 is an address, so the operand is M[72] = 15. Two reads.",
+          "set": {
+            "id": "val",
+            "text": "indirect: M[M[40]] = 15"
+          },
+          "show": "ind",
+          "highlight": [
+            "m72",
+            "ind"
+          ]
+        },
+        {
+          "caption": "Indexed: effective address = field + R2 = 40 + 8 = 48. Operand = M[48] = 99. One read.",
+          "set": {
+            "id": "val",
+            "text": "indexed: M[40+8] = M[48] = 99"
+          },
+          "show": "idx",
+          "highlight": [
+            "m48",
+            "idx",
+            "r2"
+          ]
+        },
+        {
+          "caption": "Register indirect: R2 holds the address. Operand = M[8] = 63. One read.",
+          "set": {
+            "id": "val",
+            "text": "register indirect: M[8] = 63"
+          },
+          "show": "rin",
+          "highlight": [
+            "m8",
+            "rin"
+          ]
+        },
+        {
+          "caption": "Register: the operand is R2 itself, 8. No memory access.",
+          "set": {
+            "id": "val",
+            "text": "register: operand = R2 = 8"
+          },
+          "highlight": [
+            "r2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i4.chain",
+      "title": "Following a pointer chain: one read per level",
+      "viewBox": [
+        0,
+        0,
+        410,
+        250
+      ],
+      "objects": [
+        {
+          "id": "f",
+          "kind": "box",
+          "x": 10,
+          "y": 70,
+          "w": 80,
+          "h": 40,
+          "label": "field=24"
+        },
+        {
+          "id": "m24",
+          "kind": "box",
+          "x": 110,
+          "y": 70,
+          "w": 90,
+          "h": 40,
+          "label": "M[24]=60"
+        },
+        {
+          "id": "m60",
+          "kind": "box",
+          "x": 220,
+          "y": 70,
+          "w": 90,
+          "h": 40,
+          "label": "M[60]=88"
+        },
+        {
+          "id": "m88",
+          "kind": "box",
+          "x": 320,
+          "y": 70,
+          "w": 80,
+          "h": 40,
+          "label": "M[88]=5"
+        },
+        {
+          "id": "a1",
+          "kind": "arrow",
+          "from": "f",
+          "to": "m24"
+        },
+        {
+          "id": "a2",
+          "kind": "arrow",
+          "from": "m24",
+          "to": "m60"
+        },
+        {
+          "id": "a3",
+          "kind": "arrow",
+          "from": "m60",
+          "to": "m88"
+        },
+        {
+          "id": "r1",
+          "kind": "box",
+          "x": 10,
+          "y": 160,
+          "w": 90,
+          "h": 36,
+          "label": "R1 = 24"
+        },
+        {
+          "id": "rd",
+          "kind": "text",
+          "x": 200,
+          "y": 24,
+          "text": "memory reads: 0",
+          "size": 16,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "op",
+          "kind": "text",
+          "x": 200,
+          "y": 232,
+          "text": "operand: ?",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Start: field = 24, R1 = 24, M[24] = 60, M[60] = 88, M[88] = 5.",
+          "highlight": [
+            "f",
+            "r1"
+          ]
+        },
+        {
+          "caption": "Register mode: the operand is R1 = 24. No memory read: 0 reads.",
+          "set": [
+            {
+              "id": "rd",
+              "text": "memory reads: 0"
+            },
+            {
+              "id": "op",
+              "text": "register: operand = 24"
+            }
+          ],
+          "highlight": [
+            "r1"
+          ]
+        },
+        {
+          "caption": "Direct: the field is the address. Read M[24] = 60. The operand is 60 after 1 read.",
+          "set": [
+            {
+              "id": "rd",
+              "text": "memory reads: 1"
+            },
+            {
+              "id": "op",
+              "text": "direct: operand = 60"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "m24",
+              "tone": "good"
+            },
+            "a1"
+          ]
+        },
+        {
+          "caption": "Indirect: M[24] = 60 is an address, not the data. Read M[60] = 88. The operand is 88 after 2 reads.",
+          "set": [
+            {
+              "id": "rd",
+              "text": "memory reads: 2"
+            },
+            {
+              "id": "op",
+              "text": "indirect: operand = 88"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "m60",
+              "tone": "good"
+            },
+            "a2"
+          ]
+        },
+        {
+          "caption": "Two-level indirect: 88 is again an address. Read M[88] = 5. The operand is 5 after 3 reads.",
+          "set": [
+            {
+              "id": "rd",
+              "text": "memory reads: 3"
+            },
+            {
+              "id": "op",
+              "text": "two-level indirect: operand = 5"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "m88",
+              "tone": "good"
+            },
+            "a3"
+          ]
+        },
+        {
+          "caption": "Rule: each level of indirection adds one read, and the final read gets the operand. Registers and immediates cost none.",
+          "highlight": [
+            "rd",
+            "op"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i5.bits",
+      "title": "Rounding up to the next power of two",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "b1",
+          "kind": "bar",
+          "x": 60,
+          "y": 60,
+          "w": 280,
+          "h": 110,
+          "values": [
+            32,
+            64,
+            90,
+            128
+          ],
+          "labels": [
+            "2^5",
+            "2^6",
+            "N=90",
+            "2^7"
+          ]
+        },
+        {
+          "id": "b2",
+          "kind": "bar",
+          "x": 60,
+          "y": 60,
+          "w": 210,
+          "h": 110,
+          "values": [
+            64,
+            100,
+            128
+          ],
+          "labels": [
+            "2^6",
+            "N=100",
+            "2^7"
+          ]
+        },
+        {
+          "id": "op",
+          "kind": "box",
+          "x": 40,
+          "y": 80,
+          "w": 70,
+          "h": 50,
+          "label": "opcode 7"
+        },
+        {
+          "id": "r1",
+          "kind": "box",
+          "x": 110,
+          "y": 80,
+          "w": 70,
+          "h": 50,
+          "label": "reg 7"
+        },
+        {
+          "id": "r2",
+          "kind": "box",
+          "x": 180,
+          "y": 80,
+          "w": 70,
+          "h": 50,
+          "label": "reg 7"
+        },
+        {
+          "id": "im",
+          "kind": "box",
+          "x": 250,
+          "y": 80,
+          "w": 110,
+          "h": 50,
+          "label": "imm 11"
+        },
+        {
+          "id": "word",
+          "kind": "box",
+          "x": 40,
+          "y": 80,
+          "w": 320,
+          "h": 50,
+          "fill": false
+        },
+        {
+          "id": "t1",
+          "kind": "text",
+          "x": 200,
+          "y": 30,
+          "text": "opcodes: smallest 2^k >= 90",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t2",
+          "kind": "text",
+          "x": 200,
+          "y": 30,
+          "text": "registers: smallest 2^k >= 100",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t3",
+          "kind": "text",
+          "x": 200,
+          "y": 40,
+          "text": "32 bits in all",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t4",
+          "kind": "text",
+          "x": 200,
+          "y": 180,
+          "text": "7 + 7 + 7 = 21 bits used",
+          "size": 14,
+          "anchor": "middle"
+        },
+        {
+          "id": "t5",
+          "kind": "text",
+          "x": 200,
+          "y": 220,
+          "text": "immediate = 32 - 21 = 11 bits, max 2^11 - 1 = 2047",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "90 operations: compare with powers of two. 2⁶ = 64 is too small, 2⁷ = 128 is enough. The opcode needs 7 bits.",
+          "show": [
+            "b1",
+            "t1"
+          ],
+          "highlight": [
+            {
+              "id": "b1",
+              "tone": "accent",
+              "cells": [
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "The bar for N = 90 is taller than 2⁶ = 64 but shorter than 2⁷ = 128, so we take the next power of two above it: 7 bits.",
+          "highlight": [
+            {
+              "id": "b1",
+              "tone": "good",
+              "cells": [
+                3
+              ]
+            },
+            {
+              "id": "b1",
+              "tone": "accent",
+              "cells": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "100 registers: 2⁶ = 64 < 100 ≤ 128 = 2⁷, so 7 bits per register field. Two fields use 14 bits.",
+          "hide": [
+            "b1",
+            "t1"
+          ],
+          "show": [
+            "b2",
+            "t2"
+          ],
+          "highlight": [
+            {
+              "id": "b2",
+              "tone": "good",
+              "cells": [
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "The fixed fields use 7 + 7 + 7 = 21 bits of the 32.",
+          "hide": [
+            "b2",
+            "t2"
+          ],
+          "show": [
+            "t3",
+            "word",
+            "op",
+            "r1",
+            "r2",
+            "t4"
+          ],
+          "highlight": [
+            "op",
+            "r1",
+            "r2"
+          ]
+        },
+        {
+          "caption": "The immediate gets the leftover: 32 − 21 = 11 bits. Its largest unsigned value is 2¹¹ − 1 = 2047.",
+          "show": [
+            "im",
+            "t5"
+          ],
+          "highlight": [
+            {
+              "id": "im",
+              "tone": "good"
+            },
+            "t5"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i6.expand",
+      "title": "Opcode space shrinking and expanding level by level",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "u1",
+          "kind": "box",
+          "x": 60,
+          "y": 50,
+          "w": 175,
+          "h": 32,
+          "label": "used 40"
+        },
+        {
+          "id": "f1",
+          "kind": "box",
+          "x": 235,
+          "y": 50,
+          "w": 105,
+          "h": 32,
+          "label": "free 24"
+        },
+        {
+          "id": "l1",
+          "kind": "text",
+          "x": 60,
+          "y": 32,
+          "text": "6-bit opcodes: 64 codes",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "u2",
+          "kind": "box",
+          "x": 60,
+          "y": 125,
+          "w": 218.75,
+          "h": 32,
+          "label": "used 150"
+        },
+        {
+          "id": "f2",
+          "kind": "box",
+          "x": 278.75,
+          "y": 125,
+          "w": 61.25,
+          "h": 32,
+          "label": "free 42"
+        },
+        {
+          "id": "l2",
+          "kind": "text",
+          "x": 60,
+          "y": 107,
+          "text": "9-bit opcodes: 24 x 8 = 192",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "f3",
+          "kind": "box",
+          "x": 60,
+          "y": 200,
+          "w": 280,
+          "h": 32,
+          "tone": "good",
+          "label": "free 336"
+        },
+        {
+          "id": "l3",
+          "kind": "text",
+          "x": 60,
+          "y": 182,
+          "text": "12-bit opcodes: 42 x 8 = 336",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "g1",
+          "kind": "arrow",
+          "x1": 320,
+          "y1": 84,
+          "x2": 320,
+          "y2": 122,
+          "label": "x 2^3"
+        },
+        {
+          "id": "g2",
+          "kind": "arrow",
+          "x1": 320,
+          "y1": 159,
+          "x2": 320,
+          "y2": 197,
+          "label": "x 2^3"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Type 1 has 2 registers = 6 operand bits, so its opcode is 12 − 6 = 6 bits: 2⁶ = 64 codes. 40 are used, so 64 − 40 = 24 six-bit codes are free.",
+          "show": [
+            "u1",
+            "f1",
+            "l1"
+          ],
+          "highlight": [
+            "f1"
+          ]
+        },
+        {
+          "caption": "Type 2 has 1 register = 3 operand bits, so its opcode is 9 bits. Each free 6-bit code extends by 3 more bits: 24 × 2³ = 192 nine-bit codes.",
+          "show": [
+            "u2",
+            "f2",
+            "l2",
+            "g1"
+          ],
+          "highlight": [
+            {
+              "id": "f1",
+              "tone": "accent"
+            },
+            "l2",
+            "g1"
+          ]
+        },
+        {
+          "caption": "Type 2 uses 150 of the 192 nine-bit codes. 192 − 150 = 42 are left.",
+          "highlight": [
+            "f2"
+          ]
+        },
+        {
+          "caption": "Type 3 has no operand bits, so its opcode is all 12 bits. Each of the 42 free nine-bit codes extends by 3 more bits: 42 × 2³ = 336.",
+          "show": [
+            "f3",
+            "l3",
+            "g2"
+          ],
+          "highlight": [
+            "f2",
+            "l3",
+            "g2"
+          ]
+        },
+        {
+          "caption": "At most 336 type 3 instructions fit. Check by counting words: 4096 − 40 × 64 − 150 × 8 = 336.",
+          "highlight": [
+            {
+              "id": "f3",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i7.branch",
+      "title": "PC moves past the branch, then the offset is added",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "code",
+          "kind": "array",
+          "x": 40,
+          "y": 70,
+          "cw": 64,
+          "ch": 40,
+          "cells": [
+            "I0",
+            "I1",
+            "I2",
+            "BR",
+            "I4"
+          ],
+          "indices": false
+        },
+        {
+          "id": "pc",
+          "kind": "pointer",
+          "array": "code",
+          "index": 3,
+          "label": "PC",
+          "side": "above"
+        },
+        {
+          "id": "ad0",
+          "kind": "text",
+          "x": 72,
+          "y": 128,
+          "text": "600",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "ad1",
+          "kind": "text",
+          "x": 136,
+          "y": 128,
+          "text": "603",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "ad2",
+          "kind": "text",
+          "x": 200,
+          "y": 128,
+          "text": "606",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "ad3",
+          "kind": "text",
+          "x": 264,
+          "y": 128,
+          "text": "609",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "ad4",
+          "kind": "text",
+          "x": 328,
+          "y": 128,
+          "text": "612",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "len",
+          "kind": "text",
+          "x": 200,
+          "y": 13,
+          "text": "each instruction = 3 bytes",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "nx",
+          "kind": "text",
+          "x": 200,
+          "y": 170,
+          "text": "PC after fetch = 609 + 3 = 612",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent"
+        },
+        {
+          "id": "off",
+          "kind": "text",
+          "x": 200,
+          "y": 202,
+          "text": "offset = 600 - 612 = -12",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "tk",
+          "kind": "text",
+          "x": 200,
+          "y": 232,
+          "text": "taken: PC = 612 - 12 = 600",
+          "size": 14,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Each instruction takes 3 bytes, so the addresses step by 3: 600, 603, 606, 609, 612.",
+          "highlight": [
+            "code"
+          ]
+        },
+        {
+          "caption": "The PC points at the BR instruction at 609 while it is fetched.",
+          "highlight": [
+            {
+              "id": "code",
+              "tone": "accent",
+              "cells": [
+                3
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "As soon as BR is fetched, the PC moves on by the instruction length: PC = 609 + 3 = 612.",
+          "show": "nx",
+          "move": {
+            "id": "pc",
+            "index": 4
+          },
+          "highlight": [
+            "nx"
+          ]
+        },
+        {
+          "caption": "The offset is measured from this PC: target − PC = 600 − 612 = −12 bytes.",
+          "show": "off",
+          "highlight": [
+            "off",
+            {
+              "id": "code",
+              "tone": "good",
+              "cells": [
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "When the branch is taken, PC ← 612 + (−12) = 600, which is I0 again. The negative offset means a jump backwards.",
+          "show": "tk",
+          "move": {
+            "id": "pc",
+            "index": 0
+          },
+          "highlight": [
+            "tk"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i8.endian",
+      "title": "The same four bytes stored two ways",
+      "viewBox": [
+        0,
+        0,
+        400,
+        250
+      ],
+      "objects": [
+        {
+          "id": "hv",
+          "kind": "text",
+          "x": 200,
+          "y": 22,
+          "text": "value 0xA1B2C3D4",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "lbe",
+          "kind": "text",
+          "x": 60,
+          "y": 80,
+          "text": "big endian",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "be",
+          "kind": "array",
+          "x": 110,
+          "y": 62,
+          "cw": 56,
+          "ch": 34,
+          "cells": [
+            "A1",
+            "B2",
+            "C3",
+            "D4"
+          ],
+          "indices": false
+        },
+        {
+          "id": "lle",
+          "kind": "text",
+          "x": 60,
+          "y": 150,
+          "text": "little endian",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "le",
+          "kind": "array",
+          "x": 110,
+          "y": 132,
+          "cw": 56,
+          "ch": 34,
+          "cells": [
+            "D4",
+            "C3",
+            "B2",
+            "A1"
+          ],
+          "indices": false
+        },
+        {
+          "id": "a0",
+          "kind": "text",
+          "x": 138,
+          "y": 112,
+          "text": "200",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "a1",
+          "kind": "text",
+          "x": 194,
+          "y": 112,
+          "text": "201",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "a2",
+          "kind": "text",
+          "x": 250,
+          "y": 112,
+          "text": "202",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "a3",
+          "kind": "text",
+          "x": 306,
+          "y": 112,
+          "text": "203",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "r1",
+          "kind": "text",
+          "x": 200,
+          "y": 206,
+          "text": "byte at 200:  big A1,  little D4",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "r2",
+          "kind": "text",
+          "x": 200,
+          "y": 234,
+          "text": "16-bit at 200:  big A1B2,  little C3D4",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Split the value into bytes, most significant first: A1, B2, C3, D4.",
+          "show": [
+            "hv"
+          ],
+          "highlight": [
+            "hv"
+          ]
+        },
+        {
+          "caption": "Big endian puts the most significant byte at the lowest address: 200 = A1, 201 = B2, 202 = C3, 203 = D4.",
+          "show": [
+            "lbe",
+            "be",
+            "a0",
+            "a1",
+            "a2",
+            "a3"
+          ],
+          "highlight": [
+            "be"
+          ]
+        },
+        {
+          "caption": "Little endian puts the least significant byte at the lowest address: 200 = D4, 201 = C3, 202 = B2, 203 = A1.",
+          "show": [
+            "lle",
+            "le"
+          ],
+          "highlight": [
+            "le"
+          ]
+        },
+        {
+          "caption": "Reading the single byte at address 200 gives A1 on a big-endian machine and D4 on a little-endian one.",
+          "show": "r1",
+          "highlight": [
+            {
+              "id": "be",
+              "tone": "accent",
+              "cells": [
+                0
+              ]
+            },
+            {
+              "id": "le",
+              "tone": "accent",
+              "cells": [
+                0
+              ]
+            },
+            "r1"
+          ]
+        },
+        {
+          "caption": "Reading the 16-bit value at 200 and 201: big endian gives A1B2. Little endian gives the second byte first: C3D4.",
+          "show": "r2",
+          "highlight": [
+            {
+              "id": "be",
+              "tone": "good",
+              "cells": [
+                0,
+                1
+              ]
+            },
+            {
+              "id": "le",
+              "tone": "good",
+              "cells": [
+                0,
+                1
+              ]
+            },
+            "r2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i9.sort",
+      "title": "Sorting processor features into ISA and microarchitecture",
+      "viewBox": [
+        0,
+        0,
+        420,
+        286
+      ],
+      "objects": [
+        {
+          "id": "hisa",
+          "kind": "box",
+          "x": 20,
+          "y": 14,
+          "w": 180,
+          "h": 30,
+          "tone": "accent",
+          "label": "ISA (programs see it)"
+        },
+        {
+          "id": "hmic",
+          "kind": "box",
+          "x": 220,
+          "y": 14,
+          "w": 180,
+          "h": 30,
+          "tone": "mid",
+          "label": "microarchitecture"
+        },
+        {
+          "id": "n1",
+          "kind": "box",
+          "x": 14,
+          "y": 164,
+          "w": 120,
+          "h": 28,
+          "label": "registers"
+        },
+        {
+          "id": "n2",
+          "kind": "box",
+          "x": 150,
+          "y": 164,
+          "w": 120,
+          "h": 28,
+          "label": "addressing modes"
+        },
+        {
+          "id": "n3",
+          "kind": "box",
+          "x": 286,
+          "y": 164,
+          "w": 120,
+          "h": 28,
+          "label": "instr. length"
+        },
+        {
+          "id": "n4",
+          "kind": "box",
+          "x": 14,
+          "y": 198,
+          "w": 120,
+          "h": 28,
+          "label": "cache size"
+        },
+        {
+          "id": "n5",
+          "kind": "box",
+          "x": 150,
+          "y": 198,
+          "w": 120,
+          "h": 28,
+          "label": "pipeline depth"
+        },
+        {
+          "id": "n6",
+          "kind": "box",
+          "x": 286,
+          "y": 198,
+          "w": 120,
+          "h": 28,
+          "label": "clock speed"
+        },
+        {
+          "id": "rr",
+          "kind": "text",
+          "x": 210,
+          "y": 242,
+          "text": "RISC: load-store, fixed length, hardwired",
+          "size": 13,
+          "anchor": "middle"
+        },
+        {
+          "id": "cc",
+          "kind": "text",
+          "x": 210,
+          "y": 270,
+          "text": "CISC: many modes, variable length, microcode",
+          "size": 13,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The ISA is what a programmer or compiler can see and rely on: instructions, registers, addressing modes, data formats. The microarchitecture is how one particular chip implements it: caches, pipeline, clock.",
+          "highlight": [
+            "hisa",
+            "hmic"
+          ]
+        },
+        {
+          "caption": "A compiled program names registers, uses addressing modes and depends on instruction length. Number of registers, addressing modes and instruction length belong to the ISA.",
+          "move": [
+            {
+              "id": "n1",
+              "x": 30,
+              "y": 56
+            },
+            {
+              "id": "n2",
+              "x": 30,
+              "y": 90
+            },
+            {
+              "id": "n3",
+              "x": 30,
+              "y": 124
+            }
+          ],
+          "highlight": [
+            "n1",
+            "n2",
+            "n3"
+          ]
+        },
+        {
+          "caption": "Cache size, pipeline depth and clock speed can change from chip to chip and no program is affected, apart from speed. They belong to the microarchitecture.",
+          "move": [
+            {
+              "id": "n4",
+              "x": 250,
+              "y": 56
+            },
+            {
+              "id": "n5",
+              "x": 250,
+              "y": 90
+            },
+            {
+              "id": "n6",
+              "x": 250,
+              "y": 124
+            }
+          ],
+          "highlight": [
+            "n4",
+            "n5",
+            "n6"
+          ]
+        },
+        {
+          "caption": "RISC (typical): few simple instructions, fixed length, load-store, many registers, hardwired control. CISC (typical): many instructions and modes, variable length, memory operands, microprogrammed control.",
+          "highlight": [
+            "rr",
+            "cc"
+          ]
+        },
+        {
+          "caption": "Test: if changing it would stop an existing program from running, it is ISA. If it only changes speed, it is microarchitecture.",
+          "highlight": [
+            "hisa",
+            "hmic"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coa.isa.i10.trace",
+      "title": "Tracing a four-trip summing loop",
+      "viewBox": [
+        0,
+        0,
+        420,
+        250
+      ],
+      "objects": [
+        {
+          "id": "mem",
+          "kind": "array",
+          "x": 60,
+          "y": 70,
+          "cw": 60,
+          "ch": 36,
+          "cells": [
+            7,
+            2,
+            9,
+            4
+          ],
+          "indices": false,
+          "label": "memory M[100..103]"
+        },
+        {
+          "id": "p",
+          "kind": "pointer",
+          "array": "mem",
+          "index": 0,
+          "label": "R3",
+          "side": "below"
+        },
+        {
+          "id": "r0",
+          "kind": "text",
+          "x": 340,
+          "y": 90,
+          "text": "R0 = 0",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "r1",
+          "kind": "text",
+          "x": 340,
+          "y": 124,
+          "text": "R1 = 4",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "r3",
+          "kind": "text",
+          "x": 340,
+          "y": 158,
+          "text": "R3 = 100",
+          "size": 15,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "rd",
+          "kind": "text",
+          "x": 200,
+          "y": 232,
+          "text": "data reads: 0",
+          "size": 14,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Count the trips first. R1 = 4 and DEC runs once per trip, so the loop runs 4 times.",
+          "highlight": [
+            "r1"
+          ]
+        },
+        {
+          "caption": "Trip 1: R0 = 0 + M[100] = 7, R3 = 101, R1 = 3. R1 ≠ 0, so branch back.",
+          "set": [
+            {
+              "id": "r0",
+              "text": "R0 = 7"
+            },
+            {
+              "id": "r1",
+              "text": "R1 = 3"
+            },
+            {
+              "id": "r3",
+              "text": "R3 = 101"
+            },
+            {
+              "id": "rd",
+              "text": "data reads: 1"
+            }
+          ],
+          "move": {
+            "id": "p",
+            "index": 1
+          },
+          "highlight": [
+            {
+              "id": "mem",
+              "tone": "good",
+              "cells": [
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "Trip 2: R0 = 7 + M[101] = 9, R3 = 102, R1 = 2.",
+          "set": [
+            {
+              "id": "r0",
+              "text": "R0 = 9"
+            },
+            {
+              "id": "r1",
+              "text": "R1 = 2"
+            },
+            {
+              "id": "r3",
+              "text": "R3 = 102"
+            },
+            {
+              "id": "rd",
+              "text": "data reads: 2"
+            }
+          ],
+          "move": {
+            "id": "p",
+            "index": 2
+          },
+          "highlight": [
+            {
+              "id": "mem",
+              "tone": "good",
+              "cells": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "Trip 3: R0 = 9 + M[102] = 18, R3 = 103, R1 = 1.",
+          "set": [
+            {
+              "id": "r0",
+              "text": "R0 = 18"
+            },
+            {
+              "id": "r1",
+              "text": "R1 = 1"
+            },
+            {
+              "id": "r3",
+              "text": "R3 = 103"
+            },
+            {
+              "id": "rd",
+              "text": "data reads: 3"
+            }
+          ],
+          "move": {
+            "id": "p",
+            "index": 3
+          },
+          "highlight": [
+            {
+              "id": "mem",
+              "tone": "good",
+              "cells": [
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "Trip 4: R0 = 18 + M[103] = 22, R3 = 104, R1 = 0. BNZ falls through. The loop made 4 data reads and R0 = 22.",
+          "set": [
+            {
+              "id": "r0",
+              "text": "R0 = 22"
+            },
+            {
+              "id": "r1",
+              "text": "R1 = 0"
+            },
+            {
+              "id": "r3",
+              "text": "R3 = 104"
+            },
+            {
+              "id": "rd",
+              "text": "data reads: 4"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "mem",
+              "tone": "good",
+              "cells": [
+                3
+              ]
+            },
+            "r0"
+          ]
+        }
+      ]
+    }
+  ]
+}

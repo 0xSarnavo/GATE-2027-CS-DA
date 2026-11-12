@@ -1,0 +1,1808 @@
+{
+ "topic_id": "os.sync",
+ "blueprint": {
+  "atoms": [
+   {
+    "id": "s1",
+    "name": "Race conditions and atomicity",
+    "one_line": "Shared data plus a non-atomic read-modify-write (load, add, store) makes the result depend on the interleaving."
+   },
+   {
+    "id": "s2",
+    "name": "Critical-section requirements",
+    "one_line": "Mutual exclusion, progress (outsiders must not block entry) and bounded waiting, with no assumption about speeds."
+   },
+   {
+    "id": "s3",
+    "name": "Software solutions: turn, flags, Peterson",
+    "one_line": "Strict alternation breaks progress; flag-only can deadlock; Peterson (flag[i]=true; turn=j; wait while flag[j] and turn==j) meets all three."
+   },
+   {
+    "id": "s4",
+    "name": "Hardware atomics and spin locks",
+    "one_line": "Test-and-set, swap and fetch-and-add give mutual exclusion by busy waiting; bounded waiting is not guaranteed."
+   },
+   {
+    "id": "s5",
+    "name": "Semaphores: wait, signal, values",
+    "one_line": "wait decrements and blocks when the value goes below 0; signal increments and wakes one; binary mutex starts at 1, counting starts at the permit count."
+   },
+   {
+    "id": "s6",
+    "name": "Ordering with semaphores",
+    "one_line": "A semaphore initialised to 0 makes one thread wait for another; a chain of them fixes the print order; a barrier counts arrivals."
+   },
+   {
+    "id": "s7",
+    "name": "Producer-consumer",
+    "one_line": "empty = N, full = 0, mutex = 1; wait the counting semaphore first, then the mutex; the other order can deadlock."
+   },
+   {
+    "id": "s8",
+    "name": "Readers-writers",
+    "one_line": "Readers share, writers exclude everyone; first reader locks wrt, last reader unlocks it, readcount needs its own mutex; reader preference can starve writers."
+   },
+   {
+    "id": "s9",
+    "name": "Possible values and outputs of concurrent code",
+    "one_line": "Respect program order and semaphore blocking, then enumerate interleavings; a lost update loses a write, never invents one."
+   }
+  ],
+  "patterns": [
+   {
+    "name": "Possible outputs or final values of concurrent threads",
+    "years": [
+     "2019-CS-q33",
+     "2024-CS1-q40",
+     "2024-CS2-q46",
+     "2026-CS2-q51",
+     "2021-CS1-q56",
+     "2023-CS-q38",
+     "2013-CS-q34",
+     "2015-CS1-q9",
+     "2010-CS-q45"
+    ],
+    "freq": 9,
+    "note": "Enumerate interleavings; split non-atomic updates into load and store."
+   },
+   {
+    "name": "Semaphore ordering and barrier puzzles",
+    "years": [
+     "2020-CS-q44",
+     "2022-CS-q19",
+     "2003-CS-q80",
+     "2003-CS-q81",
+     "2006-CS-q78",
+     "2006-CS-q79",
+     "2013-CS-q39"
+    ],
+    "freq": 7,
+    "note": "Find initial values or the code that makes threads run in a fixed order."
+   },
+   {
+    "name": "Producer-consumer and semaphore bookkeeping",
+    "years": [
+     "2018-CS-q50",
+     "2014-CS2-q31",
+     "2008-CS-q63",
+     "2016-CS2-q49"
+    ],
+    "freq": 4,
+    "note": "Which semaphore is waited first; value arithmetic for counting semaphores."
+   },
+   {
+    "name": "Critical-section protocols (turn, flags, Peterson, TAS)",
+    "years": [
+     "2001-CS-q2_22",
+     "2007-CS-q58",
+     "2010-CS-q23",
+     "2012-CS-q32",
+     "2015-CS3-q10",
+     "2016-CS1-q50",
+     "2016-CS2-q48",
+     "2006-CS-q61"
+    ],
+    "freq": 8,
+    "note": "Test mutual exclusion, progress and bounded waiting one by one with a small interleaving."
+   },
+   {
+    "name": "Locks across processes and threads",
+    "years": [
+     "2021-CS2-q52"
+    ],
+    "freq": 1,
+    "note": "Locals are per thread; globals are per process, not shared between processes."
+   }
+  ],
+  "traps": [
+   "Treating x = x + 1 as atomic; it is load, add, store, and another thread can slip in between.",
+   "Believing mutual exclusion alone makes a protocol correct; progress and bounded waiting must hold too.",
+   "Taking the semaphore names at face value; read the stated meaning (2018 q50 swaps empty and full).",
+   "Waiting on the mutex before the counting semaphore in producer-consumer; that can deadlock.",
+   "Counting final values as the sum of all updates; lost updates also produce smaller or larger results.",
+   "Assuming a global variable is shared between two processes; only threads of one process share it."
+  ],
+  "hardest_pyq": "2026-CS2-q51",
+  "summary_md": "**Payoff:** list every outcome of racing threads and spot broken locks.\n\n- **Race**: x = x + 1 is three steps; updates get lost.\n- **Semaphore**: wait blocks below zero; starting value 0 forces an order.\n- **Protocol**: check mutual exclusion, progress and bounded waiting separately.\n\n$$S_{\\text{final}} = S_0 - n_P + n_V$$\n\nNext: try the Level 1 questions.",
+  "summary_full_md": "## Core idea\nWhen several threads touch shared data, the result depends on how their steps interleave. Synchronization restricts the interleavings to safe ones. GATE asks you to enumerate possible outputs or values, to judge a locking protocol, and to do semaphore bookkeeping.\n\n## Races and the critical section\n1. A statement such as x = x + 1 is three steps: load, add, store. Two threads can both load the old value, so one update is lost.\n2. A correct critical-section solution needs three properties: mutual exclusion (at most one inside), progress (a thread outside cannot stop others from entering) and bounded waiting (no thread waits forever while others keep entering). No assumption is made about CPU speeds.\n\n## Protocols\n- **Strict alternation** (turn variable): mutual exclusion holds, progress fails, because a thread that does not want to enter still blocks the other.\n- **Flag only** (set my flag, wait while other's flag is set): mutual exclusion holds, but both can set flags together and deadlock.\n- **Peterson**: flag[i] = true; turn = j; while (flag[j] and turn == j) wait. All three properties hold for two processes. Swapping the first two lines breaks mutual exclusion.\n- **Test-and-set / swap / fetch-and-add**: atomic hardware steps give mutual exclusion with busy waiting; bounded waiting is not guaranteed.\n\n## Semaphores\nwait(S): S = S - 1; block if S < 0. signal(S): S = S + 1; wake one waiter if S <= 0. After a run, S = S0 - (#wait) + (#signal). When S is negative, its magnitude is the number of blocked processes. A binary semaphore initialised to 1 is a mutex. Initialised to 0 it makes a thread wait for another's signal. A chain of such semaphores fixes a print order. For a barrier, count arrivals under a mutex; the last arrival signals, and each released thread passes the signal on.\n\n## Classic problems\n- **Producer-consumer**: empty = N, full = 0, mutex = 1. Producer: wait(empty), wait(mutex), add, signal(mutex), signal(full). Consumer: wait(full), wait(mutex), remove, signal(mutex), signal(empty). Waiting on mutex first can deadlock when the buffer is full or empty.\n- **Readers-writers (reader preference)**: readers increment readcount under a mutex; the first reader does wait(wrt), the last does signal(wrt). Writers do wait(wrt). A steady stream of readers starves writers.\n\n## Possible outputs and values\nSplit every non-atomic statement into steps, keep each thread's order, respect blocking, and enumerate. A lost update means a write is overwritten, so the range of final values is bounded by what individual writes could produce. Deadlock appears as a state where every unfinished thread is blocked. A global variable in each of two processes is a separate copy, so processes never interfere through globals."
+ },
+ "pyq_enrichment": [
+  {
+   "id": "2018-CS-q50",
+   "difficulty": 3,
+   "quick_method": "- **Producer** waits for a free slot, then signals an item.",
+   "solution": "- The producer first waits for space: here that is **full**.\n- Then it signals **empty**; consumer waits empty, signals full.\n- **Answer: C**",
+   "explanation": "- The names are **swapped**; follow the stated meaning.",
+   "trap_note": "- Don't **trust** the semaphore names, do read their stated meanings.",
+   "hints": [
+    "Which semaphore counts free slots, going by the text?",
+    "What must the producer wait for first?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Per the text, empty counts items to read (start 0) and full counts free slots (start N).\n2. The producer needs a free slot, so P = full. After adding an item it signals the consumer's semaphore: Q = empty.\n3. The consumer needs an item: R = empty. After removing one it frees a slot: S = full.\n4. That is option C.",
+   "explanation_full": "A producer-consumer pair uses two counting semaphores that mirror each other: each side waits on one and signals the other. Only the labels are unusual here.",
+   "trap_note_full": "Using the usual naming (producer waits on empty), which picks option D."
+  },
+  {
+   "id": "2019-CS-q33",
+   "difficulty": 3,
+   "quick_method": "- Max is the full sum; min lets the **decrement** win last.",
+   "solution": "- Max 130: both additions survive, the **subtraction** is overwritten.\n- Min 50: subtraction writes last; Y - X = **80**.\n- **Answer: 80**",
+   "explanation": "- A lost update drops a **write**, so extremes use one thread's value.",
+   "trap_note": "- Don't **sum** all three, do find true minimum and maximum.",
+   "hints": [
+    "Each update is load, compute, store. Which store can overwrite the others?",
+    "Which thread's result survives at the minimum?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. Each statement is a read followed by a write, so one write can overwrite another.\n2. Maximum: P2 reads 100 early and its write is overwritten, while P1 and P3 both land: 100 + 20 + 10 = 130.\n3. Minimum: P2 reads 100 and writes last, overwriting everything: 100 - 50 = 50. (Other results are 80, 60, 70, 110, 120.)\n4. Y - X = 130 - 50 = 80.",
+   "explanation_full": "In a lost-update race, the final value equals the last write; its input is whatever that thread read earlier. Extremes come from choosing the thread whose write lands last.",
+   "trap_note_full": "Taking only the sequential result 80 as both bounds, giving Y - X = 0."
+  },
+  {
+   "id": "2020-CS-q44",
+   "difficulty": 3,
+   "quick_method": "- Last arrival signals **b**; each released process relays it.",
+   "solution": "- Only the n-th arrival signals **b**, after all passed P.\n- Each process then does wait(b), signal(b): a **turnstile**.\n- **Answer: A**",
+   "explanation": "- It is a **barrier** between section P and section Q.",
+   "trap_note": "- Don't **confuse** it with mutual exclusion, do notice b starts at 0.",
+   "hints": [
+    "What is the value of b until count reaches n?",
+    "What does signal(b) right after wait(b) do?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Official key missing in the questions file; crosscheck file gives A and I agree. Verified by exhaustive interleaving search.",
+   "solution_full": "1. a protects count; b starts at 0, so wait(b) blocks everyone at first.\n2. The n-th process makes count == n and signals b, and by then all n have finished section P.\n3. Each released process does signal(b), letting the next pass.\n4. So no process starts Q before all finish P: option A.",
+   "explanation_full": "This is the standard counting barrier with a turnstile: one signal is relayed through all n processes.",
+   "trap_note_full": "Picking C because a protects count, which makes the increments exclusive but not section P."
+  },
+  {
+   "id": "2021-CS1-q56",
+   "difficulty": 3,
+   "quick_method": "- Sequential gives 5, lost updates give 1, all-hold-one **deadlocks**.",
+   "solution": "- Counter is 5 sequentially and 1 after a **lost** update.\n- **Deadlock**: five threads each holding one unit leave S = 0.\n- **Answer: A,B,D**",
+   "explanation": "- Zero is **impossible**: every thread that finishes incremented once.",
+   "trap_note": "- Don't **assume** non-atomic means any value, do bound it by written values.",
+   "hints": [
+    "Can all five threads finish one after another?",
+    "Can all five hold one unit and wait for a second?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. Run the threads one at a time: counter reaches 5 (A possible).\n2. Let thread T read 0, let the others finish, then T writes 1: counter is 1 (B possible).\n3. Each of the five threads takes one unit: S = 0 and every thread waits for a second (D possible).\n4. Counter 0 would need all five to finish without any write, which cannot happen (C impossible).",
+   "explanation_full": "With S = 5 and two waits each, at most two threads are in the critical region together, but that is enough for a lost update. The semaphore does not make counter++ atomic.",
+   "trap_note_full": "Believing the semaphore protects counter. It only limits concurrency."
+  },
+  {
+   "id": "2021-CS2-q52",
+   "difficulty": 3,
+   "quick_method": "- Each process owns **x**; each thread owns y.",
+   "solution": "- Locals and globals are per **process**, never shared across.\n- So each process prints x = 2; each **y** = 1.\n- **Answer: A,D**",
+   "explanation": "- The lock only orders the **threads** of one process.",
+   "trap_note": "- Don't **add** the two processes' x values, do treat them as separate.",
+   "hints": [
+    "Is x shared between P1 and P2?",
+    "Is y shared between T1 and T2?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Each process has its own address space, so x is a private global per process.\n2. In one process two threads each add 1 under the lock: x = 2 (A true, B false).\n3. y is local to foo, so every thread sees y = 1 (D true, C false).",
+   "explanation_full": "Memory is shared among threads of one process only. Different processes need explicit IPC to share data.",
+   "trap_note_full": "Choosing B by thinking the globals of both processes add up to 4."
+  },
+  {
+   "id": "2022-CS-q19",
+   "difficulty": 3,
+   "quick_method": "- Start **S1**=1 and the rest 0: B, then C, then A.",
+   "solution": "- Only T2 can start, so **B** comes first.\n- Then signals pass B to C to A: a **cycle**.\n- **Answer: C**",
+   "explanation": "- Initial values pick the **first** thread.",
+   "trap_note": "- Don't **leave** several semaphores at 1, do start only the first.",
+   "hints": [
+    "Which thread must go first for the string to start with B?",
+    "Which semaphore does T2 wait on?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. T2 prints B, so S1 must be 1 and the others 0.\n2. T2 signals S3, T1 waits S3, prints C and signals S2.\n3. T3 waits S2, prints A and signals S1, restarting the cycle: BCABC...\n4. Initial S1 = 1, S2 = 0, S3 = 0: option C.",
+   "explanation_full": "A cycle of semaphores forces a round-robin order; exactly one token must circulate.",
+   "trap_note_full": "Choosing 1,1,1 or 1,1,0: extra tokens let two threads run out of order."
+  },
+  {
+   "id": "2023-CS-q38",
+   "difficulty": 4,
+   "quick_method": "- Binary forces **12**; a counting semaphore of 2 permits lost updates.",
+   "solution": "- Binary gives no overlap: 10 + 5 - 3 = **12**.\n- Two overlapping threads can lose five **increments**: 10 - 3 = 7.\n- **Answer: C**",
+   "explanation": "- Counting semaphore 2 allows **two** threads inside together.",
+   "trap_note": "- Don't **expect** the same result, do count how many threads can overlap.",
+   "hints": [
+    "With a binary semaphore, can two updates overlap?",
+    "What is the smallest value after losing all increments?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. Binary semaphore: the updates are serial, so V1 = 10 + 5 - 3 = 12.\n2. Counting semaphore 2: two threads may overlap, so an increment can be overwritten. The lowest value keeps all three decrements and loses every increment: 10 - 3 = 7.\n3. The exhaustive search for I-2 gives final values 7 to 15, so the minimum is 7.\n4. Answer 12, 7: option C.",
+   "explanation_full": "A counting semaphore with count k is not mutual exclusion unless k = 1. It only limits the number of threads in the region.",
+   "trap_note_full": "Answering 7, 7: the binary case is truly exclusive."
+  },
+  {
+   "id": "2024-CS1-q40",
+   "difficulty": 3,
+   "quick_method": "- Enumerate **three** outcomes: (4,4), (3,3), (4,3).",
+   "solution": "- Sequential gives (4,4) or (3,3); mixed orders give **(4,3)**.\n- (3,4) is **impossible**.\n- **Answer: A**",
+   "explanation": "- Each **statement** is atomic, but statements interleave.",
+   "trap_note": "- Don't **swap** the orders blindly, do try all six interleavings.",
+   "hints": [
+    "Write T1 as 1, 2 and T2 as 3, 4. Keep 1 before 2 and 3 before 4.",
+    "How many legal orders are there?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. Label the statements 1: a=a+1, 2: b=b+1 (T1) and 3: b=2b, 4: a=2a (T2). Order inside a thread is fixed, so six interleavings exist.\n2. 1234 gives (4,4). 3412 gives (3,3).\n3. 1324, 1342, 3124 and 3142 all give (4,3). For example 1324: a=2, b=2, b=3, a=4.\n4. So the possible pairs are exactly (4,4), (3,3), (4,3): option A. (3,4) needs b to receive the +1 after the doubling while a gets doubled after the +1, which no order does.",
+   "explanation_full": "Only 6 interleavings exist for 2 + 2 atomic statements. A short enumeration settles the question.",
+   "trap_note_full": "Including (3,4), which would need b to end larger than a."
+  },
+  {
+   "id": "2024-CS2-q46",
+   "difficulty": 3,
+   "quick_method": "- T1 first **deadlocks**; T2 first runs both threads.",
+   "solution": "- T1 first holds s1 and waits for s2: **deadlock**.\n- T2 first signals s2, so T1 **finishes**.\n- **Answer: B,C**",
+   "explanation": "- Whoever grabs **s1** first decides the outcome.",
+   "trap_note": "- Don't **print** in order T1, T2 always, do check who runs first.",
+   "hints": [
+    "If T1 enters first, who can ever signal s2?",
+    "If T2 enters first, is s2 ever signalled?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. T1 first: prints 1, waits on s2 (0) while holding s1. T2 blocks on s1: deadlock, with only one print (C possible).\n2. T2 first: prints 1, signals s2 and s1; T1 then runs and prints 2 (B possible).\n3. A is impossible, because T1 first cannot reach T2's second print. D is impossible, because T2 first never blocks.",
+   "explanation_full": "A thread that blocks while holding a lock can block everyone else. The first mover decides which of the two final states occurs.",
+   "trap_note_full": "Choosing A: it forgets T1 blocks on s2 before T2 can signal."
+  },
+  {
+   "id": "2026-CS2-q51",
+   "difficulty": 4,
+   "quick_method": "- Only the **second** arriver prints $; all # follow it.",
+   "solution": "- The $ appears when X reaches 2: always after two **stars**.\n- The third star may precede or sit among the **hashes**.\n- **Answer: A,B,C**",
+   "explanation": "- Third process's star needs only **A**, not B.",
+   "trap_note": "- Don't **delay** the third star past hashes, do allow it between.",
+   "hints": [
+    "When does the $ print?",
+    "Can the third process's star appear after some # signs?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. Each process prints * under semaphore A, then increments X. The second process sees X == 2, prints $ and signals B.\n2. Hashes are printed only after B is signalled, so every # follows the $. B is relayed through the processes.\n3. The third process may print its star before the first hash, or after one or two hashes, because only A guards it.\n4. So `**$*###`, `**$#*##` and `**$##*#` are possible. `***$###` is not: the $ is printed when X reaches 2, before a third star.",
+   "explanation_full": "The $ always follows exactly two stars, because X == 2 is tested right after the second increment. The third process's star is not ordered with the hashes.",
+   "trap_note_full": "Choosing the fourth option, which needs three stars before the $."
+  },
+  {
+   "id": "2001-CS-q2_22",
+   "difficulty": 2,
+   "quick_method": "- Wait while **other** wants it and the turn is theirs.",
+   "solution": "- Peterson waits while flag[j] is true and **turn** equals j.\n- Setting turn = j gives **priority** to the other.\n- **Answer: B**",
+   "explanation": "- The condition mirrors what **i** has just set.",
+   "trap_note": "- Don't **wait** on your own flag, do wait on the other's flag.",
+   "hints": [
+    "Who gets priority after turn = j?",
+    "Does process i wait on its own flag?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. Process i sets flag[i] = true and turn = j, offering the turn to j.\n2. It must wait only if j wants in (flag[j]) and the turn is j: flag[j] = true and turn = j.\n3. Option B.",
+   "explanation_full": "The yield rule: a process steps aside only if the other is interested and holds the turn.",
+   "trap_note_full": "Choosing option D (own flag, own turn): that blocks i on its own variables."
+  },
+  {
+   "id": "2003-CS-q80",
+   "difficulty": 3,
+   "quick_method": "- Alternate with S=1, T=0 and **cross** signals.",
+   "solution": "- P runs first (S = 1); it signals **T**.\n- Q then runs and signals **S**.\n- **Answer: B**",
+   "explanation": "- Cross-signalling forces **alternation**.",
+   "trap_note": "- Don't **start** both at 1, do start the second thread at 0.",
+   "hints": [
+    "Which process must run first for the output 00 11 00?",
+    "What must P signal at X?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. Output must start with 00, so P goes first: S = 1, T = 0.\n2. P prints 00 and signals T; Q prints 11 and signals S. This repeats, giving 001100110011.\n3. Option B. Options with T = 1 let Q start first.",
+   "explanation_full": "Two semaphores with cross signals make a strict ping-pong. Initial values choose who starts.",
+   "trap_note_full": "Using option C: S = T = 1 lets either start."
+  },
+  {
+   "id": "2003-CS-q81",
+   "difficulty": 3,
+   "quick_method": "- One shared **mutex** makes 00 and 11 indivisible.",
+   "solution": "- With one semaphore each pair prints **atomically**.\n- Runs have even **length**, so no odd-length run exists.\n- **Answer: C**",
+   "explanation": "- Pairs cannot be **split**.",
+   "trap_note": "- Don't **chase** alternation, do keep each pair together.",
+   "hints": [
+    "What substring would an odd run need?",
+    "Which option keeps each pair together?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. 01^n 0 with odd n would need a run of an odd number of 1s (or 0s).\n2. With one binary semaphore S around each pair, every run is a multiple of 2.\n3. Option C. Option D starts with V before P and can break the pairs.",
+   "explanation_full": "Mutual exclusion over a pair prevents the pair from being split, so runs are even.",
+   "trap_note_full": "Choosing A: two independent semaphores allow 0 and 1 pairs to interleave."
+  },
+  {
+   "id": "2006-CS-q61",
+   "difficulty": 3,
+   "quick_method": "- Spinning P with no context switch **blocks** the holder.",
+   "solution": "- Holder never runs to release when switching is **disabled**.\n- Spinning forever, the lock is never **released**.\n- **Answer: A**",
+   "explanation": "- Spin locks need the lock holder to be **scheduled**.",
+   "trap_note": "- Don't **disable** switching inside a spin wait, do let the holder run.",
+   "hints": [
+    "Who must run to release the lock?",
+    "What if a spinning process cannot be preempted?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. fetch-and-set returns the old value and sets the lock atomically; V simply stores 0.\n2. If context switching is disabled on a uniprocessor, the spinning process never gives the CPU to the holder.\n3. So it spins forever: A is true. Load/store pairs are not atomic (B false) and V is fine (C false).",
+   "explanation_full": "Busy waiting is only safe if the lock holder can make progress while others spin.",
+   "trap_note_full": "Calling V wrong: a plain store of 0 is enough."
+  },
+  {
+   "id": "2006-CS-q78",
+   "difficulty": 4,
+   "quick_method": "- Two **barriers** in a row deadlock on process_arrived.",
+   "solution": "- A fast process re-enters, making arrived exceed **three**.\n- Slow processes then spin **forever**.\n- **Answer: B**",
+   "explanation": "- The counter is **reset** only after everyone leaves.",
+   "trap_note": "- Don't **blame** the semaphore, do blame the early re-entry.",
+   "hints": [
+    "What does process_arrived equal when a fast process re-enters?",
+    "What does the while condition test?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. Three processes arrive; arrived = 3; all break out of the spin and start leaving.\n2. A fast process finishes, calls barrier again and increments arrived to 4 before the reset.\n3. A slow process still testing arrived != 3 sees 4 and spins forever: deadlock with two invocations in a row.",
+   "explanation_full": "A reusable barrier needs a second phase so no thread can enter the next round before all leave the last.",
+   "trap_note_full": "Choosing A: a binary semaphore is enough here."
+  },
+  {
+   "id": "2006-CS-q79",
+   "difficulty": 4,
+   "quick_method": "- Make the first re-entrant **wait** until arrived is zero.",
+   "solution": "- Blocking early re-entry protects the counter until it is **reset**.\n- That removes the **deadlock**.\n- **Answer: B**",
+   "explanation": "- Fix the reuse, not the **semaphore**.",
+   "trap_note": "- Don't **disable** switching, do hold early arrivals back.",
+   "hints": [
+    "What caused the deadlock in the previous question?",
+    "Which option stops a fast process from re-entering early?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. The bug is that a fast process re-enters before the counter is reset.\n2. B makes the first entrant wait until process_arrived is 0, which happens only after the last leaves.\n3. Option A breaks the last-process test; C only disables switching and would block others; D hides the problem.",
+   "explanation_full": "Reusable barriers are the classic place where reuse races appear.",
+   "trap_note_full": "Choosing C: disabling switches costs a lot and does not fix the logic."
+  },
+  {
+   "id": "2007-CS-q58",
+   "difficulty": 3,
+   "quick_method": "- Both set flags, both spin: mutual exclusion holds, **deadlock** possible.",
+   "solution": "- Each enters only if the other's flag is **false**.\n- Both flags true leaves both spinning **forever**.\n- **Answer: D**",
+   "explanation": "- Exclusion holds; **progress** does not.",
+   "trap_note": "- Don't **declare** it correct, do test the simultaneous setting.",
+   "hints": [
+    "Can both set their flag before either checks?",
+    "Can both be in the CS together?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. Enter only when the other's flag is false, so both in CS is impossible: mutual exclusion holds.\n2. If P1 sets wants1 and P2 sets wants2 before either checks, both spin forever: deadlock.\n3. Option D.",
+   "explanation_full": "Flag-only protocols fail progress because the check happens after setting the flag.",
+   "trap_note_full": "Choosing A: exclusion actually holds."
+  },
+  {
+   "id": "2008-CS-q63",
+   "difficulty": 3,
+   "quick_method": "- x_b is the **mutex** (1); y_b is the blocking queue (0).",
+   "solution": "- x_b guards s, so it starts at **1**.\n- y_b blocks waiters, so it starts at **0**.\n- **Answer: C**",
+   "explanation": "- A blocking semaphore must start **closed**.",
+   "trap_note": "- Don't **start** y_b at 1, do keep waiters blocked.",
+   "hints": [
+    "Which one protects s?",
+    "Which one makes a process sleep?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. P_b(x_b) at entry must succeed for the first process: x_b = 1.\n2. P_b(y_b) is executed to block when s < 0, so y_b must be 0.\n3. Option C: 1 and 0.",
+   "explanation_full": "This is the standard way to build counting semaphores from binary ones.",
+   "trap_note_full": "Choosing 1 and 1: the sleeper would not sleep."
+  },
+  {
+   "id": "2010-CS-q23",
+   "difficulty": 3,
+   "quick_method": "- Strict **alternation**: exclusion holds, progress fails.",
+   "solution": "- P1 and P2 conditions are **opposite**: never both enter.\n- An absent partner still blocks the other: no **progress**.\n- **Answer: A**",
+   "explanation": "- Turn-taking forces **strict** alternation.",
+   "trap_note": "- Don't call **alternation** progress-safe, do test an absent partner.",
+   "hints": [
+    "Can both conditions hold at once?",
+    "What if P1 never wants to enter again?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. P1 spins while S1 == S2, so it enters only when S1 != S2. P2 spins while S1 != S2, so it enters only when S1 == S2. Exactly one of the two while-conditions is false at any time: mutual exclusion holds.\n2. After its CS, P1 sets S1 = S2, which closes P1's own door; only P2's exit reopens it. If P2 never returns, P1 cannot enter twice: progress fails.\n3. Option A: mutual exclusion but not progress.",
+   "explanation_full": "Any scheme that forces strict turns fails progress.",
+   "trap_note_full": "Choosing D: alternation is not progress."
+  },
+  {
+   "id": "2010-CS-q45",
+   "difficulty": 4,
+   "quick_method": "- P0 prints once, then P1 and P2 add two **releases**.",
+   "solution": "- P1 and P2 each release S0 once, so P0 prints **again**.\n- The search finds exactly **three** prints every run.\n- **Answer: A**",
+   "explanation": "- Count tokens: S0 starts 1 and gains **two**.",
+   "trap_note": "- Don't **assume** an endless loop prints forever, do count the tokens.",
+   "hints": [
+    "How many times is S0 released in total?",
+    "How many prints does one token buy?"
+   ],
+   "answer_check": "unsure",
+   "answer_check_note": "Model checking gives exactly three prints in every run, so both option A (at least twice) and option C (exactly thrice) are true. The official key is A.",
+   "solution_full": "1. S0 starts at 1: one print. Then P0 signals S1 and S2.\n2. P1 and P2 each run once and release S0 once each: two more tokens, two more prints.\n3. Total exactly three, which also makes 'at least twice' true. The key is A; C is the sharper statement.",
+   "explanation_full": "P1 and P2 do not loop, so S0 gains only two tokens. Prints = 1 + 2 = 3 in every complete run.",
+   "trap_note_full": "Picking 'exactly once': the other two releases are real."
+  },
+  {
+   "id": "2012-CS-q32",
+   "difficulty": 4,
+   "quick_method": "- A late **fetch-add** leaves L non-zero when the lock is free.",
+   "solution": "- A waiter's increment races with the **release**.\n- L ends **non-zero** though nobody holds the lock.\n- **Answer: B**",
+   "explanation": "- The lock word can be re-**dirtied**.",
+   "trap_note": "- Don't **trust** the lock word, do check races between release and waiters.",
+   "hints": [
+    "What does a waiter do to L every loop?",
+    "What if the release sets L = 0 between its fetch and its write?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. A waiter does Fetch_And_Add(L,1) (old value non-zero) and then L = 1.\n2. If the holder runs ReleaseLock (L = 0) between those two steps, the waiter's L = 1 makes the free lock look held.\n3. So L can be non-zero while the lock is free: B.",
+   "explanation_full": "The atomic add is fine; the follow-up plain store L = 1 races with the release.",
+   "trap_note_full": "Choosing A: overflow is not the failure."
+  },
+  {
+   "id": "2013-CS-q34",
+   "difficulty": 4,
+   "quick_method": "- Let a +1 write land **last** over two lost decrements.",
+   "solution": "- Max: two decrements finish, then a stale **+1** write lands.\n- X read 1 early; Y and Z finish; X **writes** 2.\n- **Answer: D**",
+   "explanation": "- A stale write **overwrites** later work.",
+   "trap_note": "- Don't **cap** the max at sequential results, do hunt for stale writes.",
+   "hints": [
+    "Which writes can be erased by a stale write?",
+    "Which thread should write last?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. W and X add 1, Y and Z subtract 2, and S = 2 lets two of them run together.\n2. Run W completely: x = 1. Let X read 1 and pause.\n3. Run Y and Z one after another: x = -1, then x = -3.\n4. X now writes 1 + 1 = 2, overwriting both decrements. Final x = 2. No schedule gives more, since the largest value ever written is 2: option D.",
+   "explanation_full": "A final value is whatever the last write stores, computed from what that thread read earlier. The maximum comes from the largest write that can come last.",
+   "trap_note_full": "Answering 0 or 1 because the semaphore seems to make the updates exclusive. S = 2 allows two overlapping threads."
+  },
+  {
+   "id": "2013-CS-q39",
+   "difficulty": 4,
+   "quick_method": "- X waits on **S**; Y signals S first.",
+   "solution": "- Each iteration X and Y **meet**, one signalling first.\n- Y reads a[i] only after X's **signal** on R.\n- **Answer: C**",
+   "explanation": "- A two-way handshake avoids **deadlock**.",
+   "trap_note": "- Don't **make** both sides wait first, do let one side signal.",
+   "hints": [
+    "Which side signals first in each option?",
+    "Do both sides ever wait on each other at once?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by search for n = 3: only C avoids deadlock and stale reads.",
+   "solution_full": "1. Both semaphores start at 0, so each side needs the other's signal.\n2. In C, Y does V(S) then P(R), and X does P(S) then V(R). Y's V(S) lets X pass, and X's V(R) lets Y pass.\n3. So Y reads a[i] only after X computed it, and X can be at most one step ahead.\n4. A: P(R) in ExitX blocks at once (deadlock). B and D: a second V on a binary semaphore is lost when X runs ahead, so Y later blocks forever.",
+   "explanation_full": "A rendezvous between a producer and a consumer of single items uses two binary semaphores, with one side signalling first.",
+   "trap_note_full": "Choosing B because both V operations look like a valid signal pair. Binary semaphores do not count signals."
+  },
+  {
+   "id": "2014-CS2-q31",
+   "difficulty": 3,
+   "quick_method": "- Consumer takes **s** then blocks on n: deadlock.",
+   "solution": "- Consumer holds s while waiting on **n**.\n- Producer needs s to add: **deadlock**.\n- **Answer: C**",
+   "explanation": "- The mutex is taken **before** the item count.",
+   "trap_note": "- Don't **lock** the mutex before waiting for items.",
+   "hints": [
+    "Which semaphore does the consumer wait on first?",
+    "What does the producer need to produce?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. Consumer: semWait(s) then semWait(n). With the buffer empty, n = 0.\n2. The consumer blocks on n while holding s.\n3. The producer needs s, so nobody progresses: C.",
+   "explanation_full": "Always wait on the counting semaphore first, then the mutex.",
+   "trap_note_full": "Choosing D: n = 1 is not a fix."
+  },
+  {
+   "id": "2015-CS1-q9",
+   "difficulty": 3,
+   "quick_method": "- Enumerate **three** results: 2 from a lost update, 3, 4.",
+   "solution": "- P1 then P2 gives 3; P2 then P1 gives **4**.\n- Interleaved: P1 writes a stale B, giving **2**.\n- **Answer: 3**",
+   "explanation": "- Each statement reads **B** separately.",
+   "trap_note": "- Don't **stop** at two orders, do include the interleaved one.",
+   "hints": [
+    "Write each function as read, compute, write.",
+    "Which interleaving overwrites the other's result?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Verified by exhaustive interleaving search.",
+   "solution_full": "1. P1: C = B-1; B = 2C. P2: D = 2B; B = D-1. Initial B = 2.\n2. P1 then P2: C = 1, B = 2; D = 4, B = 3. Result 3.\n3. P2 then P1: D = 4, B = 3; C = 2, B = 4. Result 4.\n4. Interleaved: P1 sets C = 1, P2 runs fully (B = 3), then P1 writes B = 2C = 2. Result 2. The set is {2, 3, 4}: three values.",
+   "explanation_full": "Each function reads B once and writes it once, so the final value is the last write computed from an earlier read.",
+   "trap_note_full": "Answering 2 because only two serial orders are considered."
+  },
+  {
+   "id": "2015-CS3-q10",
+   "difficulty": 3,
+   "quick_method": "- Both enter with flags set: exclusion **fails**.",
+   "solution": "- Both set flags, see the other's **flag**, and enter.\n- Each leaves by clearing its flag: no **deadlock**.\n- **Answer: A**",
+   "explanation": "- The CS sits **inside** the loop.",
+   "trap_note": "- Don't **trust** flag-only code, do try both setting flags first.",
+   "hints": [
+    "Does the CS execute when the other's flag is true?",
+    "What happens after the CS ends?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. The loop body, which holds the CS, runs only while the other variable is true.\n2. Both set their flag first, then both see the other's flag true and both enter: mutual exclusion fails.\n3. A process leaves by setting its own flag false, so nobody stays blocked forever: no deadlock. Option A.",
+   "explanation_full": "A critical section must be guarded by waiting for the other to be absent. Here it is entered when the other is present.",
+   "trap_note_full": "Choosing C because the code looks like a protocol. It is guarded backwards."
+  },
+  {
+   "id": "2016-CS1-q50",
+   "difficulty": 4,
+   "quick_method": "- Tickets give exclusion; equal tickets can **deadlock**.",
+   "solution": "- Two equal tickets make both wait: D is **false**.\n- **Exclusion** still holds: A is true.\n- **Answer: A**",
+   "explanation": "- Lamport's bakery needs the **id** tiebreak.",
+   "trap_note": "- Don't **ignore** ties, do compare ticket and id.",
+   "hints": [
+    "Can two processes pick the same ticket?",
+    "What happens then?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "GATE Overflow marks the question ambiguous; A is the accepted answer.",
+   "solution_full": "1. This is the bakery algorithm without the process-id tiebreak.\n2. Two processes can read the same maximum and take equal tickets. Each then sees t[j] <= t[i] and waits forever: deadlock, so D is false.\n3. Exclusion still holds, so A is true. Progress and bounded waiting fail in the tie case.",
+   "explanation_full": "Bakery compares (ticket, id) pairs. Here only the ticket is compared.",
+   "trap_note_full": "Choosing D by assuming tickets never tie."
+  },
+  {
+   "id": "2016-CS2-q48",
+   "difficulty": 2,
+   "quick_method": "- Strict alternation: exclusion holds, **progress** fails.",
+   "solution": "- An absent partner blocks the other: no **progress**.\n- Alternation forces **turns**.\n- **Answer: C**",
+   "explanation": "- A turn variable means **forced** turns.",
+   "trap_note": "- Don't **call** it correct, do ask what if one never returns.",
+   "hints": [
+    "Can both be in the CS?",
+    "What if Process 1 never wants in?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. Process i enters only when turn == i, so exclusion holds.\n2. If process 1 stays out, turn stays 1 after process 0 leaves, and process 0 cannot re-enter: progress is violated.\n3. Option C.",
+   "explanation_full": "Two requirements pass but progress fails, the usual story for strict alternation.",
+   "trap_note_full": "Choosing A: it is not correct."
+  },
+  {
+   "id": "2016-CS2-q49",
+   "difficulty": 2,
+   "quick_method": "- A P blocks when S + 12 < 20: S <= **7**.",
+   "solution": "- 20 P and 12 V: blocked if S + 12 < **20**.\n- So S < 8: the largest is **7**.\n- **Answer: 7**",
+   "explanation": "- Total **supply** is S plus the V count.",
+   "trap_note": "- Don't **use** 20 - 12 = 8, do require strictly fewer tokens.",
+   "hints": [
+    "How many tokens exist in total?",
+    "When do all 20 waits succeed?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. Tokens available in total: S + 12.\n2. All 20 P operations succeed iff S + 12 >= 20, i.e. S >= 8.\n3. At least one blocks iff S <= 7: the largest such S is 7.",
+   "explanation_full": "Counting semaphore bookkeeping: S0 + (number of V) - (number of P) < 0 means someone is blocked.",
+   "trap_note_full": "Answering 8: with S = 8 every wait passes."
+  }
+ ],
+ "ladder": [
+  {
+   "id": "gen.sync.001",
+   "level": 1,
+   "order_in_topic": 1,
+   "atoms": [
+    "s1"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "What is a race condition?",
+   "options": [
+    {
+     "key": "A",
+     "text": "The result depends on the order in which threads access shared data"
+    },
+    {
+     "key": "B",
+     "text": "Two threads finish at exactly the same time"
+    },
+    {
+     "key": "C",
+     "text": "A thread waits forever for a lock"
+    },
+    {
+     "key": "D",
+     "text": "A thread runs faster than the CPU allows"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Race means the outcome depends on a timing choice.",
+    "What do the threads share?",
+    "Which option mentions shared data and ordering?"
+   ],
+   "solution": "- Shared data plus unlucky **ordering** gives different results.\n- Waiting forever is **deadlock**, not a race.\n- **Answer: A**",
+   "quick_method": "- Race: shared data and **timing** change the result.",
+   "trap_note": "- Don't **confuse** races with deadlock, do ask whether the outcome varies.",
+   "explanation": "- Races need shared data and no **protection**.",
+   "verified": true,
+   "solution_full": "1. A race condition exists when the final outcome depends on how the accesses of several threads interleave.\n2. It needs shared data and at least one write, with no synchronization.\n3. Option B only describes timing. Option C describes deadlock. Option D is meaningless. Answer A.",
+   "explanation_full": "Races are why we need critical sections. Everything else in this topic is a way to rule bad interleavings out.",
+   "trap_note_full": "Choosing C: waiting forever is a different failure."
+  },
+  {
+   "id": "gen.sync.002",
+   "level": 1,
+   "order_in_topic": 2,
+   "atoms": [
+    "s2"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Which critical-section requirement says that a process outside its critical section must not prevent other processes from entering?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Progress"
+    },
+    {
+     "key": "B",
+     "text": "Mutual exclusion"
+    },
+    {
+     "key": "C",
+     "text": "Bounded waiting"
+    },
+    {
+     "key": "D",
+     "text": "Atomicity"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Three requirements exist: mutual exclusion, progress and bounded waiting.",
+    "Which one speaks about processes that are not interested?",
+    "Strict alternation fails exactly this one."
+   ],
+   "solution": "- Outsiders must not **block** entry.\n- That requirement is **progress**.\n- **Answer: A**",
+   "quick_method": "- Outsider must not block entry: **progress**.",
+   "trap_note": "- Don't **mix** progress with bounded waiting, do separate who is blocking.",
+   "explanation": "- Bounded waiting limits waiting, **progress** limits blocking by outsiders.",
+   "verified": true,
+   "solution_full": "1. Mutual exclusion: at most one process inside.\n2. Progress: if no one is inside, only processes that want to enter decide who goes next, and the decision cannot be postponed forever.\n3. Bounded waiting: once a process asks, only a bounded number of others can go first.\n4. The question describes progress: A.",
+   "explanation_full": "A protocol can have mutual exclusion and still make a process wait for one that is not even trying.",
+   "trap_note_full": "Picking bounded waiting: it counts how many others overtake a waiting process."
+  },
+  {
+   "id": "gen.sync.003",
+   "level": 1,
+   "order_in_topic": 3,
+   "atoms": [
+    "s5"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A binary semaphore is used as a mutex for a critical section. What initial value should it have?",
+   "options": [
+    {
+     "key": "A",
+     "text": "1"
+    },
+    {
+     "key": "B",
+     "text": "0"
+    },
+    {
+     "key": "C",
+     "text": "-1"
+    },
+    {
+     "key": "D",
+     "text": "The number of processes"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "The first process should pass wait() at once.",
+    "What value lets exactly one process through?",
+    "0 would block everyone."
+   ],
+   "solution": "- Initial value 1 lets **one** process in.\n- wait takes it to 0; others **block**.\n- **Answer: A**",
+   "quick_method": "- Mutex semaphore starts at **1**.",
+   "trap_note": "- Don't **start** a mutex at 0, do start it at 1.",
+   "explanation": "- Value = number of **permits**.",
+   "verified": true,
+   "solution_full": "1. A semaphore value counts how many processes may still pass wait().\n2. A mutex allows exactly one, so it starts at 1.\n3. At 0 every process would block forever: nobody could signal. Answer A.",
+   "explanation_full": "Semaphore initial values encode the design: 1 for mutual exclusion, 0 for 'wait for an event', N for N resources.",
+   "trap_note_full": "Choosing 0 because 'locked' feels like zero."
+  },
+  {
+   "id": "gen.sync.004",
+   "level": 1,
+   "order_in_topic": 4,
+   "atoms": [
+    "s4"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "What does the atomic instruction TestAndSet(&lock) do?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Returns the old value of lock and sets it to 1 in one indivisible step"
+    },
+    {
+     "key": "B",
+     "text": "Sets lock to 0 and returns 1"
+    },
+    {
+     "key": "C",
+     "text": "Blocks the process until lock becomes 0"
+    },
+    {
+     "key": "D",
+     "text": "Returns the new value after incrementing lock"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "It both reads and writes, with nothing in between.",
+    "Which value does it return, old or new?",
+    "What value does it write?"
+   ],
+   "solution": "- It reads the **old** value and writes 1.\n- Nothing can **slip** in between.\n- **Answer: A**",
+   "quick_method": "- TAS: return old, set 1, all **atomically**.",
+   "trap_note": "- Don't **return** the new value, do return the old one.",
+   "explanation": "- Spin lock: loop until the old value was **0**.",
+   "verified": true,
+   "solution_full": "1. TestAndSet copies the lock into a register and sets lock = 1 as one hardware step.\n2. A process that sees the old value 0 has just taken the lock; one that sees 1 must retry.\n3. So the correct description is option A.",
+   "explanation_full": "Because the read and the write are one step, two processes cannot both read 0.",
+   "trap_note_full": "Believing the instruction blocks. It only returns; the caller must loop."
+  },
+  {
+   "id": "gen.sync.005",
+   "level": 1,
+   "order_in_topic": 5,
+   "atoms": [
+    "s7"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A bounded buffer has 5 slots. Which initial values are correct for the producer-consumer solution with semaphores empty, full and mutex?",
+   "options": [
+    {
+     "key": "A",
+     "text": "empty = 5, full = 0, mutex = 1"
+    },
+    {
+     "key": "B",
+     "text": "empty = 0, full = 5, mutex = 1"
+    },
+    {
+     "key": "C",
+     "text": "empty = 5, full = 5, mutex = 0"
+    },
+    {
+     "key": "D",
+     "text": "empty = 0, full = 0, mutex = 1"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "empty counts free slots; full counts filled slots.",
+    "Initially the buffer is empty.",
+    "The mutex lets one process in."
+   ],
+   "solution": "- Free slots start at **5**, filled at 0.\n- The **mutex** starts at 1.\n- **Answer: A**",
+   "quick_method": "- empty = N, full = 0, **mutex** = 1.",
+   "trap_note": "- Don't **swap** empty and full, do count free slots in empty.",
+   "explanation": "- Names say what the semaphore **counts**.",
+   "verified": true,
+   "solution_full": "1. At the start all 5 slots are free, so empty = 5.\n2. No item is available, so full = 0.\n3. The mutex protects the buffer, so it is 1. Option A.",
+   "explanation_full": "A producer first waits on empty (needs a free slot); a consumer first waits on full (needs an item).",
+   "trap_note_full": "Choosing B: it is the same trap as the swapped names in 2018 q50."
+  },
+  {
+   "id": "gen.sync.006",
+   "level": 1,
+   "order_in_topic": 6,
+   "atoms": [
+    "s8"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "In the readers-writers problem, which pair of operations may safely run at the same time?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Two readers"
+    },
+    {
+     "key": "B",
+     "text": "A reader and a writer"
+    },
+    {
+     "key": "C",
+     "text": "Two writers"
+    },
+    {
+     "key": "D",
+     "text": "None of these"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Reading does not change the data.",
+    "Writing changes it.",
+    "Which pairs involve a write?"
+   ],
+   "solution": "- Readers only **read**, so they can share.\n- Any writer needs **exclusive** access.\n- **Answer: A**",
+   "quick_method": "- Readers share; writers need **exclusion**.",
+   "trap_note": "- Don't **allow** a writer beside a reader, do give it exclusive access.",
+   "explanation": "- Concurrency is safe without any **write**.",
+   "verified": true,
+   "solution_full": "1. Two readers see the same data and change nothing: safe.\n2. A reader beside a writer may see a half-updated value: unsafe.\n3. Two writers can corrupt each other: unsafe. Answer A.",
+   "explanation_full": "Reader parallelism is the point of the problem; a mutex would forbid it unnecessarily.",
+   "trap_note_full": "Thinking all access must be one at a time."
+  },
+  {
+   "id": "gen.sync.007",
+   "level": 2,
+   "order_in_topic": 7,
+   "atoms": [
+    "s5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A counting semaphore S starts at 5. Four wait operations and one signal operation complete, and no process blocks. What is the final value of S?",
+   "answer": "2",
+   "hints": [
+    "Each wait subtracts 1.",
+    "Each signal adds 1.",
+    "Start from 5."
+   ],
+   "solution": "- Net change is -4 + 1 = **-3**.\n- So the final value is **2**.\n- **Answer: 2**",
+   "quick_method": "- S = S0 - waits + **signals**.",
+   "trap_note": "- Don't **forget** to add the signal, do net them.",
+   "explanation": "- Value is a **balance**.",
+   "verified": true,
+   "solution_full": "1. Four waits lower S by 4.\n2. One signal raises S by 1.\n3. S = 5 - 4 + 1 = 2.",
+   "explanation_full": "The semaphore value is a running balance of permits taken and returned.",
+   "trap_note_full": "Answering 1 by ignoring the signal."
+  },
+  {
+   "id": "gen.sync.008",
+   "level": 2,
+   "order_in_topic": 8,
+   "atoms": [
+    "s5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A counting semaphore S starts at 2. Six wait operations and one signal operation have been executed. How many processes are blocked on S?",
+   "answer": "3",
+   "hints": [
+    "Compute S0 - waits + signals.",
+    "A negative value means processes are blocked.",
+    "Its magnitude is the number blocked."
+   ],
+   "solution": "- S = 2 - 6 + 1 = **-3**.\n- A negative S counts **waiters**.\n- **Answer: 3**",
+   "quick_method": "- Negative value: its size is the number **blocked**.",
+   "trap_note": "- Don't **report** -3 as the answer, do take the magnitude.",
+   "explanation": "- Blocked count = max(0, **-S**).",
+   "verified": true,
+   "solution_full": "1. S = 2 - 6 + 1 = -3.\n2. In the classic implementation S < 0 means |S| processes are asleep.\n3. So 3 processes are blocked.",
+   "explanation_full": "Check: only 3 permits were ever available (2 initial plus 1 signal), so 6 - 3 = 3 waits cannot proceed.",
+   "trap_note_full": "Answering 5 by counting waits minus initial value and forgetting the signal."
+  },
+  {
+   "id": "gen.sync.009",
+   "level": 2,
+   "order_in_topic": 9,
+   "atoms": [
+    "s3"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Two processes use a shared variable turn:\n```\nP0: while (turn != 0);  CS;  turn = 1;\nP1: while (turn != 1);  CS;  turn = 0;\n```\nInitially turn = 0. Which requirement is violated?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Progress"
+    },
+    {
+     "key": "B",
+     "text": "Mutual exclusion"
+    },
+    {
+     "key": "C",
+     "text": "Both progress and mutual exclusion"
+    },
+    {
+     "key": "D",
+     "text": "Neither; it is correct"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Can both be in the CS?",
+    "What if P0 never wants to enter again after its first turn?",
+    "Who sets turn back to 0?"
+   ],
+   "solution": "- Only the **holder** of the turn enters: exclusion holds.\n- P0 cannot enter twice unless **P1** comes back.\n- **Answer: A**",
+   "quick_method": "- Alternation: exclusion yes, **progress** no.",
+   "trap_note": "- Don't **call** it correct, do ask what if the partner stays away.",
+   "explanation": "- Strict **turns** mean strict dependence.",
+   "verified": true,
+   "solution_full": "1. turn is 0 or 1, never both, so at most one process passes its while loop: mutual exclusion holds.\n2. After P0 leaves, turn = 1. If P1 has no further need, turn stays 1 and P0 is stuck outside: progress fails.\n3. Answer A.",
+   "explanation_full": "This is the same shape as 2016 q48. A turn variable cannot tell 'not interested' from 'not yet'.",
+   "trap_note_full": "Choosing D because exclusion works."
+  },
+  {
+   "id": "gen.sync.010",
+   "level": 2,
+   "order_in_topic": 10,
+   "atoms": [
+    "s3"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Peterson's algorithm is shown for process 1 (the other process is 0). Which condition completes it?\n```\nflag[1] = true;\nturn = 0;\nwhile (______) ;\nCS;\nflag[1] = false;\n```",
+   "options": [
+    {
+     "key": "A",
+     "text": "flag[0] == true && turn == 0"
+    },
+    {
+     "key": "B",
+     "text": "flag[1] == true && turn == 1"
+    },
+    {
+     "key": "C",
+     "text": "flag[0] == true && turn == 1"
+    },
+    {
+     "key": "D",
+     "text": "flag[1] == true || turn == 0"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Process 1 offers the turn to process 0.",
+    "When must 1 give way?",
+    "Only if 0 is interested and it is 0's turn."
+   ],
+   "solution": "- Wait only if the **other** is interested and holds the turn.\n- Process 1 just set **turn** = 0.\n- **Answer: A**",
+   "quick_method": "- Spin while other's flag is up and **turn** is theirs.",
+   "trap_note": "- Don't **spin** on your own flag, do check the partner's.",
+   "explanation": "- The partner is **process 0**.",
+   "verified": true,
+   "variant_of": "2001-CS-q2_22",
+   "solution_full": "1. Process 1 sets turn = 0, giving priority to process 0.\n2. It must wait while process 0 is interested (flag[0]) and the turn is 0.\n3. Condition: flag[0] == true && turn == 0: A.",
+   "explanation_full": "The loop condition mentions the other process's flag and the turn value the current process just wrote.",
+   "trap_note_full": "Copying the condition for process 0 by mistake."
+  },
+  {
+   "id": "gen.sync.011",
+   "level": 2,
+   "order_in_topic": 11,
+   "atoms": [
+    "s1",
+    "s9"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "Two threads each execute counter++ once, where counter++ is load, add, store (not atomic), starting from counter = 0. What is the smallest final value counter can have?",
+   "answer": "1",
+   "hints": [
+    "Both threads can load the same old value.",
+    "What does each store write?",
+    "Can the final value ever be 0?"
+   ],
+   "solution": "- Both threads may load **0**.\n- Both store 1: a **lost** update.\n- **Answer: 1**",
+   "quick_method": "- Lost update: both load, both store **1**.",
+   "trap_note": "- Don't **guess** 0, do remember stores write at least 1.",
+   "explanation": "- Each store writes load + 1, so at least **1**.",
+   "verified": true,
+   "solution_full": "1. The values 1 and 2 are both possible; 0 never is.\n2. Interleave: T1 loads 0, T2 loads 0, T1 stores 1, T2 stores 1.\n3. Each stored value is some earlier load plus 1, so it is at least 1. Smallest = 1.",
+   "explanation_full": "A lost update replaces a write by an older value plus one; it never makes the counter go backwards.",
+   "trap_note_full": "Answering 0 or 2."
+  },
+  {
+   "id": "gen.sync.012",
+   "level": 2,
+   "order_in_topic": 12,
+   "atoms": [
+    "s2",
+    "s3"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Process i uses this entry code with a shared flag per process:\n```\nwhile (flag[j]) ;    // wait while the other is inside\nflag[i] = true;\nCS;\nflag[i] = false;\n```\nWhich statement is true?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Both processes can be in the critical section together"
+    },
+    {
+     "key": "B",
+     "text": "Mutual exclusion always holds"
+    },
+    {
+     "key": "C",
+     "text": "Deadlock always occurs"
+    },
+    {
+     "key": "D",
+     "text": "The code satisfies all three requirements"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "The check and the set are two separate steps.",
+    "Can both pass the check before either sets its flag?",
+    "What does each see?"
+   ],
+   "solution": "- Check then set leaves a **gap**.\n- Both can pass the **check** first.\n- **Answer: A**",
+   "quick_method": "- Check, then set: both slip through the **gap**.",
+   "trap_note": "- Don't **check** before setting, do set the flag first.",
+   "explanation": "- The flag must be set **before** looking.",
+   "verified": true,
+   "variant_of": "2007-CS-q58",
+   "solution_full": "1. Both processes execute while (flag[j]) when both flags are false and both fall through.\n2. Both then set their flags and enter: mutual exclusion is violated (A true).\n3. B and D are false; deadlock does not occur here, so C is false.",
+   "explanation_full": "Setting the flag first (as in 2007 q58) fixes exclusion but allows deadlock; checking first loses exclusion.",
+   "trap_note_full": "Choosing B: the flag looks protective but is set too late."
+  },
+  {
+   "id": "gen.sync.013",
+   "level": 2,
+   "order_in_topic": 13,
+   "atoms": [
+    "s6"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Statement S1 in process P1 must always execute before statement S2 in process P2. P1 runs S1; signal(x). P2 runs wait(x); S2. What initial value should the semaphore x have?",
+   "options": [
+    {
+     "key": "A",
+     "text": "0"
+    },
+    {
+     "key": "B",
+     "text": "1"
+    },
+    {
+     "key": "C",
+     "text": "2"
+    },
+    {
+     "key": "D",
+     "text": "Any value works"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "P2 must block until P1 has finished S1.",
+    "What value makes wait(x) block?",
+    "Only P1's signal should unblock it."
+   ],
+   "solution": "- wait must **block** at first: x = 0.\n- Then P1's **signal** releases P2.\n- **Answer: A**",
+   "quick_method": "- Order enforcement: start at **0**.",
+   "trap_note": "- Don't **use** 1, do start at 0 so wait blocks.",
+   "explanation": "- Initial 0 means 'event not happened **yet**'.",
+   "verified": true,
+   "solution_full": "1. If x = 1, P2 would pass wait at once, maybe before S1: wrong.\n2. With x = 0, P2 blocks until P1's signal(x), which comes after S1.\n3. Answer A.",
+   "explanation_full": "A semaphore at 0 is an event flag: the waiter sleeps until the signaller says 'done'.",
+   "trap_note_full": "Choosing 1 because mutex semaphores start at 1."
+  },
+  {
+   "id": "gen.sync.014",
+   "level": 3,
+   "order_in_topic": 14,
+   "atoms": [
+    "s1",
+    "s9"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "Three threads update a shared D that starts at 200, each by a non-atomic load, compute, store: T1 does D = D + 30, T2 does D = D - 70, T3 does D = D + 15. If Y and X are the largest and smallest possible final values, what is Y - X?",
+   "answer": "115",
+   "hints": [
+    "Largest: the subtraction's write must be overwritten, both additions survive.",
+    "Smallest: the subtraction writes last from the original 200.",
+    "Both extremes use a stale read."
+   ],
+   "solution": "- Max: both additions survive, 200 + 45 = **245**.\n- Min: T2 writes last: 200 - 70 = **130**.\n- **Answer: 115**",
+   "quick_method": "- Max drops the decrement; min keeps only the **decrement**.",
+   "trap_note": "- Don't **use** the serial result, do find the true max and min.",
+   "explanation": "- The last **write** decides the value.",
+   "verified": true,
+   "variant_of": "2019-CS-q33",
+   "solution_full": "1. Max: T1 reads 200; T2 runs completely (D = 130); T1 then writes 230, erasing the decrement; T3 runs and adds 15: 245.\n2. Min: T2 reads 200 and writes last, regardless of others: 130. No other write can be smaller since T1 and T3 add.\n3. Y - X = 245 - 130 = 115.",
+   "explanation_full": "Same logic as 2019 q33 with different constants: extremes are formed by letting one thread's stale read survive.",
+   "trap_note_full": "Subtracting only the serial value 175 - 175 = 0."
+  },
+  {
+   "id": "gen.sync.015",
+   "level": 3,
+   "order_in_topic": 15,
+   "atoms": [
+    "s7",
+    "s5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A bounded buffer of 5 slots uses empty (initially 5), full (initially 0) and mutex (initially 1). Producers complete 7 produce operations and consumers complete 3 consume operations, with no blocking. What is the value of empty?",
+   "answer": "1",
+   "hints": [
+    "Each produce executes wait(empty).",
+    "Each consume executes signal(empty).",
+    "Net: 5 - 7 + 3."
+   ],
+   "solution": "- Each produce takes one free **slot**.\n- So empty = 5 - 7 + 3 = **1**.\n- **Answer: 1**",
+   "quick_method": "- empty = N - produced + **consumed**.",
+   "trap_note": "- Don't **ignore** consumes, do add one slot back for each.",
+   "explanation": "- Consumes give slots **back**.",
+   "verified": true,
+   "solution_full": "1. wait(empty) happens on each produce: 7 times.\n2. signal(empty) happens on each consume: 3 times.\n3. empty = 5 - 7 + 3 = 1. Check: 4 items are in the buffer, so 1 slot is free.",
+   "explanation_full": "The two counting semaphores always satisfy empty + full = N when no one is blocked in the middle of an operation.",
+   "trap_note_full": "Answering 3 or 5 by counting only consumes or only produces."
+  },
+  {
+   "id": "gen.sync.016",
+   "level": 3,
+   "order_in_topic": 16,
+   "atoms": [
+    "s7",
+    "s5"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "In the producer-consumer solution with N = 1, the producer's first two waits are swapped:\n```\nProducer: wait(mutex); wait(empty); add item; signal(full); signal(mutex);\nConsumer: wait(full); wait(mutex); remove item; signal(mutex); signal(empty);\n```\nWhat can go wrong?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Deadlock when the buffer is full"
+    },
+    {
+     "key": "B",
+     "text": "Deadlock when the buffer is empty"
+    },
+    {
+     "key": "C",
+     "text": "Loss of mutual exclusion on the buffer"
+    },
+    {
+     "key": "D",
+     "text": "Nothing; the order does not matter"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Which process holds the mutex while it waits?",
+    "What does a blocked producer prevent the consumer from doing?",
+    "When does the producer block on empty?"
+   ],
+   "solution": "- Producer holds **mutex** while waiting for empty.\n- Consumer needs the **mutex** to free a slot.\n- **Answer: A**",
+   "quick_method": "- Waiting for space while holding the **mutex** deadlocks.",
+   "trap_note": "- Don't **wait** on the mutex first, do wait on empty first.",
+   "explanation": "- Counting semaphore first, then the **mutex**.",
+   "verified": true,
+   "solution_full": "1. Buffer full: the producer takes mutex, then blocks on wait(empty) because empty = 0.\n2. The consumer runs wait(full) successfully but then blocks on wait(mutex), held by the producer.\n3. Nobody can signal empty: deadlock when the buffer is full (A). The consumer side is unchanged, so no deadlock when empty.",
+   "explanation_full": "A process must never sleep while holding a resource that the other process needs to wake it.",
+   "trap_note_full": "Choosing B: the empty case blocks the consumer first, which holds nothing."
+  },
+  {
+   "id": "gen.sync.017",
+   "level": 3,
+   "order_in_topic": 17,
+   "atoms": [
+    "s8"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A reader-preference readers-writers solution uses semaphores mutex (for readcount) and wrt (for the data):\n```\nReader:  wait(mutex); readcount++; if (readcount == 1) X; signal(mutex);\n         ... read ...\n         wait(mutex); readcount--; if (readcount == 0) Y; signal(mutex);\nWriter:  wait(wrt); ... write ...; signal(wrt);\n```\nWhat are X and Y?",
+   "options": [
+    {
+     "key": "A",
+     "text": "X = wait(wrt), Y = signal(wrt)"
+    },
+    {
+     "key": "B",
+     "text": "X = signal(wrt), Y = wait(wrt)"
+    },
+    {
+     "key": "C",
+     "text": "X = wait(mutex), Y = signal(mutex)"
+    },
+    {
+     "key": "D",
+     "text": "X = wait(wrt), Y = wait(wrt)"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "The first reader must keep writers out.",
+    "The last reader must let writers in.",
+    "Which semaphore do writers wait on?"
+   ],
+   "solution": "- First reader locks writers **out**.\n- Last reader lets them **in**.\n- **Answer: A**",
+   "quick_method": "- First in: wait(wrt). Last out: **signal**(wrt).",
+   "trap_note": "- Don't **make** every reader take wrt, do make first and last.",
+   "explanation": "- Readers share, so only the **group** takes wrt.",
+   "verified": true,
+   "solution_full": "1. Writers do wait(wrt), so a reader group must hold wrt while reading.\n2. The first reader acquires it: X = wait(wrt).\n3. The last reader releases it: Y = signal(wrt). Option A.",
+   "explanation_full": "readcount is shared, so it needs its own mutex. wrt represents the data being held by readers as a group or by one writer.",
+   "trap_note_full": "Choosing C: mutex already protects readcount, not the data."
+  },
+  {
+   "id": "gen.sync.018",
+   "level": 3,
+   "order_in_topic": 18,
+   "atoms": [
+    "s5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "Five processes each execute wait(S); critical section; signal(S), with a counting semaphore S initialised to 3. At most how many processes can be blocked on S at the same time?",
+   "answer": "2",
+   "hints": [
+    "How many processes can be inside at once?",
+    "The rest are waiting.",
+    "5 - 3."
+   ],
+   "solution": "- Three permits mean three can be **inside**.\n- The other two **wait**.\n- **Answer: 2**",
+   "quick_method": "- Blocked at most processes minus **permits**.",
+   "trap_note": "- Don't **say** 5 blocked, do subtract the permits.",
+   "explanation": "- Permits = **simultaneous** holders.",
+   "verified": true,
+   "solution_full": "1. S = 3 lets 3 processes pass wait at the same time.\n2. When all five arrive while three are inside, two are blocked.\n3. Maximum blocked = 5 - 3 = 2 (S reaches -2).",
+   "explanation_full": "A counting semaphore with permit count k limits concurrency to k. This is how a pool of k identical resources is guarded.",
+   "trap_note_full": "Answering 3 by confusing blocked with inside."
+  },
+  {
+   "id": "gen.sync.019",
+   "level": 3,
+   "order_in_topic": 19,
+   "atoms": [
+    "s6"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Three threads share semaphores X, Y and Z:\n```\nT1: loop { wait(X); print A; signal(Y); }\nT2: loop { wait(Y); print B; signal(Z); }\nT3: loop { wait(Z); print C; signal(X); }\n```\nWhich initial values make the output ABCABCABC...?",
+   "options": [
+    {
+     "key": "A",
+     "text": "X = 1, Y = 0, Z = 0"
+    },
+    {
+     "key": "B",
+     "text": "X = 0, Y = 1, Z = 0"
+    },
+    {
+     "key": "C",
+     "text": "X = 1, Y = 1, Z = 0"
+    },
+    {
+     "key": "D",
+     "text": "X = 1, Y = 1, Z = 1"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "The first letter must be A.",
+    "Only T1 should be able to run at the start.",
+    "How many tokens should circulate?"
+   ],
+   "solution": "- Only T1 may start, so only **X** is 1.\n- One **token** then circulates.\n- **Answer: A**",
+   "quick_method": "- One token, held by the first thread: **X** = 1.",
+   "trap_note": "- Don't **release** several threads, do start exactly one.",
+   "explanation": "- Extra tokens allow **disorder**.",
+   "verified": true,
+   "variant_of": "2022-CS-q19",
+   "solution_full": "1. The output starts with A, which T1 prints after wait(X): X = 1.\n2. If Y or Z were 1, T2 or T3 could print too early: wrong order.\n3. With X = 1 and Y = Z = 0, the token goes T1, T2, T3, T1, ... Answer A.",
+   "explanation_full": "A cycle of threads connected by semaphores is a token ring. The token count equals the sum of initial values.",
+   "trap_note_full": "Choosing 1,1,1: three tokens give an unordered mix."
+  },
+  {
+   "id": "gen.sync.020",
+   "level": 3,
+   "order_in_topic": 20,
+   "atoms": [
+    "s4",
+    "s2"
+   ],
+   "type": "MSQ",
+   "marks": 1,
+   "stem": "A spin lock is built from test-and-set: while (TestAndSet(&lock)); CS; lock = 0. Which statements are true?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Mutual exclusion is guaranteed"
+    },
+    {
+     "key": "B",
+     "text": "Bounded waiting is guaranteed"
+    },
+    {
+     "key": "C",
+     "text": "Waiting processes consume CPU time"
+    },
+    {
+     "key": "D",
+     "text": "It cannot be used on a multiprocessor"
+    }
+   ],
+   "answer": "A,C",
+   "hints": [
+    "Does the loop spin or sleep?",
+    "Can a process keep losing the race?",
+    "Is the hardware instruction atomic across CPUs?"
+   ],
+   "solution": "- Atomic TAS gives **exclusion**; waiting processes spin.\n- No queue means no bounded **waiting**.\n- **Answer: A, C**",
+   "quick_method": "- TAS: exclusion yes, spinning yes, **fairness** no.",
+   "trap_note": "- Don't **assume** fairness, do remember anyone can lose repeatedly.",
+   "explanation": "- Spin locks are **busy** waiting.",
+   "verified": true,
+   "solution_full": "1. TAS is atomic, so only one process sees 0 and enters: A true.\n2. There is no queue, so a process can lose every race: B false.\n3. Waiting processes loop and use CPU: C true.\n4. TAS works across processors with bus locking, so D is false.",
+   "explanation_full": "Atomic instructions solve exclusion, not fairness. Fairness needs a queue (ticket locks, semaphores with FIFO).",
+   "trap_note_full": "Marking B because the loop 'eventually' wins. Eventually is not bounded."
+  },
+  {
+   "id": "gen.sync.021",
+   "level": 3,
+   "order_in_topic": 21,
+   "atoms": [
+    "s5"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "During an execution, 15 P(S) operations and 9 V(S) operations are issued in some order on a non-negative counting semaphore S. What is the largest initial value of S for which at least one P operation remains blocked?",
+   "answer": "5",
+   "hints": [
+    "How many tokens exist in total?",
+    "All P succeed only if tokens >= 15.",
+    "Largest S with tokens < 15."
+   ],
+   "solution": "- Tokens available: S + 9, so **S** <= 5.\n- A P blocks iff S + 9 < **15**.\n- **Answer: 5**",
+   "quick_method": "- Blocked iff S + V < **P**.",
+   "trap_note": "- Don't **use** 15 - 9 = 6, do require strictly fewer tokens.",
+   "explanation": "- Strict inequality gives one less than the **difference**.",
+   "verified": true,
+   "variant_of": "2016-CS2-q49",
+   "solution_full": "1. Total tokens over the run: S + 9.\n2. All 15 waits pass if S + 9 >= 15, i.e. S >= 6.\n3. At least one is blocked iff S <= 5. Largest: 5.",
+   "explanation_full": "This is 2016 q49 with other numbers: the answer is (P - V) - 1.",
+   "trap_note_full": "Answering 6, which lets every wait pass."
+  },
+  {
+   "id": "gen.sync.022",
+   "level": 4,
+   "order_in_topic": 22,
+   "atoms": [
+    "s9",
+    "s6"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Two threads share binary semaphores s1 = 1 and s2 = 0 (assume s1 is a mutex-like lock):\n```\nT1: wait(s1); print A; wait(s2); signal(s1); print B;\nT2: wait(s1); print C; signal(s2); signal(s1);\n```\nWhich outcomes are possible?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Output CAB, both threads finish"
+    },
+    {
+     "key": "B",
+     "text": "Output ACB, both threads finish"
+    },
+    {
+     "key": "C",
+     "text": "Output A, then deadlock"
+    },
+    {
+     "key": "D",
+     "text": "Output C, then deadlock"
+    }
+   ],
+   "answer": "A,C",
+   "hints": [
+    "Who can take s1 first?",
+    "If T1 goes first, who can signal s2?",
+    "If T2 goes first, does it ever block?"
+   ],
+   "solution": "- T1 first holds s1 and waits for **s2**.\n- T2 first never blocks and **unblocks** T1.\n- **Answer: A, C**",
+   "quick_method": "- First mover decides: T1 first **deadlocks**.",
+   "trap_note": "- Don't **allow** ACB, do remember s1 is held while T1 waits.",
+   "explanation": "- Holding a lock while waiting can **block** the signaller.",
+   "verified": true,
+   "variant_of": "2024-CS2-q46",
+   "solution_full": "1. T1 first: prints A, blocks on s2 (0) while holding s1. T2 blocks on s1: deadlock after A (C possible).\n2. T2 first: prints C, signals s2 and s1; T1 then prints A and B: output CAB (A possible).\n3. ACB is impossible: after A, T1 cannot print B until T2 has run, but T2 cannot start. Deadlock after C alone is impossible: T2 never blocks.",
+   "explanation_full": "Same family as 2024 q46: a thread that waits while holding a lock can block the thread that would wake it.",
+   "trap_note_full": "Choosing B: it assumes T2 can interleave after T1's A."
+  },
+  {
+   "id": "gen.sync.023",
+   "level": 4,
+   "order_in_topic": 23,
+   "atoms": [
+    "s9"
+   ],
+   "type": "MCQ",
+   "marks": 2,
+   "stem": "Two threads update shared variables a = 1, b = 1. Each statement is atomic; statements of different threads may interleave in any way.\n```\nT1: a = a + 1;  b = b + 1;\nT2: b = 3 * b;  a = 3 * a;\n```\nWhich set lists exactly the possible final (a, b) pairs?",
+   "options": [
+    {
+     "key": "A",
+     "text": "(4,4) and (6,6)"
+    },
+    {
+     "key": "B",
+     "text": "(4,4), (6,4) and (6,6)"
+    },
+    {
+     "key": "C",
+     "text": "(4,4), (6,6) and (4,6)"
+    },
+    {
+     "key": "D",
+     "text": "(4,4), (6,4), (6,6) and (4,6)"
+    }
+   ],
+   "answer": "B",
+   "hints": [
+    "Six interleavings exist.",
+    "T1 then T2 gives (6,6); T2 then T1 gives (4,4).",
+    "Try one mixed order: a+1, then 3b."
+   ],
+   "solution": "- Serial orders give **(6,6)** and (4,4).\n- A mixed order gives **(6,4)**.\n- **Answer: B**",
+   "quick_method": "- Enumerate six orders; mixed ones give **(6,4)**.",
+   "trap_note": "- Don't **list** only the serial results, do try the mixed orders.",
+   "explanation": "- Only the **pair** (6,4) arises from mixing.",
+   "verified": true,
+   "variant_of": "2024-CS1-q40",
+   "solution_full": "1. Statements: 1: a+1, 2: b+1, 3: b*3, 4: a*3. Order within a thread is fixed.\n2. 1234: a=2, b=2, b=6, a=6, so (6,6). 3412: b=3, a=3, a=4, b=4, so (4,4).\n3. 1324: a=2, b=3, b=4, a=6, so (6,4). 1342, 3124 and 3142 also give (6,4).\n4. (4,6) would need a to receive the +1 after tripling and b to be tripled after its +1. Program order forbids that: option B.",
+   "explanation_full": "With six interleavings you can enumerate by hand. A pair is possible only if some legal order produces it.",
+   "trap_note_full": "Adding (4,6), which breaks program order."
+  },
+  {
+   "id": "gen.sync.024",
+   "level": 4,
+   "order_in_topic": 24,
+   "atoms": [
+    "s5",
+    "s9"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A shared integer X starts at 0. Three threads each run wait(s); X = X + 1; signal(s). Three other threads each run wait(s); X = X - 1; signal(s). The statement X = X +/- 1 is load, compute, store. The counting semaphore s is initialised to 2. How many distinct final values of X are possible?",
+   "answer": "7",
+   "hints": [
+    "With a binary semaphore there would be exactly one final value.",
+    "With 2 permits two threads overlap.",
+    "Which final values are reachable: the range from all decrements to all increments?"
+   ],
+   "solution": "- Lost updates can erase any number of **writes**.\n- Values from -3 to +3 are **reachable**.\n- **Answer: 7**",
+   "quick_method": "- Range -3 to 3 gives **seven** values.",
+   "trap_note": "- Don't **answer** 1 just because a semaphore is used.",
+   "explanation": "- Permit count 2 allows **overlap**.",
+   "verified": true,
+   "variant_of": "2023-CS-q38",
+   "solution_full": "1. A single permit would make X end at 0 always. With 2 permits two threads can overlap and one write can be overwritten.\n2. The largest value cannot exceed the number of increments (3); the smallest cannot go below -3.\n3. The exhaustive search shows every integer from -3 to 3 occurs: seven values.",
+   "explanation_full": "Counting semaphore with k > 1 is not a mutex. It limits parallelism but allows races among the k threads inside.",
+   "trap_note_full": "Answering 1 because the code 'uses a semaphore'."
+  },
+  {
+   "id": "gen.sync.025",
+   "level": 4,
+   "order_in_topic": 25,
+   "atoms": [
+    "s8"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "In the reader-preference readers-writers solution (readcount protected by mutex, data protected by wrt), which statements are true?",
+   "options": [
+    {
+     "key": "A",
+     "text": "A continuous stream of readers can starve a writer"
+    },
+    {
+     "key": "B",
+     "text": "The last reader to leave signals wrt"
+    },
+    {
+     "key": "C",
+     "text": "Two writers can write at the same time"
+    },
+    {
+     "key": "D",
+     "text": "readcount must be updated inside its own mutex"
+    }
+   ],
+   "answer": "A,B,D",
+   "hints": [
+    "Does a waiting writer stop new readers?",
+    "Who releases wrt after reading?",
+    "Is readcount shared?"
+   ],
+   "solution": "- Readers keep wrt held while any reader remains: writers **starve**.\n- The last reader **releases** it.\n- **Answer: A, B, D**",
+   "quick_method": "- Reader preference starves **writers**.",
+   "trap_note": "- Don't **let** writers share, do give them exclusive access.",
+   "explanation": "- Writers need wrt **alone**.",
+   "verified": true,
+   "solution_full": "1. New readers do not wait for a waiting writer, so a steady stream starves it (A true).\n2. The last reader signals wrt (B true).\n3. Writers wait(wrt) and exclude each other (C false).\n4. readcount is shared among readers; the update needs mutual exclusion (D true).",
+   "explanation_full": "Reader preference favours throughput over fairness; writer preference flips the starvation.",
+   "trap_note_full": "Marking C: writers always need exclusive access."
+  },
+  {
+   "id": "gen.sync.026",
+   "level": 4,
+   "order_in_topic": 26,
+   "atoms": [
+    "s3"
+   ],
+   "type": "MCQ",
+   "marks": 2,
+   "stem": "Which single change to Peterson's entry section breaks mutual exclusion?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Execute turn = j before flag[i] = true"
+    },
+    {
+     "key": "B",
+     "text": "Use || instead of && in the while condition"
+    },
+    {
+     "key": "C",
+     "text": "Never reset flag[i] after the critical section"
+    },
+    {
+     "key": "D",
+     "text": "Add a busy delay between the while loop and the critical section"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Mutual exclusion needs flag first, then turn.",
+    "Which change could let both pass the while loop?",
+    "Others lose progress but keep exclusion."
+   ],
+   "solution": "- Turn before flag lets both see the other's flag **down**.\n- Other options keep **exclusion**.\n- **Answer: A**",
+   "quick_method": "- Flag first, then turn: swapping breaks **exclusion**.",
+   "trap_note": "- Don't **swap** the first two lines, do announce interest first.",
+   "explanation": "- Announcing interest comes **first**.",
+   "verified": true,
+   "solution_full": "1. With the lines swapped: i sets turn = j, j sets turn = i, then both read each other's flag, still false, and both enter.\n2. B: || makes a process wait too much; exclusion holds, progress fails. C: the other process is blocked forever; exclusion holds. D: a delay changes nothing.\n3. The exhaustive search confirms only the swap violates exclusion.",
+   "explanation_full": "Peterson's order matters: flag[i] = true must be visible before turn = j is written.",
+   "trap_note_full": "Choosing C because a never-cleared flag looks wrong. It kills progress, not exclusion."
+  },
+  {
+   "id": "gen.sync.027",
+   "level": 4,
+   "order_in_topic": 27,
+   "atoms": [
+    "s9"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "B is shared and starts at 1. Each statement reads B once or writes it once:\n```\nP1: C = B + 1;  B = 2 * C;\nP2: D = B + 2;  B = 3 * D;\n```\nHow many distinct final values can B take?",
+   "answer": "4",
+   "hints": [
+    "Serial order P1 then P2 gives one value, P2 then P1 another.",
+    "Lost updates add more.",
+    "Try: P1 reads, P2 runs fully, P1 writes."
+   ],
+   "solution": "- Two serial orders, plus two **lost-update** outcomes.\n- Four **values**: 4, 9, 18, 20.\n- **Answer: 4**",
+   "quick_method": "- Serial: 18 and 20. Lost updates: **4** and 9.",
+   "trap_note": "- Don't **count** only serial orders, do include stale writes.",
+   "explanation": "- Stale **write** gives the other two.",
+   "verified": true,
+   "variant_of": "2015-CS1-q9",
+   "solution_full": "1. P1 then P2: C = 2, B = 4; D = 6, B = 18. P2 then P1: D = 3, B = 9; C = 10, B = 20.\n2. P1 reads B = 1 (C = 2), P2 runs fully (B = 9), P1 writes B = 4: final 4.\n3. P2 reads B = 1 (D = 3), P1 runs fully (B = 4), P2 writes B = 9: final 9.\n4. Values {4, 9, 18, 20}: four.",
+   "explanation_full": "Two statements each reading and writing B give four read/write points; every placement of the last write gives a distinct result here.",
+   "trap_note_full": "Answering 2: ignoring stale writes."
+  },
+  {
+   "id": "gen.sync.028",
+   "level": 5,
+   "order_in_topic": 28,
+   "atoms": [
+    "s9",
+    "s6",
+    "s5"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "All semaphores start at 0, and s is a counting semaphore. Each thread runs once:\n```\nT1: print A; signal(s); print E;\nT2: print B; signal(s);\nT3: wait(s); print C; wait(s); print D;\n```\nWhich output strings are possible?",
+   "options": [
+    {
+     "key": "A",
+     "text": "ACBDE"
+    },
+    {
+     "key": "B",
+     "text": "BCAED"
+    },
+    {
+     "key": "C",
+     "text": "CABED"
+    },
+    {
+     "key": "D",
+     "text": "ABDCE"
+    }
+   ],
+   "answer": "A,B",
+   "hints": [
+    "T3's C needs one signal; D needs two.",
+    "Which signals exist when C prints?",
+    "D must come after both A and B, and after C."
+   ],
+   "solution": "- C needs one **signal**: after A or B.\n- D needs **both**: after A and B.\n- **Answer: A, B**",
+   "quick_method": "- C after one signal; D after **both**.",
+   "trap_note": "- Don't **put** D before C, do keep T3's order.",
+   "explanation": "- D comes after both **A** and B.",
+   "verified": true,
+   "variant_of": "2026-CS2-q51",
+   "solution_full": "1. T3's order is wait, C, wait, D, so C precedes D.\n2. C needs one prior signal (after A or after B). D needs a second one, so D follows both A and B.\n3. ACBDE: A, C, B, D, E satisfies this. BCAED: B, C, A, E, D satisfies it. CABED prints C before any signal: impossible. ABDCE prints D before C: impossible.",
+   "explanation_full": "A counting semaphore remembers signals, so T3's two waits consume them in any order. Only counts, not identities, matter.",
+   "trap_note_full": "Marking CABED because C 'could be fast'. It needs a signal first."
+  },
+  {
+   "id": "gen.sync.029",
+   "level": 5,
+   "order_in_topic": 29,
+   "atoms": [
+    "s6",
+    "s5",
+    "s9"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "A barrier for 4 processes uses two binary semaphores a (initially 1) and b (initially 0) and a shared count (initially 0). By mistake the last process does not relay the signal:\n```\nwait(a); count++; if (count == 4) signal(b); signal(a);\nwait(b);          // signal(b) is missing here\nprint Q;\n```\nIn the worst case, how many processes can print Q (before everyone else is stuck forever)?",
+   "answer": "1",
+   "hints": [
+    "How many signals on b exist in total?",
+    "Each print needs one wait(b) to pass.",
+    "Without relay, one signal releases one waiter."
+   ],
+   "solution": "- Only one signal on **b** is ever sent.\n- So only one process **passes**.\n- **Answer: 1**",
+   "quick_method": "- Passes = signals on **b**, and there is one.",
+   "trap_note": "- Don't **assume** the barrier releases all, do count signals.",
+   "explanation": "- One wait consumes one **signal**.",
+   "verified": true,
+   "variant_of": "2020-CS-q44",
+   "solution_full": "1. Only the 4th arriving process signals b, once.\n2. Each process must pass wait(b); each pass consumes one signal.\n3. One process passes and prints Q; the other three block forever. Answer 1.",
+   "explanation_full": "In the original (2020 q44) each released process relays b, which is what lets all n continue.",
+   "trap_note_full": "Answering 4 from the barrier's intent."
+  },
+  {
+   "id": "gen.sync.030",
+   "level": 5,
+   "order_in_topic": 30,
+   "atoms": [
+    "s9"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "Three threads run once each, and s is a counting semaphore initialised to 0:\n```\nT1: print A; print B; signal(s);\nT2: wait(s); print C;\nT3: print D; print E;\n```\nHow many distinct output strings are possible?",
+   "answer": "10",
+   "hints": [
+    "Constraints: A before B before C; D before E.",
+    "T3 is independent of the semaphore.",
+    "Count merges of an ordered triple with an ordered pair."
+   ],
+   "solution": "- Order **constraints**: A < B < C and D < E.\n- Count **merges**: C(5,2) = 10.\n- **Answer: 10**",
+   "quick_method": "- Two chains of 3 and 2: choose positions, **ten** merges.",
+   "trap_note": "- Don't **count** 5! = 120, do respect the chains.",
+   "explanation": "- Only the **relative** order of each chain is fixed.",
+   "verified": true,
+   "solution_full": "1. T1's prints and T2's C form one chain A, B, C because C needs the signal sent after B.\n2. T3 forms a second chain D, E, independent of the first.\n3. The number of interleavings of chains of lengths 3 and 2 is C(5,2) = 10.",
+   "explanation_full": "Counting outputs reduces to counting linear extensions of the happens-before order.",
+   "trap_note_full": "Using 5!/2 or 6 by treating T2 as free."
+  }
+ ],
+ "flashcards": [
+  {
+   "front": "Three critical-section requirements",
+   "back": "Mutual exclusion; progress (outsiders cannot block entry); bounded waiting.",
+   "kind": "definition"
+  },
+  {
+   "front": "Semaphore value after a run",
+   "back": "S = S0 - (#wait) + (#signal); if negative, |S| processes are blocked.",
+   "kind": "formula"
+  },
+  {
+   "front": "Binary semaphore initial value for a mutex? For ordering?",
+   "back": "Mutex: 1. Wait-for-event (ordering): 0.",
+   "kind": "definition"
+  },
+  {
+   "front": "Peterson entry for process i",
+   "back": "flag[i] = true; turn = j; while (flag[j] && turn == j);  Swapping the first two lines breaks exclusion.",
+   "kind": "formula"
+  },
+  {
+   "front": "Strict alternation with a turn variable",
+   "back": "Mutual exclusion holds; progress fails.",
+   "kind": "trap"
+  },
+  {
+   "front": "Flag-only: set flag, wait while other flag is set",
+   "back": "Mutual exclusion holds, deadlock possible. Check-then-set loses exclusion.",
+   "kind": "trap"
+  },
+  {
+   "front": "Test-and-set spin lock",
+   "back": "Gives mutual exclusion and busy waiting; bounded waiting is not guaranteed.",
+   "kind": "definition"
+  },
+  {
+   "front": "Producer-consumer wait order",
+   "back": "Wait the counting semaphore (empty or full) first, then the mutex.",
+   "kind": "trap"
+  },
+  {
+   "front": "Initial values for producer-consumer with N slots",
+   "back": "empty = N, full = 0, mutex = 1.",
+   "kind": "formula"
+  },
+  {
+   "front": "Readers-writers reader preference",
+   "back": "First reader waits wrt, last reader signals wrt; writers can starve.",
+   "kind": "definition"
+  },
+  {
+   "front": "Why counter++ is a race",
+   "back": "It is load, add, store; two threads can load the same value, so one update is lost.",
+   "kind": "trap"
+  },
+  {
+   "front": "Counting semaphore with k permits as a lock",
+   "back": "Allows k threads in at once; it is mutual exclusion only when k = 1.",
+   "kind": "trap"
+  },
+  {
+   "front": "Smallest k such that \"S + V < P\" leaves a P blocked",
+   "back": "Largest initial S = P - V - 1.",
+   "kind": "formula"
+  }
+ ]
+}

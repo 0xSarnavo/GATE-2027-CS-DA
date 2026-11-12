@@ -1,0 +1,1616 @@
+{
+ "topic_id": "os.process",
+ "blueprint": {
+  "atoms": [
+   {
+    "id": "p1",
+    "name": "Process, program and PCB",
+    "one_line": "A process is a program in execution; the PCB stores its state, PC, registers, page-table pointer and open files."
+   },
+   {
+    "id": "p2",
+    "name": "Process states",
+    "one_line": "New, ready, running, waiting, terminated; running to ready is preemption, running to waiting is a blocking call, waiting goes only to ready."
+   },
+   {
+    "id": "p3",
+    "name": "Threads versus processes",
+    "one_line": "Threads share code, globals, heap and open files; each has its own stack, registers and PC."
+   },
+   {
+    "id": "p4",
+    "name": "Context switch",
+    "one_line": "Save the old PCB, load the new one; a process switch changes the address space, a thread switch inside one process does not."
+   },
+   {
+    "id": "p5",
+    "name": "System calls and mode switch",
+    "one_line": "A trap moves user mode to kernel mode; system calls, page faults and interrupts cause it, plain function calls do not."
+   },
+   {
+    "id": "p6",
+    "name": "fork() semantics",
+    "one_line": "fork() copies the caller; the child gets 0, the parent gets the child pid, and each has its own copy of every variable."
+   },
+   {
+    "id": "p7",
+    "name": "Counting fork() processes",
+    "one_line": "n unconditional forks in a row give 2^n processes; with conditions, trace who executes each fork."
+   },
+   {
+    "id": "p8",
+    "name": "Inter-process communication",
+    "one_line": "Pipes, message passing and shared memory; shared memory is fastest after setup because no kernel call is needed per access."
+   },
+   {
+    "id": "p9",
+    "name": "wait, exit, zombie and orphan",
+    "one_line": "wait() blocks until a child ends; a finished child nobody waits for is a zombie."
+   }
+  ],
+  "patterns": [
+   {
+    "name": "Count processes or printf calls with fork() in loops",
+    "years": [
+     "2019-CS-q27",
+     "2024-CS1-q57",
+     "2026-CS1-q63",
+     "2008-CS-q66",
+     "2012-CS-q8",
+     "2005-CS-q72"
+    ],
+    "freq": 6,
+    "note": "Draw the process tree; check which processes reach each fork and each printf."
+   },
+   {
+    "name": "Threads versus processes: what is shared",
+    "years": [
+     "2017-CS1-q18",
+     "2017-CS2-q7",
+     "2024-CS1-q24",
+     "2007-CS-q17",
+     "2011-CS-q16",
+     "2014-CS1-q20"
+    ],
+    "freq": 6,
+    "note": "Code, globals, heap, files shared; stack, registers, PC private."
+   },
+   {
+    "name": "Process state transitions",
+    "years": [
+     "2020-CS-q22",
+     "2024-CS1-q25",
+     "2025-CS1-q29"
+    ],
+    "freq": 3,
+    "note": "Waiting never goes straight to running; preemption sends running to ready."
+   },
+   {
+    "name": "What a context switch saves",
+    "years": [
+     "2023-CS-q22",
+     "2024-CS2-q25",
+     "2000-CS-q1_20",
+     "2011-CS-q6"
+    ],
+    "freq": 4,
+    "note": "Thread switch in one process keeps the page table; TLB is not saved."
+   },
+   {
+    "name": "System calls and mode switches",
+    "years": [
+     "2021-CS1-q24",
+     "2023-CS-q23",
+     "2001-CS-q1_12",
+     "2001-CS-q2_20",
+     "2011-CS-q11"
+    ],
+    "freq": 5,
+    "note": "Library calls like malloc and strlen may stay in user mode; exit, sleep and read always trap."
+   }
+  ],
+  "traps": [
+   "Counting 2^n for a loop whose fork() is guarded by a condition or whose child exits or breaks.",
+   "Counting children as 2^n instead of 2^n - 1; the original process is not a child.",
+   "Treating a variable as shared after fork(); the parent and child each have a private copy.",
+   "Saying threads have their own heap or their own file table; only stack, registers and PC are private.",
+   "Letting waiting go to running; a waiting process must become ready first.",
+   "Assuming a library call is a system call; malloc and strlen usually run in user mode."
+  ],
+  "hardest_pyq": "2026-CS1-q63",
+  "summary_md": "**Payoff:** count fork() processes fast and name every legal state change.\n\n- **Fork**: each fork() doubles processes; child gets 0, parent gets pid.\n- **Threads**: share code, heap, globals, files; own stack, registers, PC.\n- **Trap**: system calls and page faults enter kernel; plain calls do not.\n\n$$n \\text{ unconditional forks} \\Rightarrow 2^n \\text{ processes}$$\n\nNext: try the Level 1 questions.",
+  "summary_full_md": "## Core idea\nA process is a program in execution with its own address space. The OS tracks it in a process control block (PCB): state, program counter, registers, page-table pointer, open files. GATE asks you to count fork() processes, say what threads share, and judge state transitions, context switches and system calls.\n\n## States and switches\n1. States: new, ready, running, waiting, terminated. Ready to running is dispatch. Running to ready is preemption (timer). Running to waiting happens on a blocking call. Waiting to ready happens when the I/O finishes. Waiting never goes straight to running.\n2. A context switch saves the old PCB and loads the new one. Switching between processes changes the address space (page-table base register, TLB entries). Switching between threads of one process does not.\n3. A trap moves the CPU from user mode to kernel mode. System calls, page faults, interrupts and exceptions trap. A normal function call does not. malloc and strlen often stay in user mode; exit, sleep and read always enter the kernel.\n\n## Threads\nThreads of one process share code, globals, heap and open files. Each has its own stack, registers and program counter. A user-level thread that makes a blocking system call blocks the whole process, because the kernel sees one schedulable entity. Kernel-level threads can run on different cores in parallel.\n\n## fork() counting\nfork() returns 0 in the child and the child pid in the parent. Both continue from the next statement with separate copies of every variable.\n- n unconditional forks in a row: 2^n processes, 2^n - 1 children.\n- In `a && b`, the second operand runs only if the first is true, which in the parent means fork() returned non-zero. In the child (return 0) it is skipped. For `||` it is the reverse.\n- In a loop, track which processes continue to the next iteration. A child that breaks or exits stops multiplying.\n- Output questions: decide which processes reach each printf, then count.\n\n## wait and zombies\nwait() blocks the parent until any one child terminates. A child that has finished but has not been waited for is a zombie; a child whose parent died is an orphan and is adopted by init.\n\n## IPC\nPipes give a one-way byte stream. Message passing works across machines. Shared memory needs the kernel only to set it up, so it is the fastest local method, but the programs must synchronise themselves."
+ },
+ "pyq_enrichment": [
+  {
+   "id": "2017-CS1-q18",
+   "difficulty": 1,
+   "quick_method": "- Threads share **memory**; only the stack is private.",
+   "solution": "- Global variables and the **heap** sit in the shared address space.\n- Only stack and **registers** are private to a thread.\n- **Answer: D**",
+   "explanation": "- All threads of a process see one **address** space.",
+   "trap_note": "- Don't **assume** a private heap, do remember only the stack is private.",
+   "hints": [
+    "Do threads share globals?",
+    "Where does malloc get memory from?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Threads run inside one process, so they share its address space.\n2. Global variables live in the data segment, which is part of that space.\n3. The heap is also part of it, so every thread allocates from the same heap.\n4. Only the stack, registers and PC are per thread: option D.",
+   "explanation_full": "A thread is a unit of execution inside a process. The process owns memory and files; the thread owns only what is needed to run: a stack, registers and a program counter.",
+   "trap_note_full": "Believing the heap is per thread because each thread calls malloc. They all call the same allocator on the same heap."
+  },
+  {
+   "id": "2017-CS2-q7",
+   "difficulty": 1,
+   "quick_method": "- Shared: **memory**. Private: PC, stack, registers.",
+   "solution": "- PC, stack and registers are saved **per** thread.\n- Only the **address** space is shared: statement III.\n- **Answer: B**",
+   "explanation": "- A thread needs its own **context** to run independently.",
+   "trap_note": "- Don't **share** stack or PC, do give each thread its own.",
+   "hints": [
+    "Two threads run different code at once. Can they share one PC?",
+    "Which item describes memory, not execution?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Program counter: each thread is at a different instruction, so it is private (I false).\n2. Stack: each thread has its own calls and locals, so it is private (II false).\n3. Registers hold the running state, so they are private (IV false).\n4. The address space is shared (III true): option B.",
+   "explanation_full": "The shared parts are memory and resources. The private parts are exactly what a context switch between threads must save.",
+   "trap_note_full": "Picking the stack as shared because it is in memory. It is in the same address space but each thread gets its own region."
+  },
+  {
+   "id": "2019-CS-q27",
+   "difficulty": 3,
+   "quick_method": "- Count the **forks**: five even i; then 2^5 - 1.",
+   "solution": "- Only even i fork: 0, 2, 4, 6, 8 gives five **forks**.\n- Five doublings give 32 **processes**; children are 31.\n- **Answer: 31**",
+   "explanation": "- Every process reaches the next loop **iteration**, so each fork doubles.",
+   "trap_note": "- Don't **count** all ten iterations, do count only where the guard holds.",
+   "hints": [
+    "For how many values of i does the condition i%2==0 hold?",
+    "Does a child continue the loop after fork?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. The loop runs i = 0 to 9; fork() executes only when i is even.\n2. Even values: 0, 2, 4, 6, 8, so five fork calls on every path.\n3. Every process (parent and child) continues the loop, so each executed fork doubles the count: 2^5 = 32 processes.\n4. Children = 32 - 1 = 31.",
+   "explanation_full": "In a loop where all processes keep looping, the number of processes doubles once for every iteration that executes fork(). A guard just reduces the number of doubling iterations.",
+   "trap_note_full": "Counting all ten iterations (2^10 - 1 = 1023), or counting only the five forks of the original process (5)."
+  },
+  {
+   "id": "2020-CS-q22",
+   "difficulty": 1,
+   "quick_method": "- Blocked goes to **ready**, never straight to running.",
+   "solution": "- Statements I, II and IV are legal **transitions**.\n- III is **illegal**: a waiting process must become ready first.\n- **Answer: C**",
+   "explanation": "- Only the **scheduler** moves a process onto the CPU.",
+   "trap_note": "- Don't **send** blocked straight to running, do route it through ready.",
+   "hints": [
+    "Who decides which process runs?",
+    "What happens to a blocked process when its I/O completes?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Official key missing in questions file; crosscheck file gives C and I agree.",
+   "solution_full": "1. I: preemptive scheduling can force running to ready: true.\n2. II: dispatch moves ready to running: true.\n3. III: a blocked process must wait in the ready queue for the scheduler: false.\n4. IV: I/O completion moves blocked to ready: true. So I, II, IV: option C.",
+   "explanation_full": "The only way onto the CPU is from the ready queue, chosen by the scheduler. Blocking, preemption and completion all lead to the ready or waiting queues.",
+   "trap_note_full": "Reading III as true because the process 'resumes' after I/O. It resumes only after being rescheduled."
+  },
+  {
+   "id": "2021-CS1-q24",
+   "difficulty": 2,
+   "quick_method": "- **exit** and sleep always trap; malloc and strlen may not.",
+   "solution": "- exit and sleep must ask the **kernel** every time.\n- malloc often serves from a user-level pool; strlen is pure **user** code.\n- **Answer: A,C**",
+   "explanation": "- A library call traps only if the kernel is **required**.",
+   "trap_note": "- Don't **equate** library calls with traps, do ask if the kernel helps.",
+   "hints": [
+    "Can strlen finish without any OS help?",
+    "Does malloc always grow the heap through the kernel?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. exit terminates the process and must release kernel structures: always a system call.\n2. sleep suspends the process using the kernel timer: always a system call.\n3. malloc usually hands out memory from space already obtained; it calls brk or mmap only when the pool is empty.\n4. strlen only reads memory: no system call. Answer: A, C.",
+   "explanation_full": "System calls are the user-to-kernel gate. A C library function may or may not use one inside. The word 'always' in the question rules out malloc.",
+   "trap_note_full": "Choosing malloc because memory allocation sounds like an OS job."
+  },
+  {
+   "id": "2023-CS-q22",
+   "difficulty": 2,
+   "quick_method": "- Thread switch saves **SP**, PC, registers; page table stays.",
+   "solution": "- Each thread owns **SP**, PC and general registers.\n- The page-table base **register** stays the same inside one process.\n- **Answer: B,C,D**",
+   "explanation": "- Same process means same **address** space.",
+   "trap_note": "- Don't **reload** the page table, do save stack, PC, registers.",
+   "hints": [
+    "Do T1 and T2 share one address space?",
+    "Which items are per thread?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. T1 and T2 belong to one process, so the page table is common: no PTBR change (A false).\n2. Stack pointer differs per thread: save it (B).\n3. Program counter differs: save it (C).\n4. General-purpose registers hold thread state: save them (D). Answer B, C, D.",
+   "explanation_full": "A thread switch is cheaper than a process switch precisely because the memory-management state is untouched.",
+   "trap_note_full": "Picking the PTBR because a context switch usually changes the page table. That is true only between processes."
+  },
+  {
+   "id": "2023-CS-q23",
+   "difficulty": 2,
+   "quick_method": "- Only traps force kernel mode: **system** call and page fault.",
+   "solution": "- System calls and page faults both **trap** into the kernel.\n- A function call or malloc may stay in **user** mode.\n- **Answer: C,D**",
+   "explanation": "- Mode changes come from **traps**, not from ordinary calls.",
+   "trap_note": "- Don't **assume** malloc enters the kernel, do remember it need not.",
+   "hints": [
+    "Which of these are hardware or OS events rather than program calls?",
+    "Can malloc finish inside the library?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A function call is an ordinary jump: user mode (A no).\n2. malloc usually works inside the library: not guaranteed (B no).\n3. A page fault is a hardware exception handled in kernel mode: guaranteed (C yes).\n4. A system call is the explicit trap into the kernel: guaranteed (D yes).",
+   "explanation_full": "Guarantee needs the word 'always'. Only events whose handler lives in the kernel qualify.",
+   "trap_note_full": "Marking malloc because it sometimes calls brk. Sometimes is not a guarantee."
+  },
+  {
+   "id": "2024-CS1-q24",
+   "difficulty": 1,
+   "quick_method": "- Threads share memory and files; nothing in D is **false**.",
+   "solution": "- Threads are **unprotected** from each other: D is true.\n- Own stack, own file **table** and kernel-only are all false.\n- **Answer: D**",
+   "explanation": "- Shared address space means **no** protection between threads.",
+   "trap_note": "- Don't **claim** per-thread file tables or shared stacks, do check each statement.",
+   "hints": [
+    "Do threads share the file descriptor table?",
+    "Does one thread's stack get shared?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A: threads also exist in user space (user-level threads): false.\n2. B: the file descriptor table is shared by all threads: false.\n3. C: each thread has its own stack: false.\n4. D: threads share the address space, so one can corrupt another: true.",
+   "explanation_full": "Protection is a process-level feature enforced by separate address spaces. Threads give it up in exchange for cheap sharing.",
+   "trap_note_full": "Choosing B: each thread does not get a private file table."
+  },
+  {
+   "id": "2024-CS1-q25",
+   "difficulty": 1,
+   "quick_method": "- Legal: run to ready, run to end. Never wait to **run**.",
+   "solution": "- Waiting to running skips the **ready** queue: impossible.\n- Ready to waiting cannot happen: only a running process **blocks**.\n- **Answer: B,C**",
+   "explanation": "- A process blocks only by **executing** a blocking call.",
+   "trap_note": "- Don't **allow** waiting to running, do route through ready.",
+   "hints": [
+    "Who can issue a blocking system call?",
+    "Where does a waiting process go after I/O?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Running to ready: timer preemption, possible.\n2. Waiting to running: not possible, it goes to ready first (NOT possible).\n3. Ready to waiting: a ready process is not executing, so it cannot block (NOT possible).\n4. Running to terminated: exit, possible. Answer B, C.",
+   "explanation_full": "Blocking is a self-inflicted event, so only the running process can enter waiting.",
+   "trap_note_full": "Treating ready to waiting as an I/O request. Only a running process can issue one."
+  },
+  {
+   "id": "2024-CS1-q57",
+   "difficulty": 3,
+   "quick_method": "- Trace per **iteration**: each round adds fork prints, then wait.",
+   "solution": "- Round 1: 2 processes print, both wait, parent **continues**.\n- Rounds add up: 2 + 4 + 8 = **14**.\n- **Answer: 14**",
+   "explanation": "- Each **parent** waits for its child, so rounds do not overlap.",
+   "trap_note": "- Don't **multiply** 2^3 prints, do trace what each process does after wait().",
+   "hints": [
+    "After the fork in round k, how many processes reach printf?",
+    "Does the child run the remaining rounds too?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Let r(x) be prints for x iterations left in one process. After fork both parent and child print once and then run x-1 more rounds.\n2. r(x) = 2 + 2*r(x-1) because the parent and the child each continue with x-1 rounds. The wait does not change the count.\n3. r(0) = 0, r(1) = 2, r(2) = 2 + 4 = 6, r(3) = 2 + 12 = 14.\n4. Run on a real system with 3 rounds: 14 hello lines.",
+   "explanation_full": "wait() only changes ordering. The count is the same as without wait, but the recurrence is not 2^x - 1 because each fork is followed by a print.",
+   "trap_note_full": "Using 2^3 = 8, or 2^4 - 2 = 14 by luck without understanding. Tracing the recurrence r(x) = 2 + 2 r(x-1) is safer."
+  },
+  {
+   "id": "2024-CS2-q25",
+   "difficulty": 3,
+   "quick_method": "- Always out of running: **blocking** call, page fault on disk.",
+   "solution": "- A blocking read and a disk fault both **sleep** P.\n- A timer or foreign interrupt may leave P **running**.\n- **Answer: A,B**",
+   "explanation": "- 'Always' means the event **forces** P off the CPU.",
+   "trap_note": "- Don't **count** timer interrupts as always, do ask if P must wait.",
+   "hints": [
+    "Does the OS have to run something else when P is waiting for disk?",
+    "Could the scheduler pick P again after a timer tick?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. A: P blocks for disk data, so it must leave the CPU: yes.\n2. B: P needs the page from swap, so it blocks: yes.\n3. C: an interrupt for another process; P may resume at once: not always.\n4. D: a timer tick may find nobody else ready, so P may keep running: not always. Answer A, B.",
+   "explanation_full": "Only events that make P unable to continue guarantee a switch. Events that merely give the OS a chance to reschedule do not.",
+   "trap_note_full": "Choosing D because timer interrupts drive preemption. With one runnable process, nothing else is chosen."
+  },
+  {
+   "id": "2025-CS1-q29",
+   "difficulty": 3,
+   "quick_method": "- Every I/O return re-enters **ready**: scanf plus 20 printf.",
+   "solution": "- Each I/O completion sends the process to the **ready** queue.\n- One scanf plus twenty printf calls make **21**.\n- **Answer: 21**",
+   "explanation": "- Context switch on **every** I/O means one ready-queue entry per I/O.",
+   "trap_note": "- Don't **add** the initial ready entry, do count only returns from I/O.",
+   "hints": [
+    "How many I/O operations does the program perform?",
+    "The question excludes the first entry, which one is that?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. The first admission to the ready queue is excluded.\n2. I/O operations: scanf once, printf inside the loop 20 times: 21 operations.\n3. After each one the process leaves the CPU, sits in the I/O queue, and returns to the ready queue when the I/O ends.\n4. So it enters the ready queue 21 more times.",
+   "explanation_full": "Each blocking call produces one running to waiting to ready cycle. Counting cycles equals counting blocking calls.",
+   "trap_note_full": "Answering 20 and forgetting scanf, or 22 by counting the initial entry and the return."
+  },
+  {
+   "id": "2026-CS1-q63",
+   "difficulty": 4,
+   "quick_method": "- The loop **chain**: each parent breaks; only a child continues.",
+   "solution": "- Parent breaks at once; the child keeps going to the next **i**.\n- Three forks add three **children**: 1 + 3 = 4 prints.\n- **Answer: 4**",
+   "explanation": "- After the loop, every process reaches the **printf** once.",
+   "trap_note": "- Don't **double** every iteration, do track who continues and who breaks.",
+   "hints": [
+    "After fork in iteration 0, which process continues the loop?",
+    "How many processes finally reach printf?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "",
+   "solution_full": "1. Iteration i=0: fork. Parent (non-zero) hits break and exits the loop, then prints. Child continues to i=1.\n2. Iteration i=1: the same: the surviving child forks once, its parent breaks and prints.\n3. Iteration i=2: one more fork. After i=3 the last child leaves the loop and prints.\n4. Printers: the original, two intermediate children and the last child: 4.",
+   "explanation_full": "The loop is a chain, not a tree: at each step exactly one process is allowed to continue. Total processes equal forks plus one.",
+   "trap_note_full": "Using 2^3 = 8. That ignores the break that stops each parent."
+  },
+  {
+   "id": "2000-CS-q1_20",
+   "difficulty": 1,
+   "quick_method": "- The **TLB** is hardware cache state, not saved.",
+   "solution": "- Registers and PC are in the **PCB**.\n- TLB entries are not saved; they are **flushed** or tagged.\n- **Answer: B**",
+   "explanation": "- Saved state is what the process needs to **resume**.",
+   "trap_note": "- Don't **save** the TLB, do save registers and PC.",
+   "hints": [
+    "What does a process need back to resume?",
+    "Is the TLB part of the process?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. General-purpose registers and the PC must be saved: they define where the process was.\n2. The TLB is a cache of translations: it can be rebuilt, so it need not be saved (option B).\n3. The question asks which need not be saved: B.",
+   "explanation_full": "A context switch saves architectural state. Caches are rebuilt on demand, which is why switching has a hidden cost after the switch.",
+   "trap_note_full": "Picking 'all of the above'. Only a cache is skippable."
+  },
+  {
+   "id": "2001-CS-q1_12",
+   "difficulty": 2,
+   "quick_method": "- Software interrupt = **system** call to reach privileged work.",
+   "solution": "- A software interrupt is how user code **requests** the OS.\n- It reaches **privileged** instructions.\n- **Answer: C**",
+   "explanation": "- User code cannot run privileged **instructions** directly.",
+   "trap_note": "- Don't **confuse** it with a return, do link it to system calls.",
+   "hints": [
+    "Which option is about getting kernel services?",
+    "Does a subroutine return need an interrupt?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. A software interrupt (trap) switches to kernel mode.\n2. Its purpose is to obtain OS services that need privileged instructions: C.\n3. Testing the interrupt system and coroutines are not its role.",
+   "explanation_full": "Traps are the controlled doorway from user code into the kernel.",
+   "trap_note_full": "Choosing 'return from subroutine'. Returns use plain jump instructions."
+  },
+  {
+   "id": "2001-CS-q2_20",
+   "difficulty": 2,
+   "quick_method": "- The scheduler is a **kernel** routine, not an interrupt source.",
+   "solution": "- Devices, timer and power failure raise real **interrupts**.\n- The scheduler runs **after** an interrupt; it does not interrupt.\n- **Answer: C**",
+   "explanation": "- Interrupts come from **hardware** events.",
+   "trap_note": "- Don't **treat** the scheduler as an interrupt, do treat it as response.",
+   "hints": [
+    "Which options are hardware events?",
+    "What does the scheduler do after the timer fires?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. A device raises an interrupt when I/O completes.\n2. The timer interrupts periodically.\n3. Power failure raises an interrupt too.\n4. The scheduler is software the kernel calls; it does not interrupt anything: C.",
+   "explanation_full": "The scheduler is invoked by the kernel after events such as a timer interrupt or a blocking call.",
+   "trap_note_full": "Choosing 'timer' because it triggers scheduling. The timer interrupts; the scheduler follows."
+  },
+  {
+   "id": "2005-CS-q72",
+   "difficulty": 3,
+   "quick_method": "- Child and parent have separate **copies** at the same address.",
+   "solution": "- Child prints a + 5, parent a - 5: **ten** apart.\n- Both print the same virtual **address**: v = y.\n- **Answer: C**",
+   "explanation": "- Copies live at the same **virtual** address in different spaces.",
+   "trap_note": "- Don't **expect** different addresses, do remember virtual addresses are copied.",
+   "hints": [
+    "What do the parent and child compute from the same a?",
+    "Is &a a physical or virtual address?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. After fork both have the same a. The child prints a + 5 (x); the parent prints a - 5 (u).\n2. So x - u = 10, giving u + 10 = x.\n3. The address printed is virtual, and the child's address space is a copy with the same layout, so v = y.\n4. Option C.",
+   "explanation_full": "fork() duplicates the address space, so each variable exists twice at the same virtual address, with different values after assignments.",
+   "trap_note_full": "Thinking the address differs because the variables are different. They are different physical locations behind the same virtual address."
+  },
+  {
+   "id": "2008-CS-q66",
+   "difficulty": 1,
+   "quick_method": "- n forks in a row: 2^n **processes**, minus the original.",
+   "solution": "- Every process runs every iteration, so the count **doubles** n times.\n- Children = 2^n - 1, the **original** excluded.\n- **Answer: B**",
+   "explanation": "- The original is not a **child**.",
+   "trap_note": "- Don't **answer** 2^n, do subtract the original.",
+   "hints": [
+    "How many processes after one iteration? After two?",
+    "Is the original a child?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. After iteration 1 there are 2 processes, after 2 there are 4: 2^n after n iterations.\n2. The original is not created by fork, so subtract it.\n3. Children = 2^n - 1: option B.",
+   "explanation_full": "Process count doubles at every unconditional fork. Child count is the total minus the process that started.",
+   "trap_note_full": "Choosing 2^n, which counts the parent too."
+  },
+  {
+   "id": "2011-CS-q6",
+   "difficulty": 2,
+   "quick_method": "- Mode switch is **cheaper** than a process switch: T1 < T2.",
+   "solution": "- A mode switch saves little and keeps the **address** space.\n- A process switch swaps PCBs and **memory** maps.\n- **Answer: C**",
+   "explanation": "- More state to switch means more **time**.",
+   "trap_note": "- Don't **equate** a trap with a context switch, do compare saved state.",
+   "hints": [
+    "Which switch changes the page table?",
+    "Which saves more registers?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. User to kernel mode: the same process, same address space, minimal state saved.\n2. User process to user process: save and restore the PCB, change the page table, lose TLB entries.\n3. So T1 < T2: C.",
+   "explanation_full": "A system call costs a trap; a process switch costs a trap plus a scheduler run plus a memory-map change.",
+   "trap_note_full": "Assuming both are 'switches' and equal."
+  },
+  {
+   "id": "2011-CS-q16",
+   "difficulty": 2,
+   "quick_method": "- Per thread the OS keeps registers, stack, **no** VM state.",
+   "solution": "- Virtual memory state belongs to the **process**.\n- Each thread still has its own **stack**.\n- **Answer: C**",
+   "explanation": "- A thread is light because it **shares** memory management.",
+   "trap_note": "- Don't **think** thread means registers only, do add stack and scheduling data.",
+   "hints": [
+    "Does each thread have its own page table?",
+    "Does each thread have its own stack?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. A thread needs a stack, registers and scheduling information (A and D are incomplete; B is false).\n2. The page table belongs to the process, so the OS does not keep per-thread virtual-memory state (C true).",
+   "explanation_full": "Light weight means the per-thread record excludes memory maps and resource tables.",
+   "trap_note_full": "Choosing A: the OS also keeps a stack and scheduling data per thread."
+  },
+  {
+   "id": "2012-CS-q8",
+   "difficulty": 1,
+   "quick_method": "- Three forks: 8 processes, 7 **children**.",
+   "solution": "- Three unconditional forks give 2^3 = 8 **processes**.\n- Subtract the **original**: 7.\n- **Answer: C**",
+   "explanation": "- Every process runs each later **fork**.",
+   "trap_note": "- Don't **answer** 8, do subtract the original process.",
+   "hints": [
+    "How many processes after the first fork? After the second?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. After fork 1: 2 processes. After fork 2: 4. After fork 3: 8.\n2. Children = 8 - 1 = 7: option C.",
+   "explanation_full": "Same doubling rule as the loop version.",
+   "trap_note_full": "Answering 8, the total."
+  },
+  {
+   "id": "2007-CS-q17",
+   "difficulty": 2,
+   "quick_method": "- Blocking one **kernel** thread does not block the rest.",
+   "solution": "- The kernel can schedule another thread of the **process**.\n- Blocking all threads is **user**-level behaviour.\n- **Answer: D**",
+   "explanation": "- The kernel sees kernel threads **individually**.",
+   "trap_note": "- Don't **blame** kernel threads for blocking everything, do blame user threads.",
+   "hints": [
+    "Does the kernel know about each kernel thread?",
+    "Which kind of thread hides from the kernel?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. A: kernel thread switches need kernel work, so they are slower: true.\n2. B: user threads need no hardware support: true.\n3. C: kernel threads may run on different CPUs: true.\n4. D: blocking one kernel thread blocks all: false.",
+   "explanation_full": "User threads are invisible to the kernel; one blocking system call blocks the process. Kernel threads are scheduled separately.",
+   "trap_note_full": "Mixing up which thread type blocks the whole process."
+  },
+  {
+   "id": "2014-CS1-q20",
+   "difficulty": 2,
+   "quick_method": "- Kernel threads **do** share the code segment.",
+   "solution": "- Threads of one process share code, whether user or **kernel** level.\n- D is **false**.\n- **Answer: D**",
+   "explanation": "- Sharing code is a property of **threads**, not of level.",
+   "trap_note": "- Don't **believe** kernel threads have private code, do remember they share it.",
+   "hints": [
+    "Do kernel threads belong to a process?",
+    "What do threads of a process share?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. A: the kernel does not schedule user threads: true.\n2. B: one blocked user thread blocks the process: true.\n3. C: user-level switching is faster: true.\n4. D: kernel threads of one process do share the code segment, so D is false.",
+   "explanation_full": "Threads in a process always share code and data; the level only changes who schedules them.",
+   "trap_note_full": "Reading D as true because kernel threads are 'heavier'."
+  },
+  {
+   "id": "2011-CS-q11",
+   "difficulty": 1,
+   "quick_method": "- The **temperature** sensor interrupt is the most urgent.",
+   "solution": "- Hardware safety beats **I/O** completion and input events.\n- Overheating can **damage** the chip.\n- **Answer: D**",
+   "explanation": "- Priority follows the cost of **delay**.",
+   "trap_note": "- Don't **rank** the disk first, do rank safety first.",
+   "hints": [
+    "Which event can destroy hardware if delayed?"
+   ],
+   "answer_check": "agrees",
+   "answer_check_note": "Pre-2017 key: GATE Overflow accepted answer.",
+   "solution_full": "1. Mouse and keyboard events can wait a few milliseconds.\n2. Disk completion can wait a little.\n3. An over-temperature alarm cannot wait: D.",
+   "explanation_full": "Interrupt priority puts safety and time-critical sources above ordinary I/O.",
+   "trap_note_full": "Choosing the disk because it carries data."
+  }
+ ],
+ "ladder": [
+  {
+   "id": "gen.process.001",
+   "level": 1,
+   "order_in_topic": 1,
+   "atoms": [
+    "p1"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Which statement about a process and a program is correct?",
+   "options": [
+    {
+     "key": "A",
+     "text": "A program is a passive file; a process is that program in execution"
+    },
+    {
+     "key": "B",
+     "text": "A process and a program are the same thing"
+    },
+    {
+     "key": "C",
+     "text": "A program has a PCB; a process has none"
+    },
+    {
+     "key": "D",
+     "text": "Two processes cannot run the same program"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "One of them sits on disk; the other is running or ready.",
+    "The OS keeps a PCB for the one that executes.",
+    "Can two users run the same editor at once?"
+   ],
+   "solution": "- A program is just a **file** of instructions on disk.\n- A process is the running copy, with its own **state** and PCB.\n- **Answer: A**",
+   "quick_method": "- A program is **passive**, a process is active.",
+   "trap_note": "- Don't **merge** program and process, do count one program as many processes.",
+   "explanation": "- A process is a program with **state**.",
+   "verified": true,
+   "solution_full": "1. A program is code and data stored on disk; it does nothing by itself.\n2. A process is created when the OS loads it: it gets an address space, a PC, registers and a PCB.\n3. One program can have many processes, for example several terminals running the same shell.\n4. So only option A is correct.",
+   "explanation_full": "The PCB, the address space and the CPU state exist only for processes. This distinction underlies every later idea: scheduling, switching and fork all deal with processes.",
+   "trap_note_full": "Thinking a process needs a unique program. Many processes can run one program."
+  },
+  {
+   "id": "gen.process.002",
+   "level": 1,
+   "order_in_topic": 2,
+   "atoms": [
+    "p3"
+   ],
+   "type": "MSQ",
+   "marks": 1,
+   "stem": "Which of the following are shared by all threads of one process?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Global variables"
+    },
+    {
+     "key": "B",
+     "text": "Stack"
+    },
+    {
+     "key": "C",
+     "text": "Open files"
+    },
+    {
+     "key": "D",
+     "text": "Program counter"
+    }
+   ],
+   "answer": "A,C",
+   "hints": [
+    "Think about what the process owns versus what a running thread needs.",
+    "Two threads execute different code at the same moment.",
+    "Which items would each thread need privately to run independently?"
+   ],
+   "solution": "- The process owns memory and **files**; threads share them.\n- Stack and PC are what each thread needs **privately**.\n- **Answer: A, C**",
+   "quick_method": "- Shared: data and files. Private: stack, PC, **registers**.",
+   "trap_note": "- Don't **share** the stack, do give every thread its own.",
+   "explanation": "- Threads share **resources**, not execution state.",
+   "verified": true,
+   "solution_full": "1. Global variables live in the data segment of the common address space: shared (A).\n2. Each thread makes its own calls, so it needs its own stack: private (B no).\n3. The file descriptor table belongs to the process: shared (C).\n4. Each thread is at a different instruction: the PC is private (D no).",
+   "explanation_full": "Resources (memory, files) belong to the process. Execution state (stack, PC, registers) belongs to the thread.",
+   "trap_note_full": "Picking the stack since it lives in the shared address space. Each thread gets its own region."
+  },
+  {
+   "id": "gen.process.003",
+   "level": 1,
+   "order_in_topic": 3,
+   "atoms": [
+    "p2"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Which process state transition is NOT possible?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Running to ready"
+    },
+    {
+     "key": "B",
+     "text": "Ready to running"
+    },
+    {
+     "key": "C",
+     "text": "Waiting to running"
+    },
+    {
+     "key": "D",
+     "text": "Running to waiting"
+    }
+   ],
+   "answer": "C",
+   "hints": [
+    "List the five states and draw the arrows you know.",
+    "What must happen to a waiting process after its I/O completes?",
+    "Who moves a process from ready to running?"
+   ],
+   "solution": "- Waiting goes to **ready** first.\n- The **scheduler** alone moves a process to running.\n- **Answer: C**",
+   "quick_method": "- A **waiting** process needs the scheduler before it runs.",
+   "trap_note": "- Don't **jump** from waiting to running, do pass through ready.",
+   "explanation": "- Running is entered only from **ready**.",
+   "verified": true,
+   "solution_full": "1. Running to ready: preemption by the scheduler, possible.\n2. Ready to running: dispatch, possible.\n3. Waiting to running: the process would skip the ready queue and the scheduler; not possible.\n4. Running to waiting: blocking call, possible. Answer C.",
+   "explanation_full": "The ready queue is the single door onto the CPU, which keeps scheduling decisions in one place.",
+   "trap_note_full": "Choosing running to ready; that is ordinary timer preemption."
+  },
+  {
+   "id": "gen.process.004",
+   "level": 1,
+   "order_in_topic": 4,
+   "atoms": [
+    "p6"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "In the code below, what does fork() return in the child process?\n```c\npid = fork();\n```",
+   "options": [
+    {
+     "key": "A",
+     "text": "0"
+    },
+    {
+     "key": "B",
+     "text": "The child's pid"
+    },
+    {
+     "key": "C",
+     "text": "The parent's pid"
+    },
+    {
+     "key": "D",
+     "text": "-1"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "The two processes need a way to tell themselves apart after fork.",
+    "Which one needs the child's pid, the parent or the child?",
+    "-1 means failure."
+   ],
+   "solution": "- The child gets **zero**.\n- The parent gets the child's **pid**.\n- **Answer: A**",
+   "quick_method": "- Child sees **0**; parent sees the child pid.",
+   "trap_note": "- Don't **swap** the return values, do test fork()==0 for the child.",
+   "explanation": "- The return value tells the two **copies** apart.",
+   "verified": true,
+   "solution_full": "1. fork() creates a near-identical copy of the caller.\n2. To distinguish them, the child receives 0.\n3. The parent receives the new child's pid (positive), so it can wait for it.\n4. A negative value means fork failed. Answer A.",
+   "explanation_full": "Code such as if (fork()==0) { child } else { parent } depends on exactly this rule.",
+   "trap_note_full": "Mixing up which side gets 0."
+  },
+  {
+   "id": "gen.process.005",
+   "level": 1,
+   "order_in_topic": 5,
+   "atoms": [
+    "p9"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A child process has finished but its parent has not yet called wait(). What is the child called?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Zombie"
+    },
+    {
+     "key": "B",
+     "text": "Orphan"
+    },
+    {
+     "key": "C",
+     "text": "Daemon"
+    },
+    {
+     "key": "D",
+     "text": "Thread"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "The child is dead but something about it is still stored.",
+    "What is kept so the parent can read the exit status?",
+    "An orphan is a child whose parent has died."
+   ],
+   "solution": "- A finished child keeps its **entry** until the parent reads it.\n- That leftover entry is a **zombie**.\n- **Answer: A**",
+   "quick_method": "- Finished, not waited for: **zombie**.",
+   "trap_note": "- Don't **call** it an orphan, do reserve orphan for a dead parent.",
+   "explanation": "- wait() **reaps** the zombie.",
+   "verified": true,
+   "solution_full": "1. When a child exits, the kernel keeps its exit status and PCB entry.\n2. The parent collects this with wait(); until then the child is a zombie.\n3. An orphan is the opposite case: the parent exits first and init adopts the child.\n4. Answer A.",
+   "explanation_full": "Zombies use no CPU, but they hold a process-table slot until reaped.",
+   "trap_note_full": "Confusing zombie and orphan."
+  },
+  {
+   "id": "gen.process.006",
+   "level": 1,
+   "order_in_topic": 6,
+   "atoms": [
+    "p5"
+   ],
+   "type": "MSQ",
+   "marks": 1,
+   "stem": "Which of the following always cause the CPU to switch from user mode to kernel mode?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Calling a function defined in the same program"
+    },
+    {
+     "key": "B",
+     "text": "Executing the read() system call"
+    },
+    {
+     "key": "C",
+     "text": "A page fault"
+    },
+    {
+     "key": "D",
+     "text": "Adding two registers"
+    }
+   ],
+   "answer": "B,C",
+   "hints": [
+    "Which items need kernel code to run?",
+    "Is an ordinary call handled by hardware or the OS?",
+    "Which one is a hardware exception served by the OS?"
+   ],
+   "solution": "- System calls and page faults both **trap**.\n- Calls inside the program and arithmetic stay in **user** mode.\n- **Answer: B, C**",
+   "quick_method": "- Mode switch needs a **trap**, not a call.",
+   "trap_note": "- Don't **count** any function call, do count only traps and interrupts.",
+   "explanation": "- Only the **kernel** handles a trap.",
+   "verified": true,
+   "solution_full": "1. A normal call is a jump inside user code: no mode switch (A no).\n2. read() is a system call: it traps into the kernel (B yes).\n3. A page fault is an exception whose handler is kernel code (C yes).\n4. Register addition is an ordinary instruction (D no).",
+   "explanation_full": "The CPU moves to kernel mode on exceptions, interrupts and explicit trap instructions. Everything else runs unprivileged.",
+   "trap_note_full": "Treating every call as a system call."
+  },
+  {
+   "id": "gen.process.007",
+   "level": 2,
+   "order_in_topic": 7,
+   "atoms": [
+    "p6",
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A program executes three fork() calls one after another, with no conditions and no exits:\n```c\nfork();\nfork();\nfork();\n```\nHow many processes exist at the end, counting the original?",
+   "answer": "8",
+   "hints": [
+    "After one fork there are 2 processes.",
+    "Each existing process executes the next fork.",
+    "Doubling three times."
+   ],
+   "solution": "- Each fork **doubles** the process count.\n- Three doublings: 2 x 2 x 2 = **8**.\n- **Answer: 8**",
+   "quick_method": "- n forks in a row: **2^n**.",
+   "trap_note": "- Don't **add** three, do double three times.",
+   "explanation": "- Every process runs every later fork, so counts **multiply**.",
+   "verified": true,
+   "solution_full": "1. Start with 1 process.\n2. After the first fork there are 2; both run the second fork, giving 4.\n3. All 4 run the third fork, giving 8.",
+   "explanation_full": "The rule 2^n comes from every live process executing every later fork. The children count is 2^n - 1.",
+   "trap_note_full": "Answering 4 (three forks create three children, plus the parent)."
+  },
+  {
+   "id": "gen.process.008",
+   "level": 2,
+   "order_in_topic": 8,
+   "atoms": [
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "How many child processes does the following create (the original process is not a child)?\n```c\nfor (i = 0; i < 4; i++)\n    fork();\n```",
+   "answer": "15",
+   "hints": [
+    "Every process, parent and child, runs the next iteration.",
+    "How many processes after 4 doublings?",
+    "Subtract the original."
+   ],
+   "solution": "- Four doublings give 16 **processes**.\n- Children are 16 minus the **original**.\n- **Answer: 15**",
+   "quick_method": "- Loop of n forks: 2^n - **1** children.",
+   "trap_note": "- Don't **report** 16, do remove the original.",
+   "explanation": "- The original is **not** a child.",
+   "verified": true,
+   "variant_of": "2008-CS-q66",
+   "solution_full": "1. The child created in iteration i starts with the same i and continues the loop, so every process runs every remaining iteration.\n2. Processes double four times: 2^4 = 16.\n3. Children = 16 - 1 = 15.",
+   "explanation_full": "Same law as three separate forks: a loop with an unconditional fork just repeats the doubling.",
+   "trap_note_full": "Counting 16, which includes the original."
+  },
+  {
+   "id": "gen.process.009",
+   "level": 2,
+   "order_in_topic": 9,
+   "atoms": [
+    "p6"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "What does the parent print?\n```c\nint x = 10;\nif (fork() == 0) {\n    x = x + 5;\n} else {\n    wait(NULL);\n    printf(\"%d\", x);\n}\n```",
+   "options": [
+    {
+     "key": "A",
+     "text": "10"
+    },
+    {
+     "key": "B",
+     "text": "15"
+    },
+    {
+     "key": "C",
+     "text": "5"
+    },
+    {
+     "key": "D",
+     "text": "Undefined"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "After fork, how many copies of x exist?",
+    "Which copy does the child change?",
+    "Does the parent's copy see that change?"
+   ],
+   "solution": "- Each process has its own **copy** of x.\n- The child's change never **reaches** the parent.\n- **Answer: A**",
+   "quick_method": "- fork copies memory: parent keeps **10**.",
+   "trap_note": "- Don't **share** variables across fork, do treat copies as independent.",
+   "explanation": "- fork() duplicates the **address** space.",
+   "verified": true,
+   "solution_full": "1. fork() copies the address space, so x exists twice.\n2. The child adds 5 to its own x.\n3. The parent waits, then prints its own x, still 10.",
+   "explanation_full": "Processes do not share variables. That is the key difference from threads, which would share x.",
+   "trap_note_full": "Answering 15 as if x were shared like a thread variable."
+  },
+  {
+   "id": "gen.process.010",
+   "level": 2,
+   "order_in_topic": 10,
+   "atoms": [
+    "p2"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "A process is admitted to the ready queue and starts running. It issues 4 blocking I/O requests during its life and is never preempted. Excluding the first admission, how many times does it enter the ready queue?",
+   "answer": "4",
+   "hints": [
+    "What happens to the process after each I/O request?",
+    "Where does it go when the I/O finishes?",
+    "One return per request."
+   ],
+   "solution": "- Each I/O returns it to **ready** once.\n- Four requests make four **returns**.\n- **Answer: 4**",
+   "quick_method": "- One ready entry per **blocking** call.",
+   "trap_note": "- Don't **add** the first admission, do count only returns from I/O.",
+   "explanation": "- Waiting always leads back to **ready**.",
+   "verified": true,
+   "variant_of": "2025-CS1-q29",
+   "solution_full": "1. Request: running to waiting.\n2. Completion: waiting to ready.\n3. Four requests give four completions, so four more entries.",
+   "explanation_full": "Counting blocking calls equals counting waiting-to-ready transitions when there is no preemption.",
+   "trap_note_full": "Answering 5 by counting the first admission."
+  },
+  {
+   "id": "gen.process.011",
+   "level": 2,
+   "order_in_topic": 11,
+   "atoms": [
+    "p4"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A context switch happens between two threads of the same process. Which of the following does NOT need to change?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Page table base register"
+    },
+    {
+     "key": "B",
+     "text": "Stack pointer"
+    },
+    {
+     "key": "C",
+     "text": "Program counter"
+    },
+    {
+     "key": "D",
+     "text": "General purpose registers"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Both threads use the same address space.",
+    "Which register points to the memory map?",
+    "The other three differ per thread."
+   ],
+   "solution": "- Same process means the same **page** table.\n- SP, PC and registers must be **swapped**.\n- **Answer: A**",
+   "quick_method": "- Thread switch keeps the **address** space.",
+   "trap_note": "- Don't **reload** the page table, do swap only per-thread state.",
+   "explanation": "- Memory maps belong to the **process**.",
+   "verified": true,
+   "solution_full": "1. Threads of one process share one address space and one page table.\n2. Each thread has its own stack, so SP changes.\n3. Each thread has its own PC and registers, so these change.\n4. Only the page-table base register stays: A.",
+   "explanation_full": "This is why thread switches are cheaper than process switches: no memory-map change, and fewer TLB misses afterwards.",
+   "trap_note_full": "Picking SP because it looks like 'memory'. SP is per thread."
+  },
+  {
+   "id": "gen.process.012",
+   "level": 2,
+   "order_in_topic": 12,
+   "atoms": [
+    "p3"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "A process uses user-level threads (the kernel sees one thread). One thread makes a blocking read() system call. What happens to the other threads?",
+   "options": [
+    {
+     "key": "A",
+     "text": "All threads of the process block"
+    },
+    {
+     "key": "B",
+     "text": "Only the calling thread blocks; the others keep running"
+    },
+    {
+     "key": "C",
+     "text": "The kernel kills the other threads"
+    },
+    {
+     "key": "D",
+     "text": "The others run on another process"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "How many schedulable entities does the kernel see?",
+    "Which entity does the kernel block?",
+    "Could the user library run another thread while the kernel holds the process?"
+   ],
+   "solution": "- The kernel sees one **entity**: the process.\n- Blocking it stops **every** thread inside.\n- **Answer: A**",
+   "quick_method": "- User threads hide from the kernel, so one block stops **all**.",
+   "trap_note": "- Don't **assume** the library reschedules, do remember the kernel blocks all.",
+   "explanation": "- Kernel threads fix this by being **visible**.",
+   "verified": true,
+   "solution_full": "1. With user-level threads the kernel schedules the process as one unit.\n2. A blocking system call blocks that unit.\n3. The library never regains control, so no other thread runs: A.",
+   "explanation_full": "This is the main drawback of pure user-level threads, along with being unable to use several CPUs.",
+   "trap_note_full": "Believing that a thread library can hide a blocking system call by itself."
+  },
+  {
+   "id": "gen.process.013",
+   "level": 2,
+   "order_in_topic": 13,
+   "atoms": [
+    "p8"
+   ],
+   "type": "MCQ",
+   "marks": 1,
+   "stem": "Which interprocess communication method needs the kernel only to set it up, and none for each later read or write?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Shared memory"
+    },
+    {
+     "key": "B",
+     "text": "Pipe"
+    },
+    {
+     "key": "C",
+     "text": "Message queue"
+    },
+    {
+     "key": "D",
+     "text": "Socket"
+    }
+   ],
+   "answer": "A",
+   "hints": [
+    "Which method lets processes access common memory directly?",
+    "Which ones send data through the kernel?",
+    "Each pipe write is a write() call."
+   ],
+   "solution": "- Shared memory maps one region into both **processes**.\n- After setup, accesses are plain **memory** operations.\n- **Answer: A**",
+   "quick_method": "- Fastest local IPC: **shared** memory.",
+   "trap_note": "- Don't **pick** pipes for speed, do remember each transfer enters the kernel.",
+   "explanation": "- Shared memory also needs **synchronisation**.",
+   "verified": true,
+   "solution_full": "1. Pipes, message queues and sockets copy data through the kernel on each send and receive.\n2. Shared memory is mapped once; later reads and writes are ordinary loads and stores.\n3. So A is the answer, at the price of manual synchronisation.",
+   "explanation_full": "The speed gain comes from skipping the kernel; the cost is that the processes must protect the shared data themselves.",
+   "trap_note_full": "Assuming pipes are fastest because they are simple."
+  },
+  {
+   "id": "gen.process.014",
+   "level": 3,
+   "order_in_topic": 14,
+   "atoms": [
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "How many child processes does this program create?\n```c\nfor (i = 0; i < 12; i++)\n    if (i % 3 == 0)\n        fork();\n```",
+   "answer": "15",
+   "hints": [
+    "For how many values of i is the condition true?",
+    "Every process, child included, runs every later iteration.",
+    "Doublings, then subtract the original."
+   ],
+   "solution": "- The guard holds for i = 0, 3, 6, 9: four **forks**.\n- Then 2^4 processes, minus the **original**.\n- **Answer: 15**",
+   "quick_method": "- Count guarded forks k, then 2^k - **1**.",
+   "trap_note": "- Don't **count** twelve iterations, do count only guarded ones.",
+   "explanation": "- A guard reduces the number of **doublings**.",
+   "verified": true,
+   "variant_of": "2019-CS-q27",
+   "solution_full": "1. Values of i from 0 to 11 with i % 3 == 0: 0, 3, 6, 9, four values.\n2. Every process runs every iteration, so each executed fork doubles the count.\n3. 2^4 = 16 processes; children = 15.",
+   "explanation_full": "Same structure as 2019 q27 with a different guard. The guard depends only on i, so it is the same for all processes.",
+   "trap_note_full": "Using 2^12 - 1."
+  },
+  {
+   "id": "gen.process.015",
+   "level": 3,
+   "order_in_topic": 15,
+   "atoms": [
+    "p7",
+    "p6"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "How many processes (counting the original) exist after both statements finish?\n```c\nfork() && fork();\nfork() || fork();\n```",
+   "answer": "9",
+   "hints": [
+    "In a && b, b runs only when a is true.",
+    "In the parent fork() is non-zero; in the child it is 0.",
+    "Trace the first line: how many processes after it?"
+   ],
+   "solution": "- Line 1 leaves **three** processes; line 2 triples again.\n- Three times three is **nine**.\n- **Answer: 9**",
+   "quick_method": "- && skips for the child; || skips for the **parent**.",
+   "trap_note": "- Don't **assume** both operands run, do apply short-circuit rules.",
+   "explanation": "- Short-circuit decides who forks the **second** time.",
+   "verified": true,
+   "solution_full": "1. Line 1, fork() && fork(): the parent gets non-zero and runs the second fork; the child gets 0 and skips it. Result: P, C1 (skipped), C2 from P's second fork: 3 processes.\n2. Line 2, fork() || fork(): the parent gets non-zero and skips; the child gets 0 and runs the second fork. Each process becomes 1 + (1 forked) + (1 extra from the child) = 3 processes.\n3. Each of the 3 processes from line 1 turns into 3: 9 total.",
+   "explanation_full": "Each of the two statements multiplies the process count by 3, because exactly one extra fork happens per pair.",
+   "trap_note_full": "Counting 16 because there are four fork calls."
+  },
+  {
+   "id": "gen.process.016",
+   "level": 3,
+   "order_in_topic": 16,
+   "atoms": [
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "How many times is printf executed?\n```c\nfor (i = 0; i < 3; i++) {\n    if (fork() == 0)\n        break;\n}\nprintf(\"x\");\n```",
+   "answer": "4",
+   "hints": [
+    "Which process leaves the loop right after a fork?",
+    "Which process continues to the next i?",
+    "How many processes reach printf in the end?"
+   ],
+   "solution": "- Each child **breaks** at once; only the parent loops on.\n- Three children plus the original: **four**.\n- **Answer: 4**",
+   "quick_method": "- Child leaves; parent continues. Prints = forks + **1**.",
+   "trap_note": "- Don't **double** per iteration, do track the break.",
+   "explanation": "- Children never **fork** again here.",
+   "verified": true,
+   "variant_of": "2026-CS1-q63",
+   "solution_full": "1. i = 0: fork. The child (returns 0) breaks and prints. The parent continues.\n2. i = 1 and i = 2: the same, each making one child that prints.\n3. After i = 2 the parent exits the loop and prints. Total prints: 3 children + 1 parent = 4.",
+   "explanation_full": "A break in the child turns the doubling tree into a chain of single forks. Counting is forks + 1.",
+   "trap_note_full": "Using 2^3 = 8."
+  },
+  {
+   "id": "gen.process.017",
+   "level": 3,
+   "order_in_topic": 17,
+   "atoms": [
+    "p6",
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "Standard output is unbuffered, so every printf appears at once. How many characters are printed in total?\n```c\nprintf(\"A\");\nfork();\nprintf(\"B\");\nfork();\nprintf(\"C\");\n```",
+   "answer": "7",
+   "hints": [
+    "How many processes print B?",
+    "How many processes print C?",
+    "A is printed before any fork."
+   ],
+   "solution": "- A prints once; B twice; C **four** times.\n- Total: 1 + 2 + 4 = **7**.\n- **Answer: 7**",
+   "quick_method": "- Prints double after each **fork**.",
+   "trap_note": "- Don't **repeat** A after fork, do count printed statements per process.",
+   "explanation": "- Output before a fork is printed **once**.",
+   "verified": true,
+   "solution_full": "1. Before any fork there is 1 process: A printed once.\n2. After the first fork there are 2 processes: B printed twice.\n3. After the second fork there are 4 processes: C printed four times.\n4. Total = 1 + 2 + 4 = 7.",
+   "explanation_full": "Each process prints only the statements it executes. A forked child starts after the fork call, so it never repeats earlier output.",
+   "trap_note_full": "Assuming the child replays A (that happens only with a buffered stdout not yet flushed)."
+  },
+  {
+   "id": "gen.process.018",
+   "level": 3,
+   "order_in_topic": 18,
+   "atoms": [
+    "p4"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "Round robin on one CPU uses a quantum of 8 ms. Each context switch costs 2 ms of pure overhead, and every process always uses its full quantum. What percentage of CPU time does useful work?",
+   "answer": "80",
+   "hints": [
+    "Each cycle is one quantum plus one switch.",
+    "Useful fraction is quantum over cycle length.",
+    "8 over what?"
+   ],
+   "solution": "- One cycle is 8 ms work plus 2 ms **switch**.\n- Useful fraction is 8 / 10, so **eighty** percent.\n- **Answer: 80**",
+   "quick_method": "- Efficiency = q / (q + **s**).",
+   "trap_note": "- Don't **divide** by q alone, do include the switch time.",
+   "explanation": "- Switching time is **overhead**.",
+   "verified": true,
+   "solution_full": "1. In every cycle the CPU works for 8 ms, then spends 2 ms switching.\n2. Cycle length is 10 ms.\n3. Useful fraction = 8 / 10 = 0.8, so 80%.",
+   "explanation_full": "A smaller quantum raises overhead; a larger quantum lowers it but hurts response time. The formula links the context-switch idea to scheduling.",
+   "trap_note_full": "Computing 8/2 = 400% or 2/10 = 20%."
+  },
+  {
+   "id": "gen.process.019",
+   "level": 3,
+   "order_in_topic": 19,
+   "atoms": [
+    "p2",
+    "p5"
+   ],
+   "type": "MSQ",
+   "marks": 1,
+   "stem": "Process P is running. Which of the following events will ALWAYS move P out of the running state?",
+   "options": [
+    {
+     "key": "A",
+     "text": "P calls read() on an empty pipe and must wait for data"
+    },
+    {
+     "key": "B",
+     "text": "P touches a page that must be loaded from disk"
+    },
+    {
+     "key": "C",
+     "text": "A disk interrupt arrives for some other process"
+    },
+    {
+     "key": "D",
+     "text": "P calls getpid()"
+    }
+   ],
+   "answer": "A,B",
+   "hints": [
+    "Which events make P unable to continue?",
+    "Could P simply continue after a quick interrupt?",
+    "getpid returns immediately."
+   ],
+   "solution": "- P cannot continue when it must **wait** for data.\n- Interrupts for others and quick calls may leave P **running**.\n- **Answer: A, B**",
+   "quick_method": "- Out of running only if P must **wait**.",
+   "trap_note": "- Don't **count** every interrupt, do count only events that block P.",
+   "explanation": "- 'Always' needs P **blocked**.",
+   "verified": true,
+   "variant_of": "2024-CS2-q25",
+   "solution_full": "1. A: the read cannot finish until data arrives, so P blocks: yes.\n2. B: a page fault needing disk blocks P: yes.\n3. C: the handler runs and P normally resumes: not always.\n4. D: getpid completes at once: no.",
+   "explanation_full": "A blocking operation forces running to waiting. Other events only give the scheduler a chance.",
+   "trap_note_full": "Choosing C because interrupts feel disruptive."
+  },
+  {
+   "id": "gen.process.020",
+   "level": 3,
+   "order_in_topic": 20,
+   "atoms": [
+    "p9",
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 1,
+   "stem": "How many times is printf executed in total?\n```c\nint x = 2;\nwhile (x > 0) {\n    fork();\n    printf(\"hi\");\n    wait(NULL);\n    x--;\n}\n```",
+   "answer": "6",
+   "hints": [
+    "After the fork each of the two processes prints.",
+    "Both then run the remaining iterations.",
+    "Let r(k) be the prints for k rounds left."
+   ],
+   "solution": "- Each round: two **prints**, then both repeat with one less.\n- Base r(1) = 2, so r(2) = **6**.\n- **Answer: 6**",
+   "quick_method": "- Each round prints twice, then both continue with one **fewer**.",
+   "trap_note": "- Don't **drop** the child's later rounds, do let both continue.",
+   "explanation": "- wait() changes **order**, not the count.",
+   "verified": true,
+   "variant_of": "2024-CS1-q57",
+   "solution_full": "1. Let r(k) = prints with k iterations left in one process.\n2. With k left, fork gives 2 processes that each print once (2 prints), then each runs k-1 more iterations: r(k) = 2 + 2 r(k-1).\n3. r(0) = 0, so r(1) = 2 and r(2) = 2 + 4 = 6.",
+   "explanation_full": "A smaller version of 2024 q57 (x = 3 gives 14). The wait does not remove the child's later rounds.",
+   "trap_note_full": "Using 2^2 = 4 or 2 x 2 = 4."
+  },
+  {
+   "id": "gen.process.021",
+   "level": 4,
+   "order_in_topic": 21,
+   "atoms": [
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "How many child processes are created?\n```c\nfor (i = 0; i < 3; i++)\n    for (j = 0; j < 2; j++)\n        fork();\n```",
+   "answer": "63",
+   "hints": [
+    "How many times does fork() run on a single path?",
+    "Does a child restart the loops or continue them?",
+    "Every process runs every remaining fork."
+   ],
+   "solution": "- The path has 3 x 2 = 6 **forks**.\n- Then 2^6 processes minus the **original**.\n- **Answer: 63**",
+   "quick_method": "- Nested loops: total forks per path, then 2^k - **1**.",
+   "trap_note": "- Don't **add** 3 + 2, do multiply the iteration counts.",
+   "explanation": "- A child resumes mid-loop, so it runs the **rest**.",
+   "verified": true,
+   "solution_full": "1. The loop body executes 3 x 2 = 6 times on each path.\n2. The child resumes with the same i and j, so it runs all remaining forks.\n3. Processes: 2^6 = 64. Children: 63.",
+   "explanation_full": "Nested loops multiply iteration counts, and each iteration doubles the processes.",
+   "trap_note_full": "Counting 2^5 or adding 3 + 2 = 5 forks."
+  },
+  {
+   "id": "gen.process.022",
+   "level": 4,
+   "order_in_topic": 22,
+   "atoms": [
+    "p7",
+    "p6"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "How many processes exist after the loop ends (counting the original)?\n```c\nfor (i = 0; i < 4; i++) {\n    if (fork() == 0) {\n        fork();\n    }\n}\n```",
+   "answer": "81",
+   "hints": [
+    "Look at one iteration: how many processes come out of one?",
+    "The parent forks once; the child forks once more.",
+    "Every one of them continues the loop."
+   ],
+   "solution": "- One process becomes **three** per iteration.\n- Four iterations give 3^4 = **81**.\n- **Answer: 81**",
+   "quick_method": "- Each iteration triples: 3^**n**.",
+   "trap_note": "- Don't **double** per iteration, do triple here.",
+   "explanation": "- Per iteration: parent, child, and the child's **extra** child.",
+   "verified": true,
+   "solution_full": "1. In one iteration the parent forks child C (non-zero for the parent).\n2. C sees 0 and forks once more, giving C2 (the grandchild).\n3. So one process becomes 3 per iteration, and all continue the loop.\n4. After 4 iterations: 3^4 = 81.",
+   "explanation_full": "Counting is cleaner in terms of the per-iteration multiplier than by drawing the whole tree.",
+   "trap_note_full": "Using 2^4 = 16 or 2^5."
+  },
+  {
+   "id": "gen.process.023",
+   "level": 4,
+   "order_in_topic": 23,
+   "atoms": [
+    "p6",
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "Each process prints its own value of n at the end. What is the sum of all printed values?\n```c\nint n = 0;\nif (fork()) n += 1;\nif (fork()) n += 2;\nif (fork()) n += 4;\nprintf(\"%d \", n);\n```",
+   "answer": "28",
+   "hints": [
+    "There are eight processes. Which ones added 1?",
+    "Each process picks parent or child at each fork.",
+    "Half of all processes add each term."
+   ],
+   "solution": "- Eight processes, half add each **term**.\n- Sum is 4 x (1 + 2 + 4) = **28**.\n- **Answer: 28**",
+   "quick_method": "- Each fork splits parent/child: half add each **bit**.",
+   "trap_note": "- Don't **sum** only the original, do sum all eight processes.",
+   "explanation": "- Parent branches **add**, child branches do not.",
+   "verified": true,
+   "solution_full": "1. After three forks there are 8 processes, one per combination of parent/child choices.\n2. At each fork exactly half of the processes see a non-zero return, so 4 processes add 1, 4 add 2 and 4 add 4.\n3. Sum = 4 x 1 + 4 x 2 + 4 x 4 = 28.\n4. The printed values are 0 through 7, each once, which also sum to 28.",
+   "explanation_full": "The eight processes receive every 3-bit combination exactly once, so their values are 0 to 7.",
+   "trap_note_full": "Printing only 7 or summing only the original and one child."
+  },
+  {
+   "id": "gen.process.024",
+   "level": 4,
+   "order_in_topic": 24,
+   "atoms": [
+    "p3"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Which of the following statements about threads is/are TRUE?",
+   "options": [
+    {
+     "key": "A",
+     "text": "Switching between two threads of the same process is cheaper than switching between two processes"
+    },
+    {
+     "key": "B",
+     "text": "Kernel-level threads of one process can run in parallel on different cores"
+    },
+    {
+     "key": "C",
+     "text": "When a user-level thread blocks in a system call, the kernel runs another thread of the same process"
+    },
+    {
+     "key": "D",
+     "text": "Each thread of a process has its own heap"
+    }
+   ],
+   "answer": "A,B",
+   "hints": [
+    "What do thread switches skip compared with process switches?",
+    "Can the kernel see user-level threads?",
+    "Is the heap shared?"
+   ],
+   "solution": "- Thread switches skip the **memory** map change.\n- Only **kernel** threads reach several cores.\n- **Answer: A, B**",
+   "quick_method": "- True: cheaper switch and **parallel** kernel threads.",
+   "trap_note": "- Don't **trust** user-level threads for parallelism, do use kernel threads.",
+   "explanation": "- Only **kernel** threads are scheduled separately.",
+   "verified": true,
+   "solution_full": "1. A: no page-table change, so cheaper: true.\n2. B: the kernel schedules each kernel thread, possibly on different cores: true.\n3. C: the kernel sees one entity and blocks it entirely: false.\n4. D: the heap belongs to the process: false.",
+   "explanation_full": "The level at which threads are implemented decides blocking and parallelism; their shared address space is unaffected.",
+   "trap_note_full": "Marking C because 'the kernel could just run another'. It cannot see the others."
+  },
+  {
+   "id": "gen.process.025",
+   "level": 4,
+   "order_in_topic": 25,
+   "atoms": [
+    "p4"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "Switching between two threads of the same process costs 3 microseconds. Switching between threads of different processes costs 10 microseconds. The CPU runs thread A1, then A2 (same process A), then B1, then B2 (same process B), then back to A1. What is the total switching cost in microseconds?",
+   "answer": "26",
+   "hints": [
+    "Which of the four switches stay inside one process?",
+    "Which cross a process boundary?",
+    "Add 3, 10, 3, 10."
+   ],
+   "solution": "- Two switches stay inside a **process**; two cross.\n- Total: 3 + 10 + 3 + 10 = **26**.\n- **Answer: 26**",
+   "quick_method": "- Same process: cheap. Different process: **expensive**.",
+   "trap_note": "- Don't **price** all four at 10, do check each pair's process.",
+   "explanation": "- A1 to A2 stays in **A**.",
+   "verified": true,
+   "solution_full": "1. A1 to A2: same process, 3.\n2. A2 to B1: different processes, 10.\n3. B1 to B2: same process, 3.\n4. B2 to A1: different processes, 10. Total = 26.",
+   "explanation_full": "The cost depends only on whether the address space changes. Grouping threads of one process lowers switching cost.",
+   "trap_note_full": "Charging 10 for every switch (40) or 3 for every switch (12)."
+  },
+  {
+   "id": "gen.process.026",
+   "level": 4,
+   "order_in_topic": 26,
+   "atoms": [
+    "p8"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Which of the following statements about IPC is/are TRUE?",
+   "options": [
+    {
+     "key": "A",
+     "text": "A pipe provides a one-way byte stream between processes"
+    },
+    {
+     "key": "B",
+     "text": "Every read or write on shared memory requires a system call"
+    },
+    {
+     "key": "C",
+     "text": "Message passing works between processes on different machines"
+    },
+    {
+     "key": "D",
+     "text": "After fork(), parent and child share ordinary variables directly"
+    }
+   ],
+   "answer": "A,C",
+   "hints": [
+    "Which methods go through the kernel on each access?",
+    "Which can cross machines?",
+    "Does fork copy or share variables?"
+   ],
+   "solution": "- Pipes are one-way; messages can cross **machines**.\n- Shared memory accesses are plain **loads**; fork copies variables.\n- **Answer: A, C**",
+   "quick_method": "- True: pipe is one-way, messages cross **networks**.",
+   "trap_note": "- Don't **think** shared memory traps each access, do note setup only.",
+   "explanation": "- fork gives each process its own **copy**.",
+   "verified": true,
+   "solution_full": "1. A: a pipe is unidirectional: true.\n2. B: after the region is mapped, accesses are ordinary memory operations: false.\n3. C: message passing (for example sockets) crosses machines: true.\n4. D: fork copies the address space; variables are not shared: false.",
+   "explanation_full": "IPC choices trade speed (shared memory) against ease and distribution (message passing).",
+   "trap_note_full": "Choosing D by confusing processes with threads."
+  },
+  {
+   "id": "gen.process.027",
+   "level": 5,
+   "order_in_topic": 27,
+   "atoms": [
+    "p7",
+    "p6"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "How many processes exist in the end (counting the original)?\n```c\nfork() && fork() || fork();\n```",
+   "answer": "5",
+   "hints": [
+    "Evaluate && first: which processes proceed to the second fork?",
+    "Then the || : which processes still need the third fork?",
+    "Start with one process and track who evaluates what."
+   ],
+   "solution": "- Result of && : the parent forks twice; the first child **skips**.\n- Then || makes only the **zero**-valued ones fork again.\n- **Answer: 5**",
+   "quick_method": "- Parse as (a && b) || c; track each **return**.",
+   "trap_note": "- Don't **count** three forks as 8, do apply short-circuit rules.",
+   "explanation": "- Short-circuit decides who runs the **next** fork.",
+   "verified": true,
+   "solution_full": "1. Original P forks (call it fork1): P gets non-zero, child C1 gets 0.\n2. &&: P (non-zero) runs fork2: P gets non-zero, child C2 gets 0. C1 (zero) skips fork2 and its && value is 0.\n3. ||: P's && value is non-zero (second fork returned non-zero), so it skips fork3. C1 (0) and C2 (0) both run fork3, each creating one more child.\n4. Processes: P, C1, C2, plus one child each of C1 and C2: 5.",
+   "explanation_full": "The expression is (fork() && fork()) || fork(). Processes with value 0 after the && part fork again.",
+   "trap_note_full": "Counting 2^3 = 8, or 4 by running only one child through the || branch."
+  },
+  {
+   "id": "gen.process.028",
+   "level": 5,
+   "order_in_topic": 28,
+   "atoms": [
+    "p6",
+    "p7"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "How many times is printf executed?\n```c\nfor (i = 0; i < 3; i++) {\n    if (fork() == 0)\n        continue;\n    break;\n}\nfork();\nprintf(\"x\");\n```",
+   "answer": "8",
+   "hints": [
+    "Which process continues the loop after each fork?",
+    "How many processes leave the loop in total?",
+    "Each leaver then forks once more."
+   ],
+   "solution": "- The loop leaves four **processes**; each forks again.\n- Four doubled gives **eight**.\n- **Answer: 8**",
+   "quick_method": "- Chain of four, then one doubling: 4 x **2**.",
+   "trap_note": "- Don't **stop** at four, do count the final fork too.",
+   "explanation": "- The last fork is outside the **loop**.",
+   "verified": true,
+   "variant_of": "2026-CS1-q63",
+   "solution_full": "1. As in 2026 q63, the loop leaves exactly 3 children plus the original: 4 processes reach the loop exit.\n2. Each of the 4 executes the extra fork(), doubling to 8.\n3. All 8 execute printf: 8.",
+   "explanation_full": "Break out the loop first, then treat the later statements separately. The extra fork doubles everything.",
+   "trap_note_full": "Answering 4, the value for the loop alone."
+  },
+  {
+   "id": "gen.process.029",
+   "level": 5,
+   "order_in_topic": 29,
+   "atoms": [
+    "p9",
+    "p6"
+   ],
+   "type": "NAT",
+   "marks": 2,
+   "stem": "Assume every fork succeeds and stdout is unbuffered. How many characters are printed in total?\n```c\nif (fork() == 0) {\n    fork();\n    printf(\"C\");\n    exit(0);\n}\nwait(NULL);\nprintf(\"P\");\n```",
+   "answer": "3",
+   "hints": [
+    "How many processes execute the printf(\"C\")?",
+    "Which process prints P?",
+    "Does wait() change how many characters are printed?"
+   ],
+   "solution": "- Two **children** print C; the parent prints P.\n- wait() changes **order** only.\n- **Answer: 3**",
+   "quick_method": "- Count each process's prints: the parent prints **once**.",
+   "trap_note": "- Don't **repeat** P per child, do remember only the parent passes wait.",
+   "explanation": "- exit(0) stops the **child** branch.",
+   "verified": true,
+   "solution_full": "1. The parent forks child C1. C1 forks C2, so C1 and C2 both print C and exit.\n2. The parent skips the if-block, waits for one child, then prints P once.\n3. Total characters: C, C, P = 3.",
+   "explanation_full": "exit(0) keeps the children from reaching the code after the if, so the grandchild adds exactly one C.",
+   "trap_note_full": "Counting P for each child, or letting children fall through to wait()."
+  },
+  {
+   "id": "gen.process.030",
+   "level": 5,
+   "order_in_topic": 30,
+   "atoms": [
+    "p9",
+    "p6"
+   ],
+   "type": "MSQ",
+   "marks": 2,
+   "stem": "Consider the program below. Each character is printed atomically and appears as soon as it is printed.\n```c\nif (fork() == 0) {\n    printf(\"A\");\n} else {\n    printf(\"B\");\n    wait(NULL);\n    printf(\"C\");\n}\nprintf(\"D\");\n```\nWhich of the following output strings is/are possible?",
+   "options": [
+    {
+     "key": "A",
+     "text": "ADBCD"
+    },
+    {
+     "key": "B",
+     "text": "BADCD"
+    },
+    {
+     "key": "C",
+     "text": "ABDCD"
+    },
+    {
+     "key": "D",
+     "text": "BCADD"
+    }
+   ],
+   "answer": "A,B,C",
+   "hints": [
+    "The child prints A then D. The parent prints B first.",
+    "The parent's C waits until the child has terminated.",
+    "The child terminates only after printing D."
+   ],
+   "solution": "- Parent's C needs the child's **D** first.\n- A before D; B before C; then the final **D**.\n- **Answer: A, B, C**",
+   "quick_method": "- B before C; child's D before C; A before **D**.",
+   "trap_note": "- Don't **place** C before the child's D, do honour wait().",
+   "explanation": "- wait() orders **C** after the child.",
+   "verified": true,
+   "solution_full": "1. Child order: A, D. Parent order: B, then (after the child exits) C, D.\n2. Constraint: C comes after the child's D, because the child ends after printing D.\n3. ADBCD: child finishes first, then B, C, D: possible. BADCD: B first, then the child's A, D, then C, D: possible. ABDCD: possible.\n4. BCADD puts C before A and D: impossible. Answer A, B, C.",
+   "explanation_full": "wait() creates a happens-before edge from the child's exit to the parent's next statement. Everything else can interleave freely.",
+   "trap_note_full": "Accepting BCADD, which ignores that C must follow the child's termination."
+  }
+ ],
+ "flashcards": [
+  {
+   "front": "How many processes after n unconditional fork() calls in a row or loop?",
+   "back": "2^n processes, so 2^n - 1 children.",
+   "kind": "formula"
+  },
+  {
+   "front": "What does fork() return in the parent? In the child?",
+   "back": "Parent: child pid (non-zero). Child: 0.",
+   "kind": "definition"
+  },
+  {
+   "front": "After fork(), do parent and child share variables?",
+   "back": "No. Each has a separate copy at the same virtual address.",
+   "kind": "trap"
+  },
+  {
+   "front": "What do threads of one process share? What is private?",
+   "back": "Shared: code, globals, heap, open files. Private: stack, registers, PC.",
+   "kind": "definition"
+  },
+  {
+   "front": "Legal and illegal state transitions",
+   "back": "Legal: ready to running, running to ready, running to waiting, waiting to ready. Never waiting to running or ready to waiting.",
+   "kind": "definition"
+  },
+  {
+   "front": "What changes in a context switch between processes but not between threads?",
+   "back": "Address space: page-table base register and TLB contents.",
+   "kind": "definition"
+  },
+  {
+   "front": "Which events always cause user to kernel mode switch?",
+   "back": "System calls, page faults, interrupts and exceptions. Plain function calls do not.",
+   "kind": "definition"
+  },
+  {
+   "front": "fork() && fork(): who runs the second fork?",
+   "back": "Only the parent (non-zero return). In ||, only the child (return 0).",
+   "kind": "trap"
+  },
+  {
+   "front": "A user-level thread blocks on a system call",
+   "back": "The whole process blocks; the kernel sees one thread.",
+   "kind": "trap"
+  },
+  {
+   "front": "What is a zombie? An orphan?",
+   "back": "Zombie: finished child not yet waited for. Orphan: child whose parent died; init adopts it.",
+   "kind": "definition"
+  },
+  {
+   "front": "Fastest local IPC and its catch",
+   "back": "Shared memory; no kernel call per access, but the processes must synchronise.",
+   "kind": "definition"
+  },
+  {
+   "front": "Guard on a fork inside a loop",
+   "back": "Count only iterations where the guard holds, then 2^k.",
+   "kind": "trap"
+  }
+ ]
+}

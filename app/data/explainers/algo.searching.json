@@ -1,0 +1,1858 @@
+{
+ "topic_id": "algo.searching",
+ "title": "Searching",
+ "chapter_note": {
+  "about": "Searching asks how many looks it takes to find a key in a collection. On unsorted data you must check one element at a time, so the cost is about n. On sorted data with random access you can halve the range at every probe, so the cost is about log n. This chapter covers the cost of a linear scan, how binary search works, how to count its probes exactly, when it fails (linked lists, duplicates, small bugs), searching special arrays such as rotated or bitonic ones, and the lower bounds that show you cannot do better. Most questions ask for an exact probe count or the conditions that make O(log n) possible.",
+  "simple": "Imagine you lose a page in a book. If the pages are shuffled, you have to flip them one by one, and the longer the book, the longer it takes. If the pages are in order, you open the book in the middle, see whether your page is before or after, and ignore the other half. Repeat, and even a book with a million pages needs only about twenty looks. That trick only works if the pages really are in order and you can open to the middle at once. Special tricks exist for books that were cut and swapped, such as a rotated list. Finally, it can be proved that no method can do better than the halving trick, because every look gives only a yes or no.",
+  "concept_map": [
+   {
+    "atom_id": "se1",
+    "title": "Linear search cost",
+    "one_line": "Absent key costs n; present key costs (n + 1) / 2 on average."
+   },
+   {
+    "atom_id": "se2",
+    "title": "Binary search mechanics",
+    "one_line": "Needs sorted data and random access; each probe halves the range."
+   },
+   {
+    "atom_id": "se3",
+    "title": "Counting comparisons exactly",
+    "one_line": "Worst case is floor(log2 n) + 1 probes, found or not."
+   },
+   {
+    "atom_id": "se4",
+    "title": "Preconditions, duplicates and bugs",
+    "one_line": "Linked lists lose the speedup; equal keys need a lower-bound variant; lo = mid can loop forever."
+   },
+   {
+    "atom_id": "se5",
+    "title": "Search in structured arrays",
+    "one_line": "Rotated, bitonic, 0/1 and row-column sorted inputs still allow log n or m + n probes."
+   },
+   {
+    "atom_id": "se6",
+    "title": "Lower bounds and adversaries",
+    "one_line": "Outcome counting gives ceil(log2(n + 1)); an unsorted maximum needs n - 1 comparisons."
+   }
+  ],
+  "gate_patterns": [
+   "Maximum comparisons or probes of binary search: use floor(log2 n) + 1, and the recurrence T(n) = T(n/2) + 1 (2017 CS1 Q48, 2021 CS2 Q18, 2024 DA Q40, 2024 DA sample Q23, 2026 DA Q31).",
+   "When binary search still works: it needs sorted data and O(1) access to the middle, and a linked list takes O(n) per probe (2025 DA Q27). Buggy loops with lo = mid are also asked (2008 CS Q84, 2008 CS Q85).",
+   "Structured arrays and lower bounds: bitonic peak search in Theta(log n) (2025 CS2 Q41), and one comparison suffices to rule out a maximum (2025 CS2 Q20). Weightage: about 0.4 marks per CS paper and 1.3 per DA paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "se1",
+   "title": "Linear search cost",
+   "simple": "Looking for a name in a stack of unsorted index cards means turning the cards one at a time. If the card is on top, you are done in one look. If it is at the bottom, you look at every card. If the name is not in the stack, you must look at every card before you can say so. On average, when the card is somewhere in the stack, you look at about half the cards. In exam words: linear search costs 1 comparison at best, n in the worst case, and (n + 1) / 2 on average if the key is present and every position is equally likely. An absent key always costs n.",
+   "idea": "**Linear search** checks elements from the first until it finds the key. A key at position $k$ costs $k$ comparisons. An **absent** key costs $n$. If the key is present and every position is equally likely, the average is $(n+1)/2$. The class is $\\Theta(n)$ in the worst and average case.",
+   "definition": "For $n$ distinct elements, comparisons counted one per element:\n\n- Best case: $1$ (key at the front).\n- Worst case: $n$ (key last, or absent).\n- Key present, uniform position: $\\frac{1+2+\\dots+n}{n}=\\frac{n+1}2$.\n- Present with probability $p$, absent with probability $1-p$: $E=p\\cdot\\frac{n+1}2+(1-p)\\cdot n$.\n- Sorted array with early exit: an absent key can stop early, but the worst case is still $n$.",
+   "intuition_full": "Each comparison rules out exactly one element, because nothing relates the elements to each other. So an unsorted search can never do better than checking them one by one, and the only question is how soon the key turns up. If it is present at a uniformly random place, the average position is the middle, (n + 1) / 2. If it is absent, the search cannot stop early, because the key might still be in any unchecked cell. That is why the absent case costs the full n. Expected-cost questions are weighted averages: weight each case by its probability and add. The result always lies between the best and worst case.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Linear search for a key in `14 7 22 9 31 5 18` (n = 7). How many comparisons does it make for the key 9, for the key 40, and on average if the key is present?",
+     "steps": [
+      "Linear search compares the key with each element from the first, in order, and stops at a match. Key = 9, comparisons so far: 0.",
+      "Compare with 14, then 7, then 22. No match yet: 3 comparisons.",
+      "Compare with 9 at index 3. Match. That is the 4th comparison, so the key at position 4 costs 4.",
+      "Key = 40 is not in the array. Every one of the 7 elements must be checked before giving up: 7 comparisons, which is n.",
+      "If the key is present and equally likely at each position, the cost is 1, 2, ..., 7 with average (1 + 2 + ... + 7) / 7 = 28 / 7 = 4 = (n + 1) / 2."
+     ],
+     "answer": "Key 9: 4 comparisons. Key 40: 7 (= n). Average when present: 4 = (n + 1) / 2."
+    },
+    {
+     "level": "gate",
+     "setup": "An unsorted array has 5 distinct elements. A search key is present with probability 0.8, at each position with equal chance, and absent with probability 0.2. What is the expected number of comparisons of linear search?",
+     "steps": [
+      "Key present: the position is uniform on 1..5, so the expected cost is (5 + 1) / 2 = 3.",
+      "Key absent: every element is checked, cost 5.",
+      "Combine by probability: 0.8 × 3 + 0.2 × 5 = 2.4 + 1.0 = 3.4.",
+      "Check the extremes: with probability 1 present the answer would be 3, with probability 0 present it would be 5. 3.4 lies between them, closer to 3."
+     ],
+     "answer": "3.4 comparisons on average."
+    },
+    {
+     "level": "twist",
+     "setup": "The array is sorted: `3 8 12 19 25`. Linear search stops as soon as it sees an element at least as big as the key. How many comparisons for the absent key 15?",
+     "steps": [
+      "Compare 15 with 3: smaller, go on. With 8: smaller. With 12: smaller.",
+      "Compare with 19: 19 ≥ 15, so the key cannot appear later. Stop.",
+      "That is 4 comparisons, not 5. Early exit helps for absent keys in a sorted array.",
+      "The worst case is still n, when the key is bigger than everything. Early exit saves work only on average. It is still Θ(n)."
+     ],
+     "answer": "4 comparisons. The worst case stays n, so the class is Θ(n)."
+    }
+   ],
+   "why": "Linear search is the baseline every other search is compared with. In GATE: the cost for a present or absent key, an average with given probabilities, and the lower bound that an unsorted search needs n comparisons (2002 CS Q2_10, 2025 CS2 Q20).",
+   "how": [
+    "Count one comparison per element examined.",
+    "Present at position k: k comparisons. Absent: n comparisons.",
+    "For an average, weight each case by its probability and add.",
+    "State the class: Θ(n) for unsorted data."
+   ],
+   "mistake": "Thinking an absent key is cheaper than a present one, or using n / 2 instead of (n + 1) / 2. An absent key needs all n checks, and the average position of a present key is (n + 1) / 2, not n / 2.",
+   "edge_cases": [
+    "n = 1: one comparison either way.",
+    "Duplicates: the first match is where a left-to-right scan stops.",
+    "Counting 'two comparisons per element' (loop test and key test) changes the constant, not the class.",
+    "Early exit on a sorted array helps the average for absent keys but not the worst case."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers loops over an array and counting loop iterations.",
+    "Foundations: **Sigma notation and standard sums** (found.series) covers $1+2+\\dots+n=n(n+1)/2$ behind the average.",
+    "Next card: **Binary search mechanics** replaces the scan by halving a sorted range. Cases and averages are also in **algo.complexity**."
+   ],
+   "check": [
+    {
+     "q": "Linear search, key present, 15 elements, equally likely positions. Average comparisons?",
+     "a": "(15 + 1) / 2 = 8."
+    },
+    {
+     "q": "How many comparisons for an absent key in an array of 40?",
+     "a": "40."
+    },
+    {
+     "q": "Key present with probability 0.5 (uniform) in 3 elements, absent otherwise. Expected comparisons?",
+     "a": "0.5 × 2 + 0.5 × 3 = 2.5."
+    }
+   ],
+   "asked": "Asked: 2002 CS Q2_10 (random probing, expected n trials); linear-search costs appear in the ladder (Q1, Q4, Q14).",
+   "try": {
+    "id": "gen.algo.searching.001",
+    "label": "Comparisons for an absent key in linear search (L1)"
+   },
+   "scene": "algo.searching.se1.linear",
+   "example": {
+    "setup": "Linear search for a key in `14 7 22 9 31 5 18` (n = 7). How many comparisons does it make for the key 9, for the key 40, and on average if the key is present?",
+    "steps": [
+     "Linear search compares the key with each element from the first, in order, and stops at a match. Key = 9, comparisons so far: 0.",
+     "Compare with 14, then 7, then 22. No match yet: 3 comparisons.",
+     "Compare with 9 at index 3. Match. That is the 4th comparison, so the key at position 4 costs 4.",
+     "Key = 40 is not in the array. Every one of the 7 elements must be checked before giving up: 7 comparisons, which is n.",
+     "If the key is present and equally likely at each position, the cost is 1, 2, ..., 7 with average (1 + 2 + ... + 7) / 7 = 28 / 7 = 4 = (n + 1) / 2."
+    ],
+    "answer": "Key 9: 4 comparisons. Key 40: 7 (= n). Average when present: 4 = (n + 1) / 2."
+   },
+   "what": "**Linear search** checks elements from the first until it finds the key. A key at position $k$ costs $k$ comparisons. An **absent** key costs $n$. If the key is present and every position is equally likely, the average is $(n+1)/2$. The class is $\\Theta(n)$ in the worst and average case.",
+   "what_full": "**Linear search** checks elements from the first until it finds the key. A key at position $k$ costs $k$ comparisons. An **absent** key costs $n$. If the key is present and every position is equally likely, the average is $(n+1)/2$. The class is $\\Theta(n)$ in the worst and average case.\n\nFor $n$ distinct elements, comparisons counted one per element:\n\n- Best case: $1$ (key at the front).\n- Worst case: $n$ (key last, or absent).\n- Key present, uniform position: $\\frac{1+2+\\dots+n}{n}=\\frac{n+1}2$.\n- Present with probability $p$, absent with probability $1-p$: $E=p\\cdot\\frac{n+1}2+(1-p)\\cdot n$.\n- Sorted array with early exit: an absent key can stop early, but the worst case is still $n$.\n\n**Worked example.** Linear search for a key in `14 7 22 9 31 5 18` (n = 7). How many comparisons does it make for the key 9, for the key 40, and on average if the key is present?\n\n1. Linear search compares the key with each element from the first, in order, and stops at a match. Key = 9, comparisons so far: 0.\n2. Compare with 14, then 7, then 22. No match yet: 3 comparisons.\n3. Compare with 9 at index 3. Match. That is the 4th comparison, so the key at position 4 costs 4.\n4. Key = 40 is not in the array. Every one of the 7 elements must be checked before giving up: 7 comparisons, which is n.\n5. If the key is present and equally likely at each position, the cost is 1, 2, ..., 7 with average (1 + 2 + ... + 7) / 7 = 28 / 7 = 4 = (n + 1) / 2.\n\n**Answer:** Key 9: 4 comparisons. Key 40: 7 (= n). Average when present: 4 = (n + 1) / 2.",
+   "why_full": "Linear search is the baseline every other search is compared with. In GATE: the cost for a present or absent key, an average with given probabilities, and the lower bound that an unsorted search needs n comparisons (2002 CS Q2_10, 2025 CS2 Q20).\n\nAsked: 2002 CS Q2_10 (random probing, expected n trials); linear-search costs appear in the ladder (Q1, Q4, Q14).",
+   "trap": "Thinking an absent key is cheaper than a present one, or using n / 2 instead of (n + 1) / 2. An absent key needs all n checks, and the average position of a present key is (n + 1) / 2, not n / 2."
+  },
+  {
+   "atom_id": "se2",
+   "title": "Binary search mechanics",
+   "simple": "Guess a number between 1 and 100 where I say only 'higher' or 'lower'. You do not guess 1, then 2, then 3. You guess 50. Whatever I say, you throw away half of the numbers. Then you guess the middle of what is left. After about seven guesses you have it. Binary search does exactly this on a sorted array: look at the middle, then keep only the half that can still hold the key. It only works because the array is sorted, so one look tells you which half to drop, and because you can jump to the middle at once. In exam words: binary search needs sorted data and O(1) index access; each probe halves the range, T(n) = T(n/2) + 1, so the time is O(log n).",
+   "idea": "**Binary search** compares the key with the middle element of a sorted range. If the key is smaller, keep the left half. If larger, keep the right half. The range goes $n,\\ n/2,\\ n/4,\\dots,1$, so there are $O(\\log n)$ probes. It needs **sorted** data and **constant-time** access to the middle.",
+   "definition": "Iterative version on `A[0..n-1]`:\n\n`lo = 0; hi = n-1`\n\n`while lo <= hi: mid = (lo+hi)//2`\n\n`if A[mid] == x: return mid`\n\n`elif A[mid] < x: lo = mid+1`\n\n`else: hi = mid-1`\n\n- Recurrence: $T(n)=T(n/2)+O(1)$, giving $\\Theta(\\log n)$ worst case.\n- Needs: sorted order in the assumed direction, and $O(1)$ access to any index.\n- `lo = mid+1` and `hi = mid-1` skip the probed cell, which has already been checked.",
+   "intuition_full": "Each probe turns the question 'where is the key among n places?' into the same question over about half as many places. The reason a single comparison can discard half is the sorted order: if the middle element is smaller than the key, then everything to its left is smaller too, so the key cannot be there. The recurrence T(n) = T(n/2) + c has the shape of repeated halving, and it reaches size 1 after log₂ n halvings. Notice the cost per level is a constant, one comparison and one assignment. A second picture is a phone book: you open it near the middle and decide whether to look before or after. It would be useless in an unsorted book, and impossible if you could only turn pages one at a time. Those two requirements, sorted data and quick access to the middle, are exactly the preconditions in exam statements.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Binary search for 52 in the sorted array `3 8 12 19 25 31 44 52 67 78 91` (indices 0 to 10). Use mid = (lo + hi) // 2. List the probes.",
+     "steps": [
+      "Start with lo = 0 and hi = 10. The array is sorted, so we can discard half after each probe.",
+      "Probe 1: mid = 5, value 31. 31 < 52, so the key is to the right. Set lo = 6.",
+      "Probe 2: mid = (6 + 10) // 2 = 8, value 67. 67 > 52, so the key is to the left. Set hi = 7.",
+      "Probe 3: mid = (6 + 7) // 2 = 6, value 44. 44 < 52, so set lo = 7.",
+      "Probe 4: mid = 7, value 52. Match. Found after 4 probes, out of 11 elements."
+     ],
+     "answer": "Found at index 7 after 4 probes (indices 5, 8, 6, 7)."
+    },
+    {
+     "level": "gate",
+     "setup": "A sorted array holds the keys 1 to 63 in indices 0 to 62. The search key is 63, the last element. How many probes does binary search make, and what is the recurrence?",
+     "steps": [
+      "lo = 0, hi = 62: mid = 31 (key 32). 32 < 63, so lo = 32.",
+      "mid = 47 (key 48), lo = 48. mid = 55, lo = 56. mid = 59, lo = 60.",
+      "mid = 61, lo = 62. mid = 62: the key 63 is found. That is 6 probes.",
+      "Each probe keeps at most half the range: T(n) = T(n/2) + 1 with constant work per probe. That solves to Θ(log n), and here floor(log₂ 63) + 1 = 6."
+     ],
+     "answer": "6 probes. T(n) = T(n/2) + c, so Θ(log n)."
+    },
+    {
+     "level": "twist",
+     "setup": "The array `90 70 50 30 10` is sorted in descending order, but the code assumes ascending order. Search for 70.",
+     "steps": [
+      "lo = 0, hi = 4, mid = 2, value 50. The code thinks 50 < 70 means the key is to the right, so lo = 3.",
+      "mid = 3, value 30 < 70, so lo = 4. mid = 4, value 10 < 70, so lo = 5.",
+      "Now lo > hi and the loop ends with \"not found\". But 70 is at index 1.",
+      "Binary search needs the data sorted in the direction the comparison assumes. With the wrong order every decision discards the wrong half."
+     ],
+     "answer": "It reports not found, even though 70 is present. The precondition (sorted in the assumed order) failed."
+    }
+   ],
+   "why": "Binary search is the standard O(log n) example and appears in every year in some form. In GATE: the probes made for a given array and key, the recurrence, and the conditions needed (2024 DA sample Q23, 2024 DA Q40, 2021 CS2 Q18, 2017 CS1 Q48).",
+   "how": [
+    "Check that the data is sorted and supports O(1) access to the middle.",
+    "Set lo = 0, hi = n − 1. Probe mid = (lo + hi) // 2.",
+    "Compare: equal returns; smaller moves lo = mid + 1; larger moves hi = mid − 1.",
+    "Write the probe indices in order; the number of probes is the count."
+   ],
+   "mistake": "Skipping the first probe in your count, or using the wrong floor for mid. For lo = 0, hi = 10 the first probe is index 5, and for lo = 6, hi = 7 it is index 6 (floor of 6.5). Trace each step instead of guessing.",
+   "edge_cases": [
+    "n = 1: one probe.",
+    "Even range sizes: mid is the lower middle with floor division.",
+    "A key smaller than everything is found absent after the range empties.",
+    "Searching in the wrong sorted direction fails silently."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers while loops and integer (floor) division.",
+    "Foundations: **Exponents and logs** (found.explog) covers why halving n times reaches 1 after $\\log_2 n$ steps.",
+    "Counting probes exactly is the next card, **Counting comparisons exactly**. The recurrence is solved in **algo.complexity**."
+   ],
+   "check": [
+    {
+     "q": "Which condition on the data does binary search need?",
+     "a": "It must be sorted (in the direction the code assumes) and allow O(1) access to the middle."
+    },
+    {
+     "q": "lo = 0, hi = 9. What is the first probe index?",
+     "a": "(0 + 9) // 2 = 4."
+    },
+    {
+     "q": "Recurrence for the worst-case comparisons of binary search?",
+     "a": "T(n) = T(n/2) + 1, so Θ(log n)."
+    }
+   ],
+   "asked": "Asked: 2024 DA sample Q23, 2024 DA Q40, 2021 CS2 Q18, 2017 CS1 Q48, 2026 DA Q31",
+   "try": {
+    "id": "gen.algo.searching.002",
+    "label": "Which conditions must hold for O(log n) binary search (L1)"
+   },
+   "scene": "algo.searching.se2.binary",
+   "example": {
+    "setup": "Binary search for 52 in the sorted array `3 8 12 19 25 31 44 52 67 78 91` (indices 0 to 10). Use mid = (lo + hi) // 2. List the probes.",
+    "steps": [
+     "Start with lo = 0 and hi = 10. The array is sorted, so we can discard half after each probe.",
+     "Probe 1: mid = 5, value 31. 31 < 52, so the key is to the right. Set lo = 6.",
+     "Probe 2: mid = (6 + 10) // 2 = 8, value 67. 67 > 52, so the key is to the left. Set hi = 7.",
+     "Probe 3: mid = (6 + 7) // 2 = 6, value 44. 44 < 52, so set lo = 7.",
+     "Probe 4: mid = 7, value 52. Match. Found after 4 probes, out of 11 elements."
+    ],
+    "answer": "Found at index 7 after 4 probes (indices 5, 8, 6, 7)."
+   },
+   "what": "**Binary search** compares the key with the middle element of a sorted range. If the key is smaller, keep the left half. If larger, keep the right half. The range goes $n,\\ n/2,\\ n/4,\\dots,1$, so there are $O(\\log n)$ probes. It needs **sorted** data and **constant-time** access to the middle.",
+   "what_full": "**Binary search** compares the key with the middle element of a sorted range. If the key is smaller, keep the left half. If larger, keep the right half. The range goes $n,\\ n/2,\\ n/4,\\dots,1$, so there are $O(\\log n)$ probes. It needs **sorted** data and **constant-time** access to the middle.\n\nIterative version on `A[0..n-1]`:\n\n`lo = 0; hi = n-1`\n\n`while lo <= hi: mid = (lo+hi)//2`\n\n`if A[mid] == x: return mid`\n\n`elif A[mid] < x: lo = mid+1`\n\n`else: hi = mid-1`\n\n- Recurrence: $T(n)=T(n/2)+O(1)$, giving $\\Theta(\\log n)$ worst case.\n- Needs: sorted order in the assumed direction, and $O(1)$ access to any index.\n- `lo = mid+1` and `hi = mid-1` skip the probed cell, which has already been checked.\n\n**Worked example.** Binary search for 52 in the sorted array `3 8 12 19 25 31 44 52 67 78 91` (indices 0 to 10). Use mid = (lo + hi) // 2. List the probes.\n\n1. Start with lo = 0 and hi = 10. The array is sorted, so we can discard half after each probe.\n2. Probe 1: mid = 5, value 31. 31 < 52, so the key is to the right. Set lo = 6.\n3. Probe 2: mid = (6 + 10) // 2 = 8, value 67. 67 > 52, so the key is to the left. Set hi = 7.\n4. Probe 3: mid = (6 + 7) // 2 = 6, value 44. 44 < 52, so set lo = 7.\n5. Probe 4: mid = 7, value 52. Match. Found after 4 probes, out of 11 elements.\n\n**Answer:** Found at index 7 after 4 probes (indices 5, 8, 6, 7).",
+   "why_full": "Binary search is the standard O(log n) example and appears in every year in some form. In GATE: the probes made for a given array and key, the recurrence, and the conditions needed (2024 DA sample Q23, 2024 DA Q40, 2021 CS2 Q18, 2017 CS1 Q48).\n\nAsked: 2024 DA sample Q23, 2024 DA Q40, 2021 CS2 Q18, 2017 CS1 Q48, 2026 DA Q31",
+   "trap": "Skipping the first probe in your count, or using the wrong floor for mid. For lo = 0, hi = 10 the first probe is index 5, and for lo = 6, hi = 7 it is index 6 (floor of 6.5). Trace each step instead of guessing."
+  },
+  {
+   "atom_id": "se3",
+   "title": "Counting comparisons exactly",
+   "simple": "How many questions do you need to find a number from 1 to 50 when each answer is 'higher or lower'? After one question, at most 25 numbers are left. After two, at most 12. After three, 6, then 3, then 1. After the sixth question you are sure. The count is the number of halvings until nothing is left, and the last probe counts too. In exam words: the worst case of binary search is floor(log₂ n) + 1 probes, for found and not found alike. If the code uses two comparisons per probe, multiply the failed probes by 2, so read how the question counts comparisons.",
+   "idea": "The worst-case number of probes of binary search on $n$ elements is $\\lfloor\\log_2 n\\rfloor+1$. This holds for **found and not found** keys: both can take a full descent. The count of comparisons depends on how many comparisons each probe uses (1, or 2 for an equality test and a direction test).",
+   "definition": "For $n$ sorted distinct elements and mid $=\\lfloor(lo+hi)/2\\rfloor$:\n\n- Worst-case probes: $\\lfloor\\log_2 n\\rfloor+1$.\n- Candidates left after $k$ probes: at most $\\lfloor n/2^k\\rfloor$.\n- Levels of the probe tree: perfect for $n=2^h-1$ (all $h$ levels full).\n- With two comparisons per failed probe and one per hit: successful worst $2(h-1)+1$, unsuccessful worst $2h$, with $h=\\lfloor\\log_2 n\\rfloor+1$.\n- Average successful probes on a perfect tree of $2^h-1$ keys: $\\frac{\\sum_k k\\,2^{k-1}}{2^h-1}$.",
+   "intuition_full": "Think of the probe tree: the root is the first probe, its children are the possible second probes, and so on. A search follows one path from the root. The longest path has height-many probes, and that is the worst case. The levels hold 1, 2, 4, 8, ... nodes, so a tree with h full levels holds 2^h − 1 keys. The first n with h+1 levels is 2^h. So h levels cover n up to 2^h − 1, which is exactly when floor(log₂ n) + 1 = h. This explains the +1 and why powers of two are special: n = 32 needs 6 probes (floor(log₂ 32) + 1), although log₂ 32 = 5. An unsuccessful search also ends at a deepest-level gap, so it also costs up to h probes. Averages over keys weight each level by how many keys sit on it: the bottom level has the most keys, so the average is close to the worst case.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A sorted array has 50 elements. Binary search counts one comparison per probe. What is the maximum number of probes, whether the key is found or not?",
+     "steps": [
+      "Start with 50 candidate positions. Each probe looks at one, and leaves at most floor(m / 2) candidates (the larger side, without the probed one).",
+      "After probe 1: at most 25 candidates remain.",
+      "After probe 2: at most 12 remain.",
+      "After probe 3: at most 6 remain.",
+      "After probe 4: at most 3 remain.",
+      "After probe 5: at most 1 candidate remains.",
+      "Probe 6 looks at the last candidate and decides. Every search, found or not, ends within 6 probes: floor(log₂ 50) + 1 = 5 + 1 = 6."
+     ],
+     "answer": "6 probes. In general floor(log₂ n) + 1."
+    },
+    {
+     "level": "gate",
+     "setup": "Binary search on 40 sorted elements first tests `a[mid] == x`, and only if that fails tests `a[mid] < x`. Each test is one comparison. What are the worst-case comparisons for a successful and an unsuccessful search?",
+     "steps": [
+      "Probes: floor(log₂ 40) + 1 = 6 at most. Levels 1 to 5 hold 1 + 2 + 4 + 8 + 16 = 31 keys; the other 9 keys are at level 6.",
+      "A failed probe costs 2 comparisons (equality fails, then the direction test). A successful probe costs 1.",
+      "Successful, worst case: 5 failed probes then a hit on the 6th. 5 × 2 + 1 = 11.",
+      "Unsuccessful, worst case: 6 probes, all of them fail. 6 × 2 = 12.",
+      "The unsuccessful case costs more, because it never gets the cheap final hit."
+     ],
+     "answer": "Successful: 11 comparisons. Unsuccessful: 12 comparisons."
+    },
+    {
+     "level": "twist",
+     "setup": "For a perfect case with 7 sorted elements, what is the average number of probes for a successful search (each key equally likely)?",
+     "steps": [
+      "The probe tree for 7 elements is perfect: 1 key found at probe 1 (the middle), 2 keys at probe 2, 4 keys at probe 3.",
+      "Total probes over all 7 keys: 1×1 + 2×2 + 4×3 = 1 + 4 + 12 = 17.",
+      "Average: 17 / 7 ≈ 2.43.",
+      "The worst case is 3 probes and the average is 2.43: most keys sit at the deepest level, so the average is close to the worst case."
+     ],
+     "answer": "17/7 ≈ 2.43 probes on average (worst case 3)."
+    }
+   ],
+   "why": "The exact count is a standard numeric question: a given n and a worst-case probe count. In GATE: probes for n = 1000 (2026 DA Q31) or 31 (2017 CS1 Q48), and the form of the recurrence (2024 DA Q40).",
+   "how": [
+    "Count one probe per examined element, unless the question says otherwise.",
+    "Compute floor(log₂ n) + 1. Check it with a small n (n = 1 gives 1, n = 3 gives 2).",
+    "If each probe does two comparisons, count failed probes twice and the final hit once.",
+    "For an average, add up probes over all keys using the level sizes 1, 2, 4, ..."
+   ],
+   "mistake": "Using log₂ n without floor and +1, or assuming an unsuccessful search is cheaper. n = 1 still needs a probe, and a failed search can go as deep as a successful one. Also read whether the question counts probes or comparisons.",
+   "edge_cases": [
+    "n = 1: 1 probe. n = 2: 2 probes. n = 3: 2 probes.",
+    "n = 2^k: the answer is k + 1, not k.",
+    "A successful search can end early; the worst case needs the key to be at the deepest level or absent.",
+    "ceil(log₂(n+1)) equals floor(log₂ n) + 1 for all n ≥ 1."
+   ],
+   "connections": [
+    "Foundations: **Exponents and logs** (found.explog) covers $\\lfloor\\log_2 n\\rfloor$ and powers of two.",
+    "Foundations: **Sigma notation and standard sums** (found.series) covers $\\sum k2^{k-1}$ for the average.",
+    "The mechanics are in **Binary search mechanics**; the matching lower bound is in **Lower bounds and adversaries**."
+   ],
+   "check": [
+    {
+     "q": "Worst-case probes of binary search on 1000 elements?",
+     "a": "floor(log₂ 1000) + 1 = 9 + 1 = 10."
+    },
+    {
+     "q": "n = 32. How many probes in the worst case?",
+     "a": "6 (floor(log₂ 32) + 1)."
+    },
+    {
+     "q": "n = 15, perfect tree. How many keys are found at the third probe?",
+     "a": "4 (levels hold 1, 2, 4, 8)."
+    }
+   ],
+   "asked": "Asked: 2026 DA Q31, 2017 CS1 Q48, 2024 DA Q40, 2021 CS2 Q18",
+   "try": {
+    "id": "gen.algo.searching.006",
+    "label": "Maximum probes on 100 sorted elements (L2)"
+   },
+   "scene": "algo.searching.se3.count",
+   "example": {
+    "setup": "A sorted array has 50 elements. Binary search counts one comparison per probe. What is the maximum number of probes, whether the key is found or not?",
+    "steps": [
+     "Start with 50 candidate positions. Each probe looks at one, and leaves at most floor(m / 2) candidates (the larger side, without the probed one).",
+     "After probe 1: at most 25 candidates remain.",
+     "After probe 2: at most 12 remain.",
+     "After probe 3: at most 6 remain.",
+     "After probe 4: at most 3 remain.",
+     "After probe 5: at most 1 candidate remains.",
+     "Probe 6 looks at the last candidate and decides. Every search, found or not, ends within 6 probes: floor(log₂ 50) + 1 = 5 + 1 = 6."
+    ],
+    "answer": "6 probes. In general floor(log₂ n) + 1."
+   },
+   "what": "The worst-case number of probes of binary search on $n$ elements is $\\lfloor\\log_2 n\\rfloor+1$. This holds for **found and not found** keys: both can take a full descent. The count of comparisons depends on how many comparisons each probe uses (1, or 2 for an equality test and a direction test).",
+   "what_full": "The worst-case number of probes of binary search on $n$ elements is $\\lfloor\\log_2 n\\rfloor+1$. This holds for **found and not found** keys: both can take a full descent. The count of comparisons depends on how many comparisons each probe uses (1, or 2 for an equality test and a direction test).\n\nFor $n$ sorted distinct elements and mid $=\\lfloor(lo+hi)/2\\rfloor$:\n\n- Worst-case probes: $\\lfloor\\log_2 n\\rfloor+1$.\n- Candidates left after $k$ probes: at most $\\lfloor n/2^k\\rfloor$.\n- Levels of the probe tree: perfect for $n=2^h-1$ (all $h$ levels full).\n- With two comparisons per failed probe and one per hit: successful worst $2(h-1)+1$, unsuccessful worst $2h$, with $h=\\lfloor\\log_2 n\\rfloor+1$.\n- Average successful probes on a perfect tree of $2^h-1$ keys: $\\frac{\\sum_k k\\,2^{k-1}}{2^h-1}$.\n\n**Worked example.** A sorted array has 50 elements. Binary search counts one comparison per probe. What is the maximum number of probes, whether the key is found or not?\n\n1. Start with 50 candidate positions. Each probe looks at one, and leaves at most floor(m / 2) candidates (the larger side, without the probed one).\n2. After probe 1: at most 25 candidates remain.\n3. After probe 2: at most 12 remain.\n4. After probe 3: at most 6 remain.\n5. After probe 4: at most 3 remain.\n6. After probe 5: at most 1 candidate remains.\n7. Probe 6 looks at the last candidate and decides. Every search, found or not, ends within 6 probes: floor(log₂ 50) + 1 = 5 + 1 = 6.\n\n**Answer:** 6 probes. In general floor(log₂ n) + 1.",
+   "why_full": "The exact count is a standard numeric question: a given n and a worst-case probe count. In GATE: probes for n = 1000 (2026 DA Q31) or 31 (2017 CS1 Q48), and the form of the recurrence (2024 DA Q40).\n\nAsked: 2026 DA Q31, 2017 CS1 Q48, 2024 DA Q40, 2021 CS2 Q18",
+   "trap": "Using log₂ n without floor and +1, or assuming an unsuccessful search is cheaper. n = 1 still needs a probe, and a failed search can go as deep as a successful one. Also read whether the question counts probes or comparisons."
+  },
+  {
+   "atom_id": "se4",
+   "title": "Preconditions, duplicates and bugs",
+   "simple": "Binary search is like a recipe with two conditions. Its ingredients must be in order, and you must be able to reach the middle at once. A phone book in order of surname, in your hands, works. A list on a roll of paper that only unrolls from one end does not: you still halve the problem on paper but walk the whole way. When many entries are equal, the recipe as written stops at the first one it hits, which could be any of them. To get the first, change one line: when you hit an equal entry, keep looking left. Finally, a tiny slip such as setting lo = mid instead of lo = mid + 1 can make the loop spin forever. In exam words: binary search needs sorted data and O(1) indexing; with duplicates the lower-bound variant returns the first match; lo = mid or hi = mid without ±1 can loop forever.",
+   "idea": "Binary search is correct only on **sorted** data with **O(1) access**. On a linked list the speed-up disappears. With duplicates, plain binary search returns any matching index, while the **lower-bound** variant keeps $hi=mid$ when $A[mid]\\ge x$ and returns the first. Updates must skip the probed cell (`lo = mid+1`) or the loop can stall.",
+   "definition": "- Preconditions: sorted in the assumed order, random access in $O(1)$. A linked list gives $\\Theta(n)$ total.\n- Lower bound (first index with $A[i]\\ge x$): start $lo=0,\\ hi=n$; while $lo<hi$: $mid=\\lfloor(lo+hi)/2\\rfloor$; if $A[mid]<x$ then $lo=mid+1$ else $hi=mid$.\n- The result can be $n$ (no element $\\ge x$): check bounds and $A[lo]==x$.\n- Termination: each step must shrink the range. `lo = mid` can stall when $mid=lo$; `hi = mid-1` with `lo <= hi` is the matching safe form.",
+   "intuition_full": "A loop terminates only if each pass makes progress. In the plain version, both updates skip the probed index, so the range loses at least one cell per pass. In the lower-bound version the range is [lo, hi), with mid < hi always, so hi = mid shrinks the range, and lo = mid + 1 shrinks it too. The buggy `lo = mid` fails because when hi = lo + 1 the midpoint is lo itself, and the assignment changes nothing. The duplicates variant works because it treats equal like greater: it asks 'is this cell still ≥ x?' and moves left as long as the answer is yes. The invariant is that everything left of lo is < x and everything from hi onward is ≥ x. Linked lists fail the other precondition: probing the middle costs a walk, so the work per probe is not constant.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Find the index of the first 4 in `A = [2, 4, 4, 4, 7, 9, 12]` (n = 7) with the lower-bound loop and x = 4:\n```python\nA = [2, 4, 4, 4, 7, 9, 12]\nx = 4\nlo, hi = 0, 7\nwhile lo < hi:\n    mid = (lo + hi) // 2\n    if A[mid] < x: lo = mid + 1\n    else: hi = mid\nprint(lo)\n```",
+     "steps": [
+      "Plain binary search could stop at any of the three 4s. This version keeps hi = mid when A[mid] ≥ x, so it keeps moving left until it cannot. lo = 0, hi = 7.",
+      "mid = 3, A[3] = 4. Is 4 < 4? No, so hi = 3. The first 4 is at index 3 or earlier.",
+      "mid = 1, A[1] = 4. 4 < 4? No, so hi = 1.",
+      "mid = 0, A[0] = 2. 2 < 4, so lo = 1.",
+      "lo = hi = 1. The loop ends and prints 1: the first index where A[i] ≥ 4."
+     ],
+     "answer": "Prints 1, the first occurrence of 4."
+    },
+    {
+     "level": "gate",
+     "setup": "The array has n = 1024 nodes in a **sorted linked list**. Binary search is run by walking to the middle node each time, starting from the head of the current range. How many pointer moves does a search for the last key need, and what does that do to the O(log n) claim?",
+     "steps": [
+      "In a linked list there is no index jump. To reach the middle of a range you must walk node by node from the start of the range.",
+      "First probe: walk 511 steps to index 511. The key is on the right, so the range becomes indices 512 to 1023.",
+      "Second probe: walk 255 steps to index 767. Then 127, 63, 31, 15, 7, 3, 1 and 0 steps for the next probes.",
+      "Total walk: 511 + 255 + 127 + 63 + 31 + 15 + 7 + 3 + 1 + 0 = 1013, which is about n.",
+      "So the number of probes is still log n, but each probe is not O(1). The total time is Θ(n), no better than a scan."
+     ],
+     "answer": "About 1013 pointer moves, i.e. Θ(n). Binary search needs O(1) access to the middle."
+    },
+    {
+     "level": "twist",
+     "setup": "For the same array `[2, 4, 4, 4, 7, 9, 12]` run the lower-bound loop with x = 13, which is larger than every element. What does it return? What if the code started with hi = 6 (n − 1)?",
+     "steps": [
+      "With hi = 7: mid = 3, A[3] = 4 < 13, so lo = 4. mid = 5, A[5] = 9 < 13, so lo = 6. mid = 6, A[6] = 12 < 13, so lo = 7.",
+      "lo = hi = 7. It returns 7 = n: the insertion point at the end, meaning \"no element ≥ 13\".",
+      "With hi = 6 the search range cannot reach the index 7: mid = 3, then lo = 4, then mid = 5, lo = 6, and the loop stops with lo = hi = 6.",
+      "It returns 6, which looks like a hit on 12, but 12 ≠ 13. Always check A[lo] == x after the loop, and start with hi = n for this half-open version."
+     ],
+     "answer": "With hi = 7 it returns 7 (insertion point). With hi = 6 it returns 6 wrongly, since A[6] = 12 is not 13."
+    }
+   ],
+   "why": "Questions about when binary search works, and about loops with small bugs, are common in both CS and DA. In GATE: which structures keep O(log n) (2025 DA Q27), and what a modified loop does with duplicates or whether it terminates (2008 CS Q84, 2008 CS Q85).",
+   "how": [
+    "Check the two preconditions: sorted, and O(1) access to the middle.",
+    "For duplicates, decide: any match (plain) or the first match (lower bound: hi = mid).",
+    "To test termination, trace a tiny case with lo and hi one apart.",
+    "After the loop, check the bounds: the answer may be n or may not equal x."
+   ],
+   "mistake": "Writing lo = mid or hi = mid without the ±1 in the plain loop, or trusting binary search on a linked list. A stall happens when mid = lo; a linked list makes each probe cost O(n), so the total is O(n).",
+   "edge_cases": [
+    "Array with all keys equal: plain search returns the middle; lower-bound returns index 0.",
+    "Sorted but with a hidden descending part: the preconditions fail.",
+    "mid = (lo + hi) // 2 can overflow in fixed-width integers; lo + (hi − lo) // 2 is safe.",
+    "A sorted array where each access costs O(n) (a very slow disk) is no better than a scan."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers loop invariants and tracing a loop by hand.",
+    "The plain loop is **Binary search mechanics**; the structured cases (rotated, bitonic) are the next card.",
+    "Linked lists are in **ds.linkedlist**: that is why no random access means no binary search."
+   ],
+   "check": [
+    {
+     "q": "Which data structure allows O(log n) binary search: array or singly linked list?",
+     "a": "The sorted array."
+    },
+    {
+     "q": "Lower-bound loop on `[1, 3, 3, 5]` with x = 3. What is returned?",
+     "a": "1, the first index with value ≥ 3."
+    },
+    {
+     "q": "With lo = 4 and hi = 5, what is mid = (lo + hi) // 2, and why does lo = mid stall?",
+     "a": "mid = 4 = lo, so lo = mid changes nothing."
+    }
+   ],
+   "asked": "Asked: 2025 DA Q27, 2008 CS Q84, 2008 CS Q85",
+   "try": {
+    "id": "gen.algo.searching.008",
+    "label": "Which structures keep O(log n) binary search (L2)"
+   },
+   "scene": "algo.searching.se4.lowerbound",
+   "example": {
+    "setup": "Find the index of the first 4 in `A = [2, 4, 4, 4, 7, 9, 12]` (n = 7) with the lower-bound loop and x = 4:\n```python\nA = [2, 4, 4, 4, 7, 9, 12]\nx = 4\nlo, hi = 0, 7\nwhile lo < hi:\n    mid = (lo + hi) // 2\n    if A[mid] < x: lo = mid + 1\n    else: hi = mid\nprint(lo)\n```",
+    "steps": [
+     "Plain binary search could stop at any of the three 4s. This version keeps hi = mid when A[mid] ≥ x, so it keeps moving left until it cannot. lo = 0, hi = 7.",
+     "mid = 3, A[3] = 4. Is 4 < 4? No, so hi = 3. The first 4 is at index 3 or earlier.",
+     "mid = 1, A[1] = 4. 4 < 4? No, so hi = 1.",
+     "mid = 0, A[0] = 2. 2 < 4, so lo = 1.",
+     "lo = hi = 1. The loop ends and prints 1: the first index where A[i] ≥ 4."
+    ],
+    "answer": "Prints 1, the first occurrence of 4."
+   },
+   "what": "Binary search is correct only on **sorted** data with **O(1) access**. On a linked list the speed-up disappears. With duplicates, plain binary search returns any matching index, while the **lower-bound** variant keeps $hi=mid$ when $A[mid]\\ge x$ and returns the first. Updates must skip the probed cell (`lo = mid+1`) or the loop can stall.",
+   "what_full": "Binary search is correct only on **sorted** data with **O(1) access**. On a linked list the speed-up disappears. With duplicates, plain binary search returns any matching index, while the **lower-bound** variant keeps $hi=mid$ when $A[mid]\\ge x$ and returns the first. Updates must skip the probed cell (`lo = mid+1`) or the loop can stall.\n\n- Preconditions: sorted in the assumed order, random access in $O(1)$. A linked list gives $\\Theta(n)$ total.\n- Lower bound (first index with $A[i]\\ge x$): start $lo=0,\\ hi=n$; while $lo<hi$: $mid=\\lfloor(lo+hi)/2\\rfloor$; if $A[mid]<x$ then $lo=mid+1$ else $hi=mid$.\n- The result can be $n$ (no element $\\ge x$): check bounds and $A[lo]==x$.\n- Termination: each step must shrink the range. `lo = mid` can stall when $mid=lo$; `hi = mid-1` with `lo <= hi` is the matching safe form.\n\n**Worked example.** Find the index of the first 4 in `A = [2, 4, 4, 4, 7, 9, 12]` (n = 7) with the lower-bound loop and x = 4:\n```python\nA = [2, 4, 4, 4, 7, 9, 12]\nx = 4\nlo, hi = 0, 7\nwhile lo < hi:\n    mid = (lo + hi) // 2\n    if A[mid] < x: lo = mid + 1\n    else: hi = mid\nprint(lo)\n```\n\n1. Plain binary search could stop at any of the three 4s. This version keeps hi = mid when A[mid] ≥ x, so it keeps moving left until it cannot. lo = 0, hi = 7.\n2. mid = 3, A[3] = 4. Is 4 < 4? No, so hi = 3. The first 4 is at index 3 or earlier.\n3. mid = 1, A[1] = 4. 4 < 4? No, so hi = 1.\n4. mid = 0, A[0] = 2. 2 < 4, so lo = 1.\n5. lo = hi = 1. The loop ends and prints 1: the first index where A[i] ≥ 4.\n\n**Answer:** Prints 1, the first occurrence of 4.",
+   "why_full": "Questions about when binary search works, and about loops with small bugs, are common in both CS and DA. In GATE: which structures keep O(log n) (2025 DA Q27), and what a modified loop does with duplicates or whether it terminates (2008 CS Q84, 2008 CS Q85).\n\nAsked: 2025 DA Q27, 2008 CS Q84, 2008 CS Q85",
+   "trap": "Writing lo = mid or hi = mid without the ±1 in the plain loop, or trusting binary search on a linked list. A stall happens when mid = lo; a linked list makes each probe cost O(n), so the total is O(n)."
+  },
+  {
+   "atom_id": "se5",
+   "title": "Search in structured arrays",
+   "simple": "Sometimes the data is not perfectly sorted but still has a pattern. Imagine a clock face with its numbers rotated: still in order, just starting at a different place. If you look at a spot in the middle, either the stretch on its left or the stretch on its right is a normal sorted run. Check whether your key could be in that sorted run. If so, go there. If not, go to the other side. Other patterns work too: a hill that rises and then falls, a run of 0s followed by 1s, or a grid sorted along rows and columns. In exam words: rotated, bitonic, 0/1 and row-column sorted inputs still allow Θ(log n) searches (or m + n for a matrix), by using the pattern to discard part of the data each step.",
+   "idea": "A **rotated sorted** array always has one sorted half around the middle: test the key against that half and discard the other. A **bitonic** array has a peak that you find by comparing neighbours, then you search both sides. A **0/1** array needs a search for the first 1. A **row-and-column sorted** matrix is searched by a staircase walk in $m+n$ steps.",
+   "definition": "- Rotated sorted (distinct keys): at mid, if $A[lo]\\le A[mid]$ the left half is sorted, else the right half is. If $x$ falls in the sorted half's range go there, else go to the other. $O(\\log n)$.\n- Bitonic: compare $A[mid]$ with $A[mid+1]$. If smaller, the peak is on the right, else at mid or to the left. $O(\\log n)$.\n- 0s then 1s: first 1 by binary search, $\\lceil\\log_2 n\\rceil$ probes.\n- Row-and-column sorted $m\\times n$ matrix: start at the top-right corner; step left if the entry is bigger, step down if smaller. At most $m+n-1$ probes.\n- With duplicates, rotated search can degrade to $\\Theta(n)$.",
+   "intuition_full": "All of these use one idea: find a question about the middle whose answer lets you discard half. For sorted data the question is 'is the key bigger than the middle?'. For a rotated array there are two questions: 'which side is sorted?', then 'is the key in that side's range?'. For a bitonic array the question is the direction of the slope at mid. The pattern guarantees that the answer is informative. The reason the matrix needs m + n and not log: each step removes a whole row or a whole column, not half of the matrix. Duplicates can destroy the question: if A[lo] = A[mid] = A[hi], you learn nothing about which side is sorted, so you can only discard one end. Always ask: what does the structure promise, and does one probe still tell me which part to drop?",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The sorted array 3 5 9 12 15 18 22 was rotated to `A = [15, 18, 22, 3, 5, 9, 12]`. Search for 5 in O(log n).",
+     "steps": [
+      "In a rotated sorted array, one half around the middle is always sorted. Check which one, then check whether the key lies in it. lo = 0, hi = 6.",
+      "mid = 3, A[3] = 3. The left part 15 .. 3 is not sorted (15 > 3), so the right part 3 .. 12 is sorted. Is 3 < 5 ≤ 12? Yes, so go right: lo = 4.",
+      "mid = 5, A[5] = 9. The left part 5 .. 9 is sorted (5 ≤ 9). Is 5 ≥ 5 and 5 < 9? Yes, so go left: hi = 4.",
+      "mid = 4, A[4] = 5. Found at index 4, after 3 probes."
+     ],
+     "answer": "Found at index 4 after 3 probes. Each probe halves the range, so O(log n)."
+    },
+    {
+     "level": "gate",
+     "setup": "A bitonic array rises and then falls: `A = [3, 8, 14, 21, 25, 19, 11, 6]`. Find the peak in O(log n), then search for 11 on the falling side.",
+     "steps": [
+      "Find the peak by comparing a middle element with its right neighbour. lo = 0, hi = 7: mid = 3, A[3] = 21 < A[4] = 25, so the peak is to the right: lo = 4.",
+      "lo = 4, hi = 7: mid = 5, A[5] = 19 > A[6] = 11, so the peak is at mid or to the left: hi = 5.",
+      "lo = 4, hi = 5: mid = 4, A[4] = 25 > A[5] = 19, so hi = 4. The peak is at index 4 (value 25) after 3 comparisons.",
+      "Now binary search for 11 in the falling part `19 11 6` (indices 5 to 7), read in descending order. It is found at index 6.",
+      "Two O(log n) phases add up to Θ(log n), against Θ(n) for a scan."
+     ],
+     "answer": "Peak 25 at index 4; the key 11 is at index 6. Total Θ(log n)."
+    },
+    {
+     "level": "twist",
+     "setup": "Rotated, with duplicates: `A = [2, 2, 2, 3, 2, 2, 2]`. Can you still decide which half is sorted at mid?",
+     "steps": [
+      "lo = 0, hi = 6, mid = 3, A[3] = 3. Fine here: A[lo] = 2 ≤ 3, so the left part is sorted.",
+      "Now take A = [2, 3, 2, 2, 2, 2, 2], another rotation of 2 2 2 2 2 2 3, and search for 3. At mid = 3, A[lo] = A[mid] = A[hi] = 2. The 3 could be on the left or on the right; nothing tells you.",
+      "The only safe move is to drop one end (lo = lo + 1) and try again, removing a single element per step.",
+      "In the worst case this takes about n steps. Duplicates make a rotated search Θ(n) in the worst case, not O(log n)."
+     ],
+     "answer": "No. With A[lo] = A[mid] = A[hi] the sorted half cannot be identified, and the worst case degrades to Θ(n)."
+    }
+   ],
+   "why": "These structured searches test whether you can adapt binary search instead of just running it. In GATE: bitonic search (2025 CS2 Q41), and 0/1 array searches where the first 1 must be found (2017 CS1 Q48).",
+   "how": [
+    "Identify the structure: rotated, bitonic, 0/1 or matrix.",
+    "Find the question about mid that lets you drop half.",
+    "Rotated: decide which half is sorted, then check if the key lies in it.",
+    "Count probes: log n per phase; m + n − 1 for the matrix staircase."
+   ],
+   "mistake": "Believing a rotated array with duplicates still searches in O(log n), or running plain binary search on a rotated array. With duplicates the sorted half may be undecidable, and plain search assumes global order.",
+   "edge_cases": [
+    "Rotation by 0 is a plain sorted array.",
+    "Bitonic with the peak at an end is a sorted array, ascending or descending.",
+    "The matrix staircase cannot beat m + n − 1 in the worst case.",
+    "For 0/1 arrays you look for the boundary, so the answer is the first index where the value is 1."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing loops with two or three index variables.",
+    "Foundations: **Exponents and logs** (found.explog) covers why $\\log_2 n$ halvings are enough.",
+    "The base case is **Binary search mechanics**. Combining two O(log n) phases is the same additive rule as in **algo.complexity**."
+   ],
+   "check": [
+    {
+     "q": "A sorted array is rotated. Is A[0] ≤ A[mid] enough to say the left half is sorted?",
+     "a": "Yes for distinct keys: the left half contains no rotation point."
+    },
+    {
+     "q": "In a 0/1 array of 64 elements (at least one 1), how many probes find the first 1 at worst?",
+     "a": "6 (ceil(log₂ 64))."
+    },
+    {
+     "q": "Staircase search in a 5 × 8 sorted matrix: worst-case probes?",
+     "a": "5 + 8 − 1 = 12."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q41, 2017 CS1 Q48",
+   "try": {
+    "id": "gen.algo.searching.010",
+    "label": "Which statement about a rotated array at mid is correct (L2)"
+   },
+   "scene": "algo.searching.se5.rotated",
+   "example": {
+    "setup": "The sorted array 3 5 9 12 15 18 22 was rotated to `A = [15, 18, 22, 3, 5, 9, 12]`. Search for 5 in O(log n).",
+    "steps": [
+     "In a rotated sorted array, one half around the middle is always sorted. Check which one, then check whether the key lies in it. lo = 0, hi = 6.",
+     "mid = 3, A[3] = 3. The left part 15 .. 3 is not sorted (15 > 3), so the right part 3 .. 12 is sorted. Is 3 < 5 ≤ 12? Yes, so go right: lo = 4.",
+     "mid = 5, A[5] = 9. The left part 5 .. 9 is sorted (5 ≤ 9). Is 5 ≥ 5 and 5 < 9? Yes, so go left: hi = 4.",
+     "mid = 4, A[4] = 5. Found at index 4, after 3 probes."
+    ],
+    "answer": "Found at index 4 after 3 probes. Each probe halves the range, so O(log n)."
+   },
+   "what": "A **rotated sorted** array always has one sorted half around the middle: test the key against that half and discard the other. A **bitonic** array has a peak that you find by comparing neighbours, then you search both sides. A **0/1** array needs a search for the first 1. A **row-and-column sorted** matrix is searched by a staircase walk in $m+n$ steps.",
+   "what_full": "A **rotated sorted** array always has one sorted half around the middle: test the key against that half and discard the other. A **bitonic** array has a peak that you find by comparing neighbours, then you search both sides. A **0/1** array needs a search for the first 1. A **row-and-column sorted** matrix is searched by a staircase walk in $m+n$ steps.\n\n- Rotated sorted (distinct keys): at mid, if $A[lo]\\le A[mid]$ the left half is sorted, else the right half is. If $x$ falls in the sorted half's range go there, else go to the other. $O(\\log n)$.\n- Bitonic: compare $A[mid]$ with $A[mid+1]$. If smaller, the peak is on the right, else at mid or to the left. $O(\\log n)$.\n- 0s then 1s: first 1 by binary search, $\\lceil\\log_2 n\\rceil$ probes.\n- Row-and-column sorted $m\\times n$ matrix: start at the top-right corner; step left if the entry is bigger, step down if smaller. At most $m+n-1$ probes.\n- With duplicates, rotated search can degrade to $\\Theta(n)$.\n\n**Worked example.** The sorted array 3 5 9 12 15 18 22 was rotated to `A = [15, 18, 22, 3, 5, 9, 12]`. Search for 5 in O(log n).\n\n1. In a rotated sorted array, one half around the middle is always sorted. Check which one, then check whether the key lies in it. lo = 0, hi = 6.\n2. mid = 3, A[3] = 3. The left part 15 .. 3 is not sorted (15 > 3), so the right part 3 .. 12 is sorted. Is 3 < 5 ≤ 12? Yes, so go right: lo = 4.\n3. mid = 5, A[5] = 9. The left part 5 .. 9 is sorted (5 ≤ 9). Is 5 ≥ 5 and 5 < 9? Yes, so go left: hi = 4.\n4. mid = 4, A[4] = 5. Found at index 4, after 3 probes.\n\n**Answer:** Found at index 4 after 3 probes. Each probe halves the range, so O(log n).",
+   "why_full": "These structured searches test whether you can adapt binary search instead of just running it. In GATE: bitonic search (2025 CS2 Q41), and 0/1 array searches where the first 1 must be found (2017 CS1 Q48).\n\nAsked: 2025 CS2 Q41, 2017 CS1 Q48",
+   "trap": "Believing a rotated array with duplicates still searches in O(log n), or running plain binary search on a rotated array. With duplicates the sorted half may be undecidable, and plain search assumes global order."
+  },
+  {
+   "atom_id": "se6",
+   "title": "Lower bounds and adversaries",
+   "simple": "Think of the game 'twenty questions'. Each yes/no question can at best cut the possible answers in half. If there are 21 possible answers, one question leaves at least 11, two leave at least 6, and you need five questions before you are sure, because four questions can separate only 16 answers. No cleverness beats that count. For the biggest number in an unordered list, use a different argument: every number except the winner must lose at least once, and one comparison produces only one loser. In exam words: k comparisons distinguish at most 2^k outcomes, so a search over n sorted items needs at least ceil(log₂(n + 1)); finding the maximum of n unordered items needs n − 1 comparisons.",
+   "idea": "A **lower bound** says no algorithm can do better. By **outcome counting**: $k$ two-way comparisons give at most $2^k$ outcomes, so you need $2^k\\ge$ the number of outcomes. By an **adversary** argument: argue that every element that has not lost could still be the answer. Maximum of $n$ unordered items: $n-1$ comparisons.",
+   "definition": "- Search in $n$ sorted items has $n+1$ outcomes, so $k\\ge\\lceil\\log_2(n+1)\\rceil$ comparisons (two-way).\n- Maximum (or minimum) of $n$ unordered items: $n-1$ comparisons, since each comparison produces one loser and $n-1$ items must lose.\n- Maximum and minimum together: $\\lceil 3n/2\\rceil-2$.\n- Second largest: $n+\\lceil\\log_2 n\\rceil-2$.\n- Comparison sorting: $\\lceil\\log_2 n!\\rceil=\\Omega(n\\log n)$.\n- Some element that is not the maximum: 1 comparison (the loser of any comparison).",
+   "intuition_full": "The counting argument views the algorithm as a decision tree. Each internal node is a comparison with two branches, and each leaf is a final answer. A tree with k levels has at most 2^k leaves. If there are N different answers that must be told apart, the tree needs at least N leaves, so its height is at least log₂ N. This holds for every algorithm that only uses comparisons, even a clever one nobody has invented yet. The adversary argument works the other way: an opponent answers each comparison so that as many candidates as possible stay alive. For the maximum, the opponent says whoever has not yet lost is bigger, and it must lose to eliminate one candidate each time. So n − 1 comparisons are forced. Because the bound and a concrete algorithm (binary search or a tournament) meet, we say the algorithm is optimal for that problem.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A sorted array has 20 distinct keys. A search algorithm can only compare the key with array elements, and each comparison has two outcomes (less or not). What is the fewest comparisons any such algorithm needs in the worst case?",
+     "steps": [
+      "Count the possible answers: the key is at one of 20 positions, or it is absent. That is 21 outcomes the algorithm must tell apart.",
+      "Each comparison has two outcomes, so after k comparisons the algorithm can distinguish at most 2^k outcomes (a binary decision tree with k levels).",
+      "k = 4 gives 2⁴ = 16 outcomes. That is less than 21, so 4 comparisons cannot be enough.",
+      "k = 5 gives 2⁵ = 32 ≥ 21. So at least 5 comparisons are needed: ceil(log₂ 21) = 5.",
+      "Binary search makes floor(log₂ 20) + 1 = 5 probes, so it meets the bound. It is optimal."
+     ],
+     "answer": "At least 5 comparisons, ceil(log₂(n + 1)) with n = 20. Binary search achieves 5."
+    },
+    {
+     "level": "gate",
+     "setup": "The 25 distinct numbers in an array are in no order. What is the minimum number of comparisons to find the maximum? And what does the second largest cost after a knockout tournament?",
+     "steps": [
+      "Every number except the maximum must lose at least one comparison (otherwise it could still be the maximum).",
+      "Each comparison creates exactly one loser. So at least 25 − 1 = 24 comparisons are needed.",
+      "A knockout tournament uses exactly 24 comparisons, so 24 is the answer.",
+      "For the second largest: the largest played ceil(log₂ 25) = 5 matches. The second largest lost to the largest in one of them, so it is one of those 5 players.",
+      "Finding the best of 5 candidates costs 4 more comparisons: 24 + 4 = 28 = n + ceil(log₂ n) − 2."
+     ],
+     "answer": "24 comparisons for the maximum. 28 for the maximum and the second largest."
+    },
+    {
+     "level": "twist",
+     "setup": "Eight distinct numbers are in a knockout tournament. After finding the champion, how many more comparisons find the second largest?",
+     "steps": [
+      "The tournament uses 7 comparisons. The champion played 3 matches (log₂ 8 = 3).",
+      "The second largest must have lost directly to the champion, in one of those 3 matches. So there are only 3 candidates.",
+      "The best of 3 candidates needs 2 comparisons.",
+      "Total: 7 + 2 = 9 = n + log₂ n − 2 = 8 + 3 − 2. Without the tournament information it would cost more."
+     ],
+     "answer": "2 more comparisons, 9 in total."
+    }
+   ],
+   "why": "Lower-bound questions ask what the best possible algorithm can achieve. In GATE: the minimum comparisons to find an extreme or an element of a certain rank (2025 CS2 Q20), and the cost of random-probe search (2002 CS Q2_10).",
+   "how": [
+    "Count the outcomes the algorithm must distinguish.",
+    "Two-way comparisons: k ≥ ceil(log₂ outcomes).",
+    "For extremes in unordered data: every other element must lose once, so n − 1.",
+    "Check that a known algorithm meets the bound, then it is optimal."
+   ],
+   "mistake": "Giving log₂ n instead of ceil(log₂(n + 1)), forgetting the 'absent' outcome, or answering n for the maximum. For n = 8 the answer is ceil(log₂ 9) = 4, not 3. And the maximum of n items needs n − 1 comparisons, not n.",
+   "edge_cases": [
+    "n = 1: the single key plus absent gives 2 outcomes, so 1 comparison.",
+    "Three-way comparisons (less, equal, greater) allow a smaller bound: ceil(log₃(2n + 1)).",
+    "Finding any element that is not the maximum takes just 1 comparison: the loser of any comparison.",
+    "A bound proved for comparison-based algorithms does not apply to hashing or counting."
+   ],
+   "connections": [
+    "Foundations: **Exponents and logs** (found.explog) covers $\\lceil\\log_2 N\\rceil$ and powers of two.",
+    "Foundations: **Sets and logic** (found.sets_logic) covers counting the outcomes (a set of possible answers) and arguing by contradiction.",
+    "Binary search meeting the bound is **Counting comparisons exactly**. Min-max and sorting bounds are in **algo.complexity** and **algo.sorting**."
+   ],
+   "check": [
+    {
+     "q": "A sorted array has 7 keys. Fewest two-way comparisons to search it?",
+     "a": "ceil(log₂ 8) = 3."
+    },
+    {
+     "q": "Fewest comparisons to find the maximum of 30 unordered numbers?",
+     "a": "29."
+    },
+    {
+     "q": "Why can't a comparison sort of 4 items use 4 comparisons?",
+     "a": "4! = 24 orderings, but 2⁴ = 16 < 24 leaves."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q20, 2002 CS Q2_10",
+   "try": {
+    "id": "gen.algo.searching.011",
+    "label": "Minimum comparisons to search 15 sorted keys (L2)"
+   },
+   "scene": "algo.searching.se6.bound",
+   "example": {
+    "setup": "A sorted array has 20 distinct keys. A search algorithm can only compare the key with array elements, and each comparison has two outcomes (less or not). What is the fewest comparisons any such algorithm needs in the worst case?",
+    "steps": [
+     "Count the possible answers: the key is at one of 20 positions, or it is absent. That is 21 outcomes the algorithm must tell apart.",
+     "Each comparison has two outcomes, so after k comparisons the algorithm can distinguish at most 2^k outcomes (a binary decision tree with k levels).",
+     "k = 4 gives 2⁴ = 16 outcomes. That is less than 21, so 4 comparisons cannot be enough.",
+     "k = 5 gives 2⁵ = 32 ≥ 21. So at least 5 comparisons are needed: ceil(log₂ 21) = 5.",
+     "Binary search makes floor(log₂ 20) + 1 = 5 probes, so it meets the bound. It is optimal."
+    ],
+    "answer": "At least 5 comparisons, ceil(log₂(n + 1)) with n = 20. Binary search achieves 5."
+   },
+   "what": "A **lower bound** says no algorithm can do better. By **outcome counting**: $k$ two-way comparisons give at most $2^k$ outcomes, so you need $2^k\\ge$ the number of outcomes. By an **adversary** argument: argue that every element that has not lost could still be the answer. Maximum of $n$ unordered items: $n-1$ comparisons.",
+   "what_full": "A **lower bound** says no algorithm can do better. By **outcome counting**: $k$ two-way comparisons give at most $2^k$ outcomes, so you need $2^k\\ge$ the number of outcomes. By an **adversary** argument: argue that every element that has not lost could still be the answer. Maximum of $n$ unordered items: $n-1$ comparisons.\n\n- Search in $n$ sorted items has $n+1$ outcomes, so $k\\ge\\lceil\\log_2(n+1)\\rceil$ comparisons (two-way).\n- Maximum (or minimum) of $n$ unordered items: $n-1$ comparisons, since each comparison produces one loser and $n-1$ items must lose.\n- Maximum and minimum together: $\\lceil 3n/2\\rceil-2$.\n- Second largest: $n+\\lceil\\log_2 n\\rceil-2$.\n- Comparison sorting: $\\lceil\\log_2 n!\\rceil=\\Omega(n\\log n)$.\n- Some element that is not the maximum: 1 comparison (the loser of any comparison).\n\n**Worked example.** A sorted array has 20 distinct keys. A search algorithm can only compare the key with array elements, and each comparison has two outcomes (less or not). What is the fewest comparisons any such algorithm needs in the worst case?\n\n1. Count the possible answers: the key is at one of 20 positions, or it is absent. That is 21 outcomes the algorithm must tell apart.\n2. Each comparison has two outcomes, so after k comparisons the algorithm can distinguish at most 2^k outcomes (a binary decision tree with k levels).\n3. k = 4 gives 2⁴ = 16 outcomes. That is less than 21, so 4 comparisons cannot be enough.\n4. k = 5 gives 2⁵ = 32 ≥ 21. So at least 5 comparisons are needed: ceil(log₂ 21) = 5.\n5. Binary search makes floor(log₂ 20) + 1 = 5 probes, so it meets the bound. It is optimal.\n\n**Answer:** At least 5 comparisons, ceil(log₂(n + 1)) with n = 20. Binary search achieves 5.",
+   "why_full": "Lower-bound questions ask what the best possible algorithm can achieve. In GATE: the minimum comparisons to find an extreme or an element of a certain rank (2025 CS2 Q20), and the cost of random-probe search (2002 CS Q2_10).\n\nAsked: 2025 CS2 Q20, 2002 CS Q2_10",
+   "trap": "Giving log₂ n instead of ceil(log₂(n + 1)), forgetting the 'absent' outcome, or answering n for the maximum. For n = 8 the answer is ceil(log₂ 9) = 4, not 3. And the maximum of n items needs n − 1 comparisons, not n."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "algo.searching.se1.linear",
+   "title": "Linear search: key 9 costs 4, absent key 40 costs 7, average 4",
+   "viewBox": [
+    0,
+    0,
+    360,
+    242
+   ],
+   "objects": [
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 40,
+     "y": 70,
+     "cells": [
+      14,
+      7,
+      22,
+      9,
+      31,
+      5,
+      18
+     ],
+     "cw": 40,
+     "ch": 36,
+     "indices": true,
+     "label": "array (n = 7)"
+    },
+    {
+     "id": "p",
+     "kind": "pointer",
+     "array": "a",
+     "index": 0,
+     "label": "i",
+     "side": "below"
+    },
+    {
+     "id": "ky",
+     "kind": "text",
+     "x": 180,
+     "y": 28,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "ct",
+     "kind": "text",
+     "x": 180,
+     "y": 198,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 224,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Linear search compares the key with each element from the first, in order, and stops at a match. Key = 9, comparisons so far: 0.",
+     "show": [
+      "a",
+      "p",
+      "ky",
+      "ct",
+      "nt"
+     ],
+     "set": [
+      {
+       "id": "ky",
+       "text": "search key = 9"
+      },
+      {
+       "id": "ct",
+       "text": "comparisons: 0"
+      }
+     ]
+    },
+    {
+     "caption": "Compare with 14, then 7, then 22. No match yet: 3 comparisons.",
+     "move": {
+      "id": "p",
+      "index": 2
+     },
+     "highlight": {
+      "id": "a",
+      "cells": [
+       0,
+       1,
+       2
+      ],
+      "tone": "bad"
+     },
+     "set": [
+      {
+       "id": "ct",
+       "text": "comparisons: 3"
+      },
+      {
+       "id": "nt",
+       "text": "14, 7, 22 are not 9"
+      }
+     ]
+    },
+    {
+     "caption": "Compare with 9 at index 3. Match. That is the 4th comparison, so the key at position 4 costs 4.",
+     "move": {
+      "id": "p",
+      "index": 3
+     },
+     "highlight": {
+      "id": "a",
+      "cells": [
+       3
+      ],
+      "tone": "good"
+     },
+     "set": [
+      {
+       "id": "ct",
+       "text": "comparisons: 4  (found)",
+       "tone": "good"
+      },
+      {
+       "id": "nt",
+       "text": "position 4 costs 4"
+      }
+     ]
+    },
+    {
+     "caption": "Key = 40 is not in the array. Every one of the 7 elements must be checked before giving up: 7 comparisons, which is n.",
+     "move": {
+      "id": "p",
+      "index": 6
+     },
+     "highlight": {
+      "id": "a",
+      "cells": [
+       0,
+       1,
+       2,
+       3,
+       4,
+       5,
+       6
+      ],
+      "tone": "bad"
+     },
+     "set": [
+      {
+       "id": "ky",
+       "text": "search key = 40 (absent)"
+      },
+      {
+       "id": "ct",
+       "text": "comparisons: 7  (not found)",
+       "tone": "bad"
+      },
+      {
+       "id": "nt",
+       "text": "absent key checks all n elements"
+      }
+     ]
+    },
+    {
+     "caption": "If the key is present and equally likely at each position, the cost is 1, 2, ..., 7 with average (1 + 2 + ... + 7) / 7 = 28 / 7 = 4 = (n + 1) / 2.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       0,
+       1,
+       2,
+       3,
+       4,
+       5,
+       6
+      ],
+      "tone": "accent"
+     },
+     "set": [
+      {
+       "id": "ky",
+       "text": "key present, any position equally likely"
+      },
+      {
+       "id": "ct",
+       "text": "average = (1+2+...+7)/7 = 4",
+       "tone": "good"
+      },
+      {
+       "id": "nt",
+       "text": "(n + 1) / 2"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.searching.se2.binary",
+   "title": "Binary search for 52: probes at indices 5, 8, 6, 7",
+   "viewBox": [
+    0,
+    0,
+    360,
+    246
+   ],
+   "objects": [
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 15,
+     "y": 80,
+     "cells": [
+      3,
+      8,
+      12,
+      19,
+      25,
+      31,
+      44,
+      52,
+      67,
+      78,
+      91
+     ],
+     "cw": 30,
+     "ch": 34,
+     "indices": true,
+     "label": "sorted array, key = 52"
+    },
+    {
+     "id": "lo",
+     "kind": "pointer",
+     "array": "a",
+     "index": 0,
+     "label": "lo",
+     "side": "below"
+    },
+    {
+     "id": "hi",
+     "kind": "pointer",
+     "array": "a",
+     "index": 10,
+     "label": "hi",
+     "side": "above"
+    },
+    {
+     "id": "pr",
+     "kind": "text",
+     "x": 180,
+     "y": 204,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 230,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start with lo = 0 and hi = 10. The array is sorted, so we can discard half after each probe.",
+     "show": [
+      "a",
+      "lo",
+      "hi",
+      "pr",
+      "nt"
+     ],
+     "set": [
+      {
+       "id": "pr",
+       "text": "probes: 0"
+      },
+      {
+       "id": "nt",
+       "text": "lo = 0, hi = 10"
+      }
+     ]
+    },
+    {
+     "caption": "Probe 1: mid = 5, value 31. 31 < 52, so the key is to the right. Set lo = 6.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       5
+      ],
+      "tone": "accent"
+     },
+     "move": {
+      "id": "lo",
+      "index": 6
+     },
+     "dim": {
+      "id": "a",
+      "cells": [
+       0,
+       1,
+       2,
+       3,
+       4,
+       5
+      ]
+     },
+     "set": [
+      {
+       "id": "pr",
+       "text": "probes: 1"
+      },
+      {
+       "id": "nt",
+       "text": "mid = 5 (31) < 52 : lo = 6"
+      }
+     ]
+    },
+    {
+     "caption": "Probe 2: mid = (6 + 10) // 2 = 8, value 67. 67 > 52, so the key is to the left. Set hi = 7.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       8
+      ],
+      "tone": "accent"
+     },
+     "move": {
+      "id": "hi",
+      "index": 7
+     },
+     "dim": {
+      "id": "a",
+      "cells": [
+       8,
+       9,
+       10
+      ]
+     },
+     "set": [
+      {
+       "id": "pr",
+       "text": "probes: 2"
+      },
+      {
+       "id": "nt",
+       "text": "mid = 8 (67) > 52 : hi = 7"
+      }
+     ]
+    },
+    {
+     "caption": "Probe 3: mid = (6 + 7) // 2 = 6, value 44. 44 < 52, so set lo = 7.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       6
+      ],
+      "tone": "accent"
+     },
+     "move": {
+      "id": "lo",
+      "index": 7
+     },
+     "dim": {
+      "id": "a",
+      "cells": [
+       6
+      ]
+     },
+     "set": [
+      {
+       "id": "pr",
+       "text": "probes: 3"
+      },
+      {
+       "id": "nt",
+       "text": "mid = 6 (44) < 52 : lo = 7"
+      }
+     ]
+    },
+    {
+     "caption": "Probe 4: mid = 7, value 52. Match. Found after 4 probes, out of 11 elements.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       7
+      ],
+      "tone": "good"
+     },
+     "set": [
+      {
+       "id": "pr",
+       "text": "probes: 4  (found at index 7)",
+       "tone": "good"
+      },
+      {
+       "id": "nt",
+       "text": "mid = 7 (52) = 52"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.searching.se3.count",
+   "title": "How many probes can 50 elements need? The candidates shrink 50, 25, 12, 6, 3, 1",
+   "viewBox": [
+    0,
+    0,
+    360,
+    232
+   ],
+   "objects": [
+    {
+     "id": "br",
+     "kind": "bar",
+     "x": 40,
+     "y": 70,
+     "values": [
+      50,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "start",
+      "p1",
+      "p2",
+      "p3",
+      "p4",
+      "p5",
+      "p6"
+     ],
+     "w": 280,
+     "h": 100,
+     "max": 50,
+     "hideZero": true
+    },
+    {
+     "id": "p1",
+     "kind": "text",
+     "x": 180,
+     "y": 24,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "p2",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Start with 50 candidate positions. Each probe looks at one, and leaves at most floor(m / 2) candidates (the larger side, without the probed one).",
+     "show": [
+      "br",
+      "p1",
+      "p2"
+     ],
+     "set": [
+      {
+       "id": "p1",
+       "text": "candidates still possible"
+      },
+      {
+       "id": "p2",
+       "text": "50 candidates, probes: 0"
+      }
+     ]
+    },
+    {
+     "caption": "After probe 1: at most 25 candidates remain.",
+     "set": [
+      {
+       "id": "br",
+       "values": [
+        50,
+        25,
+        0,
+        0,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "p2",
+       "text": "probe 1 : at most 25 left"
+      }
+     ],
+     "highlight": {
+      "id": "br",
+      "cells": [
+       1
+      ],
+      "tone": "accent"
+     }
+    },
+    {
+     "caption": "After probe 2: at most 12 remain.",
+     "set": [
+      {
+       "id": "br",
+       "values": [
+        50,
+        25,
+        12,
+        0,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "p2",
+       "text": "probe 2 : at most 12 left"
+      }
+     ],
+     "highlight": {
+      "id": "br",
+      "cells": [
+       2
+      ],
+      "tone": "accent"
+     }
+    },
+    {
+     "caption": "After probe 3: at most 6 remain.",
+     "set": [
+      {
+       "id": "br",
+       "values": [
+        50,
+        25,
+        12,
+        6,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "p2",
+       "text": "probe 3 : at most 6 left"
+      }
+     ],
+     "highlight": {
+      "id": "br",
+      "cells": [
+       3
+      ],
+      "tone": "accent"
+     }
+    },
+    {
+     "caption": "After probe 4: at most 3 remain.",
+     "set": [
+      {
+       "id": "br",
+       "values": [
+        50,
+        25,
+        12,
+        6,
+        3,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "p2",
+       "text": "probe 4 : at most 3 left"
+      }
+     ],
+     "highlight": {
+      "id": "br",
+      "cells": [
+       4
+      ],
+      "tone": "accent"
+     }
+    },
+    {
+     "caption": "After probe 5: at most 1 candidate remains.",
+     "set": [
+      {
+       "id": "br",
+       "values": [
+        50,
+        25,
+        12,
+        6,
+        3,
+        1,
+        0
+       ]
+      },
+      {
+       "id": "p2",
+       "text": "probe 5 : at most 1 left"
+      }
+     ],
+     "highlight": {
+      "id": "br",
+      "cells": [
+       5
+      ],
+      "tone": "accent"
+     }
+    },
+    {
+     "caption": "Probe 6 looks at the last candidate and decides. Every search, found or not, ends within 6 probes: floor(log₂ 50) + 1 = 5 + 1 = 6.",
+     "highlight": {
+      "id": "br",
+      "cells": [
+       6
+      ],
+      "tone": "good"
+     },
+     "set": [
+      {
+       "id": "p1",
+       "text": "worst case = 6 probes",
+       "tone": "good"
+      },
+      {
+       "id": "p2",
+       "text": "floor(log2 50) + 1 = 6"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.searching.se4.lowerbound",
+   "title": "Lower-bound search keeps moving left on equal keys and ends at the first 4",
+   "viewBox": [
+    0,
+    0,
+    360,
+    246
+   ],
+   "objects": [
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 40,
+     "y": 80,
+     "cells": [
+      2,
+      4,
+      4,
+      4,
+      7,
+      9,
+      12
+     ],
+     "cw": 40,
+     "ch": 34,
+     "indices": true,
+     "slots": 8,
+     "label": "A, find the first 4"
+    },
+    {
+     "id": "lo",
+     "kind": "pointer",
+     "array": "a",
+     "index": 0,
+     "label": "lo",
+     "side": "below"
+    },
+    {
+     "id": "hi",
+     "kind": "pointer",
+     "array": "a",
+     "index": 7,
+     "label": "hi",
+     "side": "above"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 204,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "r2",
+     "kind": "text",
+     "x": 180,
+     "y": 230,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Plain binary search could stop at any of the three 4s. This version keeps hi = mid when A[mid] ≥ x, so it keeps moving left until it cannot. lo = 0, hi = 7.",
+     "show": [
+      "a",
+      "lo",
+      "hi",
+      "nt",
+      "r2"
+     ],
+     "set": [
+      {
+       "id": "nt",
+       "text": "lo = 0, hi = 7, x = 4"
+      },
+      {
+       "id": "r2",
+       "text": "A[mid] >= x : hi = mid (keep going left)"
+      }
+     ]
+    },
+    {
+     "caption": "mid = 3, A[3] = 4. Is 4 < 4? No, so hi = 3. The first 4 is at index 3 or earlier.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       3
+      ],
+      "tone": "accent"
+     },
+     "move": {
+      "id": "hi",
+      "index": 3
+     },
+     "dim": {
+      "id": "a",
+      "cells": [
+       4,
+       5,
+       6
+      ]
+     },
+     "set": [
+      {
+       "id": "nt",
+       "text": "mid = 3, A[3] = 4 >= 4 : hi = 3"
+      }
+     ]
+    },
+    {
+     "caption": "mid = 1, A[1] = 4. 4 < 4? No, so hi = 1.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       1
+      ],
+      "tone": "accent"
+     },
+     "move": {
+      "id": "hi",
+      "index": 1
+     },
+     "dim": {
+      "id": "a",
+      "cells": [
+       2,
+       3
+      ]
+     },
+     "set": [
+      {
+       "id": "nt",
+       "text": "mid = 1, A[1] = 4 >= 4 : hi = 1"
+      }
+     ]
+    },
+    {
+     "caption": "mid = 0, A[0] = 2. 2 < 4, so lo = 1.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       0
+      ],
+      "tone": "accent"
+     },
+     "move": {
+      "id": "lo",
+      "index": 1
+     },
+     "dim": {
+      "id": "a",
+      "cells": [
+       0
+      ]
+     },
+     "set": [
+      {
+       "id": "nt",
+       "text": "mid = 0, A[0] = 2 < 4 : lo = 1"
+      }
+     ]
+    },
+    {
+     "caption": "lo = hi = 1. The loop ends and prints 1: the first index where A[i] ≥ 4.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       1
+      ],
+      "tone": "good"
+     },
+     "set": [
+      {
+       "id": "nt",
+       "text": "lo = hi = 1 : first 4 is at index 1",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.searching.se5.rotated",
+   "title": "Rotated array: pick the sorted half, test whether the key is in it",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 26,
+     "y": 80,
+     "cells": [
+      15,
+      18,
+      22,
+      3,
+      5,
+      9,
+      12
+     ],
+     "cw": 44,
+     "ch": 36,
+     "indices": true,
+     "label": "rotated array, key = 5"
+    },
+    {
+     "id": "lo",
+     "kind": "pointer",
+     "array": "a",
+     "index": 0,
+     "label": "lo",
+     "side": "below"
+    },
+    {
+     "id": "hi",
+     "kind": "pointer",
+     "array": "a",
+     "index": 6,
+     "label": "hi",
+     "side": "above"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 208,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "r2",
+     "kind": "text",
+     "x": 180,
+     "y": 234,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "In a rotated sorted array, one half around the middle is always sorted. Check which one, then check whether the key lies in it. lo = 0, hi = 6.",
+     "show": [
+      "a",
+      "lo",
+      "hi",
+      "nt",
+      "r2"
+     ],
+     "set": [
+      {
+       "id": "nt",
+       "text": "sorted 3 5 9 12 15 18 22, rotated"
+      },
+      {
+       "id": "r2",
+       "text": "one half around mid is always sorted"
+      }
+     ]
+    },
+    {
+     "caption": "mid = 3, A[3] = 3. The left part 15 .. 3 is not sorted (15 > 3), so the right part 3 .. 12 is sorted. Is 3 < 5 ≤ 12? Yes, so go right: lo = 4.",
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        3
+       ],
+       "tone": "accent"
+      },
+      {
+       "id": "a",
+       "cells": [
+        3,
+        4,
+        5,
+        6
+       ],
+       "tone": "good"
+      }
+     ],
+     "move": {
+      "id": "lo",
+      "index": 4
+     },
+     "dim": {
+      "id": "a",
+      "cells": [
+       0,
+       1,
+       2,
+       3
+      ]
+     },
+     "set": [
+      {
+       "id": "nt",
+       "text": "mid=3 (3): right part 3..12 sorted, 5 in it"
+      },
+      {
+       "id": "r2",
+       "text": "lo = 4"
+      }
+     ]
+    },
+    {
+     "caption": "mid = 5, A[5] = 9. The left part 5 .. 9 is sorted (5 ≤ 9). Is 5 ≥ 5 and 5 < 9? Yes, so go left: hi = 4.",
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        5
+       ],
+       "tone": "accent"
+      },
+      {
+       "id": "a",
+       "cells": [
+        4,
+        5
+       ],
+       "tone": "good"
+      }
+     ],
+     "move": {
+      "id": "hi",
+      "index": 4
+     },
+     "dim": {
+      "id": "a",
+      "cells": [
+       5,
+       6
+      ]
+     },
+     "set": [
+      {
+       "id": "nt",
+       "text": "mid=5 (9): left part 5..9 sorted, 5 in it"
+      },
+      {
+       "id": "r2",
+       "text": "hi = 4"
+      }
+     ]
+    },
+    {
+     "caption": "mid = 4, A[4] = 5. Found at index 4, after 3 probes.",
+     "highlight": {
+      "id": "a",
+      "cells": [
+       4
+      ],
+      "tone": "good"
+     },
+     "set": [
+      {
+       "id": "nt",
+       "text": "mid = 4 (5) : found in 3 probes",
+       "tone": "good"
+      },
+      {
+       "id": "r2",
+       "text": "each probe halves the range : O(log n)"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "algo.searching.se6.bound",
+   "title": "Counting outcomes: 21 answers need 5 two-way comparisons",
+   "viewBox": [
+    0,
+    0,
+    360,
+    232
+   ],
+   "objects": [
+    {
+     "id": "br",
+     "kind": "bar",
+     "x": 50,
+     "y": 70,
+     "values": [
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "k=1",
+      "k=2",
+      "k=3",
+      "k=4",
+      "k=5"
+     ],
+     "w": 260,
+     "h": 100,
+     "max": 32,
+     "hideZero": true
+    },
+    {
+     "id": "p1",
+     "kind": "text",
+     "x": 180,
+     "y": 24,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "p2",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Count the possible answers: the key is at one of 20 positions, or it is absent. That is 21 outcomes the algorithm must tell apart.",
+     "show": [
+      "br",
+      "p1",
+      "p2"
+     ],
+     "set": [
+      {
+       "id": "p1",
+       "text": "outcomes to tell apart: 20 + 1 = 21"
+      },
+      {
+       "id": "p2",
+       "text": "20 positions, or absent"
+      }
+     ]
+    },
+    {
+     "caption": "Each comparison has two outcomes, so after k comparisons the algorithm can distinguish at most 2^k outcomes (a binary decision tree with k levels).",
+     "set": [
+      {
+       "id": "br",
+       "values": [
+        2,
+        4,
+        8,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "p2",
+       "text": "k comparisons : at most 2^k outcomes (2, 4, 8)"
+      }
+     ],
+     "highlight": {
+      "id": "br",
+      "cells": [
+       0,
+       1,
+       2
+      ],
+      "tone": "accent"
+     }
+    },
+    {
+     "caption": "k = 4 gives 2⁴ = 16 outcomes. That is less than 21, so 4 comparisons cannot be enough.",
+     "set": [
+      {
+       "id": "br",
+       "values": [
+        2,
+        4,
+        8,
+        16,
+        0
+       ]
+      },
+      {
+       "id": "p2",
+       "text": "k = 4 : 16 < 21, not enough"
+      }
+     ],
+     "highlight": {
+      "id": "br",
+      "cells": [
+       3
+      ],
+      "tone": "bad"
+     }
+    },
+    {
+     "caption": "k = 5 gives 2⁵ = 32 ≥ 21. So at least 5 comparisons are needed: ceil(log₂ 21) = 5.",
+     "set": [
+      {
+       "id": "br",
+       "values": [
+        2,
+        4,
+        8,
+        16,
+        32
+       ]
+      },
+      {
+       "id": "p2",
+       "text": "k = 5 : 32 >= 21, enough"
+      }
+     ],
+     "highlight": {
+      "id": "br",
+      "cells": [
+       4
+      ],
+      "tone": "good"
+     }
+    },
+    {
+     "caption": "Binary search makes floor(log₂ 20) + 1 = 5 probes, so it meets the bound. It is optimal.",
+     "highlight": {
+      "id": "br",
+      "cells": [
+       4
+      ],
+      "tone": "good"
+     },
+     "set": [
+      {
+       "id": "p1",
+       "text": "lower bound = ceil(log2 21) = 5",
+       "tone": "good"
+      },
+      {
+       "id": "p2",
+       "text": "binary search: floor(log2 20) + 1 = 5, optimal"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

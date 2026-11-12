@@ -1,0 +1,3305 @@
+{
+  "topic_id": "ml.knn",
+  "title": "k-nearest neighbours",
+  "chapter_note": {
+    "about": "k-nearest neighbours predicts a new point by looking at the training points closest to it. To classify, the k nearest points vote. To predict a number, you average their targets. There is no training step, and the behaviour is controlled by the distance you use and by k. This chapter covers distances, voting, the effect of k, regression, leave-one-out error, scaling, high dimensions, the cost of prediction and the nearest-centroid shortcut.",
+    "concept_map": [
+      {
+        "atom_id": "k1",
+        "title": "Distance",
+        "one_line": "Euclidean is the root of summed squared gaps. Manhattan sums the absolute gaps."
+      },
+      {
+        "atom_id": "k2",
+        "title": "Majority vote",
+        "one_line": "Sort by distance and vote among the k nearest. Check every odd k."
+      },
+      {
+        "atom_id": "k3",
+        "title": "Effect of k",
+        "one_line": "Small k is jagged with high variance. Large k is smooth with high bias."
+      },
+      {
+        "atom_id": "k7",
+        "title": "k-NN regression",
+        "one_line": "Regression averages the neighbours' targets, never their inputs."
+      },
+      {
+        "atom_id": "k9",
+        "title": "Training and leave-one-out error",
+        "one_line": "1-NN training error is 0. Use leave-one-out, excluding the point itself."
+      },
+      {
+        "atom_id": "k6",
+        "title": "Feature scaling",
+        "one_line": "Scale features first, or the one with the biggest range decides."
+      },
+      {
+        "atom_id": "k6b",
+        "title": "High dimensions",
+        "one_line": "Many irrelevant features make near and far points almost equally distant."
+      },
+      {
+        "atom_id": "k5",
+        "title": "Lazy learning and cost",
+        "one_line": "No training. Each prediction scans all n points over d features."
+      },
+      {
+        "atom_id": "k11",
+        "title": "Nearest centroid",
+        "one_line": "Keep one mean per class. The boundary is a straight perpendicular bisector."
+      }
+    ],
+    "gate_patterns": [
+      "Find the label at several k, or the minimum odd k at which the query changes label: sort the points by distance and vote at each odd k. Asked in 2024 DA (Q63).",
+      "Nearest-centroid classifier: the difference of squared distances is linear in x, so the boundary is a straight line. Asked in 2025 DA (Q55).",
+      "Small calculations: Euclidean and Manhattan distance, a 3-NN regression average, 1-NN leave-one-out error on a line. About 0.67 marks per DA paper."
+    ],
+    "simple": "k-nearest neighbours is the 'ask your neighbours' method. To label a new point, you find the k training points closest to it and let them vote. If you are predicting a number, you average their numbers instead. There is no learning step. The method keeps the data and does all the work when a question arrives. Small k follows every wiggle and large k smooths everything out. The features must be on the same scale and not too many, or 'closest' stops meaning anything."
+  },
+  "cards": [
+    {
+      "atom_id": "k1",
+      "title": "Distance",
+      "simple": "Distance tells k-NN who counts as 'near'. Think of walking to a friend's house. If you could fly in a straight line, the distance is the straight line (Euclidean). If you must follow the city blocks, it is the number of blocks you walk along the streets (Manhattan). To find the nearest friend you only need the order of the distances. Squaring every distance keeps the same order and saves you from taking square roots. In exam words: Euclidean = √(sum of squared gaps), Manhattan = sum of absolute gaps, and you can rank by squared distance.",
+      "idea": "k-NN needs a way to say how far apart two points are. The usual choice is **Euclidean distance**, the length of the straight line between them. **Manhattan distance** adds up the horizontal and vertical steps instead. To find the nearest point you only need the order of the distances, so you can compare **squared** Euclidean distances and skip the square root.",
+      "definition": "$$d_2(p,q)=\\sqrt{\\sum_i (p_i-q_i)^2},\\qquad d_1(p,q)=\\sum_i |p_i-q_i|$$\n\nSymbols: $p$ and $q$ are two points, and $p_i$, $q_i$ are their $i$-th coordinates (features). $d_2$ is Euclidean distance and $d_1$ is Manhattan distance. Ranking by $d_2^2=\\sum_i(p_i-q_i)^2$ gives the same order as ranking by $d_2$.",
+      "intuition_full": "Euclidean distance is Pythagoras extended to any number of coordinates: square each gap, add, take the square root. In two dimensions it is the hypotenuse. Manhattan distance is the length of the two legs added together, which is the walk along city blocks. The square root never changes which point is nearest, because a bigger number always has a bigger square root. So in exam questions you can compare the sums of squares and take the root only if the question asks for the actual distance. The two distances can disagree about who is nearest. A point on the diagonal is closer in a straight line than the same point measured along the blocks. Unless the question names another distance, use Euclidean.",
+      "example": {
+        "level": "basic",
+        "setup": "The query is q = (0, 0). Point P is (3, 3) and point Q is (5, 0). Which is nearer to q by Euclidean distance, and which by Manhattan distance?",
+        "steps": [
+          "Euclidean, squared. P: 3² + 3² = 9 + 9 = 18. Q: 5² + 0² = 25.",
+          "18 < 25, so P is nearer by Euclidean distance. (Actual distances: √18 ≈ 4.24 and 5.)",
+          "Manhattan. P: |3| + |3| = 6. Q: |5| + |0| = 5.",
+          "5 < 6, so Q is nearer by Manhattan distance.",
+          "The two distances disagree. The metric you use decides the neighbour."
+        ],
+        "answer": "Euclidean picks P (18 < 25). Manhattan picks Q (5 < 6)."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The query is q = (0, 0). Point P is (3, 3) and point Q is (5, 0). Which is nearer to q by Euclidean distance, and which by Manhattan distance?",
+          "steps": [
+            "Euclidean, squared. P: 3² + 3² = 9 + 9 = 18. Q: 5² + 0² = 25.",
+            "18 < 25, so P is nearer by Euclidean distance. (Actual distances: √18 ≈ 4.24 and 5.)",
+            "Manhattan. P: |3| + |3| = 6. Q: |5| + |0| = 5.",
+            "5 < 6, so Q is nearer by Manhattan distance.",
+            "The two distances disagree. The metric you use decides the neighbour."
+          ],
+          "answer": "Euclidean picks P (18 < 25). Manhattan picks Q (5 < 6)."
+        },
+        {
+          "level": "gate",
+          "setup": "The query is q = (2, 1, 3). The points are P1 = (5, 1, 3), P2 = (3, 3, 2) and P3 = (1, 0, 6). (a) Which point is nearest by Euclidean distance? (b) What is the Euclidean distance to the second-nearest point? (c) Which is nearest by Manhattan distance?",
+          "steps": [
+            "Gaps from q. P1: (3, 0, 0). P2: (1, 2, −1). P3: (−1, −1, 3).",
+            "Squared Euclidean. P1: 9 + 0 + 0 = 9. P2: 1 + 4 + 1 = 6. P3: 1 + 1 + 9 = 11.",
+            "(a) The smallest is 6, so P2 is nearest.",
+            "(b) The order is P2 (6), P1 (9), P3 (11). The second nearest is P1, and its distance is √9 = 3. The answer is 3, not 9.",
+            "(c) Manhattan. P1: 3 + 0 + 0 = 3. P2: 1 + 2 + 1 = 4. P3: 1 + 1 + 3 = 5. The smallest is 3, so P1."
+          ],
+          "answer": "(a) P2. (b) 3. (c) P1."
+        },
+        {
+          "level": "twist",
+          "setup": "A point is at (3, −3) and the query is at (0, 0). Find the Manhattan distance and the Euclidean distance. A student adds the signed gaps and gets 0. What went wrong?",
+          "steps": [
+            "Manhattan uses the absolute value of each gap: |3| + |−3| = 3 + 3 = 6.",
+            "The student added 3 + (−3) = 0. Opposite signs cancel, which would say the point sits on the query. That is absurd.",
+            "Euclidean squares each gap, so signs vanish: 3² + (−3)² = 9 + 9 = 18, and √18 ≈ 4.24."
+          ],
+          "answer": "Manhattan distance 6 and Euclidean distance √18 ≈ 4.24. Always take absolute values or squares before adding."
+        }
+      ],
+      "why": "Every k-NN question starts with a distance. The arithmetic has to be right, and the metric has to be the one the question names. In GATE: compute a distance, rank squared distances, or compare Euclidean and Manhattan.",
+      "how": [
+        "Subtract the coordinates one by one.",
+        "Euclidean: square each gap and add. Take the root only if the actual distance is asked.",
+        "Manhattan: take the absolute value of each gap and add.",
+        "Rank by the squared distances.",
+        "Use Euclidean unless the question says otherwise."
+      ],
+      "mistake": "Taking the square root too early, or reporting the squared distance when the distance is asked. A second slip is adding signed gaps for Manhattan, where opposite signs cancel. Use absolute values.",
+      "edge_cases": [
+        "Two points at equal distance: the question usually breaks the tie or says it does not matter.",
+        "Squared distances keep the order. Manhattan and Euclidean can rank differently.",
+        "Distance 0 means the query equals a training point.",
+        "In one dimension both distances are |difference|."
+      ],
+      "connections": [
+        "Vector spaces: inner products and norms. Euclidean distance is the norm of the difference.",
+        "Scaling (a few cards on): distances depend on the units of each feature.",
+        "Foundations: Algebra. Squares, square roots and absolute value."
+      ],
+      "check": [
+        {
+          "q": "What is the Euclidean distance between (0, 0) and (6, 8)?",
+          "a": "√(36 + 64) = √100 = 10."
+        },
+        {
+          "q": "What is the Manhattan distance between (2, 5) and (7, 1)?",
+          "a": "|2 − 7| + |5 − 1| = 5 + 4 = 9."
+        },
+        {
+          "q": "The squared distances to two points are 13 and 17. Which is nearer?",
+          "a": "The one with 13. The square root keeps the order."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q63 needs the distance from a query to five points on a grid. 2025 DA Q55 works with squared distances.",
+      "try": {
+        "id": "gen.ml.knn.001",
+        "label": "Euclidean distance between two points"
+      },
+      "scene": "ml.knn.dist",
+      "what": "k-NN needs a way to say how far apart two points are. The usual choice is **Euclidean distance**, the length of the straight line between them. **Manhattan distance** adds up the horizontal and vertical steps instead. To find the nearest point you only need the order of the distances, so you can compare **squared** Euclidean distances and skip the square root.",
+      "what_full": "k-NN needs a way to say how far apart two points are. The usual choice is **Euclidean distance**, the length of the straight line between them. **Manhattan distance** adds up the horizontal and vertical steps instead. To find the nearest point you only need the order of the distances, so you can compare **squared** Euclidean distances and skip the square root.\n\n$$d_2(p,q)=\\sqrt{\\sum_i (p_i-q_i)^2},\\qquad d_1(p,q)=\\sum_i |p_i-q_i|$$\n\nSymbols: $p$ and $q$ are two points, and $p_i$, $q_i$ are their $i$-th coordinates (features). $d_2$ is Euclidean distance and $d_1$ is Manhattan distance. Ranking by $d_2^2=\\sum_i(p_i-q_i)^2$ gives the same order as ranking by $d_2$.\n\n**Worked example.** The query is q = (0, 0). Point P is (3, 3) and point Q is (5, 0). Which is nearer to q by Euclidean distance, and which by Manhattan distance?\n\n1. Euclidean, squared. P: 3² + 3² = 9 + 9 = 18. Q: 5² + 0² = 25.\n2. 18 < 25, so P is nearer by Euclidean distance. (Actual distances: √18 ≈ 4.24 and 5.)\n3. Manhattan. P: |3| + |3| = 6. Q: |5| + |0| = 5.\n4. 5 < 6, so Q is nearer by Manhattan distance.\n5. The two distances disagree. The metric you use decides the neighbour.\n\n**Answer:** Euclidean picks P (18 < 25). Manhattan picks Q (5 < 6).\n\n**Check yourself:** What is the Euclidean distance between (0, 0) and (6, 8)?\n\n*Answer:* √(36 + 64) = √100 = 10.",
+      "trap": "Taking the square root too early, or reporting the squared distance when the distance is asked. A second slip is adding signed gaps for Manhattan, where opposite signs cancel. Use absolute values.",
+      "why_full": "Every k-NN question starts with a distance. The arithmetic has to be right, and the metric has to be the one the question names. In GATE: compute a distance, rank squared distances, or compare Euclidean and Manhattan.\n\nAsked: 2024 DA Q63 needs the distance from a query to five points on a grid. 2025 DA Q55 works with squared distances."
+    },
+    {
+      "atom_id": "k2",
+      "title": "Majority vote",
+      "simple": "Imagine you are new in town and want a restaurant. You ask the 3 people who live nearest to you. Two say 'the pizza place' and one says 'the burger place', so you go for pizza. If you had asked 5 people the answer might change. With only two choices, ask an odd number of neighbours so the vote can never tie. And always count the votes yourself instead of trusting the very first person. In exam words: k-NN predicts the most common label among the k nearest points, and the answer can change as k changes.",
+      "idea": "To classify a query, **sort the training points by distance**, take the k nearest, and let them **vote**. The label with the most votes wins. For two classes an odd k avoids ties. The answer can change as k grows, so check every k the question asks about.",
+      "definition": "$$\\hat y(q)=\\arg\\max_{c}\\ \\bigl|\\{\\,i\\in N_k(q):\\ y_i=c\\,\\}\\bigr|$$\n\nSymbols: $N_k(q)$ is the set of the $k$ training points nearest to the query $q$. $y_i$ is the label of training point $i$. The argmax picks the class $c$ with the most points in that neighbourhood.",
+      "intuition_full": "A single nearest neighbour is easy to mislead: one odd point close to the query decides everything. Taking k neighbours lets the local majority speak. The vote counts how many of the k nearest belong to each class, and the biggest count wins. Because points are added in order of distance, the vote at k = 3 includes the vote at k = 1, and the vote at k = 5 includes k = 3. A close pair of points of one class can win at small k, and a bigger group of the other class can win once k is large enough to reach it. That is why GATE questions ask for the minimum odd k that flips the answer. You list the points by distance and vote at k = 1, 3, 5 and so on. The distances only need to be ranked, so squared distances will do.",
+      "example": {
+        "level": "basic",
+        "setup": "The query is at (0, 0). Training points: (1, 1) A, (0, 2) A, (−2, 1) B, (3, 0) B, (0, −3) B and (4, 4) A. Find the prediction for k = 1, 3 and 5, and the smallest odd k at which the label becomes B.",
+        "steps": [
+          "Squared distances from (0, 0): (1,1): 2. (0,2): 4. (−2,1): 5. (3,0): 9. (0,−3): 9. (4,4): 32.",
+          "Sorted by distance: A (2), A (4), B (5), B (9), B (9), A (32).",
+          "k = 1: the nearest is A. Votes A 1, B 0. Predict A.",
+          "k = 3: A, A, B. Votes A 2, B 1. Predict A.",
+          "k = 5: A, A, B, B, B. Votes A 2, B 3. Predict B. The smallest odd k for B is 5."
+        ],
+        "answer": "k = 1 gives A, k = 3 gives A, k = 5 gives B. The minimum odd k for B is 5."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The query is at (0, 0). Training points: (1, 1) A, (0, 2) A, (−2, 1) B, (3, 0) B, (0, −3) B and (4, 4) A. Find the prediction for k = 1, 3 and 5, and the smallest odd k at which the label becomes B.",
+          "steps": [
+            "Squared distances from (0, 0): (1,1): 2. (0,2): 4. (−2,1): 5. (3,0): 9. (0,−3): 9. (4,4): 32.",
+            "Sorted by distance: A (2), A (4), B (5), B (9), B (9), A (32).",
+            "k = 1: the nearest is A. Votes A 1, B 0. Predict A.",
+            "k = 3: A, A, B. Votes A 2, B 1. Predict A.",
+            "k = 5: A, A, B, B, B. Votes A 2, B 3. Predict B. The smallest odd k for B is 5."
+          ],
+          "answer": "k = 1 gives A, k = 3 gives A, k = 5 gives B. The minimum odd k for B is 5."
+        },
+        {
+          "level": "gate",
+          "setup": "The query is (3, 3). Points: (3,4) A, (4,3) A, (1,3) B, (5,5) A, (3,0) B, (6,3) B and (0,0) B. Find the prediction at k = 1, 3, 5 and 7.",
+          "steps": [
+            "Squared distances from (3, 3): (3,4): 1. (4,3): 1. (1,3): 4. (5,5): 8. (3,0): 9. (6,3): 9. (0,0): 18.",
+            "Sorted labels: A, A, B, A, B, B, B.",
+            "k = 1: A. k = 3: A, A, B gives A 2, B 1: A.",
+            "k = 5: A, A, B, A, B gives A 3, B 2: A.",
+            "k = 7: all seven points. A 3, B 4: B."
+          ],
+          "answer": "A, A, A, B. The label changes only at k = 7, when the far B points are finally counted."
+        },
+        {
+          "level": "twist",
+          "setup": "Use the data of the basic example. What happens at k = 4?",
+          "steps": [
+            "Sorted: A (2), A (4), B (5), then B (9) and B (9) tied for 4th place.",
+            "Both tied points are B, so the 4th neighbour is B whichever one is chosen.",
+            "Neighbours: A, A, B, B. Votes A 2, B 2. A tie.",
+            "A tie needs a tie-break rule. Odd k avoids this for two classes."
+          ],
+          "answer": "A 2–2 tie at k = 4. That is why two-class k-NN uses odd k."
+        }
+      ],
+      "why": "Majority vote is the heart of k-NN classification. In GATE: given a small table of points, find the label at a given k, or the minimum odd k that flips the answer. The 2024 DA paper asked exactly that.",
+      "how": [
+        "Compute the squared distance from the query to every point.",
+        "Sort the points by distance.",
+        "For each k asked (1, 3, 5, …), count the labels among the first k.",
+        "The larger count wins. Report the label or the first k where it changes."
+      ],
+      "mistake": "Stopping at the first neighbour of the target class, or looking at the nearest neighbour only. Count the votes at every odd k. A close pair can win at k = 3 and lose at k = 5.",
+      "edge_cases": [
+        "Tied distances at the k-th place: check whether the tie changes the vote.",
+        "Even k can give a 2–2 tie with two classes.",
+        "Three or more classes can tie 1–1–1 even at k = 3.",
+        "k = n makes the vote the same for every query."
+      ],
+      "connections": [
+        "Distance (previous card): the ranking comes from there.",
+        "Effect of k (next card): how the vote changes as k grows.",
+        "Foundations: Algebra. Comparing squared sums."
+      ],
+      "check": [
+        {
+          "q": "The 3 nearest neighbours are labelled B, A, B. What is the 3-NN prediction?",
+          "a": "B (2 votes against 1)."
+        },
+        {
+          "q": "With two classes and k = 4, the votes are 2 and 2. What is the problem?",
+          "a": "A tie. Use an odd k."
+        },
+        {
+          "q": "Why count the votes at every odd k instead of using the nearest neighbour?",
+          "a": "The winner can change as more neighbours are added."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q63 (the minimum odd k at which the diamond is labelled square: k = 5).",
+      "try": {
+        "id": "gen.ml.knn.003",
+        "label": "Prediction from three neighbours"
+      },
+      "scene": "ml.knn.vote",
+      "what": "To classify a query, **sort the training points by distance**, take the k nearest, and let them **vote**. The label with the most votes wins. For two classes an odd k avoids ties. The answer can change as k grows, so check every k the question asks about.",
+      "what_full": "To classify a query, **sort the training points by distance**, take the k nearest, and let them **vote**. The label with the most votes wins. For two classes an odd k avoids ties. The answer can change as k grows, so check every k the question asks about.\n\n$$\\hat y(q)=\\arg\\max_{c}\\ \\bigl|\\{\\,i\\in N_k(q):\\ y_i=c\\,\\}\\bigr|$$\n\nSymbols: $N_k(q)$ is the set of the $k$ training points nearest to the query $q$. $y_i$ is the label of training point $i$. The argmax picks the class $c$ with the most points in that neighbourhood.\n\n**Worked example.** The query is at (0, 0). Training points: (1, 1) A, (0, 2) A, (−2, 1) B, (3, 0) B, (0, −3) B and (4, 4) A. Find the prediction for k = 1, 3 and 5, and the smallest odd k at which the label becomes B.\n\n1. Squared distances from (0, 0): (1,1): 2. (0,2): 4. (−2,1): 5. (3,0): 9. (0,−3): 9. (4,4): 32.\n2. Sorted by distance: A (2), A (4), B (5), B (9), B (9), A (32).\n3. k = 1: the nearest is A. Votes A 1, B 0. Predict A.\n4. k = 3: A, A, B. Votes A 2, B 1. Predict A.\n5. k = 5: A, A, B, B, B. Votes A 2, B 3. Predict B. The smallest odd k for B is 5.\n\n**Answer:** k = 1 gives A, k = 3 gives A, k = 5 gives B. The minimum odd k for B is 5.\n\n**Check yourself:** The 3 nearest neighbours are labelled B, A, B. What is the 3-NN prediction?\n\n*Answer:* B (2 votes against 1).",
+      "trap": "Stopping at the first neighbour of the target class, or looking at the nearest neighbour only. Count the votes at every odd k. A close pair can win at k = 3 and lose at k = 5.",
+      "why_full": "Majority vote is the heart of k-NN classification. In GATE: given a small table of points, find the label at a given k, or the minimum odd k that flips the answer. The 2024 DA paper asked exactly that.\n\nAsked: 2024 DA Q63 (the minimum odd k at which the diamond is labelled square: k = 5)."
+    },
+    {
+      "atom_id": "k3",
+      "title": "Effect of k",
+      "simple": "Think about asking neighbours for advice again. If you ask only your single nearest neighbour, you get a very personal answer. It follows one person's taste, even if that person is odd, and it changes completely if one person moves house. If you ask the whole town, you get 'whatever most people like', the same answer for everyone, which is calm but ignores local differences. The best choice sits in between. In exam words: small k gives low bias and high variance; large k gives high bias and low variance; k = n predicts the majority class everywhere.",
+      "idea": "k controls how local the vote is. **Small k** follows every nearby point, including noisy ones: a jagged boundary, low bias, high variance, and overfitting. **Large k** averages over many points: a smooth boundary, high bias, low variance, and underfitting. With **k = n** every query gets the majority class of the whole training set. Choose k by cross-validation.",
+      "definition": "$$k=1:\\ \\text{most flexible}\\qquad\\qquad k=n:\\ \\text{one constant answer}$$\n\nSymbols: $k$ is the number of neighbours that vote and $n$ is the number of training points. The model gets simpler as $k$ grows, so the complexity of k-NN goes like $1/k$. At $k=1$ the training error is 0. At $k=n$ the prediction is the majority class.",
+      "intuition_full": "In the bias and variance chapter, flexibility lowers bias and raises variance. For k-NN the flexibility dial is k, and it turns the opposite way: smaller k means more flexible. With k = 1 the prediction at any spot is the label of the single nearest point, so one mislabelled point carves out a little island of the wrong class. That is variance: change the sample slightly and the boundary changes. With k = 3 that lone point is outvoted by its two neighbours, so the island disappears. With k = n the vote ignores the query altogether and every query gets the majority label. That is bias: the model cannot see local structure. The test error is U-shaped between the two extremes, so an intermediate k is best.",
+      "example": {
+        "level": "basic",
+        "setup": "Nine training points on a line at x = 0 to 8 have labels A, A, A, B, A, A, B, B, B (the B at x = 3 is noise). Predict the label at each of these nine positions with k = 1, 3 and 9. Count how many predictions differ from the data.",
+        "steps": [
+          "The data: A A A B A A B B B. The lone B at x = 3 sits among A's.",
+          "k = 1: each point's nearest neighbour is itself, so the predictions copy the data. 0 differ. The noisy B is faithfully reproduced.",
+          "k = 3 at x = 3: the three nearest are x = 2 (A), x = 3 (B), x = 4 (A). Votes A 2, B 1: A. The noise is outvoted. The other positions are unchanged, so the row is A A A A A A B B B. 1 differs.",
+          "k = 9: all nine points vote. A 5, B 4: A everywhere. The four B's are overruled. 4 differ.",
+          "Small k copies the noise. Large k smooths away real structure. k = 3 sits in between."
+        ],
+        "answer": "k = 1: 0 differ, k = 3: 1 differs, k = 9: 4 differ. Small k is jagged, k = n is a constant."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Nine training points on a line at x = 0 to 8 have labels A, A, A, B, A, A, B, B, B (the B at x = 3 is noise). Predict the label at each of these nine positions with k = 1, 3 and 9. Count how many predictions differ from the data.",
+          "steps": [
+            "The data: A A A B A A B B B. The lone B at x = 3 sits among A's.",
+            "k = 1: each point's nearest neighbour is itself, so the predictions copy the data. 0 differ. The noisy B is faithfully reproduced.",
+            "k = 3 at x = 3: the three nearest are x = 2 (A), x = 3 (B), x = 4 (A). Votes A 2, B 1: A. The noise is outvoted. The other positions are unchanged, so the row is A A A A A A B B B. 1 differs.",
+            "k = 9: all nine points vote. A 5, B 4: A everywhere. The four B's are overruled. 4 differ.",
+            "Small k copies the noise. Large k smooths away real structure. k = 3 sits in between."
+          ],
+          "answer": "k = 1: 0 differ, k = 3: 1 differs, k = 9: 4 differ. Small k is jagged, k = n is a constant."
+        },
+        {
+          "level": "gate",
+          "setup": "k-NN is tried with k = 1, 5 and 25. Training and validation errors: k = 1: 0% and 28%. k = 5: 12% and 16%. k = 25: 30% and 31%. Which k is best, and what is wrong with the other two?",
+          "steps": [
+            "Choose by validation error: 16% is the lowest, so k = 5.",
+            "k = 1: training error 0 and validation 28%. The gap is 28 points: overfit, high variance.",
+            "k = 25: both errors are high and close (30 and 31). The model is too smooth: underfit, high bias.",
+            "k = 5 balances the two: both errors are fairly low."
+          ],
+          "answer": "k = 5 is best. k = 1 overfits and k = 25 underfits."
+        },
+        {
+          "level": "twist",
+          "setup": "A query sits right next to a small class B. Its neighbours in order of distance are B (1), B (2), A (3), A (4), A (5). Find the prediction for k = 1, 3 and 5.",
+          "steps": [
+            "k = 1: the nearest is B. Predict B.",
+            "k = 3: B, B, A gives B 2, A 1. Predict B.",
+            "k = 5: B, B, A, A, A gives B 2, A 3. Predict A.",
+            "A larger k swamped the small class: the two B's lose to the bigger group of A's, even though both B's are the closest points."
+          ],
+          "answer": "B, B, A. A bigger k does not always help: with a small class, a large k lets the big class outvote it."
+        }
+      ],
+      "why": "k is the one dial of k-NN, and it is the bias-variance trade-off in its simplest form. In GATE: say whether a small or large k raises variance, and what k = n does.",
+      "how": [
+        "Small k: flexible, low bias, high variance.",
+        "Large k: smooth, high bias, low variance.",
+        "k = n: the majority class for every query.",
+        "Choose k by cross-validation or leave-one-out."
+      ],
+      "mistake": "Believing that a larger k always improves accuracy. The test error is U-shaped in k. With a small class, a large k lets the big class outvote it.",
+      "edge_cases": [
+        "k = 1: training error is 0 when no two identical points have different labels.",
+        "k = n: a constant prediction, the majority class.",
+        "k cannot exceed n.",
+        "Even k can tie in a two-class vote."
+      ],
+      "connections": [
+        "Bias and variance: complexity goes like 1/k, and the test error is U-shaped.",
+        "Cross-validation: choosing k by held-out error.",
+        "Nearest centroid (last card): the extreme of simplicity, with one point per class."
+      ],
+      "check": [
+        {
+          "q": "Which has the higher variance: k = 1 or k = 15?",
+          "a": "k = 1."
+        },
+        {
+          "q": "What does k-NN with k = n predict?",
+          "a": "The majority class of the training set, for every query."
+        },
+        {
+          "q": "True or false: increasing k always lowers the test error.",
+          "a": "False. The test error is U-shaped in k."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. A ladder item asks the bias and variance of k = 1 against a large k.",
+      "try": {
+        "id": "gen.ml.knn.008",
+        "label": "k = 1 against a large k"
+      },
+      "scene": "ml.knn.kvalue",
+      "what": "k controls how local the vote is. **Small k** follows every nearby point, including noisy ones: a jagged boundary, low bias, high variance, and overfitting. **Large k** averages over many points: a smooth boundary, high bias, low variance, and underfitting. With **k = n** every query gets the majority class of the whole training set. Choose k by cross-validation.",
+      "what_full": "k controls how local the vote is. **Small k** follows every nearby point, including noisy ones: a jagged boundary, low bias, high variance, and overfitting. **Large k** averages over many points: a smooth boundary, high bias, low variance, and underfitting. With **k = n** every query gets the majority class of the whole training set. Choose k by cross-validation.\n\n$$k=1:\\ \\text{most flexible}\\qquad\\qquad k=n:\\ \\text{one constant answer}$$\n\nSymbols: $k$ is the number of neighbours that vote and $n$ is the number of training points. The model gets simpler as $k$ grows, so the complexity of k-NN goes like $1/k$. At $k=1$ the training error is 0. At $k=n$ the prediction is the majority class.\n\n**Worked example.** Nine training points on a line at x = 0 to 8 have labels A, A, A, B, A, A, B, B, B (the B at x = 3 is noise). Predict the label at each of these nine positions with k = 1, 3 and 9. Count how many predictions differ from the data.\n\n1. The data: A A A B A A B B B. The lone B at x = 3 sits among A's.\n2. k = 1: each point's nearest neighbour is itself, so the predictions copy the data. 0 differ. The noisy B is faithfully reproduced.\n3. k = 3 at x = 3: the three nearest are x = 2 (A), x = 3 (B), x = 4 (A). Votes A 2, B 1: A. The noise is outvoted. The other positions are unchanged, so the row is A A A A A A B B B. 1 differs.\n4. k = 9: all nine points vote. A 5, B 4: A everywhere. The four B's are overruled. 4 differ.\n5. Small k copies the noise. Large k smooths away real structure. k = 3 sits in between.\n\n**Answer:** k = 1: 0 differ, k = 3: 1 differs, k = 9: 4 differ. Small k is jagged, k = n is a constant.\n\n**Check yourself:** Which has the higher variance: k = 1 or k = 15?\n\n*Answer:* k = 1.",
+      "trap": "Believing that a larger k always improves accuracy. The test error is U-shaped in k. With a small class, a large k lets the big class outvote it.",
+      "why_full": "k is the one dial of k-NN, and it is the bias-variance trade-off in its simplest form. In GATE: say whether a small or large k raises variance, and what k = n does.\n\nAsked: no direct past question yet. A ladder item asks the bias and variance of k = 1 against a large k."
+    },
+    {
+      "atom_id": "k7",
+      "title": "k-NN regression",
+      "simple": "Suppose you want to guess the price of a flat. You look at the 3 flats closest to yours in size and take the average of their prices. That is k-NN regression. Instead of voting, you average the numbers. One thing to remember: closeness is judged using the inputs (size), and the average is taken over the outputs (price). Mixing these up is the classic slip. In exam words: k-NN regression predicts the mean of the targets of the k nearest neighbours.",
+      "idea": "For regression, k-NN predicts the **average of the targets** of the k nearest neighbours. Distances are measured on the inputs x. The averaging is done on the outputs y. A small k follows the data closely. A large k gives a smoother, flatter prediction.",
+      "definition": "$$\\hat y(q)=\\frac1k\\sum_{i\\in N_k(q)}y_i$$\n\nSymbols: $N_k(q)$ is the set of the $k$ training points whose inputs $x$ are nearest to the query $q$. $y_i$ is the target (output) of training point $i$.",
+      "intuition_full": "Classification asks 'which label is most common nearby?' Regression asks 'what is the typical value nearby?' The typical value is the mean. The input x only decides who the neighbours are. Once you have them, you ignore x and average their y values. With k = 1 the prediction is the target of the single nearest point, so the fitted curve is a staircase through the data. With larger k the staircase smooths out. With k = n every query gets the mean of all targets, a flat line. This is the same smoothing story as before: small k means low bias and high variance, large k means high bias and low variance. A far-away outlier target only affects queries that have it as a neighbour.",
+      "example": {
+        "level": "basic",
+        "setup": "Training data (x, y): (1, 3), (2, 5), (4, 6), (6, 10), (9, 4). Predict y at x = 5 with 3-NN regression.",
+        "steps": [
+          "Distances |x − 5|: x = 1 gives 4, x = 2 gives 3, x = 4 gives 1, x = 6 gives 1, x = 9 gives 4.",
+          "The three smallest distances are 1, 1 and 3, from x = 4, x = 6 and x = 2.",
+          "Their targets are y = 6, 10 and 5.",
+          "Average the targets: (6 + 10 + 5) / 3 = 21 / 3 = 7.",
+          "The prediction at x = 5 is 7."
+        ],
+        "answer": "The 3-NN prediction at x = 5 is 7."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Training data (x, y): (1, 3), (2, 5), (4, 6), (6, 10), (9, 4). Predict y at x = 5 with 3-NN regression.",
+          "steps": [
+            "Distances |x − 5|: x = 1 gives 4, x = 2 gives 3, x = 4 gives 1, x = 6 gives 1, x = 9 gives 4.",
+            "The three smallest distances are 1, 1 and 3, from x = 4, x = 6 and x = 2.",
+            "Their targets are y = 6, 10 and 5.",
+            "Average the targets: (6 + 10 + 5) / 3 = 21 / 3 = 7.",
+            "The prediction at x = 5 is 7."
+          ],
+          "answer": "The 3-NN prediction at x = 5 is 7."
+        },
+        {
+          "level": "gate",
+          "setup": "Training data with two inputs: (1, 1) with y = 4, (3, 2) with y = 8, (2, 5) with y = 20 and (0, 3) with y = 10. Predict y at the query (2, 2) with 3-NN regression.",
+          "steps": [
+            "Squared distances from (2, 2). (1,1): 1 + 1 = 2. (3,2): 1 + 0 = 1. (2,5): 0 + 9 = 9. (0,3): 4 + 1 = 5.",
+            "The three smallest are 1, 2 and 5, from (3,2), (1,1) and (0,3).",
+            "Their targets are 8, 4 and 10.",
+            "Average: (8 + 4 + 10) / 3 = 22 / 3 ≈ 7.33. The point (2,5) with y = 20 is too far to count."
+          ],
+          "answer": "The prediction is 22/3 ≈ 7.33."
+        },
+        {
+          "level": "twist",
+          "setup": "Use the data of the basic example. What does k-NN regression predict with k = 5 (that is, k = n)?",
+          "steps": [
+            "With k = n every training point is a neighbour of every query.",
+            "Average all five targets: (3 + 5 + 6 + 10 + 4) / 5 = 28 / 5 = 5.6.",
+            "The same value 5.6 comes out for every query, at any x. The prediction is a flat line."
+          ],
+          "answer": "5.6 for every query. A flat line at the mean of the targets."
+        }
+      ],
+      "why": "Regression is the same neighbour search with a different last step. In GATE: compute a k-NN regression prediction on a small table, usually in one dimension.",
+      "how": [
+        "Compute the distance from the query to each training input.",
+        "Pick the k smallest.",
+        "Average their y values.",
+        "Never average the x values."
+      ],
+      "mistake": "Averaging the inputs x of the neighbours instead of their targets y. The inputs only decide who the neighbours are.",
+      "edge_cases": [
+        "k = 1: the prediction equals the nearest target, so the fit is a staircase.",
+        "k = n: a constant, the mean of all targets.",
+        "Tied distances: use the tie rule the question states, or include all tied points.",
+        "One extreme target pulls the mean toward it, but only for queries that have it as a neighbour."
+      ],
+      "connections": [
+        "Linear regression: another way to predict a number, with a fitted line instead of neighbours.",
+        "Descriptive statistics and moments (prob.desc): the mean.",
+        "Effect of k (earlier card): the same smoothing story."
+      ],
+      "check": [
+        {
+          "q": "The neighbours' targets are 2, 6 and 10. What is the 3-NN regression prediction?",
+          "a": "(2 + 6 + 10) / 3 = 6."
+        },
+        {
+          "q": "What does k-NN regression with k = n predict?",
+          "a": "The mean of all training targets, for every query."
+        },
+        {
+          "q": "Do you average the neighbours' x values or their y values?",
+          "a": "Their y values."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. Ladder items ask a 3-NN regression prediction on a line.",
+      "try": {
+        "id": "gen.ml.knn.007",
+        "label": "k-NN regression prediction"
+      },
+      "scene": "ml.knn.regress",
+      "what": "For regression, k-NN predicts the **average of the targets** of the k nearest neighbours. Distances are measured on the inputs x. The averaging is done on the outputs y. A small k follows the data closely. A large k gives a smoother, flatter prediction.",
+      "what_full": "For regression, k-NN predicts the **average of the targets** of the k nearest neighbours. Distances are measured on the inputs x. The averaging is done on the outputs y. A small k follows the data closely. A large k gives a smoother, flatter prediction.\n\n$$\\hat y(q)=\\frac1k\\sum_{i\\in N_k(q)}y_i$$\n\nSymbols: $N_k(q)$ is the set of the $k$ training points whose inputs $x$ are nearest to the query $q$. $y_i$ is the target (output) of training point $i$.\n\n**Worked example.** Training data (x, y): (1, 3), (2, 5), (4, 6), (6, 10), (9, 4). Predict y at x = 5 with 3-NN regression.\n\n1. Distances |x − 5|: x = 1 gives 4, x = 2 gives 3, x = 4 gives 1, x = 6 gives 1, x = 9 gives 4.\n2. The three smallest distances are 1, 1 and 3, from x = 4, x = 6 and x = 2.\n3. Their targets are y = 6, 10 and 5.\n4. Average the targets: (6 + 10 + 5) / 3 = 21 / 3 = 7.\n5. The prediction at x = 5 is 7.\n\n**Answer:** The 3-NN prediction at x = 5 is 7.\n\n**Check yourself:** The neighbours' targets are 2, 6 and 10. What is the 3-NN regression prediction?\n\n*Answer:* (2 + 6 + 10) / 3 = 6.",
+      "trap": "Averaging the inputs x of the neighbours instead of their targets y. The inputs only decide who the neighbours are.",
+      "why_full": "Regression is the same neighbour search with a different last step. In GATE: compute a k-NN regression prediction on a small table, usually in one dimension.\n\nAsked: no direct past question yet. Ladder items ask a 3-NN regression prediction on a line."
+    },
+    {
+      "atom_id": "k9",
+      "title": "Training and leave-one-out error",
+      "simple": "A student who memorises the answer key scores 100% on a practice sheet. That does not mean they know the subject. k-NN with k = 1 is that student. If you test it on its own training points, each point is its own nearest neighbour and always gets the right label. A perfect score that proves nothing. For an honest score, hide each point in turn and predict it from the others. That is leave-one-out. In exam words: 1-NN training error is 0; use leave-one-out, excluding the point itself, to estimate the real error.",
+      "idea": "Test a k-NN classifier on its own training points with k = 1 and each point finds **itself** at distance 0. The training error is **0**, which says nothing about new data. For an honest estimate use **leave-one-out**: hide each point, find its nearest neighbours among the **others**, and count the mistakes.",
+      "definition": "$$\\text{LOO error}=\\frac1n\\sum_{i=1}^{n}\\mathbf 1\\!\\left[\\hat y_{-i}(x_i)\\neq y_i\\right]$$\n\nSymbols: $\\hat y_{-i}(x_i)$ is the prediction for sample $i$ using all samples except $i$. The bracket $\\mathbf 1[\\cdot]$ is 1 for a mistake and 0 for a correct prediction. k-NN needs no refitting, so LOO is cheap: just recompute the neighbours without the held-out point.",
+      "intuition_full": "Training error rewards memory. For 1-NN, memory is perfect: the nearest point to a training point is itself. So the training error is exactly 0 unless two identical points carry different labels. For k > 1 the point still counts as one of its own k neighbours, which flatters the score. Leave-one-out removes the flattery. Each point is predicted as if it were new. Because k-NN stores the data and does no fitting, 'refitting n times' costs nothing extra: only the neighbour lists change. This is why leave-one-out is the natural way to choose k for k-NN. When doing it by hand, be strict about the rule: the held-out point must not be in the pool.",
+      "example": {
+        "level": "basic",
+        "setup": "Six points on a line at x = 0, 1, 2, 5, 6, 8 have labels A, A, A, B, B, A. For 1-NN, find the training error and the leave-one-out error.",
+        "steps": [
+          "Training error: every point's nearest neighbour is itself, at distance 0. All six predictions are right. Training error = 0 / 6 = 0.",
+          "LOO, x = 0, 1, 2 (all A): the nearest other points are x = 1, x = 0 or 2, and x = 1. All A. Right, right, right.",
+          "LOO, x = 5 and 6 (B): each is the other's nearest neighbour, at distance 1. Both B. Right, right.",
+          "LOO, x = 8 (A): the nearest other point is x = 6 (B, distance 2). Predict B. Wrong.",
+          "LOO error = 1 wrong out of 6 = 1/6 ≈ 0.167."
+        ],
+        "answer": "Training error 0. Leave-one-out error 1/6 ≈ 0.167."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Six points on a line at x = 0, 1, 2, 5, 6, 8 have labels A, A, A, B, B, A. For 1-NN, find the training error and the leave-one-out error.",
+          "steps": [
+            "Training error: every point's nearest neighbour is itself, at distance 0. All six predictions are right. Training error = 0 / 6 = 0.",
+            "LOO, x = 0, 1, 2 (all A): the nearest other points are x = 1, x = 0 or 2, and x = 1. All A. Right, right, right.",
+            "LOO, x = 5 and 6 (B): each is the other's nearest neighbour, at distance 1. Both B. Right, right.",
+            "LOO, x = 8 (A): the nearest other point is x = 6 (B, distance 2). Predict B. Wrong.",
+            "LOO error = 1 wrong out of 6 = 1/6 ≈ 0.167."
+          ],
+          "answer": "Training error 0. Leave-one-out error 1/6 ≈ 0.167."
+        },
+        {
+          "level": "gate",
+          "setup": "Six points on a line at x = 0, 2, 3, 5, 8, 9 have labels A, A, B, B, B, A. Find the 3-NN training error (each point counts as one of its own neighbours) and the 3-NN leave-one-out error.",
+          "steps": [
+            "Training. x = 0: neighbours 0 (A), 2 (A), 3 (B) give A. Right. x = 2: 2 (A), 3 (B), 0 (A) give A. Right. x = 3: 3 (B), 2 (A), 5 (B) give B. Right.",
+            "x = 5: 5 (B), 3 (B), 2 (A) give B. Right. x = 8: 8 (B), 9 (A), 5 (B) give B. Right. x = 9: 9 (A), 8 (B), 5 (B) give B. Wrong. Training error = 1/6 ≈ 0.167.",
+            "LOO. x = 0: 2 (A), 3 (B), 5 (B) give B. Wrong. x = 2: 3 (B), 0 (A), 5 (B) give B. Wrong. x = 3: 2 (A), 5 (B), 0 (A) give A. Wrong.",
+            "x = 5: 3 (B), 2 (A), 8 (B) give B. Right. x = 8: 9 (A), 5 (B), 3 (B) give B. Right. x = 9: 8 (B), 5 (B), 3 (B) give B. Wrong.",
+            "LOO error = 4/6 ≈ 0.667. Much worse than the training error 0.167."
+          ],
+          "answer": "Training error 1/6 ≈ 0.167. LOO error 4/6 ≈ 0.667."
+        },
+        {
+          "level": "twist",
+          "setup": "The four training points are x = 2 (A), x = 2 (B), x = 5 (A) and x = 8 (B). Two points are identical but have different labels. What is the 1-NN training error?",
+          "steps": [
+            "For the two points at x = 2, the nearest neighbours are themselves and each other, all at distance 0.",
+            "They have identical inputs, so any fixed tie rule gives them the same prediction. One of them gets the wrong label.",
+            "The points at x = 5 and x = 8 find themselves, so both are right.",
+            "Training error = 1 / 4 = 0.25, not 0."
+          ],
+          "answer": "0.25. The '1-NN training error is 0' rule needs that no identical points have different labels."
+        }
+      ],
+      "why": "Training error is misleading for k-NN by construction, and leave-one-out is the cheap honest alternative. In GATE: '1-NN training error is 0', and small leave-one-out calculations on a line.",
+      "how": [
+        "k = 1: each point is its own nearest neighbour, so the training error is 0.",
+        "For leave-one-out, remove point i from the pool.",
+        "Predict point i by the vote of its k nearest among the rest.",
+        "Count the mistakes and divide by n."
+      ],
+      "mistake": "Keeping the held-out point in the pool during leave-one-out. It then finds itself at distance 0 and the error falls to the training error.",
+      "edge_cases": [
+        "Identical points with different labels: 1-NN training error is not 0.",
+        "For k > 1 the training error need not be 0, but it is still flattering.",
+        "Leave-one-out gives n predictions. Because k-NN has no fitting, it is cheap.",
+        "Choosing k by leave-one-out is standard for k-NN."
+      ],
+      "connections": [
+        "Cross-validation: leave-one-out is the case k = n of k-fold.",
+        "Effect of k: training error is 0 at k = 1 and rises with k.",
+        "Bias and variance: training error is the optimistic number."
+      ],
+      "check": [
+        {
+          "q": "What is the training error of 1-NN when no identical points have different labels?",
+          "a": "0."
+        },
+        {
+          "q": "Leave-one-out on 12 points gives 3 mistakes. What is the error?",
+          "a": "3 / 12 = 0.25."
+        },
+        {
+          "q": "Why must the held-out point be excluded from the neighbour search?",
+          "a": "Otherwise it is its own nearest neighbour and the error is 0."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. Ladder items ask the 1-NN and 3-NN leave-one-out error on a line.",
+      "try": {
+        "id": "gen.ml.knn.009",
+        "label": "Training error of 1-NN"
+      },
+      "scene": "ml.knn.loo",
+      "what": "Test a k-NN classifier on its own training points with k = 1 and each point finds **itself** at distance 0. The training error is **0**, which says nothing about new data. For an honest estimate use **leave-one-out**: hide each point, find its nearest neighbours among the **others**, and count the mistakes.",
+      "what_full": "Test a k-NN classifier on its own training points with k = 1 and each point finds **itself** at distance 0. The training error is **0**, which says nothing about new data. For an honest estimate use **leave-one-out**: hide each point, find its nearest neighbours among the **others**, and count the mistakes.\n\n$$\\text{LOO error}=\\frac1n\\sum_{i=1}^{n}\\mathbf 1\\!\\left[\\hat y_{-i}(x_i)\\neq y_i\\right]$$\n\nSymbols: $\\hat y_{-i}(x_i)$ is the prediction for sample $i$ using all samples except $i$. The bracket $\\mathbf 1[\\cdot]$ is 1 for a mistake and 0 for a correct prediction. k-NN needs no refitting, so LOO is cheap: just recompute the neighbours without the held-out point.\n\n**Worked example.** Six points on a line at x = 0, 1, 2, 5, 6, 8 have labels A, A, A, B, B, A. For 1-NN, find the training error and the leave-one-out error.\n\n1. Training error: every point's nearest neighbour is itself, at distance 0. All six predictions are right. Training error = 0 / 6 = 0.\n2. LOO, x = 0, 1, 2 (all A): the nearest other points are x = 1, x = 0 or 2, and x = 1. All A. Right, right, right.\n3. LOO, x = 5 and 6 (B): each is the other's nearest neighbour, at distance 1. Both B. Right, right.\n4. LOO, x = 8 (A): the nearest other point is x = 6 (B, distance 2). Predict B. Wrong.\n5. LOO error = 1 wrong out of 6 = 1/6 ≈ 0.167.\n\n**Answer:** Training error 0. Leave-one-out error 1/6 ≈ 0.167.\n\n**Check yourself:** What is the training error of 1-NN when no identical points have different labels?\n\n*Answer:* 0.",
+      "trap": "Keeping the held-out point in the pool during leave-one-out. It then finds itself at distance 0 and the error falls to the training error.",
+      "why_full": "Training error is misleading for k-NN by construction, and leave-one-out is the cheap honest alternative. In GATE: '1-NN training error is 0', and small leave-one-out calculations on a line.\n\nAsked: no direct past question yet. Ladder items ask the 1-NN and 3-NN leave-one-out error on a line."
+    },
+    {
+      "atom_id": "k6",
+      "title": "Feature scaling",
+      "simple": "Suppose you rank people by 'closeness' using age in years and income in rupees. A one-year age gap counts as 1. A ₹1,000 income gap counts as 1,000. When you add the gaps up, income completely swamps age, as if age did not exist. To be fair, put both on the same scale first, for example by measuring each as 'how many typical steps above or below the average'. Then each feature gets a fair say. In exam words: k-NN needs scaled features, otherwise the feature with the largest numeric range dominates the distance.",
+      "idea": "Distance adds up squared gaps, so a feature measured in big numbers (income in rupees) drowns a feature measured in small numbers (age in years). The neighbours are then chosen by income alone. **Scale the features first**: standardise (subtract the mean and divide by the standard deviation) or rescale to the range 0 to 1. Then each feature gets a fair say.",
+      "definition": "$$z=\\frac{x-\\mu}{\\sigma}\\qquad\\text{or}\\qquad x'=\\frac{x-x_{\\min}}{x_{\\max}-x_{\\min}}$$\n\nSymbols: $\\mu$ is the mean of the feature, $\\sigma$ its standard deviation, and $x_{\\min}$, $x_{\\max}$ its smallest and largest values. Work out these numbers on the training data, then apply them to the training points and to the query.",
+      "intuition_full": "Euclidean distance treats a gap of 1 in any feature as equal to a gap of 1 in any other. That is only fair if the features are measured on comparable scales. A feature with a range of 100,000 produces squared gaps that can be a billion times bigger than a feature with a range of 40. The small feature then contributes nothing, and k-NN is effectively using one feature. Standardising turns each feature into 'standard deviations from the mean', so a gap of 1 means one typical step for every feature. Min-max scaling squeezes each feature into 0 to 1. Either works. The statistics are learned from the training data and reused for the query, never recomputed from the query alone.",
+      "example": {
+        "level": "basic",
+        "setup": "A query q has age 25 and income ₹40,000. Person A is age 55 with income ₹40,500. Person B is age 26 with income ₹46,000. Which is nearer to q using raw Euclidean distance? Then standardise (age: mean 40, sd 10; income: mean ₹50,000, sd ₹20,000) and check again.",
+        "steps": [
+          "Raw gaps. A: age 30, income 500. B: age 1, income 6,000.",
+          "Raw distances. A: √(30² + 500²) = √(900 + 250,000) ≈ 500.9. B: √(1² + 6,000²) ≈ 6,000. So A looks nearer, although A is 30 years older.",
+          "Why: the income gap squared (250,000 for A, 36,000,000 for B) is huge. The age gap (900 or 1) barely counts.",
+          "Standardise: age z = (x − 40)/10, income z = (x − 50,000)/20,000. q: (−1.5, −0.5). A: (1.5, −0.475). B: (−1.4, −0.2).",
+          "Scaled distances. A: √(3.0² + 0.025²) ≈ 3.00. B: √(0.1² + 0.3²) = √0.10 ≈ 0.32. Now B is nearer."
+        ],
+        "answer": "Raw: A is nearer (500.9 < 6,000). After scaling: B is nearer (0.32 < 3.00). Scaling changed the neighbour."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A query q has age 25 and income ₹40,000. Person A is age 55 with income ₹40,500. Person B is age 26 with income ₹46,000. Which is nearer to q using raw Euclidean distance? Then standardise (age: mean 40, sd 10; income: mean ₹50,000, sd ₹20,000) and check again.",
+          "steps": [
+            "Raw gaps. A: age 30, income 500. B: age 1, income 6,000.",
+            "Raw distances. A: √(30² + 500²) = √(900 + 250,000) ≈ 500.9. B: √(1² + 6,000²) ≈ 6,000. So A looks nearer, although A is 30 years older.",
+            "Why: the income gap squared (250,000 for A, 36,000,000 for B) is huge. The age gap (900 or 1) barely counts.",
+            "Standardise: age z = (x − 40)/10, income z = (x − 50,000)/20,000. q: (−1.5, −0.5). A: (1.5, −0.475). B: (−1.4, −0.2).",
+            "Scaled distances. A: √(3.0² + 0.025²) ≈ 3.00. B: √(0.1² + 0.3²) = √0.10 ≈ 0.32. Now B is nearer."
+          ],
+          "answer": "Raw: A is nearer (500.9 < 6,000). After scaling: B is nearer (0.32 < 3.00). Scaling changed the neighbour."
+        },
+        {
+          "level": "gate",
+          "setup": "Age ranges over 20 to 60. Income (in thousands of rupees) ranges over 20 to 100. The query is (age 30, income 60). P1 is (50, 62) and P2 is (32, 90). Which is nearer using raw distances, and which after min-max scaling to [0, 1]?",
+          "steps": [
+            "Raw squared distances. P1: 20² + 2² = 400 + 4 = 404. P2: 2² + 30² = 4 + 900 = 904. P1 is nearer.",
+            "Min-max: age′ = (age − 20)/40 and income′ = (income − 20)/80.",
+            "q: (0.25, 0.5). P1: (0.75, 0.525). P2: (0.3, 0.875).",
+            "Scaled squared distances. P1: 0.5² + 0.025² = 0.25 + 0.000625 = 0.250625. P2: 0.05² + 0.375² = 0.0025 + 0.140625 = 0.143125.",
+            "0.143125 < 0.250625, so P2 is nearer after scaling."
+          ],
+          "answer": "Raw: P1. Scaled: P2. The nearest neighbour flips."
+        },
+        {
+          "level": "twist",
+          "setup": "The training incomes are 10, 20 and 30 (thousand). Standardise using the training mean and the sample standard deviation. What is the z-score of a query with income 45, and of the training point 30?",
+          "steps": [
+            "Mean = (10 + 20 + 30) / 3 = 20.",
+            "Sample variance = ((−10)² + 0² + 10²) / (3 − 1) = 200 / 2 = 100, so the standard deviation is 10.",
+            "Query: (45 − 20) / 10 = 2.5. Training point 30: (30 − 20) / 10 = 1.",
+            "The query is scaled with the TRAINING mean and sd. If you standardised it by its own numbers you would get 0 or an undefined value."
+          ],
+          "answer": "z = 2.5 for the query and 1 for the training point. Always reuse the training statistics."
+        }
+      ],
+      "why": "Raw distances depend on units, and units are arbitrary. Scaling is the first step before any distance-based method. In GATE: say which feature dominates raw distance, or compute a distance after rescaling.",
+      "how": [
+        "Compute each feature's mean and standard deviation (or min and max) on the training data.",
+        "Scale the training points and the query with those numbers.",
+        "Then compute the distances.",
+        "Check that no single feature still dominates."
+      ],
+      "mistake": "Computing distances before scaling, so that the feature with the largest numeric range decides the neighbours. A second slip is scaling the query with its own statistics instead of the training statistics.",
+      "edge_cases": [
+        "Binary and one-hot features already lie in 0 to 1.",
+        "A constant feature has standard deviation 0. Drop it instead of dividing by 0.",
+        "Scaling does not remove irrelevant features. It only makes units fair.",
+        "Tree-based models do not need scaling. Distance-based ones do."
+      ],
+      "connections": [
+        "Ridge regression: features are scaled before the penalty for the same fairness reason.",
+        "Principal component analysis: centring and scaling come first there too.",
+        "Cross-validation: fit the scaler inside each fold, not on all the data.",
+        "Foundations: Algebra. Means, deviations and ratios."
+      ],
+      "check": [
+        {
+          "q": "Income ranges over 0 to 100,000 and age over 20 to 60. Which dominates the raw Euclidean distance?",
+          "a": "Income."
+        },
+        {
+          "q": "Standardise x = 70 when the mean is 50 and the standard deviation is 10.",
+          "a": "(70 − 50) / 10 = 2."
+        },
+        {
+          "q": "Min-max scale x = 30 on the range 10 to 50.",
+          "a": "(30 − 10) / (50 − 10) = 20 / 40 = 0.5."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. A ladder item asks which feature dominates raw distance.",
+      "try": {
+        "id": "gen.ml.knn.010",
+        "label": "Which feature dominates raw distance"
+      },
+      "scene": "ml.knn.scale",
+      "what": "Distance adds up squared gaps, so a feature measured in big numbers (income in rupees) drowns a feature measured in small numbers (age in years). The neighbours are then chosen by income alone. **Scale the features first**: standardise (subtract the mean and divide by the standard deviation) or rescale to the range 0 to 1. Then each feature gets a fair say.",
+      "what_full": "Distance adds up squared gaps, so a feature measured in big numbers (income in rupees) drowns a feature measured in small numbers (age in years). The neighbours are then chosen by income alone. **Scale the features first**: standardise (subtract the mean and divide by the standard deviation) or rescale to the range 0 to 1. Then each feature gets a fair say.\n\n$$z=\\frac{x-\\mu}{\\sigma}\\qquad\\text{or}\\qquad x'=\\frac{x-x_{\\min}}{x_{\\max}-x_{\\min}}$$\n\nSymbols: $\\mu$ is the mean of the feature, $\\sigma$ its standard deviation, and $x_{\\min}$, $x_{\\max}$ its smallest and largest values. Work out these numbers on the training data, then apply them to the training points and to the query.\n\n**Worked example.** A query q has age 25 and income ₹40,000. Person A is age 55 with income ₹40,500. Person B is age 26 with income ₹46,000. Which is nearer to q using raw Euclidean distance? Then standardise (age: mean 40, sd 10; income: mean ₹50,000, sd ₹20,000) and check again.\n\n1. Raw gaps. A: age 30, income 500. B: age 1, income 6,000.\n2. Raw distances. A: √(30² + 500²) = √(900 + 250,000) ≈ 500.9. B: √(1² + 6,000²) ≈ 6,000. So A looks nearer, although A is 30 years older.\n3. Why: the income gap squared (250,000 for A, 36,000,000 for B) is huge. The age gap (900 or 1) barely counts.\n4. Standardise: age z = (x − 40)/10, income z = (x − 50,000)/20,000. q: (−1.5, −0.5). A: (1.5, −0.475). B: (−1.4, −0.2).\n5. Scaled distances. A: √(3.0² + 0.025²) ≈ 3.00. B: √(0.1² + 0.3²) = √0.10 ≈ 0.32. Now B is nearer.\n\n**Answer:** Raw: A is nearer (500.9 < 6,000). After scaling: B is nearer (0.32 < 3.00). Scaling changed the neighbour.\n\n**Check yourself:** Income ranges over 0 to 100,000 and age over 20 to 60. Which dominates the raw Euclidean distance?\n\n*Answer:* Income.",
+      "trap": "Computing distances before scaling, so that the feature with the largest numeric range decides the neighbours. A second slip is scaling the query with its own statistics instead of the training statistics.",
+      "why_full": "Raw distances depend on units, and units are arbitrary. Scaling is the first step before any distance-based method. In GATE: say which feature dominates raw distance, or compute a distance after rescaling.\n\nAsked: no direct past question yet. A ladder item asks which feature dominates raw distance."
+    },
+    {
+      "atom_id": "k6b",
+      "title": "High dimensions",
+      "simple": "In a long corridor, finding the nearest person is easy: some people are close and some are far. Now imagine a giant hall with a thousand directions, and every person is standing roughly the same far distance from you. There is no real 'nearest' person, so picking one is almost random. K-NN has the same trouble when there are many features, especially useless ones: the nearest point is hardly nearer than the farthest. In exam words: in high dimensions distances concentrate, so 'nearest' loses meaning, and irrelevant features make it worse.",
+      "idea": "With **many features**, the distances from a query to all training points become nearly equal. The nearest neighbour is hardly nearer than the farthest, so neighbours stop being informative. **Irrelevant features** add noise to every distance. Fixes: choose or compress the features (feature selection, PCA), collect more data, or scale the relevant features.",
+      "definition": "$$\\text{contrast}=\\frac{d_{\\text{far}}}{d_{\\text{near}}}\\ \\longrightarrow\\ 1\\quad\\text{as irrelevant features are added}$$\n\nSymbols: $d_{\\text{near}}$ and $d_{\\text{far}}$ are the distances from the query to a near and a far training point. If every irrelevant feature adds roughly the same amount $c$ to every squared distance, then after $m$ such features $d^2_{\\text{near}}\\to d^2_{\\text{near}}+mc$ and $d^2_{\\text{far}}\\to d^2_{\\text{far}}+mc$.",
+      "intuition_full": "Think of the squared distance as a sum of contributions, one per feature. A useful feature contributes a lot for points that really differ and little for points that are alike. An irrelevant feature contributes about the same random amount to every point, near or far. When you add m of those equal amounts to both squared distances, the shared part grows with m and swamps the difference. The ratio of far to near squared distance (9 + mc) / (1 + mc) moves toward 1. Concretely, a point 3 times farther than another becomes only 4% farther after enough noise features. With many dimensions even relevant features can behave like this for random data, which is why k-NN needs far more samples as d grows. The cure is fewer, better features.",
+      "example": {
+        "level": "basic",
+        "setup": "On the one useful feature, the query has a near point A at distance 1 and a far point B at distance 3. Suppose every irrelevant feature adds 4 to the squared distance of both points. Find the far ÷ near distance ratio with m = 0, 1, 4 and 24 irrelevant features.",
+        "steps": [
+          "m = 0: squared distances are 1 and 9. Distances 1.0 and 3.0. Ratio 3.0.",
+          "m = 1: squared distances 1 + 4 = 5 and 9 + 4 = 13. Distances 2.2 and 3.6. Ratio 3.6 / 2.2 = 1.61.",
+          "m = 4: 1 + 16 = 17 and 9 + 16 = 25. Distances 4.1 and 5.0. Ratio 1.21.",
+          "m = 24: 1 + 96 = 97 and 9 + 96 = 105. Distances 9.8 and 10.2. Ratio 1.04.",
+          "B started 3 times farther and ends only 4% farther. 'Nearest' now carries almost no information."
+        ],
+        "answer": "The ratio falls from 3.0 to 1.04. Irrelevant features wash out the difference between near and far."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "On the one useful feature, the query has a near point A at distance 1 and a far point B at distance 3. Suppose every irrelevant feature adds 4 to the squared distance of both points. Find the far ÷ near distance ratio with m = 0, 1, 4 and 24 irrelevant features.",
+          "steps": [
+            "m = 0: squared distances are 1 and 9. Distances 1.0 and 3.0. Ratio 3.0.",
+            "m = 1: squared distances 1 + 4 = 5 and 9 + 4 = 13. Distances 2.2 and 3.6. Ratio 3.6 / 2.2 = 1.61.",
+            "m = 4: 1 + 16 = 17 and 9 + 16 = 25. Distances 4.1 and 5.0. Ratio 1.21.",
+            "m = 24: 1 + 96 = 97 and 9 + 96 = 105. Distances 9.8 and 10.2. Ratio 1.04.",
+            "B started 3 times farther and ends only 4% farther. 'Nearest' now carries almost no information."
+          ],
+          "answer": "The ratio falls from 3.0 to 1.04. Irrelevant features wash out the difference between near and far."
+        },
+        {
+          "level": "gate",
+          "setup": "A near point differs from the query by 1 on the useful feature and a far point by 4. Every irrelevant feature adds 9 to every squared distance. What is the smallest number m of irrelevant features that makes the far distance less than 1.1 times the near distance?",
+          "steps": [
+            "Squared distances after m features: near 1 + 9m, far 16 + 9m.",
+            "We need √((16 + 9m)/(1 + 9m)) < 1.1, that is (16 + 9m) < 1.21 (1 + 9m).",
+            "Expand: 16 + 9m < 1.21 + 10.89m, so 14.79 < 1.89m, so m > 7.8.",
+            "Check m = 7: 79/64 = 1.234, root 1.111. Not below 1.1. Check m = 8: 88/73 = 1.205, root 1.098. Below 1.1."
+          ],
+          "answer": "m = 8. Eight irrelevant features are enough to make the neighbours almost indistinguishable."
+        },
+        {
+          "level": "twist",
+          "setup": "Instead of irrelevant features, suppose all 10 features are useful and each separates the points in the same way: the near point differs by 1 on each, the far point by 3 on each. What is the far ÷ near ratio?",
+          "steps": [
+            "Squared distances: near 10 × 1² = 10, far 10 × 3² = 90.",
+            "Distances: √10 ≈ 3.16 and √90 ≈ 9.49.",
+            "Ratio = 9.49 / 3.16 = 3.0, the same as with one feature.",
+            "More features is not the problem. Features that carry no signal are."
+          ],
+          "answer": "The ratio stays 3.0. Useful features keep the contrast. Irrelevant ones destroy it."
+        }
+      ],
+      "why": "This is the standard reason k-NN degrades as features pile up. In GATE: explain why k-NN worsens with the number of features d (distances become similar, 'nearest' loses meaning).",
+      "how": [
+        "Look for irrelevant features: they add equal noise to near and far points.",
+        "Compare the far ÷ near ratio: it falls toward 1 as noise grows.",
+        "Cure: feature selection, PCA, more data, or dropping features.",
+        "Scale the relevant features first."
+      ],
+      "mistake": "Thinking that more features always help k-NN. Each irrelevant feature dilutes the signal in the distance. The method does not get slower to train; it gets less accurate.",
+      "edge_cases": [
+        "Relevant features keep the contrast; irrelevant features destroy it.",
+        "With a fixed number of samples, accuracy usually drops as d grows.",
+        "Dropping a feature changes distances. Scale again after selecting.",
+        "KD-trees and similar indexes lose their speed advantage in high dimensions."
+      ],
+      "connections": [
+        "Principal component analysis: compress many features into a few before running k-NN.",
+        "Feature scaling (previous card): a different way distances can be misled.",
+        "Bias and variance: more features is more flexibility, which raises variance.",
+        "Foundations: Algebra. Squares, square roots and ratios."
+      ],
+      "check": [
+        {
+          "q": "Does adding irrelevant features make nearest neighbours more or less informative?",
+          "a": "Less informative, because every distance gets about the same extra amount."
+        },
+        {
+          "q": "Near and far squared distances are 1 and 9. Add 8 to both. What is the new far ÷ near distance ratio?",
+          "a": "New squared distances 9 and 17. Distances 3 and √17 ≈ 4.12. Ratio ≈ 1.37, down from 3."
+        },
+        {
+          "q": "Name one cure for the problem.",
+          "a": "Any of: feature selection, PCA, more data."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. A ladder item asks why k-NN gets worse as the number of features grows.",
+      "try": {
+        "id": "gen.ml.knn.021",
+        "label": "Why k-NN worsens as features grow"
+      },
+      "scene": "ml.knn.dim",
+      "what": "With **many features**, the distances from a query to all training points become nearly equal. The nearest neighbour is hardly nearer than the farthest, so neighbours stop being informative. **Irrelevant features** add noise to every distance. Fixes: choose or compress the features (feature selection, PCA), collect more data, or scale the relevant features.",
+      "what_full": "With **many features**, the distances from a query to all training points become nearly equal. The nearest neighbour is hardly nearer than the farthest, so neighbours stop being informative. **Irrelevant features** add noise to every distance. Fixes: choose or compress the features (feature selection, PCA), collect more data, or scale the relevant features.\n\n$$\\text{contrast}=\\frac{d_{\\text{far}}}{d_{\\text{near}}}\\ \\longrightarrow\\ 1\\quad\\text{as irrelevant features are added}$$\n\nSymbols: $d_{\\text{near}}$ and $d_{\\text{far}}$ are the distances from the query to a near and a far training point. If every irrelevant feature adds roughly the same amount $c$ to every squared distance, then after $m$ such features $d^2_{\\text{near}}\\to d^2_{\\text{near}}+mc$ and $d^2_{\\text{far}}\\to d^2_{\\text{far}}+mc$.\n\n**Worked example.** On the one useful feature, the query has a near point A at distance 1 and a far point B at distance 3. Suppose every irrelevant feature adds 4 to the squared distance of both points. Find the far ÷ near distance ratio with m = 0, 1, 4 and 24 irrelevant features.\n\n1. m = 0: squared distances are 1 and 9. Distances 1.0 and 3.0. Ratio 3.0.\n2. m = 1: squared distances 1 + 4 = 5 and 9 + 4 = 13. Distances 2.2 and 3.6. Ratio 3.6 / 2.2 = 1.61.\n3. m = 4: 1 + 16 = 17 and 9 + 16 = 25. Distances 4.1 and 5.0. Ratio 1.21.\n4. m = 24: 1 + 96 = 97 and 9 + 96 = 105. Distances 9.8 and 10.2. Ratio 1.04.\n5. B started 3 times farther and ends only 4% farther. 'Nearest' now carries almost no information.\n\n**Answer:** The ratio falls from 3.0 to 1.04. Irrelevant features wash out the difference between near and far.\n\n**Check yourself:** Does adding irrelevant features make nearest neighbours more or less informative?\n\n*Answer:* Less informative, because every distance gets about the same extra amount.",
+      "trap": "Thinking that more features always help k-NN. Each irrelevant feature dilutes the signal in the distance. The method does not get slower to train; it gets less accurate.",
+      "why_full": "This is the standard reason k-NN degrades as features pile up. In GATE: explain why k-NN worsens with the number of features d (distances become similar, 'nearest' loses meaning).\n\nAsked: no direct past question yet. A ladder item asks why k-NN gets worse as the number of features grows."
+    },
+    {
+      "atom_id": "k5",
+      "title": "Lazy learning and cost",
+      "simple": "Some students prepare a summary before the exam. That is training. A k-NN student prepares nothing. They just keep all the books. When a question arrives, they flip through every book page to find the examples that look most similar. So there is no homework before the exam, but every answer takes a long time, and the more books there are, the longer it takes. In exam words: k-NN is a lazy learner. It has no training phase, and each prediction costs about n × d operations.",
+      "idea": "k-NN does **no real training**. It simply stores the data. All the work happens when a query arrives: compute the distance to all n stored points (each over d features), then pick the k smallest. That costs about $n\\times d$ operations **per query**, and the memory to keep every training point. It is cheap to build and expensive to use.",
+      "definition": "$$\\text{training}=\\text{store the data},\\qquad \\text{prediction}=O(n\\,d)\\ \\text{per query},\\qquad \\text{memory}=O(n\\,d)$$\n\nSymbols: $n$ is the number of training points and $d$ the number of features. Picking the $k$ smallest of $n$ distances adds a little more (sorting costs $O(n\\log n)$), but $n\\,d$ is the dominant term. Adding a new training point needs no retraining.",
+      "intuition_full": "Most models learn a summary (weights, a tree, a line) from the data, and then throw the data away. Predicting is fast because the summary is small. k-NN skips the summary and keeps the data itself as its model. That is why it is called lazy or instance-based: the work is put off until a query arrives. The cost per query is the number of distance computations, n, times the cost of each, d coordinate differences. Doubling n doubles the work. Doubling d also doubles it. There is a bright side: updating the model is free, because adding a point is just appending a row. The dark side is that prediction time and memory grow with the data, so very large datasets need indexing tricks that work best in few dimensions.",
+      "example": {
+        "level": "basic",
+        "setup": "Five training points (x1, x2): P1 (1,1), P2 (4,3), P3 (2,7), P4 (5,5), P5 (3,2). A query arrives at q = (2, 3). Do the work of 3-NN, and count the cost.",
+        "steps": [
+          "Training: nothing to do. The table of five points is just stored.",
+          "At prediction time, compute 5 squared distances to q. P1: 1 + 4 = 5. P2: 4 + 0 = 4. P3: 0 + 16 = 16. P4: 9 + 4 = 13. P5: 1 + 1 = 2.",
+          "The k = 3 smallest are 2, 4 and 5: P5, P2 and P1.",
+          "Cost per query: n × d = 5 × 2 = 10 coordinate differences.",
+          "Scale up: n = 10,000 and d = 20 gives 10,000 × 20 = 200,000 per query. For 500 queries that is 500 × 200,000 = 100,000,000 = 10⁸."
+        ],
+        "answer": "No training. About n × d = 10 operations per query here, and 200,000 per query at n = 10,000, d = 20."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Five training points (x1, x2): P1 (1,1), P2 (4,3), P3 (2,7), P4 (5,5), P5 (3,2). A query arrives at q = (2, 3). Do the work of 3-NN, and count the cost.",
+          "steps": [
+            "Training: nothing to do. The table of five points is just stored.",
+            "At prediction time, compute 5 squared distances to q. P1: 1 + 4 = 5. P2: 4 + 0 = 4. P3: 0 + 16 = 16. P4: 9 + 4 = 13. P5: 1 + 1 = 2.",
+            "The k = 3 smallest are 2, 4 and 5: P5, P2 and P1.",
+            "Cost per query: n × d = 5 × 2 = 10 coordinate differences.",
+            "Scale up: n = 10,000 and d = 20 gives 10,000 × 20 = 200,000 per query. For 500 queries that is 500 × 200,000 = 100,000,000 = 10⁸."
+          ],
+          "answer": "No training. About n × d = 10 operations per query here, and 200,000 per query at n = 10,000, d = 20."
+        },
+        {
+          "level": "gate",
+          "setup": "A k-NN classifier stores n = 2000 points with d = 50 features. (a) About how many coordinate operations does one prediction need? (b) If the data are changed to n = 4000 points with d = 25 features, how does the cost per query change?",
+          "steps": [
+            "(a) Cost = n × d = 2000 × 50 = 100,000 operations per query.",
+            "(b) New cost = 4000 × 25 = 100,000.",
+            "The cost is unchanged: doubling n doubles the cost and halving d halves it.",
+            "Training cost is zero in both cases."
+          ],
+          "answer": "(a) 100,000. (b) Unchanged, because n × d is the same."
+        },
+        {
+          "level": "twist",
+          "setup": "To pick k by leave-one-out, a student wants the neighbour lists of all n = 100 training points, each with d = 4 features, without the point itself. How many coordinate differences does that take?",
+          "steps": [
+            "Each of the 100 held-out points needs its distance to the other 99 points.",
+            "That is 100 × 99 = 9,900 distances.",
+            "Each distance uses d = 4 coordinate differences: 9,900 × 4 = 39,600.",
+            "No model is refitted: the cost is all neighbour search. It grows like n² d."
+          ],
+          "answer": "39,600 coordinate differences. Leave-one-out for k-NN costs about n² d, with no training step."
+        }
+      ],
+      "why": "This explains k-NN's place among the models: instant to build, slow to query. In GATE: 'k-NN is a lazy learner' and 'prediction time grows with the number of training points'.",
+      "how": [
+        "Training: store the data (no learning step).",
+        "Each query: compute n distances, each over d coordinates.",
+        "Select the k smallest.",
+        "Cost per query is about n × d. Memory is about n × d."
+      ],
+      "mistake": "Saying that k-NN trains quickly and predicts quickly. Training is free. Prediction is the expensive part, and it grows with the number of stored points.",
+      "edge_cases": [
+        "Adding a training point is free; removing one is free too.",
+        "k hardly changes the cost. Only the final selection is affected.",
+        "Indexes such as KD-trees help in few dimensions and little in many.",
+        "Memory must hold the whole training set at prediction time."
+      ],
+      "connections": [
+        "Algorithms: asymptotic complexity (the O(n d) notation).",
+        "High dimensions (previous card): large d hurts speed and accuracy.",
+        "Linear regression: the opposite trade-off. Training is work, prediction is cheap."
+      ],
+      "check": [
+        {
+          "q": "Why is k-NN called a lazy learner?",
+          "a": "It does no training and defers all computation to prediction time."
+        },
+        {
+          "q": "n = 1000 and d = 10. About how many coordinate operations per query?",
+          "a": "1000 × 10 = 10,000."
+        },
+        {
+          "q": "Does increasing k change the cost much?",
+          "a": "No. The distance computations dominate and do not depend on k."
+        }
+      ],
+      "asked": "Asked: no direct past question yet. A ladder item asks why k-NN is called a lazy learner.",
+      "try": {
+        "id": "gen.ml.knn.005",
+        "label": "Why k-NN is a lazy learner"
+      },
+      "scene": "ml.knn.cost",
+      "what": "k-NN does **no real training**. It simply stores the data. All the work happens when a query arrives: compute the distance to all n stored points (each over d features), then pick the k smallest. That costs about $n\\times d$ operations **per query**, and the memory to keep every training point. It is cheap to build and expensive to use.",
+      "what_full": "k-NN does **no real training**. It simply stores the data. All the work happens when a query arrives: compute the distance to all n stored points (each over d features), then pick the k smallest. That costs about $n\\times d$ operations **per query**, and the memory to keep every training point. It is cheap to build and expensive to use.\n\n$$\\text{training}=\\text{store the data},\\qquad \\text{prediction}=O(n\\,d)\\ \\text{per query},\\qquad \\text{memory}=O(n\\,d)$$\n\nSymbols: $n$ is the number of training points and $d$ the number of features. Picking the $k$ smallest of $n$ distances adds a little more (sorting costs $O(n\\log n)$), but $n\\,d$ is the dominant term. Adding a new training point needs no retraining.\n\n**Worked example.** Five training points (x1, x2): P1 (1,1), P2 (4,3), P3 (2,7), P4 (5,5), P5 (3,2). A query arrives at q = (2, 3). Do the work of 3-NN, and count the cost.\n\n1. Training: nothing to do. The table of five points is just stored.\n2. At prediction time, compute 5 squared distances to q. P1: 1 + 4 = 5. P2: 4 + 0 = 4. P3: 0 + 16 = 16. P4: 9 + 4 = 13. P5: 1 + 1 = 2.\n3. The k = 3 smallest are 2, 4 and 5: P5, P2 and P1.\n4. Cost per query: n × d = 5 × 2 = 10 coordinate differences.\n5. Scale up: n = 10,000 and d = 20 gives 10,000 × 20 = 200,000 per query. For 500 queries that is 500 × 200,000 = 100,000,000 = 10⁸.\n\n**Answer:** No training. About n × d = 10 operations per query here, and 200,000 per query at n = 10,000, d = 20.\n\n**Check yourself:** Why is k-NN called a lazy learner?\n\n*Answer:* It does no training and defers all computation to prediction time.",
+      "trap": "Saying that k-NN trains quickly and predicts quickly. Training is free. Prediction is the expensive part, and it grows with the number of stored points.",
+      "why_full": "This explains k-NN's place among the models: instant to build, slow to query. In GATE: 'k-NN is a lazy learner' and 'prediction time grows with the number of training points'.\n\nAsked: no direct past question yet. A ladder item asks why k-NN is called a lazy learner."
+    },
+    {
+      "atom_id": "k11",
+      "title": "Nearest centroid",
+      "simple": "Instead of remembering every student, the school keeps just the average position of each class, a single centre point for class A and one for class B. A new student joins the class whose centre is nearer. The dividing line between the two classes is the line of points exactly halfway between the two centres, a perpendicular line through the middle. Even though distances involve squares, the squared parts cancel out in the comparison, so that dividing line is perfectly straight. In exam words: nearest-centroid classifier; f(x) = ‖x − μ1‖² − ‖x − μ2‖² is linear in x.",
+      "idea": "A **nearest-centroid** classifier replaces the whole training set by one average point (a **centroid**) per class. A query goes to the class whose centroid is nearest. The boundary is the set of points equally far from both centroids: the **perpendicular bisector** of the segment joining them. It is a straight line (a flat plane in more dimensions), because the squared terms cancel.",
+      "definition": "$$f(x)=\\|x-\\mu_1\\|^2-\\|x-\\mu_2\\|^2=\\|\\mu_1\\|^2-\\|\\mu_2\\|^2+2\\,x^{\\top}(\\mu_2-\\mu_1)$$\n\nSymbols: $\\mu_1$ and $\\mu_2$ are the class centroids (the mean of each class's points). $\\|\\cdot\\|^2$ is squared length. Predict class 1 if $f(x)<0$ (nearer to $\\mu_1$) and class 2 if $f(x)>0$. The $\\|x\\|^2$ terms cancel, so $f$ is linear in $x$.",
+      "intuition_full": "Expand each squared distance: ‖x − μ‖² = ‖x‖² − 2x·μ + ‖μ‖². In the difference f(x), the term ‖x‖² appears in both and cancels. What is left is a constant plus a dot product with the vector from μ1 to μ2. A function that is a constant plus a dot product is linear, so the set where it equals zero is a straight line in two dimensions, or a flat plane in more. It passes through the midpoint of the two centroids and is at right angles to the segment joining them. This classifier is the simplest summary of each class. It ignores how spread out a class is, which is its weakness. With equal priors and the same identity covariance for both classes it matches the LDA rule.",
+      "example": {
+        "level": "basic",
+        "setup": "Class 1 has points (1, 1) and (3, 1). Class 2 has points (5, 3) and (7, 5). Find the centroids, classify the query x = (3, 3), and find the boundary.",
+        "steps": [
+          "Centroid of class 1: ((1 + 3)/2, (1 + 1)/2) = (2, 1). Centroid of class 2: ((5 + 7)/2, (3 + 5)/2) = (6, 4).",
+          "Squared distances from x = (3, 3). To μ1: (3 − 2)² + (3 − 1)² = 1 + 4 = 5. To μ2: (3 − 6)² + (3 − 4)² = 9 + 1 = 10.",
+          "5 < 10, so x goes to class 1. Here f(x) = 5 − 10 = −5 < 0.",
+          "Boundary: halfway point (4, 2.5), perpendicular to the segment from (2,1) to (6,4). In formula form f(x) = 5 − 52 + 2x·(4, 3) = 8x1 + 6x2 − 47.",
+          "Check: f(3, 3) = 24 + 18 − 47 = −5, the same as before. The boundary 8x1 + 6x2 = 47 passes through (4, 2.5), since 32 + 15 = 47."
+        ],
+        "answer": "Centroids (2, 1) and (6, 4). The query is class 1. The boundary is the line 8x1 + 6x2 = 47."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Class 1 has points (1, 1) and (3, 1). Class 2 has points (5, 3) and (7, 5). Find the centroids, classify the query x = (3, 3), and find the boundary.",
+          "steps": [
+            "Centroid of class 1: ((1 + 3)/2, (1 + 1)/2) = (2, 1). Centroid of class 2: ((5 + 7)/2, (3 + 5)/2) = (6, 4).",
+            "Squared distances from x = (3, 3). To μ1: (3 − 2)² + (3 − 1)² = 1 + 4 = 5. To μ2: (3 − 6)² + (3 − 4)² = 9 + 1 = 10.",
+            "5 < 10, so x goes to class 1. Here f(x) = 5 − 10 = −5 < 0.",
+            "Boundary: halfway point (4, 2.5), perpendicular to the segment from (2,1) to (6,4). In formula form f(x) = 5 − 52 + 2x·(4, 3) = 8x1 + 6x2 − 47.",
+            "Check: f(3, 3) = 24 + 18 − 47 = −5, the same as before. The boundary 8x1 + 6x2 = 47 passes through (4, 2.5), since 32 + 15 = 47."
+          ],
+          "answer": "Centroids (2, 1) and (6, 4). The query is class 1. The boundary is the line 8x1 + 6x2 = 47."
+        },
+        {
+          "level": "gate",
+          "setup": "The class centroids are μ1 = (0, 2) and μ2 = (6, 2). Find the boundary, and classify x = (2.5, 9).",
+          "steps": [
+            "The centroids differ only in the first coordinate, so the segment between them is horizontal. Its midpoint is (3, 2).",
+            "The perpendicular bisector is the vertical line x1 = 3.",
+            "Squared distances from (2.5, 9). To μ1: 2.5² + 7² = 6.25 + 49 = 55.25. To μ2: 3.5² + 7² = 12.25 + 49 = 61.25.",
+            "f(x) = 55.25 − 61.25 = −6 < 0, so class 1. The height 9 plays no role: both squared distances contain the same 7²."
+          ],
+          "answer": "The boundary is x1 = 3. The query is class 1 (f = −6)."
+        },
+        {
+          "level": "twist",
+          "setup": "Class 1 has points (0, 0) and (10, 0). Class 2 has points (8, 3) and (8, 5). Classify the query (9.5, 1) with 1-NN and with nearest centroid.",
+          "steps": [
+            "1-NN squared distances from (9.5, 1). To (10,0): 0.25 + 1 = 1.25. To (8,3): 2.25 + 4 = 6.25. To (8,5): 2.25 + 16 = 18.25. To (0,0): 90.25 + 1 = 91.25.",
+            "The nearest point is (10, 0), which is class 1. So 1-NN says class 1.",
+            "Centroids: μ1 = ((0 + 10)/2, 0) = (5, 0) and μ2 = (8, 4).",
+            "Squared distances to centroids. To μ1: 4.5² + 1² = 20.25 + 1 = 21.25. To μ2: 1.5² + 3² = 2.25 + 9 = 11.25. Class 2 is nearer.",
+            "The two classifiers disagree. The centroid of class 1, (5, 0), is far from any class 1 point, because that class is spread out."
+          ],
+          "answer": "1-NN says class 1. Nearest centroid says class 2. A spread-out class is poorly described by its mean."
+        }
+      ],
+      "why": "Nearest centroid is the simplest classifier built from k-NN's idea, and the linear boundary is a favourite GATE statement. In GATE: the 2025 DA paper asked which statements about f(x) are true.",
+      "how": [
+        "Average each class's points to get its centroid.",
+        "Compute the squared distance from the query to each centroid.",
+        "Assign the class with the smaller distance, or use the sign of f(x).",
+        "The boundary is the perpendicular bisector: a straight line."
+      ],
+      "mistake": "Calling the nearest-centroid boundary quadratic. The squares ‖x‖² cancel in f(x), leaving a linear function.",
+      "edge_cases": [
+        "If the two centroids coincide, f is constant and there is no boundary.",
+        "With more than two classes, boundaries are pieces of perpendicular bisectors.",
+        "The classifier ignores how spread out or unequal the classes are.",
+        "With equal priors and identity covariance it matches the LDA rule."
+      ],
+      "connections": [
+        "Linear discriminant analysis: the same rule when the covariances are equal and the priors are equal.",
+        "k-means clustering: centroids are the same class means.",
+        "Vector spaces and projection: f(x) is a constant plus a dot product.",
+        "Foundations: Algebra. Expanding squares and cancelling equal terms."
+      ],
+      "check": [
+        {
+          "q": "μ1 = (0, 0) and μ2 = (4, 0). Which class gets x = (1, 5)?",
+          "a": "Squared distances 1 + 25 = 26 and 9 + 25 = 34. Class 1."
+        },
+        {
+          "q": "Is f(x) quadratic or linear in x?",
+          "a": "Linear. The ‖x‖² terms cancel."
+        },
+        {
+          "q": "What is the boundary between two centroids?",
+          "a": "The perpendicular bisector of the segment joining them."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q55 asked which statements about f(x) = ‖x − μ_red‖² − ‖x − μ_green‖² are true. The key fact is that f is linear in x.",
+      "try": {
+        "id": "gen.ml.knn.011",
+        "label": "Nearest-centroid score for a query"
+      },
+      "scene": "ml.knn.centroid",
+      "what": "A **nearest-centroid** classifier replaces the whole training set by one average point (a **centroid**) per class. A query goes to the class whose centroid is nearest. The boundary is the set of points equally far from both centroids: the **perpendicular bisector** of the segment joining them. It is a straight line (a flat plane in more dimensions), because the squared terms cancel.",
+      "what_full": "A **nearest-centroid** classifier replaces the whole training set by one average point (a **centroid**) per class. A query goes to the class whose centroid is nearest. The boundary is the set of points equally far from both centroids: the **perpendicular bisector** of the segment joining them. It is a straight line (a flat plane in more dimensions), because the squared terms cancel.\n\n$$f(x)=\\|x-\\mu_1\\|^2-\\|x-\\mu_2\\|^2=\\|\\mu_1\\|^2-\\|\\mu_2\\|^2+2\\,x^{\\top}(\\mu_2-\\mu_1)$$\n\nSymbols: $\\mu_1$ and $\\mu_2$ are the class centroids (the mean of each class's points). $\\|\\cdot\\|^2$ is squared length. Predict class 1 if $f(x)<0$ (nearer to $\\mu_1$) and class 2 if $f(x)>0$. The $\\|x\\|^2$ terms cancel, so $f$ is linear in $x$.\n\n**Worked example.** Class 1 has points (1, 1) and (3, 1). Class 2 has points (5, 3) and (7, 5). Find the centroids, classify the query x = (3, 3), and find the boundary.\n\n1. Centroid of class 1: ((1 + 3)/2, (1 + 1)/2) = (2, 1). Centroid of class 2: ((5 + 7)/2, (3 + 5)/2) = (6, 4).\n2. Squared distances from x = (3, 3). To μ1: (3 − 2)² + (3 − 1)² = 1 + 4 = 5. To μ2: (3 − 6)² + (3 − 4)² = 9 + 1 = 10.\n3. 5 < 10, so x goes to class 1. Here f(x) = 5 − 10 = −5 < 0.\n4. Boundary: halfway point (4, 2.5), perpendicular to the segment from (2,1) to (6,4). In formula form f(x) = 5 − 52 + 2x·(4, 3) = 8x1 + 6x2 − 47.\n5. Check: f(3, 3) = 24 + 18 − 47 = −5, the same as before. The boundary 8x1 + 6x2 = 47 passes through (4, 2.5), since 32 + 15 = 47.\n\n**Answer:** Centroids (2, 1) and (6, 4). The query is class 1. The boundary is the line 8x1 + 6x2 = 47.\n\n**Check yourself:** μ1 = (0, 0) and μ2 = (4, 0). Which class gets x = (1, 5)?\n\n*Answer:* Squared distances 1 + 25 = 26 and 9 + 25 = 34. Class 1.",
+      "trap": "Calling the nearest-centroid boundary quadratic. The squares ‖x‖² cancel in f(x), leaving a linear function.",
+      "why_full": "Nearest centroid is the simplest classifier built from k-NN's idea, and the linear boundary is a favourite GATE statement. In GATE: the 2025 DA paper asked which statements about f(x) are true.\n\nAsked: 2025 DA Q55 asked which statements about f(x) = ‖x − μ_red‖² − ‖x − μ_green‖² are true. The key fact is that f is linear in x."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "ml.knn.dist",
+      "title": "Euclidean and Manhattan can pick different neighbours",
+      "viewBox": [
+        0,
+        0,
+        360,
+        312
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 40,
+          "y": 200,
+          "unit": 44,
+          "xr": [
+            0,
+            6
+          ],
+          "yr": [
+            0,
+            4
+          ]
+        },
+        {
+          "id": "q",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            0,
+            0
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "lq",
+          "kind": "text",
+          "x": 34,
+          "y": 218,
+          "text": "q",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "P",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            3
+          ],
+          "tone": "accent",
+          "label": "P (3,3)"
+        },
+        {
+          "id": "Q",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            0
+          ],
+          "tone": "mid",
+          "label": "Q (5,0)"
+        },
+        {
+          "id": "eP",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            0,
+            0
+          ],
+          "to": [
+            3,
+            3
+          ],
+          "tone": "accent",
+          "dash": true
+        },
+        {
+          "id": "eQ",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            0,
+            0
+          ],
+          "to": [
+            5,
+            0
+          ],
+          "tone": "mid",
+          "dash": true
+        },
+        {
+          "id": "mQ",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            0,
+            0
+          ],
+          "to": [
+            5,
+            0
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "mP1",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            0,
+            0
+          ],
+          "to": [
+            3,
+            0
+          ],
+          "tone": "bad"
+        },
+        {
+          "id": "mP2",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            3,
+            0
+          ],
+          "to": [
+            3,
+            3
+          ],
+          "tone": "bad"
+        },
+        {
+          "id": "r1",
+          "kind": "text",
+          "x": 180,
+          "y": 244,
+          "text": "Euclidean d²:  P = 9 + 9 = 18,   Q = 25 + 0 = 25",
+          "size": 12,
+          "anchor": "middle",
+          "tone": "accent"
+        },
+        {
+          "id": "r2",
+          "kind": "text",
+          "x": 180,
+          "y": 268,
+          "text": "Manhattan:  P = 3 + 3 = 6,   Q = 5 + 0 = 5",
+          "size": 12,
+          "anchor": "middle",
+          "tone": "bad"
+        },
+        {
+          "id": "r3",
+          "kind": "text",
+          "x": 180,
+          "y": 294,
+          "text": "Euclid picks P.   Manhattan picks Q.",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The query q is at the origin. P is at (3, 3) and Q is at (5, 0). Which one is nearer? It depends on how we measure.",
+          "highlight": [
+            {
+              "id": "P",
+              "tone": "accent"
+            },
+            {
+              "id": "Q",
+              "tone": "mid"
+            }
+          ]
+        },
+        {
+          "caption": "Euclidean: the straight line. Squared distance to P is 3² + 3² = 18. To Q it is 5² + 0² = 25. P is nearer.",
+          "show": [
+            "eP",
+            "eQ",
+            "r1"
+          ],
+          "draw": [
+            "eP",
+            "eQ"
+          ],
+          "highlight": [
+            {
+              "id": "eP",
+              "tone": "accent"
+            },
+            {
+              "id": "r1",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Manhattan: walk along the axes. To P that is 3 + 3 = 6 blocks. To Q it is 5 + 0 = 5 blocks. Q is nearer.",
+          "hide": [
+            "eP",
+            "eQ"
+          ],
+          "show": [
+            "mP1",
+            "mP2",
+            "mQ",
+            "r2"
+          ],
+          "draw": [
+            "mP1",
+            "mP2",
+            "mQ"
+          ],
+          "highlight": [
+            {
+              "id": "mP1",
+              "tone": "bad"
+            },
+            {
+              "id": "mP2",
+              "tone": "bad"
+            },
+            {
+              "id": "r2",
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "The metric decides the neighbour. Unless a question names another distance, use Euclidean.",
+          "show": "r3",
+          "highlight": [
+            {
+              "id": "r3",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.knn.vote",
+      "title": "Vote at k = 1, 3, 5: the winner can change",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "c1",
+          "kind": "circle",
+          "cx": 110,
+          "cy": 150,
+          "r": 36.8,
+          "tone": "accent",
+          "fillOpacity": 0.12
+        },
+        {
+          "id": "c3",
+          "kind": "circle",
+          "cx": 110,
+          "cy": 150,
+          "r": 58.1,
+          "tone": "mid",
+          "fillOpacity": 0.1
+        },
+        {
+          "id": "c5",
+          "kind": "circle",
+          "cx": 110,
+          "cy": 150,
+          "r": 78,
+          "tone": "good",
+          "fillOpacity": 0.1
+        },
+        {
+          "id": "hdr",
+          "kind": "text",
+          "x": 150,
+          "y": 18,
+          "text": "query q at (0, 0)",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "nq",
+          "kind": "node",
+          "x": 110,
+          "y": 150,
+          "label": "q",
+          "r": 11,
+          "tone": "good"
+        },
+        {
+          "id": "nA1",
+          "kind": "node",
+          "x": 136,
+          "y": 124,
+          "label": "A",
+          "r": 10,
+          "tone": "accent"
+        },
+        {
+          "id": "nA2",
+          "kind": "node",
+          "x": 110,
+          "y": 98,
+          "label": "A",
+          "r": 10,
+          "tone": "accent"
+        },
+        {
+          "id": "nB1",
+          "kind": "node",
+          "x": 58,
+          "y": 124,
+          "label": "B",
+          "r": 10,
+          "tone": "mid"
+        },
+        {
+          "id": "nB2",
+          "kind": "node",
+          "x": 188,
+          "y": 150,
+          "label": "B",
+          "r": 10,
+          "tone": "mid"
+        },
+        {
+          "id": "nB3",
+          "kind": "node",
+          "x": 110,
+          "y": 228,
+          "label": "B",
+          "r": 10,
+          "tone": "mid"
+        },
+        {
+          "id": "nA3",
+          "kind": "node",
+          "x": 214,
+          "y": 46,
+          "label": "A",
+          "r": 10,
+          "tone": "accent"
+        },
+        {
+          "id": "g",
+          "kind": "grid",
+          "x": 288,
+          "y": 70,
+          "rows": 6,
+          "cols": 2,
+          "cw": 32,
+          "ch": 24,
+          "rowLabels": [
+            "(1,1)",
+            "(0,2)",
+            "(−2,1)",
+            "(3,0)",
+            "(0,−3)",
+            "(4,4)"
+          ],
+          "colLabels": [
+            "cls",
+            "d²"
+          ],
+          "cells": [
+            [
+              "A",
+              "2"
+            ],
+            [
+              "A",
+              "4"
+            ],
+            [
+              "B",
+              "5"
+            ],
+            [
+              "B",
+              "9"
+            ],
+            [
+              "B",
+              "9"
+            ],
+            [
+              "A",
+              "32"
+            ]
+          ]
+        },
+        {
+          "id": "vt",
+          "kind": "text",
+          "x": 130,
+          "y": 262,
+          "text": "",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Query at (0, 0). The table lists the six training points sorted by squared distance: 2, 4, 5, 9, 9, 32.",
+          "highlight": [
+            "g"
+          ],
+          "set": {
+            "id": "vt",
+            "text": "sorted by distance"
+          }
+        },
+        {
+          "caption": "k = 1: the nearest point is (1, 1), class A. Votes A 1, B 0. Predict A.",
+          "show": "c1",
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                0,
+                1
+              ]
+            }
+          ],
+          "set": {
+            "id": "vt",
+            "text": "k = 1:  A 1, B 0  →  A"
+          }
+        },
+        {
+          "caption": "k = 3: the nearest three are A, A, B. Votes A 2, B 1. Predict A.",
+          "show": "c3",
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5
+              ]
+            }
+          ],
+          "set": {
+            "id": "vt",
+            "text": "k = 3:  A 2, B 1  →  A"
+          }
+        },
+        {
+          "caption": "k = 5: the nearest five are A, A, B, B, B. Votes A 2, B 3. Predict B. The two B's at distance 9 tip the vote.",
+          "show": "c5",
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9
+              ],
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "vt",
+            "text": "k = 5:  A 2, B 3  →  B"
+          }
+        },
+        {
+          "caption": "The label first becomes B at k = 5, so the minimum odd k is 5. Stopping at k = 1 or 3 would have given the wrong answer.",
+          "highlight": [
+            {
+              "id": "nB1",
+              "tone": "mid"
+            },
+            {
+              "id": "nB2",
+              "tone": "mid"
+            },
+            {
+              "id": "nB3",
+              "tone": "mid"
+            },
+            {
+              "id": "vt",
+              "tone": "accent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.knn.kvalue",
+      "title": "Small k copies the noise, large k smooths it away",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "l0",
+          "kind": "text",
+          "x": 8,
+          "y": 53,
+          "text": "data",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "ar0",
+          "kind": "array",
+          "x": 68,
+          "y": 40,
+          "cells": [
+            "A",
+            "A",
+            "A",
+            "B",
+            "A",
+            "A",
+            "B",
+            "B",
+            "B"
+          ],
+          "cw": 30,
+          "ch": 26,
+          "indices": true
+        },
+        {
+          "id": "l1",
+          "kind": "text",
+          "x": 8,
+          "y": 124,
+          "text": "k=1\n0 wrong",
+          "size": 12,
+          "anchor": "start",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "ar1",
+          "kind": "array",
+          "x": 68,
+          "y": 111,
+          "cells": [
+            "A",
+            "A",
+            "A",
+            "B",
+            "A",
+            "A",
+            "B",
+            "B",
+            "B"
+          ],
+          "cw": 30,
+          "ch": 26,
+          "indices": false
+        },
+        {
+          "id": "l3",
+          "kind": "text",
+          "x": 8,
+          "y": 178,
+          "text": "k=3\n1 wrong",
+          "size": 12,
+          "anchor": "start",
+          "tone": "mid",
+          "bold": true
+        },
+        {
+          "id": "ar3",
+          "kind": "array",
+          "x": 68,
+          "y": 165,
+          "cells": [
+            "A",
+            "A",
+            "A",
+            "A",
+            "A",
+            "A",
+            "B",
+            "B",
+            "B"
+          ],
+          "cw": 30,
+          "ch": 26,
+          "indices": false
+        },
+        {
+          "id": "l9",
+          "kind": "text",
+          "x": 8,
+          "y": 232,
+          "text": "k=9\n4 wrong",
+          "size": 12,
+          "anchor": "start",
+          "tone": "bad",
+          "bold": true
+        },
+        {
+          "id": "ar9",
+          "kind": "array",
+          "x": 68,
+          "y": 219,
+          "cells": [
+            "A",
+            "A",
+            "A",
+            "A",
+            "A",
+            "A",
+            "A",
+            "A",
+            "A"
+          ],
+          "cw": 30,
+          "ch": 26,
+          "indices": false
+        },
+        {
+          "id": "sm",
+          "kind": "text",
+          "x": 180,
+          "y": 280,
+          "text": "small k: follows the noise\nlarge k: smooths to the majority",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Nine training points at x = 0 to 8. The B at x = 3 is noise inside a run of A's. We predict each position again with different k.",
+          "highlight": [
+            {
+              "id": "ar0",
+              "cells": [
+                3
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "k = 1: each point's nearest neighbour is itself, so the row copies the data, noise included. 0 wrong.",
+          "show": [
+            "l1",
+            "ar1"
+          ],
+          "highlight": [
+            {
+              "id": "ar1",
+              "cells": [
+                3
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "k = 3: at x = 3 the three nearest are A, B, A, so A wins. The noisy B is outvoted. 1 position differs from the data.",
+          "show": [
+            "l3",
+            "ar3"
+          ],
+          "highlight": [
+            {
+              "id": "ar3",
+              "cells": [
+                3
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "k = 9: all nine points vote, A 5 against B 4, so every position becomes A. The four real B's are overruled. 4 wrong.",
+          "show": [
+            "l9",
+            "ar9"
+          ],
+          "highlight": [
+            {
+              "id": "ar9",
+              "cells": [
+                3,
+                6,
+                7,
+                8
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "Small k is flexible: low bias, high variance. Large k is smooth: high bias, low variance. k = n is a constant.",
+          "show": "sm",
+          "highlight": [
+            "sm"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.knn.regress",
+      "title": "k-NN regression: average the neighbours' targets",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 36,
+          "y": 250,
+          "unit": 20,
+          "xr": [
+            0,
+            9.5
+          ],
+          "yr": [
+            0,
+            10.5
+          ],
+          "xlabel": "x",
+          "ylabel": "y"
+        },
+        {
+          "id": "d1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            3
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "d2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            5
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "d3",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            6
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "d4",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            6,
+            10
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "d5",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            9,
+            4
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "qv",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            5,
+            0
+          ],
+          "to": [
+            5,
+            10.4
+          ],
+          "tone": "good",
+          "dash": true,
+          "label": "q = 5"
+        },
+        {
+          "id": "tb",
+          "kind": "text",
+          "x": 252,
+          "y": 86,
+          "text": "|x − 5|:\nx=1: 4\nx=2: 3\nx=4: 1\nx=6: 1\nx=9: 4",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "ys",
+          "kind": "text",
+          "x": 252,
+          "y": 176,
+          "text": "3 nearest:\nx = 4, 6, 2\ny = 6, 10, 5",
+          "size": 12,
+          "anchor": "start",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "pm",
+          "kind": "text",
+          "x": 252,
+          "y": 230,
+          "text": "mean of y:\n21 / 3 = 7",
+          "size": 13,
+          "anchor": "start",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "ph",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            0,
+            7
+          ],
+          "to": [
+            5,
+            7
+          ],
+          "tone": "good",
+          "dash": true
+        },
+        {
+          "id": "pp",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            7
+          ],
+          "tone": "good",
+          "label": "7",
+          "hollow": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Five training points (x, y). We want the 3-NN prediction at x = 5, the dashed vertical line.",
+          "highlight": [
+            {
+              "id": "qv",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Distances use the inputs only: |x − 5| is 4, 3, 1, 1, 4 for x = 1, 2, 4, 6, 9.",
+          "show": "tb",
+          "highlight": [
+            "tb"
+          ]
+        },
+        {
+          "caption": "The three smallest distances (1, 1, 3) belong to x = 4, 6 and 2. Their targets are y = 6, 10 and 5.",
+          "show": "ys",
+          "highlight": [
+            {
+              "id": "d2",
+              "tone": "good"
+            },
+            {
+              "id": "d3",
+              "tone": "good"
+            },
+            {
+              "id": "d4",
+              "tone": "good"
+            },
+            {
+              "id": "ys",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Average the targets, not the inputs: (6 + 10 + 5) / 3 = 21 / 3 = 7.",
+          "show": "pm",
+          "highlight": [
+            {
+              "id": "pm",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "The prediction at x = 5 is y = 7.",
+          "show": [
+            "ph",
+            "pp"
+          ],
+          "draw": "ph",
+          "highlight": [
+            {
+              "id": "pp",
+              "tone": "good"
+            },
+            {
+              "id": "ph",
+              "tone": "good"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.knn.loo",
+      "title": "Training error 0 against leave-one-out error",
+      "viewBox": [
+        0,
+        0,
+        360,
+        250
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 40,
+          "y": 88,
+          "unit": 30,
+          "xr": [
+            0,
+            9
+          ],
+          "yr": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "n0",
+          "kind": "node",
+          "x": 40,
+          "y": 60,
+          "label": "A",
+          "r": 12,
+          "tone": "accent"
+        },
+        {
+          "id": "n1",
+          "kind": "node",
+          "x": 70,
+          "y": 60,
+          "label": "A",
+          "r": 12,
+          "tone": "accent"
+        },
+        {
+          "id": "n2",
+          "kind": "node",
+          "x": 100,
+          "y": 60,
+          "label": "A",
+          "r": 12,
+          "tone": "accent"
+        },
+        {
+          "id": "n5",
+          "kind": "node",
+          "x": 190,
+          "y": 60,
+          "label": "B",
+          "r": 12,
+          "tone": "mid"
+        },
+        {
+          "id": "n6",
+          "kind": "node",
+          "x": 220,
+          "y": 60,
+          "label": "B",
+          "r": 12,
+          "tone": "mid"
+        },
+        {
+          "id": "n8",
+          "kind": "node",
+          "x": 280,
+          "y": 60,
+          "label": "A",
+          "r": 12,
+          "tone": "accent"
+        },
+        {
+          "id": "lt",
+          "kind": "text",
+          "x": 304,
+          "y": 136,
+          "text": "train",
+          "size": 12,
+          "anchor": "start",
+          "tone": "muted",
+          "bold": true
+        },
+        {
+          "id": "ll",
+          "kind": "text",
+          "x": 304,
+          "y": 168,
+          "text": "LOO",
+          "size": 12,
+          "anchor": "start",
+          "tone": "muted",
+          "bold": true
+        },
+        {
+          "id": "tm0",
+          "kind": "text",
+          "x": 40,
+          "y": 136,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "tm1",
+          "kind": "text",
+          "x": 70,
+          "y": 136,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "tm2",
+          "kind": "text",
+          "x": 100,
+          "y": 136,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "tm3",
+          "kind": "text",
+          "x": 190,
+          "y": 136,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "tm4",
+          "kind": "text",
+          "x": 220,
+          "y": 136,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "tm5",
+          "kind": "text",
+          "x": 280,
+          "y": 136,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "lm0",
+          "kind": "text",
+          "x": 40,
+          "y": 168,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "lm1",
+          "kind": "text",
+          "x": 70,
+          "y": 168,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "lm2",
+          "kind": "text",
+          "x": 100,
+          "y": 168,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "lm3",
+          "kind": "text",
+          "x": 190,
+          "y": 168,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "lm4",
+          "kind": "text",
+          "x": 220,
+          "y": 168,
+          "text": "✓",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "lm5",
+          "kind": "text",
+          "x": 280,
+          "y": 168,
+          "text": "✗",
+          "size": 15,
+          "anchor": "middle",
+          "tone": "bad",
+          "bold": true
+        },
+        {
+          "id": "a8",
+          "kind": "arrow",
+          "from": "n8",
+          "to": "n6",
+          "tone": "bad"
+        },
+        {
+          "id": "res",
+          "kind": "text",
+          "x": 180,
+          "y": 214,
+          "text": "",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Six points on a line with labels A, A, A, B, B, A at x = 0, 1, 2, 5, 6, 8. We use 1-NN and compare two ways of scoring it.",
+          "set": {
+            "id": "res",
+            "text": "1-NN on six points"
+          }
+        },
+        {
+          "caption": "Training error: each point's nearest neighbour is itself, at distance 0. All six are right. Training error = 0 / 6 = 0.",
+          "show": [
+            "tm0",
+            "tm1",
+            "tm2",
+            "tm3",
+            "tm4",
+            "tm5",
+            "lt"
+          ],
+          "set": {
+            "id": "res",
+            "text": "training error = 0 / 6 = 0"
+          },
+          "highlight": [
+            {
+              "id": "tm0",
+              "tone": "good"
+            },
+            {
+              "id": "tm1",
+              "tone": "good"
+            },
+            {
+              "id": "tm2",
+              "tone": "good"
+            },
+            {
+              "id": "tm3",
+              "tone": "good"
+            },
+            {
+              "id": "tm4",
+              "tone": "good"
+            },
+            {
+              "id": "tm5",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Leave-one-out for x = 0, 1, 2: the nearest other points are all A. Right, right, right.",
+          "show": [
+            "ll",
+            "lm0",
+            "lm1",
+            "lm2"
+          ],
+          "set": {
+            "id": "res",
+            "text": "LOO so far: 0 wrong of 3"
+          }
+        },
+        {
+          "caption": "Leave-one-out for x = 5 and 6: each is the other's nearest neighbour, at distance 1. Both B. Right, right.",
+          "show": [
+            "lm3",
+            "lm4"
+          ],
+          "set": {
+            "id": "res",
+            "text": "LOO so far: 0 wrong of 5"
+          }
+        },
+        {
+          "caption": "Leave-one-out for x = 8 (A): the nearest other point is x = 6, label B, at distance 2. Predict B. Wrong.",
+          "show": [
+            "lm5",
+            "a8"
+          ],
+          "highlight": [
+            {
+              "id": "n8",
+              "tone": "bad"
+            }
+          ],
+          "set": {
+            "id": "res",
+            "text": "LOO so far: 1 wrong of 6"
+          }
+        },
+        {
+          "caption": "Leave-one-out error = 1 / 6 ≈ 0.167. The training error 0 was flattering.",
+          "hide": "a8",
+          "set": {
+            "id": "res",
+            "text": "LOO error = 1 / 6 ≈ 0.167   (training: 0)"
+          },
+          "highlight": [
+            {
+              "id": "res",
+              "tone": "accent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.knn.scale",
+      "title": "Scaling changes who is nearest",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "nA",
+          "kind": "node",
+          "x": 60,
+          "y": 40,
+          "label": "A",
+          "r": 16,
+          "tone": "accent"
+        },
+        {
+          "id": "nq",
+          "kind": "node",
+          "x": 180,
+          "y": 40,
+          "label": "q",
+          "r": 16,
+          "tone": "good"
+        },
+        {
+          "id": "nB",
+          "kind": "node",
+          "x": 300,
+          "y": 40,
+          "label": "B",
+          "r": 16,
+          "tone": "mid"
+        },
+        {
+          "id": "cA",
+          "kind": "text",
+          "x": 60,
+          "y": 76,
+          "text": "age 55\nRs 40,500",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "cq",
+          "kind": "text",
+          "x": 180,
+          "y": 76,
+          "text": "age 25\nRs 40,000",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "cB",
+          "kind": "text",
+          "x": 300,
+          "y": 76,
+          "text": "age 26\nRs 46,000",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "aA",
+          "kind": "arrow",
+          "from": "nq",
+          "to": "nA",
+          "tone": "bad"
+        },
+        {
+          "id": "aB",
+          "kind": "arrow",
+          "from": "nq",
+          "to": "nB",
+          "tone": "good"
+        },
+        {
+          "id": "gt",
+          "kind": "text",
+          "x": 180,
+          "y": 112,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "g",
+          "kind": "grid",
+          "x": 70,
+          "y": 146,
+          "rows": 2,
+          "cols": 3,
+          "cw": 70,
+          "ch": 30,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "A",
+            "B"
+          ],
+          "colLabels": [
+            "Δage",
+            "Δincome",
+            "distance"
+          ]
+        },
+        {
+          "id": "nx",
+          "kind": "text",
+          "x": 180,
+          "y": 232,
+          "text": "",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "zt",
+          "kind": "text",
+          "x": 180,
+          "y": 268,
+          "text": "age z:   q −1.5,   A 1.5,   B −1.4\nincome z:   q −0.5,   A −0.475,   B −0.2",
+          "size": 12,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Query q: age 25, income Rs 40,000. Person A: 55 years, Rs 40,500. Person B: 26 years, Rs 46,000. B is clearly the more similar person.",
+          "highlight": [
+            {
+              "id": "nq",
+              "tone": "good"
+            },
+            {
+              "id": "nA",
+              "tone": "accent"
+            },
+            {
+              "id": "nB",
+              "tone": "mid"
+            }
+          ]
+        },
+        {
+          "caption": "Raw Euclidean distances. A: gaps 30 and 500, so √(900 + 250,000) ≈ 500.9. B: gaps 1 and 6,000, so √(1 + 36,000,000) ≈ 6,000. A looks nearer.",
+          "show": [
+            "gt",
+            "g",
+            "aA",
+            "nx"
+          ],
+          "draw": "aA",
+          "set": [
+            {
+              "id": "gt",
+              "text": "raw units"
+            },
+            {
+              "id": "g",
+              "cells": [
+                "30",
+                "500",
+                "500.9",
+                "1",
+                "6000",
+                "6000.0"
+              ]
+            },
+            {
+              "id": "nx",
+              "text": "nearest: A  (500.9 < 6000)"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "aA",
+              "tone": "bad"
+            },
+            {
+              "id": "nx",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Why: the income gap squared (250,000 for A, 36,000,000 for B) dwarfs the age gap squared (900 or 1). Age is ignored.",
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                1,
+                4
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "Standardise with z = (x − mean) / sd (age: mean 40, sd 10; income: mean 50,000, sd 20,000). Now A is 3.0 away and B only 0.32 away.",
+          "hide": "aA",
+          "show": [
+            "aB",
+            "zt"
+          ],
+          "draw": "aB",
+          "set": [
+            {
+              "id": "gt",
+              "text": "after standardising"
+            },
+            {
+              "id": "g",
+              "cells": [
+                "3.0",
+                "0.025",
+                "3.0",
+                "0.1",
+                "0.3",
+                "0.32"
+              ]
+            },
+            {
+              "id": "nx",
+              "text": "nearest: B  (0.32 < 3.0)"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "aB",
+              "tone": "good"
+            },
+            {
+              "id": "nx",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Scaling flipped the neighbour: B is the similar person. Always scale before using distances, with the training set's numbers.",
+          "highlight": [
+            {
+              "id": "aB",
+              "tone": "good"
+            },
+            "g"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.knn.dim",
+      "title": "Irrelevant features wash out near and far",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "hdr",
+          "kind": "text",
+          "x": 180,
+          "y": 18,
+          "text": "distance to A (near) and B (far)",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "rh",
+          "kind": "text",
+          "x": 180,
+          "y": 216,
+          "text": "far ÷ near",
+          "size": 12,
+          "anchor": "middle",
+          "tone": "muted"
+        },
+        {
+          "id": "tg0",
+          "kind": "text",
+          "x": 60,
+          "y": 44,
+          "text": "m = 0",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "bg0",
+          "kind": "bar",
+          "x": 24,
+          "y": 62,
+          "w": 72,
+          "h": 120,
+          "values": [
+            1.0,
+            3.0
+          ],
+          "labels": [
+            "A",
+            "B"
+          ],
+          "max": 11
+        },
+        {
+          "id": "rg0",
+          "kind": "text",
+          "x": 60,
+          "y": 238,
+          "text": "3.00×",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "tg1",
+          "kind": "text",
+          "x": 142,
+          "y": 44,
+          "text": "m = 1",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "bg1",
+          "kind": "bar",
+          "x": 106,
+          "y": 62,
+          "w": 72,
+          "h": 120,
+          "values": [
+            2.2,
+            3.6
+          ],
+          "labels": [
+            "A",
+            "B"
+          ],
+          "max": 11
+        },
+        {
+          "id": "rg1",
+          "kind": "text",
+          "x": 142,
+          "y": 238,
+          "text": "1.61×",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "tg2",
+          "kind": "text",
+          "x": 224,
+          "y": 44,
+          "text": "m = 4",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "bg2",
+          "kind": "bar",
+          "x": 188,
+          "y": 62,
+          "w": 72,
+          "h": 120,
+          "values": [
+            4.1,
+            5.0
+          ],
+          "labels": [
+            "A",
+            "B"
+          ],
+          "max": 11
+        },
+        {
+          "id": "rg2",
+          "kind": "text",
+          "x": 224,
+          "y": 238,
+          "text": "1.21×",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "tg3",
+          "kind": "text",
+          "x": 306,
+          "y": 44,
+          "text": "m = 24",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "bg3",
+          "kind": "bar",
+          "x": 270,
+          "y": 62,
+          "w": 72,
+          "h": 120,
+          "values": [
+            9.8,
+            10.2
+          ],
+          "labels": [
+            "A",
+            "B"
+          ],
+          "max": 11
+        },
+        {
+          "id": "rg3",
+          "kind": "text",
+          "x": 306,
+          "y": 238,
+          "text": "1.04×",
+          "size": 14,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "One useful feature, no noise (m = 0). Near point A is at distance 1 and far point B at distance 3. B is 3 times farther.",
+          "show": [
+            "tg0",
+            "bg0",
+            "rg0",
+            "rh"
+          ],
+          "highlight": [
+            "bg0",
+            {
+              "id": "rg0",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Add 1 irrelevant feature that adds 4 to both squared distances. Squared: 1+4 = 5 and 9+4 = 13. Distances 2.2 and 3.6. Ratio 1.61.",
+          "show": [
+            "tg1",
+            "bg1",
+            "rg1"
+          ],
+          "highlight": [
+            "bg1",
+            {
+              "id": "rg1",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Add 4 such features: squared distances 17 and 25. Distances 4.1 and 5.0. Ratio 1.21.",
+          "show": [
+            "tg2",
+            "bg2",
+            "rg2"
+          ],
+          "highlight": [
+            "bg2",
+            {
+              "id": "rg2",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "Add 24 such features: squared distances 97 and 105. Distances 9.8 and 10.2. Ratio 1.04.",
+          "show": [
+            "tg3",
+            "bg3",
+            "rg3"
+          ],
+          "highlight": [
+            "bg3",
+            {
+              "id": "rg3",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "B started 3 times farther and ends only 4% farther. The nearest neighbour is hardly nearer than the farthest, so 'nearest' stops meaning anything.",
+          "highlight": [
+            {
+              "id": "rg0",
+              "tone": "accent"
+            },
+            {
+              "id": "rg1",
+              "tone": "accent"
+            },
+            {
+              "id": "rg2",
+              "tone": "accent"
+            },
+            {
+              "id": "rg3",
+              "tone": "accent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.knn.cost",
+      "title": "No training, but every query scans all the data",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "qt",
+          "kind": "text",
+          "x": 180,
+          "y": 20,
+          "text": "query q = (2, 3)",
+          "size": 14,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "g",
+          "kind": "grid",
+          "x": 60,
+          "y": 64,
+          "rows": 5,
+          "cols": 4,
+          "cw": 52,
+          "ch": 26,
+          "cells": [
+            1,
+            1,
+            "",
+            "",
+            4,
+            3,
+            "",
+            "",
+            2,
+            7,
+            "",
+            "",
+            5,
+            5,
+            "",
+            "",
+            3,
+            2,
+            "",
+            ""
+          ],
+          "rowLabels": [
+            "P1",
+            "P2",
+            "P3",
+            "P4",
+            "P5"
+          ],
+          "colLabels": [
+            "x1",
+            "x2",
+            "d²",
+            "rank"
+          ]
+        },
+        {
+          "id": "ct",
+          "kind": "text",
+          "x": 180,
+          "y": 234,
+          "text": "no training step\nthe table is just stored",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Training: nothing. The table of five points is just stored. This is why k-NN is called lazy.",
+          "highlight": [
+            "g"
+          ]
+        },
+        {
+          "caption": "A query arrives at (2, 3). Now the work starts: a squared distance to every point. P1: 1+4 = 5. P2: 4+0 = 4. P3: 0+16 = 16. P4: 9+4 = 13. P5: 1+1 = 2.",
+          "set": [
+            {
+              "id": "g",
+              "cells": [
+                1,
+                1,
+                5,
+                "",
+                4,
+                3,
+                4,
+                "",
+                2,
+                7,
+                16,
+                "",
+                5,
+                5,
+                13,
+                "",
+                3,
+                2,
+                2,
+                ""
+              ]
+            },
+            {
+              "id": "ct",
+              "text": "per query: n × d = 5 × 2 = 10 differences"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                2,
+                6,
+                10,
+                14,
+                18
+              ]
+            }
+          ]
+        },
+        {
+          "caption": "Rank the distances and take the k = 3 smallest: P5 (2), P2 (4), P1 (5).",
+          "set": [
+            {
+              "id": "g",
+              "cells": [
+                1,
+                1,
+                5,
+                3,
+                4,
+                3,
+                4,
+                2,
+                2,
+                7,
+                16,
+                5,
+                5,
+                5,
+                13,
+                4,
+                3,
+                2,
+                2,
+                1
+              ]
+            },
+            {
+              "id": "ct",
+              "text": "the k = 3 smallest: P5, P2, P1"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "g",
+              "cells": [
+                3,
+                7,
+                19
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "The cost is n × d per query. With n = 10,000 stored points and d = 20 features that is 200,000 operations for a single query.",
+          "set": {
+            "id": "ct",
+            "text": "n = 10,000 and d = 20\n200,000 operations per query"
+          },
+          "highlight": [
+            {
+              "id": "ct",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "500 queries cost 500 × 200,000 = 100,000,000 = 10⁸ operations. Training was free, but prediction is expensive.",
+          "set": {
+            "id": "ct",
+            "text": "500 queries: 100,000,000 = 10⁸ operations"
+          },
+          "highlight": [
+            {
+              "id": "ct",
+              "tone": "accent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.knn.centroid",
+      "title": "Nearest centroid: a straight perpendicular bisector",
+      "viewBox": [
+        0,
+        0,
+        360,
+        330
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 30,
+          "y": 240,
+          "unit": 34,
+          "xr": [
+            0,
+            8
+          ],
+          "yr": [
+            0,
+            6
+          ],
+          "xlabel": "x1",
+          "ylabel": "x2"
+        },
+        {
+          "id": "a1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            1,
+            1
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "a2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            1
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "b1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            5,
+            3
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "b2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            7,
+            5
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "m1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            1
+          ],
+          "tone": "accent",
+          "hollow": true
+        },
+        {
+          "id": "lm1",
+          "kind": "text",
+          "x": 98,
+          "y": 226,
+          "text": "μ1",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "accent",
+          "bold": true
+        },
+        {
+          "id": "m2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            6,
+            4
+          ],
+          "tone": "mid",
+          "label": "μ2",
+          "hollow": true
+        },
+        {
+          "id": "xq",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            3
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "lx",
+          "kind": "text",
+          "x": 132,
+          "y": 160,
+          "text": "x",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "cs",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              2,
+              1
+            ],
+            [
+              6,
+              4
+            ]
+          ],
+          "tone": "muted",
+          "dash": true
+        },
+        {
+          "id": "mp",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            2.5
+          ],
+          "hollow": true
+        },
+        {
+          "id": "bd",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              1.45,
+              5.9
+            ],
+            [
+              5.875,
+              0
+            ]
+          ],
+          "tone": "bad"
+        },
+        {
+          "id": "tm",
+          "kind": "text",
+          "x": 180,
+          "y": 276,
+          "text": "μ1 = (2, 1)      μ2 = (6, 4)",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "td",
+          "kind": "text",
+          "x": 180,
+          "y": 298,
+          "text": "d² to μ1 = 5,   d² to μ2 = 10:   class 1",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "good",
+          "bold": true
+        },
+        {
+          "id": "tf",
+          "kind": "text",
+          "x": 180,
+          "y": 320,
+          "text": "f(x) = 8 x1 + 6 x2 − 47;   f(3, 3) = −5",
+          "size": 13,
+          "anchor": "middle",
+          "tone": "bad",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Two classes. Class 1 (orange): (1, 1) and (3, 1). Class 2 (pink): (5, 3) and (7, 5).",
+          "highlight": [
+            {
+              "id": "a1",
+              "tone": "accent"
+            },
+            {
+              "id": "a2",
+              "tone": "accent"
+            },
+            {
+              "id": "b1",
+              "tone": "mid"
+            },
+            {
+              "id": "b2",
+              "tone": "mid"
+            }
+          ]
+        },
+        {
+          "caption": "Each class is summarised by its mean. μ1 = ((1+3)/2, (1+1)/2) = (2, 1). μ2 = ((5+7)/2, (3+5)/2) = (6, 4).",
+          "show": [
+            "m1",
+            "lm1",
+            "m2",
+            "tm"
+          ],
+          "highlight": [
+            {
+              "id": "m1",
+              "tone": "accent"
+            },
+            {
+              "id": "m2",
+              "tone": "mid"
+            }
+          ]
+        },
+        {
+          "caption": "Query x = (3, 3). Squared distance to μ1: 1² + 2² = 5. To μ2: 3² + 1² = 10. Nearer to μ1, so class 1.",
+          "show": [
+            "xq",
+            "lx",
+            "td"
+          ],
+          "highlight": [
+            {
+              "id": "xq",
+              "tone": "good"
+            },
+            {
+              "id": "td",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "The boundary is the perpendicular bisector of the segment from μ1 to μ2. It passes through the midpoint (4, 2.5) at right angles.",
+          "show": [
+            "cs",
+            "mp",
+            "bd"
+          ],
+          "draw": [
+            "cs",
+            "bd"
+          ],
+          "highlight": [
+            {
+              "id": "bd",
+              "tone": "bad"
+            },
+            {
+              "id": "cs",
+              "tone": "muted"
+            }
+          ]
+        },
+        {
+          "caption": "In formula form the squares cancel: f(x) = 8 x1 + 6 x2 − 47. It is linear. f(3, 3) = 24 + 18 − 47 = −5, which is negative, so class 1.",
+          "show": "tf",
+          "highlight": [
+            {
+              "id": "tf",
+              "tone": "bad"
+            },
+            {
+              "id": "bd",
+              "tone": "bad"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3056 @@
+{
+ "topic_id": "os.sync",
+ "title": "Synchronization and semaphores",
+ "chapter_note": {
+  "about": "Synchronisation questions ask what can go wrong when threads share data, and how to prevent it. This chapter starts with the race condition and the three requirements a lock must meet. It then covers software locks (Peterson) and hardware locks (TestAndSet), and moves on to semaphores: their arithmetic, ordering threads, and the producer-consumer and readers-writers patterns. The last card is the method behind the most common question type: listing every interleaving to find the possible values and outputs.",
+  "simple": "When two people write in the same notebook at the same time, one can overwrite the other without noticing, because each copied what the page said a moment ago. A lock is a rule that lets only one person write at a time. But a lock must be fair, it must not stop people who are not even trying to write, and it must not make everyone wait for ever. A semaphore is a counter of permits that also makes a person wait politely until another person has finished a step. Many exam questions ask what the notebook could say at the end if the two people's steps get mixed up in every possible way. In exam words: race condition, critical section, Peterson, TestAndSet, semaphore, producer-consumer, readers-writers, interleavings.",
+  "concept_map": [
+   {
+    "atom_id": "s1",
+    "title": "Race conditions and atomicity",
+    "one_line": "A shared update is load, compute, store; interleaving can lose an update."
+   },
+   {
+    "atom_id": "s2",
+    "title": "Critical-section requirements",
+    "one_line": "Mutual exclusion, progress and bounded waiting, with no assumption about speeds."
+   },
+   {
+    "atom_id": "s3",
+    "title": "Software solutions: turn, flags, Peterson",
+    "one_line": "Turn alone breaks progress; flags alone can deadlock; Peterson uses both."
+   },
+   {
+    "atom_id": "s4",
+    "title": "Hardware atomics and spin locks",
+    "one_line": "TestAndSet gives mutual exclusion by busy waiting, without bounded waiting."
+   },
+   {
+    "atom_id": "s5",
+    "title": "Semaphores: wait, signal, values",
+    "one_line": "Value = initial - waits + signals; a negative value counts blocked processes."
+   },
+   {
+    "atom_id": "s6",
+    "title": "Ordering with semaphores",
+    "one_line": "A semaphore at 0 makes one thread wait for another."
+   },
+   {
+    "atom_id": "s7",
+    "title": "Producer-consumer",
+    "one_line": "empty = N, full = 0, mutex = 1; wait the counting semaphore before the mutex."
+   },
+   {
+    "atom_id": "s8",
+    "title": "Readers-writers",
+    "one_line": "Readers share; the first locks wrt and the last unlocks it; readcount needs a mutex."
+   },
+   {
+    "atom_id": "s9",
+    "title": "Possible values and outputs",
+    "one_line": "Enumerate the legal interleavings and collect the distinct results."
+   }
+  ],
+  "gate_patterns": [
+   "Possible values and outputs: split updates into load, compute and store, then list the interleavings (2019 CS Q33, 2024 CS1 Q40, 2024 CS2 Q46, 2026 CS2 Q51, 2021 CS1 Q56, 2023 CS Q38).",
+   "Semaphores: find initial values or code that fixes a print order, work out semaphore values, and spot the wrong order of waits in producer-consumer (2020 CS Q44, 2022 CS Q19, 2018 CS Q50, 2014 CS2 Q31, 2008 CS Q63).",
+   "Critical-section protocols: test turn, flag, Peterson and TestAndSet variants against mutual exclusion, progress and bounded waiting (2001 CS Q22, 2007 CS Q58, 2010 CS Q23, 2012 CS Q32, 2015 CS3 Q10, 2016 CS1 Q50). Weightage: about 1.3 marks per CS paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "s1",
+   "title": "Race conditions and atomicity",
+   "simple": "Two cooks share one recipe card that says 'salt: 10 grams'. Cook 1 reads it, then adds 5 grams in their head and plans to write '15'. Cook 2 has also just read '10' and plans to double it and write '20'. Cook 1 writes 15. Then cook 2 writes 20, and cook 1's change has vanished. The final card depends on who wrote last, and that depends on timing. Reading, working out and writing are three separate steps, and another cook can slip in between them. In exam words: a race condition is a result that depends on how threads interleave. An update such as x = x + 5 is load, compute, store, and is not atomic.",
+   "idea": "A **race condition** happens when threads touch shared data and the result depends on how their steps interleave. The cause is that a simple statement like x = x + 5 is really three steps: **load**, **compute**, **store**. If another thread runs between them, its update can be overwritten and lost.",
+   "definition": "An operation is **atomic** if it appears to happen all at once, with no other thread's steps inside it. x = x + c is not atomic: load x into a register, add c, store the register back.\n\nTo find the possible final values: keep each thread's own order of steps, then try every legal way of interleaving the steps of different threads. A lost update means one thread's store overwrites another's with a value computed from older data.",
+   "intuition_full": "The processor performs one small step at a time, and the scheduler can switch threads between any two steps. A thread that has loaded a value is holding a private copy. If the shared variable changes while it holds the copy, the copy is stale, but the thread does not know. When it stores its result, it overwrites the newer value. That is a lost update, and it cannot happen if the three steps are made indivisible with a lock or an atomic instruction. For reasoning, the clean model is to split every non-atomic statement into its steps, then list the schedules. The set of outcomes is the set of results over all schedules. Only schedules that respect each thread's program order are legal. Notice that a lost update only loses writes, it never invents a value that no thread computed. So the final value is always one that some thread's store produced.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "x = 10. T1 runs x = x + 5 and T2 runs x = x * 2. Each statement is load, compute, store. Follow the schedule that interleaves them as in the scene, and list every possible final value.",
+     "steps": [
+      "T1 loads x into its register: r1 = 10.",
+      "Before T1 stores anything, T2 loads x too: r2 = 10. Both now hold the old value.",
+      "T1 adds 5 in its register: r1 = 15.",
+      "T1 stores: x = 15.",
+      "T2 multiplies its stale copy: r2 = 10 $\\times$ 2 = 20. T2 never saw T1's 15.",
+      "T2 stores: x = 20. T1's update has been lost. Running the threads one after the other would give 25 or 30, never 20."
+     ],
+     "answer": "This schedule gives 20. Over all schedules the final value can be 15, 20, 25 or 30."
+    },
+    {
+     "level": "gate",
+     "setup": "c = 100. Three threads run c = c + 20, c = c - 30 and c = c + 10, each as a non-atomic load, compute, store. Let Y and X be the largest and smallest possible final values. Find Y - X.",
+     "steps": [
+      "A final value is 100 plus the changes of a chain of threads that each read what the one before stored. Any thread whose store is overwritten is lost.",
+      "Largest: T1 and T3 chain with T2 lost. T1 loads 100; T2 runs fully (c = 70); T1 stores 120; T3 then loads 120 and stores 130. $Y=130$.",
+      "Smallest: T2 loads 100 first; T1 and T3 run fully (c = 130); T2 then stores 70. $X=70$.",
+      "$Y-X=60$."
+     ],
+     "answer": "60. All values from 70 to 130 in steps of 10 are possible."
+    },
+    {
+     "level": "twist",
+     "setup": "Two threads each run counter++ twice in a row, each ++ being load, add, store, with counter = 0 at the start. What are the smallest and largest final values?",
+     "steps": [
+      "With no interference, 4 increments give 4. That is the largest value.",
+      "Each thread's last increment loads a value that is at least 1, because that thread already stored once before. Its final store is then at least 2.",
+      "A schedule reaching 2: T1 loads 0; T2 does both of its increments (counter = 2) and finally T2 is done; T1 stores 1; T1's second increment loads 1 and stores 2.",
+      "So the value 1 is not reachable, and the smallest is 2. Values 2, 3 and 4 are all possible."
+     ],
+     "answer": "Smallest 2, largest 4. The commonly guessed 1 is not reachable when each thread increments twice."
+    }
+   ],
+   "why": "Races are the root of every synchronisation problem. In GATE: list the possible final values or outputs of threads, usually by splitting each statement into load, compute and store.",
+   "how": [
+    "Split every shared update into load, compute, store.",
+    "Keep each thread's steps in order. Interleave in all legal ways, or reason about which stores survive.",
+    "A final value is produced by some thread's last store, based on what that thread loaded.",
+    "For min and max, look for the schedule that loses the most or the fewest updates."
+   ],
+   "mistake": "Treating x = x + 1 as one atomic step. It is three steps, and another thread can slip in between. Then the answer is not just the sum of all updates.",
+   "edge_cases": [
+    "If the statement is declared atomic in the problem, treat it as one step.",
+    "Local variables are private and cause no race. Only shared data does.",
+    "A single read-only shared variable causes no race."
+   ],
+   "connections": [
+    "Locks and semaphores (cards s4, s5) make the three steps indivisible.",
+    "Card s9 enumerates interleavings systematically."
+   ],
+   "check": [
+    {
+     "q": "Why is x = x + 1 not atomic?",
+     "a": "It compiles to load, add, store, and another thread can run between those steps."
+    },
+    {
+     "q": "Two threads run counter++ once each from 0. What values are possible?",
+     "a": "1 and 2."
+    },
+    {
+     "q": "Do local variables of different threads race?",
+     "a": "No. They are private."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q33, 2024 CS1 Q40, 2024 CS2 Q46, 2026 CS2 Q51, 2021 CS1 Q56, 2023 CS Q38, 2013 CS Q34, 2015 CS1 Q9, 2010 CS Q45",
+   "try": {
+    "id": "gen.sync.001",
+    "label": "Try: the race condition definition question (L1)"
+   },
+   "scene": "os.sync.s1",
+   "example": {
+    "setup": "x = 10. T1 runs x = x + 5 and T2 runs x = x * 2. Each statement is load, compute, store. Follow the schedule that interleaves them as in the scene, and list every possible final value.",
+    "steps": [
+     "T1 loads x into its register: r1 = 10.",
+     "Before T1 stores anything, T2 loads x too: r2 = 10. Both now hold the old value.",
+     "T1 adds 5 in its register: r1 = 15.",
+     "T1 stores: x = 15.",
+     "T2 multiplies its stale copy: r2 = 10 $\\times$ 2 = 20. T2 never saw T1's 15.",
+     "T2 stores: x = 20. T1's update has been lost. Running the threads one after the other would give 25 or 30, never 20."
+    ],
+    "answer": "This schedule gives 20. Over all schedules the final value can be 15, 20, 25 or 30."
+   },
+   "what": "A **race condition** happens when threads touch shared data and the result depends on how their steps interleave. The cause is that a simple statement like x = x + 5 is really three steps: **load**, **compute**, **store**. If another thread runs between them, its update can be overwritten and lost.",
+   "what_full": "A **race condition** happens when threads touch shared data and the result depends on how their steps interleave. The cause is that a simple statement like x = x + 5 is really three steps: **load**, **compute**, **store**. If another thread runs between them, its update can be overwritten and lost.\n\nAn operation is **atomic** if it appears to happen all at once, with no other thread's steps inside it. x = x + c is not atomic: load x into a register, add c, store the register back.\n\nTo find the possible final values: keep each thread's own order of steps, then try every legal way of interleaving the steps of different threads. A lost update means one thread's store overwrites another's with a value computed from older data.\n\n**Worked example.** x = 10. T1 runs x = x + 5 and T2 runs x = x * 2. Each statement is load, compute, store. Follow the schedule that interleaves them as in the scene, and list every possible final value.\n\n1. T1 loads x into its register: r1 = 10.\n2. Before T1 stores anything, T2 loads x too: r2 = 10. Both now hold the old value.\n3. T1 adds 5 in its register: r1 = 15.\n4. T1 stores: x = 15.\n5. T2 multiplies its stale copy: r2 = 10 $\\times$ 2 = 20. T2 never saw T1's 15.\n6. T2 stores: x = 20. T1's update has been lost. Running the threads one after the other would give 25 or 30, never 20.\n\n**Answer:** This schedule gives 20. Over all schedules the final value can be 15, 20, 25 or 30.",
+   "why_full": "Races are the root of every synchronisation problem. In GATE: list the possible final values or outputs of threads, usually by splitting each statement into load, compute and store.\n\nAsked: 2019 CS Q33, 2024 CS1 Q40, 2024 CS2 Q46, 2026 CS2 Q51, 2021 CS1 Q56, 2023 CS Q38, 2013 CS Q34, 2015 CS1 Q9, 2010 CS Q45",
+   "trap": "Treating x = x + 1 as one atomic step. It is three steps, and another thread can slip in between. Then the answer is not just the sum of all updates."
+  },
+  {
+   "atom_id": "s2",
+   "title": "Critical-section requirements",
+   "simple": "A single toilet in a house with three rules. Rule one: only one person inside at a time (mutual exclusion). Rule two: if nobody is inside, someone who wants to go must be allowed in, and a person who is not interested cannot hold up the queue (progress). Rule three: nobody waits forever while others keep jumping the queue (bounded waiting). A lock that obeys only rule one, for example one that nobody can ever open, is useless. All three rules must hold, and nobody may assume anything about how fast people are. In exam words: mutual exclusion, progress and bounded waiting.",
+   "idea": "A **critical section** is code that touches shared data. A correct protocol for entering it must satisfy three requirements. **Mutual exclusion**: at most one process inside. **Progress**: if nobody is inside, the choice of who enters cannot be blocked by processes that are not trying. **Bounded waiting**: a process that wants in gets in after a bounded number of others. No assumption is made about speeds.",
+   "definition": "Mutual exclusion: never two processes in the critical section at once. Progress: only processes that want to enter take part in deciding who goes next, and the decision cannot be postponed forever. Bounded waiting: there is a limit on how many times others enter after a process has asked and before it enters.\n\nThe processes may run at any relative speed, and a process may stop in its remainder section forever. A solution must work for every interleaving.",
+   "intuition_full": "Mutual exclusion alone is easy to satisfy badly. Never let anyone in and nobody is ever inside twice. Progress rules out protocols where one process can hold up another by doing nothing: strict alternation is the example. Bounded waiting rules out starvation: a process that keeps losing the race. The requirements are independent. A protocol can satisfy any two and fail the third. To check a protocol, take each requirement and try to build one bad schedule. For mutual exclusion, find an interleaving with two processes inside. For progress, find a state where the critical section is empty, someone wants in, and nothing can ever let them in. For bounded waiting, find a schedule in which one process is overtaken again and again. A single small interleaving is enough to show a failure, and a proof needs every schedule.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Two processes use a shared variable turn (initially 0). P0 runs: while (turn != 0); CS; turn = 1; and P1 runs: while (turn != 1); CS; turn = 0. P1 is stuck in its remainder section for a very long time. Which requirement fails for P0?",
+     "steps": [
+      "turn = 0, so P0 may enter. Its test while (turn != 0) is false at once, and P0 enters the critical section.",
+      "P0 leaves the critical section and hands over the turn: turn = 1.",
+      "P0 wants to enter again. Its test while (turn != 0) is now true, so it spins, although the critical section is empty.",
+      "P1 is in its remainder section, doing something unrelated. It will not set turn = 0 until it has used the critical section itself.",
+      "P0 is held up by a process that does not even want to enter. That breaks progress. Mutual exclusion still holds, because only the process whose turn it is can enter."
+     ],
+     "answer": "Progress fails. Mutual exclusion holds."
+    },
+    {
+     "level": "gate",
+     "setup": "Each process Pi (i = 0, 1; j is the other one) runs: flag[i] = true; while (flag[j]); CS; flag[i] = false;. Both flags start false. Which requirements hold?",
+     "steps": [
+      "Mutual exclusion: Pi enters only when flag[j] is false. If both were inside, each would have seen the other's flag false, but each sets its own flag first. Checking all interleavings finds no state with both inside. It holds.",
+      "Progress: if both set their flags before either tests, both see flag[j] true and spin forever with the critical section empty. That is a deadlock, so progress fails.",
+      "Bounded waiting: in that deadlock a process waits forever, so it fails too."
+     ],
+     "answer": "Only mutual exclusion holds. Progress and bounded waiting fail because both processes can wait for each other forever."
+    },
+    {
+     "level": "twist",
+     "setup": "A protocol has no lock at all: the processes just enter the critical section. Which of the three requirements hold?",
+     "steps": [
+      "Progress: nobody is ever blocked, so it holds.",
+      "Bounded waiting: nobody waits at all, so it holds.",
+      "Mutual exclusion: two processes can be inside together, so it fails."
+     ],
+     "answer": "Progress and bounded waiting hold, mutual exclusion fails. This shows that each requirement must be checked separately."
+    }
+   ],
+   "why": "These three requirements are the yardstick for every lock in the chapter. In GATE: say which requirement a given protocol violates, or which ones it satisfies.",
+   "how": [
+    "Write the three requirements down.",
+    "For each, try to build a small interleaving that breaks it.",
+    "Mutual exclusion: two inside. Progress: empty section, someone wants in, nobody can enter. Bounded waiting: one process overtaken without limit.",
+    "A protocol is correct only if all three hold for every interleaving."
+   ],
+   "mistake": "Believing that mutual exclusion alone makes a protocol correct. Progress and bounded waiting must hold too, and no assumption about relative speeds is allowed.",
+   "edge_cases": [
+    "A deadlock where both wait forever violates progress and bounded waiting.",
+    "Starvation (one process always loses) violates bounded waiting only.",
+    "The remainder section may last forever for one process; the protocol must still work for the other."
+   ],
+   "connections": [
+    "Card s3 gives the software solutions that satisfy all three.",
+    "Card s4 shows hardware locks and where bounded waiting is lost."
+   ],
+   "check": [
+    {
+     "q": "Which requirement says a process that is not trying to enter cannot block others?",
+     "a": "Progress."
+    },
+    {
+     "q": "A lock never lets anyone in. Which requirement holds trivially?",
+     "a": "Mutual exclusion."
+    },
+    {
+     "q": "One process is overtaken by others again and again. Which requirement fails?",
+     "a": "Bounded waiting."
+    }
+   ],
+   "asked": "Asked: 2001 CS Q2_22, 2007 CS Q58, 2010 CS Q23, 2012 CS Q32, 2015 CS3 Q10, 2016 CS1 Q50, 2016 CS2 Q48, 2006 CS Q61",
+   "try": {
+    "id": "gen.sync.002",
+    "label": "Try: the critical-section progress requirement question (L1)"
+   },
+   "scene": "os.sync.s2",
+   "example": {
+    "setup": "Two processes use a shared variable turn (initially 0). P0 runs: while (turn != 0); CS; turn = 1; and P1 runs: while (turn != 1); CS; turn = 0. P1 is stuck in its remainder section for a very long time. Which requirement fails for P0?",
+    "steps": [
+     "turn = 0, so P0 may enter. Its test while (turn != 0) is false at once, and P0 enters the critical section.",
+     "P0 leaves the critical section and hands over the turn: turn = 1.",
+     "P0 wants to enter again. Its test while (turn != 0) is now true, so it spins, although the critical section is empty.",
+     "P1 is in its remainder section, doing something unrelated. It will not set turn = 0 until it has used the critical section itself.",
+     "P0 is held up by a process that does not even want to enter. That breaks progress. Mutual exclusion still holds, because only the process whose turn it is can enter."
+    ],
+    "answer": "Progress fails. Mutual exclusion holds."
+   },
+   "what": "A **critical section** is code that touches shared data. A correct protocol for entering it must satisfy three requirements. **Mutual exclusion**: at most one process inside. **Progress**: if nobody is inside, the choice of who enters cannot be blocked by processes that are not trying. **Bounded waiting**: a process that wants in gets in after a bounded number of others. No assumption is made about speeds.",
+   "what_full": "A **critical section** is code that touches shared data. A correct protocol for entering it must satisfy three requirements. **Mutual exclusion**: at most one process inside. **Progress**: if nobody is inside, the choice of who enters cannot be blocked by processes that are not trying. **Bounded waiting**: a process that wants in gets in after a bounded number of others. No assumption is made about speeds.\n\nMutual exclusion: never two processes in the critical section at once. Progress: only processes that want to enter take part in deciding who goes next, and the decision cannot be postponed forever. Bounded waiting: there is a limit on how many times others enter after a process has asked and before it enters.\n\nThe processes may run at any relative speed, and a process may stop in its remainder section forever. A solution must work for every interleaving.\n\n**Worked example.** Two processes use a shared variable turn (initially 0). P0 runs: while (turn != 0); CS; turn = 1; and P1 runs: while (turn != 1); CS; turn = 0. P1 is stuck in its remainder section for a very long time. Which requirement fails for P0?\n\n1. turn = 0, so P0 may enter. Its test while (turn != 0) is false at once, and P0 enters the critical section.\n2. P0 leaves the critical section and hands over the turn: turn = 1.\n3. P0 wants to enter again. Its test while (turn != 0) is now true, so it spins, although the critical section is empty.\n4. P1 is in its remainder section, doing something unrelated. It will not set turn = 0 until it has used the critical section itself.\n5. P0 is held up by a process that does not even want to enter. That breaks progress. Mutual exclusion still holds, because only the process whose turn it is can enter.\n\n**Answer:** Progress fails. Mutual exclusion holds.",
+   "why_full": "These three requirements are the yardstick for every lock in the chapter. In GATE: say which requirement a given protocol violates, or which ones it satisfies.\n\nAsked: 2001 CS Q2_22, 2007 CS Q58, 2010 CS Q23, 2012 CS Q32, 2015 CS3 Q10, 2016 CS1 Q50, 2016 CS2 Q48, 2006 CS Q61",
+   "trap": "Believing that mutual exclusion alone makes a protocol correct. Progress and bounded waiting must hold too, and no assumption about relative speeds is allowed."
+  },
+  {
+   "atom_id": "s3",
+   "title": "Software solutions: turn, flags, Peterson",
+   "simple": "Two people want to walk through a narrow door. Each puts up a flag saying 'I want to go'. Then each, being polite, says 'after you', and writes the other person's name on a board. Both flags are up, so the person whose name stayed on the board last has to wait: the board shows the one who was polite last, and that person lets the other through. If only one person wants to go, the other's flag is down, so they walk straight through. In exam words: Peterson's algorithm uses flag[i] to show interest and a shared turn to break ties. It satisfies mutual exclusion, progress and bounded waiting.",
+   "idea": "Two software ideas fail alone. A single **turn** variable forces strict alternation and breaks progress. Two **flags** alone can leave both processes waiting forever. **Peterson's algorithm** combines them: set my flag, give the turn to the other, and wait only while the other wants in and it is the other's turn.",
+   "definition": "Process $i$ (other process $j$): flag[i] = true; turn = j; while (flag[j] && turn == j); critical section; flag[i] = false;\n\nInitially both flags are false. The write to turn that happens last decides the tie. It satisfies mutual exclusion, progress and bounded waiting for two processes.",
+   "intuition_full": "The flag says who is interested. If the other flag is down, the process enters at once, which gives progress: it is not blocked by an uninterested process. The turn variable is for the tie, when both flags are up. Each process writes turn = j, giving priority to the other one. The write that comes later overwrites the earlier one, so after both writes turn names the process that wrote first. That process has priority and goes in, and the one that wrote last waits. This makes the tie-break fair and unique. Mutual exclusion holds because both processes cannot see the test false together: for P0 to pass, flag[1] must be false or turn must be 0, and for P1 to pass, flag[0] must be false or turn must be 1. With both flags up, turn can only be one value. Bounded waiting holds because after a process leaves and wants back in, it sets turn to give priority to the other waiting process, so the waiting process enters before it.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Peterson's algorithm for two processes. Both flags start false. Trace this schedule: P0 sets flag[0]; P1 sets flag[1]; P0 sets turn = 1; P1 sets turn = 0; then both test. Who enters?",
+     "steps": [
+      "P0 raises its flag: flag[0] = 1. It says: I want to enter.",
+      "P1 raises its flag too: flag[1] = 1. Both want in.",
+      "P0 politely gives the turn to P1: turn = 1.",
+      "P1 also gives the turn away: turn = 0. This write comes last and decides the tie.",
+      "P0 tests flag[1] && turn == 1. turn is 0, so the test is false and P0 enters the critical section.",
+      "P1 tests flag[0] && turn == 0. Both parts are true, so P1 waits. Only one process is inside.",
+      "P0 leaves and sets flag[0] = 0. Now P1's test is false and it enters. Each process got its turn."
+     ],
+     "answer": "P0 enters first (the process whose turn write came first), and P1 enters after P0 leaves."
+    },
+    {
+     "level": "gate",
+     "setup": "In Peterson's algorithm, process i mistakenly writes turn = i instead of turn = j (the rest is unchanged: wait while flag[j] && turn == j). Is mutual exclusion still guaranteed?",
+     "steps": [
+      "P0 sets flag[0] = 1 and turn = 0. P0 tests flag[1] && turn == 1: flag[1] is false, so P0 enters.",
+      "Now P1 sets flag[1] = 1 and turn = 1. P1 tests flag[0] && turn == 0. turn is 1, so the test is false and P1 enters too.",
+      "Both processes are inside together. An exhaustive check of all interleavings confirms that this state is reachable."
+     ],
+     "answer": "No. Giving the turn to yourself lets the later arrival walk straight in."
+    },
+    {
+     "level": "twist",
+     "setup": "P0 has set flag[0] and turn and is waiting. P1 runs its loop and tries to enter again and again. How many times can P1 enter before P0 gets in?",
+     "steps": [
+      "P1 enters once: its test passed because the turn was in its favour or P0's flag was not yet up.",
+      "When P1 leaves and wants back in, it sets turn = 0, giving priority to P0.",
+      "So P0's test is false when it next runs, and P0 enters. An exhaustive search of all interleavings shows that P1 enters at most once while P0 waits."
+     ],
+     "answer": "At most once. This is bounded waiting: P0 waits for at most one turn of P1."
+    }
+   ],
+   "why": "Peterson's algorithm is the standard correct software lock. In GATE: complete or fix the algorithm, or test a variant of it for mutual exclusion, progress and bounded waiting.",
+   "how": [
+    "Write the entry code: set my flag, set turn to the other, wait while the other's flag is up and turn is the other's.",
+    "For a variant, try a small interleaving with both flags up.",
+    "Check mutual exclusion first (two inside?), then progress (deadlock?), then bounded waiting.",
+    "A single write in the wrong place (turn = i, or turn before flag) breaks it."
+   ],
+   "mistake": "Thinking a flag-only protocol is enough, or that a protocol with mutual exclusion is automatically correct. Flags alone can deadlock, and a turn variable alone forces strict alternation.",
+   "edge_cases": [
+    "Peterson's algorithm is for two processes; for more, other algorithms (bakery) are needed.",
+    "On modern CPUs with reordered memory accesses, Peterson needs memory barriers.",
+    "The waiting loop is busy waiting: it burns CPU."
+   ],
+   "connections": [
+    "Builds on the requirements in card s2.",
+    "Hardware atomics (card s4) give simpler locks."
+   ],
+   "check": [
+    {
+     "q": "What does the flag of a process say in Peterson's algorithm?",
+     "a": "That the process wants to enter."
+    },
+    {
+     "q": "Both flags are up and turn = 1. Which process enters?",
+     "a": "P1. P1 waits only while flag[0] && turn == 0, and turn is 1, so its test is false. P0 waits while flag[1] && turn == 1, which is true."
+    },
+    {
+     "q": "What is the role of turn?",
+     "a": "To break the tie when both want to enter."
+    }
+   ],
+   "asked": "Asked: 2001 CS Q2_22, 2007 CS Q58, 2010 CS Q23, 2012 CS Q32, 2015 CS3 Q10, 2016 CS1 Q50, 2016 CS2 Q48, 2006 CS Q61",
+   "try": {
+    "id": "gen.sync.009",
+    "label": "Try: the strict alternation turn variable question (L2)"
+   },
+   "scene": "os.sync.s3",
+   "example": {
+    "setup": "Peterson's algorithm for two processes. Both flags start false. Trace this schedule: P0 sets flag[0]; P1 sets flag[1]; P0 sets turn = 1; P1 sets turn = 0; then both test. Who enters?",
+    "steps": [
+     "P0 raises its flag: flag[0] = 1. It says: I want to enter.",
+     "P1 raises its flag too: flag[1] = 1. Both want in.",
+     "P0 politely gives the turn to P1: turn = 1.",
+     "P1 also gives the turn away: turn = 0. This write comes last and decides the tie.",
+     "P0 tests flag[1] && turn == 1. turn is 0, so the test is false and P0 enters the critical section.",
+     "P1 tests flag[0] && turn == 0. Both parts are true, so P1 waits. Only one process is inside.",
+     "P0 leaves and sets flag[0] = 0. Now P1's test is false and it enters. Each process got its turn."
+    ],
+    "answer": "P0 enters first (the process whose turn write came first), and P1 enters after P0 leaves."
+   },
+   "what": "Two software ideas fail alone. A single **turn** variable forces strict alternation and breaks progress. Two **flags** alone can leave both processes waiting forever. **Peterson's algorithm** combines them: set my flag, give the turn to the other, and wait only while the other wants in and it is the other's turn.",
+   "what_full": "Two software ideas fail alone. A single **turn** variable forces strict alternation and breaks progress. Two **flags** alone can leave both processes waiting forever. **Peterson's algorithm** combines them: set my flag, give the turn to the other, and wait only while the other wants in and it is the other's turn.\n\nProcess $i$ (other process $j$): flag[i] = true; turn = j; while (flag[j] && turn == j); critical section; flag[i] = false;\n\nInitially both flags are false. The write to turn that happens last decides the tie. It satisfies mutual exclusion, progress and bounded waiting for two processes.\n\n**Worked example.** Peterson's algorithm for two processes. Both flags start false. Trace this schedule: P0 sets flag[0]; P1 sets flag[1]; P0 sets turn = 1; P1 sets turn = 0; then both test. Who enters?\n\n1. P0 raises its flag: flag[0] = 1. It says: I want to enter.\n2. P1 raises its flag too: flag[1] = 1. Both want in.\n3. P0 politely gives the turn to P1: turn = 1.\n4. P1 also gives the turn away: turn = 0. This write comes last and decides the tie.\n5. P0 tests flag[1] && turn == 1. turn is 0, so the test is false and P0 enters the critical section.\n6. P1 tests flag[0] && turn == 0. Both parts are true, so P1 waits. Only one process is inside.\n7. P0 leaves and sets flag[0] = 0. Now P1's test is false and it enters. Each process got its turn.\n\n**Answer:** P0 enters first (the process whose turn write came first), and P1 enters after P0 leaves.",
+   "why_full": "Peterson's algorithm is the standard correct software lock. In GATE: complete or fix the algorithm, or test a variant of it for mutual exclusion, progress and bounded waiting.\n\nAsked: 2001 CS Q2_22, 2007 CS Q58, 2010 CS Q23, 2012 CS Q32, 2015 CS3 Q10, 2016 CS1 Q50, 2016 CS2 Q48, 2006 CS Q61",
+   "trap": "Thinking a flag-only protocol is enough, or that a protocol with mutual exclusion is automatically correct. Flags alone can deadlock, and a turn variable alone forces strict alternation."
+  },
+  {
+   "atom_id": "s4",
+   "title": "Hardware atomics and spin locks",
+   "simple": "Picture a single key hanging on a hook. To get it you must grab it and see in one motion whether it was there. If you grab it and find the hook was empty, someone else already has the key, so you stand there and keep trying. If your grab found the key, you have it. Because grabbing and checking happen in one motion, two people can never both think they got the key. But the people waiting just stand and stare at the hook, and nobody decides who is next: whoever grabs first wins. In exam words: TestAndSet reads the old value and sets the lock in one atomic step. It gives mutual exclusion with busy waiting, but not bounded waiting.",
+   "idea": "A **hardware atomic instruction** does a read and a write as one indivisible step. **TestAndSet(&lock)** returns the old value of lock and sets it to 1. A process that gets 0 holds the lock. A process that gets 1 **spins**, trying again. This gives mutual exclusion, but the waiters burn CPU and nothing orders them, so **bounded waiting is not guaranteed**.",
+   "definition": "TestAndSet(&lock): returns old lock; sets lock = 1; all in one atomic step. Spin lock: while (TestAndSet(&lock)); CS; lock = 0;\n\nSwap and fetch-and-add are atomic in the same way. A ticket lock built from fetch-and-add serves waiters in order and so gives bounded waiting.",
+   "intuition_full": "The problem with a software lock is that testing the lock and setting it are two steps, and another process can slip in between. An atomic instruction closes the gap: only one process can see the old value 0, because the instruction both reads it and writes 1 before any other process can read. That gives mutual exclusion on a single memory word with almost no code. It also works for any number of processes, unlike Peterson. The cost is spinning: a waiting process uses the CPU while it waits, which is acceptable only for very short critical sections on multiprocessors. Fairness is a separate problem. When the lock is released, whichever waiter executes TestAndSet first wins, and that can be the same process again and again. To fix it, fetch-and-add can hand out numbered tickets, and each process waits until its number is served, which is first come, first served.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A spin lock uses TestAndSet. lock = 0 at the start. P1, P2 and P3 all want the critical section. Trace how P1 gets the lock, how P2 and P3 behave, and who gets it after P1 leaves.",
+     "steps": [
+      "lock = 0 means free. P1 runs TestAndSet(&lock). It returns the old value, 0, and sets lock = 1 in one indivisible step. The 0 means P1 got the lock.",
+      "P1 is in the critical section. P2 runs TestAndSet: the old value is 1, so P2 did not get the lock. It loops and tries again.",
+      "P3 also spins on TestAndSet and gets 1 every time. P2 and P3 both burn CPU time while they wait.",
+      "P1 finishes and sets lock = 0.",
+      "Whoever runs TestAndSet first now wins. P3 happens to get there before P2: it sees 0, sets lock = 1 and enters.",
+      "P2 keeps spinning. Nothing in the code orders the waiters, so P2 could lose again and again. Mutual exclusion holds, but bounded waiting does not."
+     ],
+     "answer": "P1 enters first and P3 second. Mutual exclusion holds and the waiters spin, but P2 can be overtaken without a bound."
+    },
+    {
+     "level": "gate",
+     "setup": "Which statements are true for the lock: while (TestAndSet(&lock)); CS; lock = 0; with several processes? (a) Mutual exclusion holds. (b) Bounded waiting holds. (c) Waiting processes consume CPU time. (d) It cannot work on a multiprocessor.",
+     "steps": [
+      "(a) Only one process can read 0, so only one enters: true.",
+      "(b) Nothing orders the waiters; a process can keep losing the race. In an exhaustive search where P1 tries three times, P1 can take the lock all three times before P3 gets it once, and more rounds would only make that longer: false.",
+      "(c) The waiters loop on TestAndSet, so they burn CPU: true.",
+      "(d) It works on multiprocessors, as long as the instruction is atomic across processors: false."
+     ],
+     "answer": "(a) and (c) are true. (b) and (d) are false."
+    },
+    {
+     "level": "twist",
+     "setup": "A ticket lock uses fetch-and-add. next_ticket and now_serving both start at 0. P1, P2 and P3 arrive in that order. Show who gets in and when.",
+     "steps": [
+      "Each arrival does ticket = fetch-and-add(&next_ticket), which atomically returns the old value and adds 1. P1 gets 0, P2 gets 1, P3 gets 2.",
+      "A process enters when now_serving equals its ticket. P1 enters at once.",
+      "When P1 leaves it does now_serving++, which lets P2 in, and P3 after P2."
+     ],
+     "answer": "P1, P2, P3 in arrival order. Each waits for at most the processes ahead of it, so bounded waiting is restored."
+    }
+   ],
+   "why": "Atomic instructions are how real locks are built. In GATE: say what TestAndSet does, which requirements a spin lock meets, and where it fails.",
+   "how": [
+    "TestAndSet returns the old value and sets the lock to 1 in one step.",
+    "Old value 0 means I hold the lock; old value 1 means spin.",
+    "Mutual exclusion: yes. Progress: yes. Bounded waiting: no.",
+    "A ticket lock (fetch-and-add) orders the waiters."
+   ],
+   "mistake": "Assuming the spin lock gives bounded waiting, or that atomic hardware solves all problems. It gives mutual exclusion, but any waiter can be overtaken again and again.",
+   "edge_cases": [
+    "A spin lock on a single CPU wastes the time slice if the holder is not running.",
+    "Swap can be used instead of TestAndSet in the same way.",
+    "The holder must release with lock = 0."
+   ],
+   "connections": [
+    "Semaphores (card s5) avoid busy waiting by blocking the process.",
+    "Card s2 lists the requirements being checked."
+   ],
+   "check": [
+    {
+     "q": "What does TestAndSet return?",
+     "a": "The old value of the lock, after setting it to 1."
+    },
+    {
+     "q": "A process gets 1 from TestAndSet. Does it hold the lock?",
+     "a": "No. It must try again."
+    },
+    {
+     "q": "Which requirement can a TestAndSet spin lock violate?",
+     "a": "Bounded waiting."
+    }
+   ],
+   "asked": "Asked: 2001 CS Q2_22, 2007 CS Q58, 2010 CS Q23, 2012 CS Q32, 2015 CS3 Q10, 2016 CS1 Q50, 2016 CS2 Q48, 2006 CS Q61",
+   "try": {
+    "id": "gen.sync.004",
+    "label": "Try: the hardware atomics and spin locks question (L1)"
+   },
+   "scene": "os.sync.s4",
+   "example": {
+    "setup": "A spin lock uses TestAndSet. lock = 0 at the start. P1, P2 and P3 all want the critical section. Trace how P1 gets the lock, how P2 and P3 behave, and who gets it after P1 leaves.",
+    "steps": [
+     "lock = 0 means free. P1 runs TestAndSet(&lock). It returns the old value, 0, and sets lock = 1 in one indivisible step. The 0 means P1 got the lock.",
+     "P1 is in the critical section. P2 runs TestAndSet: the old value is 1, so P2 did not get the lock. It loops and tries again.",
+     "P3 also spins on TestAndSet and gets 1 every time. P2 and P3 both burn CPU time while they wait.",
+     "P1 finishes and sets lock = 0.",
+     "Whoever runs TestAndSet first now wins. P3 happens to get there before P2: it sees 0, sets lock = 1 and enters.",
+     "P2 keeps spinning. Nothing in the code orders the waiters, so P2 could lose again and again. Mutual exclusion holds, but bounded waiting does not."
+    ],
+    "answer": "P1 enters first and P3 second. Mutual exclusion holds and the waiters spin, but P2 can be overtaken without a bound."
+   },
+   "what": "A **hardware atomic instruction** does a read and a write as one indivisible step. **TestAndSet(&lock)** returns the old value of lock and sets it to 1. A process that gets 0 holds the lock. A process that gets 1 **spins**, trying again. This gives mutual exclusion, but the waiters burn CPU and nothing orders them, so **bounded waiting is not guaranteed**.",
+   "what_full": "A **hardware atomic instruction** does a read and a write as one indivisible step. **TestAndSet(&lock)** returns the old value of lock and sets it to 1. A process that gets 0 holds the lock. A process that gets 1 **spins**, trying again. This gives mutual exclusion, but the waiters burn CPU and nothing orders them, so **bounded waiting is not guaranteed**.\n\nTestAndSet(&lock): returns old lock; sets lock = 1; all in one atomic step. Spin lock: while (TestAndSet(&lock)); CS; lock = 0;\n\nSwap and fetch-and-add are atomic in the same way. A ticket lock built from fetch-and-add serves waiters in order and so gives bounded waiting.\n\n**Worked example.** A spin lock uses TestAndSet. lock = 0 at the start. P1, P2 and P3 all want the critical section. Trace how P1 gets the lock, how P2 and P3 behave, and who gets it after P1 leaves.\n\n1. lock = 0 means free. P1 runs TestAndSet(&lock). It returns the old value, 0, and sets lock = 1 in one indivisible step. The 0 means P1 got the lock.\n2. P1 is in the critical section. P2 runs TestAndSet: the old value is 1, so P2 did not get the lock. It loops and tries again.\n3. P3 also spins on TestAndSet and gets 1 every time. P2 and P3 both burn CPU time while they wait.\n4. P1 finishes and sets lock = 0.\n5. Whoever runs TestAndSet first now wins. P3 happens to get there before P2: it sees 0, sets lock = 1 and enters.\n6. P2 keeps spinning. Nothing in the code orders the waiters, so P2 could lose again and again. Mutual exclusion holds, but bounded waiting does not.\n\n**Answer:** P1 enters first and P3 second. Mutual exclusion holds and the waiters spin, but P2 can be overtaken without a bound.",
+   "why_full": "Atomic instructions are how real locks are built. In GATE: say what TestAndSet does, which requirements a spin lock meets, and where it fails.\n\nAsked: 2001 CS Q2_22, 2007 CS Q58, 2010 CS Q23, 2012 CS Q32, 2015 CS3 Q10, 2016 CS1 Q50, 2016 CS2 Q48, 2006 CS Q61",
+   "trap": "Assuming the spin lock gives bounded waiting, or that atomic hardware solves all problems. It gives mutual exclusion, but any waiter can be overtaken again and again."
+  },
+  {
+   "atom_id": "s5",
+   "title": "Semaphores: wait, signal, values",
+   "simple": "A car park has 2 free spaces and a counter at the gate. Each car that enters takes one space, and the counter goes down by one. When the counter hits zero the park is full. The next car joins a queue outside, and the counter keeps going down below zero to show how many cars are queuing. When a car leaves, the counter goes up, and the car at the front of the queue drives in. That counter is a semaphore. In exam words: wait (P) subtracts 1 and blocks the caller if the result is below 0. Signal (V) adds 1 and wakes one blocked process. Final value = initial value − waits + signals, and a negative value counts the blocked processes.",
+   "idea": "A **semaphore** is an integer with two atomic operations. **wait(S)** subtracts 1 and blocks the caller if the result is negative. **signal(S)** adds 1 and wakes one blocked process, if any. A **binary** semaphore starting at 1 works as a mutex. A **counting** semaphore starting at N allows N holders at once. A negative value says how many processes are blocked.",
+   "definition": "$\\text{wait}(S)$: $S \\leftarrow S-1$; if $S<0$, block the caller. $\\text{signal}(S)$: $S \\leftarrow S+1$; if $S\\le0$, wake one blocked process.\n\nFinal value $=S_{init}-(\\#\\text{waits})+(\\#\\text{signals})$. If it is negative, that many processes are blocked. A binary semaphore never goes above 1, so an extra signal on it is lost; a counting semaphore remembers every signal.",
+   "intuition_full": "A semaphore counts permits. The initial value is the number of processes allowed through at once. A wait takes a permit, and if none is left the process sleeps instead of spinning, which saves CPU. A signal gives a permit back or, if someone is sleeping, hands it directly to the sleeper. Because both operations are atomic, two processes can never both take the last permit. The arithmetic follows from the definition: every wait subtracts one, every signal adds one, and blocked processes show up as the negative part. The value does not depend on the order of the operations, only on the totals, provided blocked processes are counted as negative. That is why 'initial minus waits plus signals' always works. Remember that semaphores, unlike condition variables, remember a signal: if signal happens before wait, the next wait passes without blocking.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A counting semaphore S starts at 2. Processes A, B, C, D each call wait(S) in that order, then two signal(S) operations happen, then E calls wait(S). Follow S and the blocked queue.",
+     "steps": [
+      "S starts at 2: two permits. A calls wait(S). S becomes 1 and A passes.",
+      "B calls wait(S). S becomes 0 and B passes. No permits are left.",
+      "C calls wait(S). S becomes -1, which is below 0, so C blocks. A negative S counts the blocked processes: one.",
+      "D calls wait(S). S becomes -2 and D blocks too. Two processes are waiting.",
+      "Somebody calls signal(S). S becomes -1 and one blocked process, C, the oldest, is woken.",
+      "Another signal(S): S becomes 0 and D is woken. The queue is empty.",
+      "E calls wait(S). S becomes -1 and E blocks. Check: $2-5\\text{ waits}+2\\text{ signals}=-1$, so one process is blocked."
+     ],
+     "answer": "Final $S=-1$ and one process (E) is blocked."
+    },
+    {
+     "level": "gate",
+     "setup": "A semaphore S starts at 0. The operations signal, signal, wait, wait, wait run in that order. How many processes end up blocked if S is (a) a binary semaphore and (b) a counting semaphore?",
+     "steps": [
+      "(b) Counting: $0+1+1=2$, then three waits: $2-3=-1$. One process is blocked.",
+      "(a) Binary: the first signal makes S = 1. The second signal is lost, because a binary semaphore stays at 1. Now the first wait passes (S = 0), and the second and third waits block.",
+      "So two processes are blocked."
+     ],
+     "answer": "Binary: 2 blocked. Counting: 1 blocked. A binary semaphore loses the second signal."
+    },
+    {
+     "level": "twist",
+     "setup": "S starts at 0. Thread X runs signal(S). Thread Y runs wait(S). Y happens to start first and blocks, or X happens to run first. Does Y get through in both cases?",
+     "steps": [
+      "Y first: S becomes -1 and Y blocks. When X signals, S becomes 0 and Y wakes.",
+      "X first: S becomes 1. When Y later waits, S becomes 0 and Y passes immediately.",
+      "In both cases Y passes: the semaphore remembers the signal."
+     ],
+     "answer": "Yes, in both cases. A semaphore keeps a count of signals, so order does not lose them."
+    }
+   ],
+   "why": "Semaphores are the main synchronisation tool in GATE. In GATE: final value and blocked count for a mix of waits and signals, and the max or min blocked given the totals.",
+   "how": [
+    "Write the semaphore's initial value.",
+    "Final value $=$ initial $-$ waits $+$ signals. Negative means that many processes blocked.",
+    "For a binary semaphore, a signal at 1 is lost.",
+    "For 'largest initial value so that someone is blocked', use final $<0$."
+   ],
+   "mistake": "Treating a binary semaphore like a counting one when counting extra signals, or forgetting that a negative value counts blocked processes. A negative value is not an error.",
+   "edge_cases": [
+    "Some textbooks never let S go below 0 and keep a separate queue; the blocked count is then the queue length.",
+    "signal on a semaphore with no waiters just raises S.",
+    "A mutex semaphore must start at 1."
+   ],
+   "connections": [
+    "Ordering uses a semaphore starting at 0 (card s6).",
+    "Producer-consumer uses three semaphores (card s7)."
+   ],
+   "check": [
+    {
+     "q": "S = 5; 4 waits and 1 signal complete. Final S?",
+     "a": "$5-4+1=2$."
+    },
+    {
+     "q": "S = 2; six waits and one signal. How many are blocked?",
+     "a": "$2-6+1=-3$, so 3."
+    },
+    {
+     "q": "What initial value makes a binary semaphore a mutex?",
+     "a": "1."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q50, 2014 CS2 Q31, 2008 CS Q63, 2016 CS2 Q49",
+   "try": {
+    "id": "gen.sync.003",
+    "label": "Try: the semaphores: wait, signal, values question (L1)"
+   },
+   "scene": "os.sync.s5",
+   "example": {
+    "setup": "A counting semaphore S starts at 2. Processes A, B, C, D each call wait(S) in that order, then two signal(S) operations happen, then E calls wait(S). Follow S and the blocked queue.",
+    "steps": [
+     "S starts at 2: two permits. A calls wait(S). S becomes 1 and A passes.",
+     "B calls wait(S). S becomes 0 and B passes. No permits are left.",
+     "C calls wait(S). S becomes -1, which is below 0, so C blocks. A negative S counts the blocked processes: one.",
+     "D calls wait(S). S becomes -2 and D blocks too. Two processes are waiting.",
+     "Somebody calls signal(S). S becomes -1 and one blocked process, C, the oldest, is woken.",
+     "Another signal(S): S becomes 0 and D is woken. The queue is empty.",
+     "E calls wait(S). S becomes -1 and E blocks. Check: $2-5\\text{ waits}+2\\text{ signals}=-1$, so one process is blocked."
+    ],
+    "answer": "Final $S=-1$ and one process (E) is blocked."
+   },
+   "what": "A **semaphore** is an integer with two atomic operations. **wait(S)** subtracts 1 and blocks the caller if the result is negative. **signal(S)** adds 1 and wakes one blocked process, if any. A **binary** semaphore starting at 1 works as a mutex. A **counting** semaphore starting at N allows N holders at once. A negative value says how many processes are blocked.",
+   "what_full": "A **semaphore** is an integer with two atomic operations. **wait(S)** subtracts 1 and blocks the caller if the result is negative. **signal(S)** adds 1 and wakes one blocked process, if any. A **binary** semaphore starting at 1 works as a mutex. A **counting** semaphore starting at N allows N holders at once. A negative value says how many processes are blocked.\n\n$\\text{wait}(S)$: $S \\leftarrow S-1$; if $S<0$, block the caller. $\\text{signal}(S)$: $S \\leftarrow S+1$; if $S\\le0$, wake one blocked process.\n\nFinal value $=S_{init}-(\\#\\text{waits})+(\\#\\text{signals})$. If it is negative, that many processes are blocked. A binary semaphore never goes above 1, so an extra signal on it is lost; a counting semaphore remembers every signal.\n\n**Worked example.** A counting semaphore S starts at 2. Processes A, B, C, D each call wait(S) in that order, then two signal(S) operations happen, then E calls wait(S). Follow S and the blocked queue.\n\n1. S starts at 2: two permits. A calls wait(S). S becomes 1 and A passes.\n2. B calls wait(S). S becomes 0 and B passes. No permits are left.\n3. C calls wait(S). S becomes -1, which is below 0, so C blocks. A negative S counts the blocked processes: one.\n4. D calls wait(S). S becomes -2 and D blocks too. Two processes are waiting.\n5. Somebody calls signal(S). S becomes -1 and one blocked process, C, the oldest, is woken.\n6. Another signal(S): S becomes 0 and D is woken. The queue is empty.\n7. E calls wait(S). S becomes -1 and E blocks. Check: $2-5\\text{ waits}+2\\text{ signals}=-1$, so one process is blocked.\n\n**Answer:** Final $S=-1$ and one process (E) is blocked.",
+   "why_full": "Semaphores are the main synchronisation tool in GATE. In GATE: final value and blocked count for a mix of waits and signals, and the max or min blocked given the totals.\n\nAsked: 2018 CS Q50, 2014 CS2 Q31, 2008 CS Q63, 2016 CS2 Q49",
+   "trap": "Treating a binary semaphore like a counting one when counting extra signals, or forgetting that a negative value counts blocked processes. A negative value is not an error."
+  },
+  {
+   "atom_id": "s6",
+   "title": "Ordering with semaphores",
+   "simple": "A relay race. The second runner may not start until the first runner hands over the baton. Make a baton that does not exist at the start. The first runner, on finishing, puts the baton on the table. The second runner waits at the table until it appears. In this way the second always starts after the first, even if both turn up at the same time. For a team of four where two runners in the middle can go in either order but the last must wait for both, give the last runner two batons to collect. In exam words: a semaphore initialised to 0 makes one thread wait for another. The first signals after its statement and the second waits before its statement.",
+   "idea": "To force statement A to run before statement B in different threads, use a semaphore **initialised to 0**. The thread that runs A calls **signal** after it. The thread that runs B calls **wait** before it. B cannot pass until A has signalled. One semaphore per arrow in the ordering gives any order you need, including a join where one thread waits for several others.",
+   "definition": "Order $A \\to B$: semaphore $s=0$; thread 1: A; signal(s); thread 2: wait(s); B.\n\nA thread that must wait for $k$ others does $k$ waits (on one semaphore signalled $k$ times, or on several). A **barrier** for $n$ threads makes every thread wait until all $n$ have arrived, using a counter and a semaphore.",
+   "intuition_full": "A semaphore with value 0 is a gate that is shut. The wait stops at the gate. The signal opens it once. Since a semaphore remembers signals, it does not matter whether the signal comes before or after the wait. The wait passes in either case, and the effect is that B runs only after A has finished, which is what we want. To build a larger order, draw the ordering as arrows between statements. Each arrow becomes one semaphore, signalled by the tail's thread after its statement and waited on by the head's thread before its statement. Statements that have no path between them can run in either order, so the possible outputs are exactly the orderings that respect the arrows. A join, where D waits for both B and C, can be done by signalling a single semaphore twice and waiting on it twice. The initial value matters: if it were 1, the first wait would pass at once and the order would no longer be enforced.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Four threads share semaphores x, y, z, all initialised to 0. T1: print A; signal(x); signal(y). T2: wait(x); print B; signal(z). T3: wait(y); print C; signal(z). T4: wait(z); wait(z); print D. Which outputs are possible?",
+     "steps": [
+      "All semaphores start at 0, so any wait blocks. A has no wait, so it prints first.",
+      "A signals x and y: x = 1 and y = 1. Now B and C are both allowed to run.",
+      "B passes wait(x), making x = 0. It prints B and signals z: z = 1.",
+      "C passes wait(y), making y = 0. It prints C and signals z: z = 2.",
+      "D needs two waits on z: z goes 2, 1, 0. Then it prints D.",
+      "Output ABCD. B and C are not ordered with each other: if C had run first the output would be ACBD. Only A first and D last are forced."
+     ],
+     "answer": "ABCD and ACBD. An exhaustive check of all interleavings finds no other output and no deadlock."
+    },
+    {
+     "level": "gate",
+     "setup": "Semaphores p and q start at 0. T1: print A; signal(p). T2: wait(p); print B; signal(q). T3: print C. T4: wait(q); print D. How many different output strings are possible?",
+     "steps": [
+      "A must come before B (p), and B before D (q): A, B, D appear in that order.",
+      "C has no constraint, so it can be placed in any of the 4 positions among A, B, D.",
+      "The strings are CABD, ACBD, ABCD and ABDC."
+     ],
+     "answer": "4 output strings."
+    },
+    {
+     "level": "twist",
+     "setup": "Same threads, but p is initialised to 1 instead of 0. How does the set of outputs change?",
+     "steps": [
+      "T2's first wait(p) now passes at once, so B no longer waits for A.",
+      "Only B before D (through q) is still forced. A and C are free.",
+      "The orderings of A, B, C, D with B before D number $4!/2=12$, such as BACD."
+     ],
+     "answer": "12 outputs instead of 4. A wrong initial value destroys the ordering."
+    }
+   ],
+   "why": "Ordering with semaphores is a standard GATE puzzle. In GATE: pick the initial values or the code that gives a given output order, or count the outputs.",
+   "how": [
+    "Draw the required order as arrows between statements.",
+    "One semaphore per arrow, initialised to 0.",
+    "Tail's thread: signal after its statement. Head's thread: wait before its statement.",
+    "Possible outputs $=$ all orderings that respect the arrows."
+   ],
+   "mistake": "Giving an ordering semaphore the wrong initial value. For 'B after A' it must be 0. Another slip is to forget that statements without a path between them can appear in either order.",
+   "edge_cases": [
+    "For repeating output (ABCABC) in loops, one thread starts with its semaphore at 1 and the others at 0.",
+    "A semaphore signalled twice and waited twice joins two predecessors.",
+    "A barrier needs a counter protected by a mutex."
+   ],
+   "connections": [
+    "Uses semaphore arithmetic from card s5.",
+    "Card s9 counts outputs by brute force."
+   ],
+   "check": [
+    {
+     "q": "P1 runs S1; signal(x). P2 runs wait(x); S2. What initial value forces S1 before S2?",
+     "a": "0."
+    },
+    {
+     "q": "A thread must start only after two others finish. How many waits does it need?",
+     "a": "Two (on one semaphore signalled twice, or one on each)."
+    },
+    {
+     "q": "Threads print A; B; C with no semaphores. Is the order guaranteed?",
+     "a": "No. Only each thread's own order is guaranteed."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q44, 2022 CS Q19, 2003 CS Q80, 2003 CS Q81, 2006 CS Q78, 2006 CS Q79, 2013 CS Q39",
+   "try": {
+    "id": "gen.sync.013",
+    "label": "Try: the ordering with semaphores question (L2)"
+   },
+   "scene": "os.sync.s6",
+   "example": {
+    "setup": "Four threads share semaphores x, y, z, all initialised to 0. T1: print A; signal(x); signal(y). T2: wait(x); print B; signal(z). T3: wait(y); print C; signal(z). T4: wait(z); wait(z); print D. Which outputs are possible?",
+    "steps": [
+     "All semaphores start at 0, so any wait blocks. A has no wait, so it prints first.",
+     "A signals x and y: x = 1 and y = 1. Now B and C are both allowed to run.",
+     "B passes wait(x), making x = 0. It prints B and signals z: z = 1.",
+     "C passes wait(y), making y = 0. It prints C and signals z: z = 2.",
+     "D needs two waits on z: z goes 2, 1, 0. Then it prints D.",
+     "Output ABCD. B and C are not ordered with each other: if C had run first the output would be ACBD. Only A first and D last are forced."
+    ],
+    "answer": "ABCD and ACBD. An exhaustive check of all interleavings finds no other output and no deadlock."
+   },
+   "what": "To force statement A to run before statement B in different threads, use a semaphore **initialised to 0**. The thread that runs A calls **signal** after it. The thread that runs B calls **wait** before it. B cannot pass until A has signalled. One semaphore per arrow in the ordering gives any order you need, including a join where one thread waits for several others.",
+   "what_full": "To force statement A to run before statement B in different threads, use a semaphore **initialised to 0**. The thread that runs A calls **signal** after it. The thread that runs B calls **wait** before it. B cannot pass until A has signalled. One semaphore per arrow in the ordering gives any order you need, including a join where one thread waits for several others.\n\nOrder $A \\to B$: semaphore $s=0$; thread 1: A; signal(s); thread 2: wait(s); B.\n\nA thread that must wait for $k$ others does $k$ waits (on one semaphore signalled $k$ times, or on several). A **barrier** for $n$ threads makes every thread wait until all $n$ have arrived, using a counter and a semaphore.\n\n**Worked example.** Four threads share semaphores x, y, z, all initialised to 0. T1: print A; signal(x); signal(y). T2: wait(x); print B; signal(z). T3: wait(y); print C; signal(z). T4: wait(z); wait(z); print D. Which outputs are possible?\n\n1. All semaphores start at 0, so any wait blocks. A has no wait, so it prints first.\n2. A signals x and y: x = 1 and y = 1. Now B and C are both allowed to run.\n3. B passes wait(x), making x = 0. It prints B and signals z: z = 1.\n4. C passes wait(y), making y = 0. It prints C and signals z: z = 2.\n5. D needs two waits on z: z goes 2, 1, 0. Then it prints D.\n6. Output ABCD. B and C are not ordered with each other: if C had run first the output would be ACBD. Only A first and D last are forced.\n\n**Answer:** ABCD and ACBD. An exhaustive check of all interleavings finds no other output and no deadlock.",
+   "why_full": "Ordering with semaphores is a standard GATE puzzle. In GATE: pick the initial values or the code that gives a given output order, or count the outputs.\n\nAsked: 2020 CS Q44, 2022 CS Q19, 2003 CS Q80, 2003 CS Q81, 2006 CS Q78, 2006 CS Q79, 2013 CS Q39",
+   "trap": "Giving an ordering semaphore the wrong initial value. For 'B after A' it must be 0. Another slip is to forget that statements without a path between them can appear in either order."
+  },
+  {
+   "atom_id": "s7",
+   "title": "Producer-consumer",
+   "simple": "A bakery has a shelf with 4 spots. The baker puts bread on the shelf; the cashier takes it off. The baker must stop when the shelf is full, and the cashier must stop when the shelf is empty. Two counters help: one counts free spots, one counts loaves on the shelf. A small key on a hook makes sure only one person touches the shelf at a time. The order matters: first check that there is a free spot (or a loaf), and only then pick up the key. If you grab the key first and then find the shelf full, you hold the key while waiting and the cashier can never take a loaf off. In exam words: empty = N, full = 0, mutex = 1. Wait on the counting semaphore first, then on the mutex.",
+   "idea": "The **producer-consumer** problem has a buffer of N slots. Three semaphores run it: **empty** (free slots, starts at N), **full** (filled slots, starts at 0) and **mutex** (protects the buffer, starts at 1). A producer waits on empty, then mutex. A consumer waits on full, then mutex. Waiting on the mutex first can **deadlock**.",
+   "definition": "Producer: wait(empty); wait(mutex); add item; signal(mutex); signal(full).\n\nConsumer: wait(full); wait(mutex); remove item; signal(mutex); signal(empty).\n\nInvariants: empty + full = N whenever no one is mid-operation. With $p$ completed produces and $c$ completed consumes: empty $=N-p+c$ and full $=p-c$.",
+   "intuition_full": "The two counting semaphores turn the buffer's limits into blocking: a producer cannot proceed when there is no free slot, a consumer cannot proceed when there is no item. They are counters of resources, so they carry the buffer state across processes. The mutex is a different kind of semaphore: it only protects the moment of changing the buffer's contents, so two threads do not update the pointers at once. The order of the waits matters. The counting wait may block for a long time, perhaps until the other side acts. If a thread blocks on it while holding the mutex, the other side can never get the mutex to act, so nobody moves: deadlock. So always wait for the counting semaphore first and hold the mutex only for the short update. The values themselves are plain arithmetic: each produce takes one empty and gives one full, and each consume does the reverse.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A bounded buffer has N = 4 slots. Semaphores start at empty = 4, full = 0, mutex = 1. Follow the values as the producer makes A, B, C, the consumer takes A, and the producer makes D and E.",
+     "steps": [
+      "Producer makes A: wait(empty) takes empty from 4 to 3; wait(mutex) takes the buffer lock (0); A goes into a slot; signal(mutex) releases it; signal(full) raises full to 1.",
+      "Producer makes B: empty 3 to 2, full 1 to 2. The mutex goes 1, 0, 1 again around the store.",
+      "Producer makes C: empty 2 to 1, full 2 to 3.",
+      "Consumer takes A: wait(full) 3 to 2, remove A under the mutex, signal(empty) 1 to 2. A slot is free again.",
+      "Producer makes D: empty 2 to 1, full 2 to 3.",
+      "Producer makes E: empty 1 to 0, full 3 to 4. The buffer is full. A further producer would block on wait(empty)."
+     ],
+     "answer": "empty = 0 and full = 4: the buffer is full and the next producer would block."
+    },
+    {
+     "level": "gate",
+     "setup": "N = 5. Producers complete 11 produce operations and consumers complete 8 consume operations, in some order that never blocks. What are the final values of empty, full and mutex?",
+     "steps": [
+      "Each produce does wait(empty) and signal(full); each consume does wait(full) and signal(empty).",
+      "empty $=5-11+8=2$.",
+      "full $=0+11-8=3$.",
+      "mutex is back at 1, because every wait(mutex) has its signal(mutex)."
+     ],
+     "answer": "empty = 2, full = 3, mutex = 1. Check: empty + full = 5 = N."
+    },
+    {
+     "level": "twist",
+     "setup": "N = 2. The consumer's two waits are swapped: wait(mutex); wait(full); ... The producer is correct. The consumer runs first on an empty buffer. What happens?",
+     "steps": [
+      "The consumer takes the mutex (mutex = 0). Then wait(full) blocks, because full = 0.",
+      "The producer does wait(empty), which passes, then wait(mutex), which blocks because the consumer holds it.",
+      "The consumer waits for a producer to signal full, and the producer waits for the consumer to release the mutex. Neither can move: deadlock. An exhaustive search confirms that this state is reachable."
+     ],
+     "answer": "Deadlock. Waiting for a counting semaphore while holding the mutex blocks the other side."
+    }
+   ],
+   "why": "Producer-consumer is the standard pattern for sharing a buffer between threads. In GATE: initial values, the correct order of the waits, and semaphore values after a number of operations.",
+   "how": [
+    "Initial values: empty $=N$, full $=0$, mutex $=1$.",
+    "Order: counting semaphore first, then the mutex.",
+    "After $p$ produces and $c$ consumes: empty $=N-p+c$, full $=p-c$.",
+    "Read the problem's own names: some questions swap the meaning of empty and full."
+   ],
+   "mistake": "Waiting on the mutex before the counting semaphore. That holds the lock while sleeping and can deadlock. Also, taking the names at face value when the problem swaps them.",
+   "edge_cases": [
+    "The buffer is full: producers block on empty. The buffer is empty: consumers block on full.",
+    "Several producers and consumers are fine as long as the mutex protects the buffer.",
+    "The signals may be done in either order at the end (signal(mutex) and signal(full))."
+   ],
+   "connections": [
+    "Uses the value arithmetic of card s5.",
+    "Readers-writers (next card) is a second classic pattern with the same tools."
+   ],
+   "check": [
+    {
+     "q": "What is the initial value of empty for a buffer with 6 slots?",
+     "a": "6."
+    },
+    {
+     "q": "Producers complete 9 produces and consumers 4 consumes, no blocking, N = 10. Value of full?",
+     "a": "$9-4=5$."
+    },
+    {
+     "q": "Which wait comes first in the producer, mutex or empty?",
+     "a": "empty."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q50, 2014 CS2 Q31, 2008 CS Q63, 2016 CS2 Q49",
+   "try": {
+    "id": "gen.sync.005",
+    "label": "Try: the producer-consumer question (L1)"
+   },
+   "scene": "os.sync.s7",
+   "example": {
+    "setup": "A bounded buffer has N = 4 slots. Semaphores start at empty = 4, full = 0, mutex = 1. Follow the values as the producer makes A, B, C, the consumer takes A, and the producer makes D and E.",
+    "steps": [
+     "Producer makes A: wait(empty) takes empty from 4 to 3; wait(mutex) takes the buffer lock (0); A goes into a slot; signal(mutex) releases it; signal(full) raises full to 1.",
+     "Producer makes B: empty 3 to 2, full 1 to 2. The mutex goes 1, 0, 1 again around the store.",
+     "Producer makes C: empty 2 to 1, full 2 to 3.",
+     "Consumer takes A: wait(full) 3 to 2, remove A under the mutex, signal(empty) 1 to 2. A slot is free again.",
+     "Producer makes D: empty 2 to 1, full 2 to 3.",
+     "Producer makes E: empty 1 to 0, full 3 to 4. The buffer is full. A further producer would block on wait(empty)."
+    ],
+    "answer": "empty = 0 and full = 4: the buffer is full and the next producer would block."
+   },
+   "what": "The **producer-consumer** problem has a buffer of N slots. Three semaphores run it: **empty** (free slots, starts at N), **full** (filled slots, starts at 0) and **mutex** (protects the buffer, starts at 1). A producer waits on empty, then mutex. A consumer waits on full, then mutex. Waiting on the mutex first can **deadlock**.",
+   "what_full": "The **producer-consumer** problem has a buffer of N slots. Three semaphores run it: **empty** (free slots, starts at N), **full** (filled slots, starts at 0) and **mutex** (protects the buffer, starts at 1). A producer waits on empty, then mutex. A consumer waits on full, then mutex. Waiting on the mutex first can **deadlock**.\n\nProducer: wait(empty); wait(mutex); add item; signal(mutex); signal(full).\n\nConsumer: wait(full); wait(mutex); remove item; signal(mutex); signal(empty).\n\nInvariants: empty + full = N whenever no one is mid-operation. With $p$ completed produces and $c$ completed consumes: empty $=N-p+c$ and full $=p-c$.\n\n**Worked example.** A bounded buffer has N = 4 slots. Semaphores start at empty = 4, full = 0, mutex = 1. Follow the values as the producer makes A, B, C, the consumer takes A, and the producer makes D and E.\n\n1. Producer makes A: wait(empty) takes empty from 4 to 3; wait(mutex) takes the buffer lock (0); A goes into a slot; signal(mutex) releases it; signal(full) raises full to 1.\n2. Producer makes B: empty 3 to 2, full 1 to 2. The mutex goes 1, 0, 1 again around the store.\n3. Producer makes C: empty 2 to 1, full 2 to 3.\n4. Consumer takes A: wait(full) 3 to 2, remove A under the mutex, signal(empty) 1 to 2. A slot is free again.\n5. Producer makes D: empty 2 to 1, full 2 to 3.\n6. Producer makes E: empty 1 to 0, full 3 to 4. The buffer is full. A further producer would block on wait(empty).\n\n**Answer:** empty = 0 and full = 4: the buffer is full and the next producer would block.",
+   "why_full": "Producer-consumer is the standard pattern for sharing a buffer between threads. In GATE: initial values, the correct order of the waits, and semaphore values after a number of operations.\n\nAsked: 2018 CS Q50, 2014 CS2 Q31, 2008 CS Q63, 2016 CS2 Q49",
+   "trap": "Waiting on the mutex before the counting semaphore. That holds the lock while sleeping and can deadlock. Also, taking the names at face value when the problem swaps them."
+  },
+  {
+   "atom_id": "s8",
+   "title": "Readers-writers",
+   "simple": "A whiteboard in a classroom. Any number of students can read it at the same time without disturbing each other. But if the teacher wants to rewrite it, everyone must stop reading first, and nobody may read while the teacher writes. A counter by the door counts the readers. The first student in locks the door for writers, and the last student out unlocks it. A small key makes sure two students do not change the counter at the same time. If students keep arriving, the teacher may wait forever. In exam words: readers share; a writer excludes everyone. The first reader does wait(wrt), the last reader does signal(wrt), and readcount is protected by its own mutex.",
+   "idea": "**Readers-writers**: many readers may read at once, but a writer needs the data alone. A shared **readcount** tells readers whether they are first or last. The first reader does **wait(wrt)** and the last does **signal(wrt)**. readcount is updated inside its own **mutex**. In this reader-preference solution, a steady stream of readers can **starve** a writer.",
+   "definition": "Reader: wait(mutex); readcount++; if (readcount == 1) wait(wrt); signal(mutex); read; wait(mutex); readcount--; if (readcount == 0) signal(wrt); signal(mutex).\n\nWriter: wait(wrt); write; signal(wrt).\n\nmutex $=1$ guards readcount; wrt $=1$ guards the data. Two readers may overlap; a reader and a writer, or two writers, may not.",
+   "intuition_full": "The first reader locks out writers on behalf of all readers, and the last reader releases it. The readers in between never touch wrt, which is why they can overlap freely. The counter that decides who is first and last is itself shared data, so it needs its own mutex. Otherwise two readers could both think they are first, or both think they are last, and the writer could get in while a reader is still reading, or never be woken. This solution gives readers preference: a new reader always joins an active group, even if a writer is already waiting. A writer therefore waits as long as there are always some readers present, which is starvation. Fairer versions block new readers when a writer is waiting, at the price of less parallelism.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Reader-preference readers-writers with mutex = 1, wrt = 1, readcount = 0. R1 arrives and reads. Then writer W arrives. Then R2 arrives. Then R1 and R2 leave. Follow readcount and wrt, and say when W writes.",
+     "steps": [
+      "R1 arrives. readcount becomes 1. R1 is the first reader, so it does wait(wrt): wrt = 0. R1 reads.",
+      "A writer W arrives. wait(wrt) makes wrt = -1, so W blocks.",
+      "R2 arrives. readcount becomes 2. R2 is not first, so it does not touch wrt and starts reading at once.",
+      "R1 leaves. readcount becomes 1. R1 is not the last reader, so wrt stays as it is.",
+      "R2 leaves. readcount becomes 0. R2 is the last reader, so it does signal(wrt): wrt = 0 and W wakes up.",
+      "W writes alone. Readers share, but a writer needs the data to itself."
+     ],
+     "answer": "W writes only after the last reader leaves. R2 was allowed in although W was already waiting."
+    },
+    {
+     "level": "gate",
+     "setup": "Same solution. R1 arrives, R2 arrives, W arrives, R1 leaves, R3 arrives, R2 leaves. What are readcount and wrt, and is W still blocked?",
+     "steps": [
+      "R1: readcount 1, wrt 0. R2: readcount 2. W: wrt $=-1$, W blocks.",
+      "R1 leaves: readcount 1. R3 arrives: readcount 2, no wait(wrt).",
+      "R2 leaves: readcount 1. R3 is still reading, so nobody signals wrt."
+     ],
+     "answer": "readcount = 1, wrt = -1, and W is still blocked. As long as new readers arrive before the old ones leave, W starves."
+    },
+    {
+     "level": "twist",
+     "setup": "Remove the mutex around readcount, so readcount++ is a plain load, add, store. Show how a writer can write while a reader is reading.",
+     "steps": [
+      "R1 loads readcount = 0 and stores 1, but is delayed before it reaches if (readcount == 1) wait(wrt).",
+      "R2 loads readcount = 1, stores 2. It sees 2, so it thinks it is not the first reader and does not do wait(wrt). R2 starts reading.",
+      "Nobody holds wrt. W does wait(wrt), which passes, and starts writing while R2 reads. An exhaustive search of the interleavings confirms that this state is reachable."
+     ],
+     "answer": "A writer overlaps a reader. readcount is shared data, so it needs its own mutex."
+    }
+   ],
+   "why": "Readers-writers shows how to let readers share while still protecting writers. In GATE: what the first and last reader do, which pairs may run together, and what starves.",
+   "how": [
+    "Readers: first does wait(wrt), last does signal(wrt).",
+    "Update readcount only inside its own mutex.",
+    "Allowed together: two readers. Not allowed: reader and writer, two writers.",
+    "Reader preference: writers can starve."
+   ],
+   "mistake": "Letting every reader wait on wrt, which stops readers from overlapping, or updating readcount without its mutex. Another slip is believing a waiting writer blocks new readers in this version.",
+   "edge_cases": [
+    "With no readers, a writer enters at once.",
+    "Writer preference needs extra semaphores to block new readers when a writer waits.",
+    "The last reader must be detected by readcount == 0 under the mutex."
+   ],
+   "connections": [
+    "Same tools as producer-consumer (card s7).",
+    "Starvation relates to the bounded waiting requirement (card s2)."
+   ],
+   "check": [
+    {
+     "q": "Which pair may safely run at the same time: two readers, a reader and a writer, or two writers?",
+     "a": "Two readers."
+    },
+    {
+     "q": "Who executes signal(wrt) in reader preference?",
+     "a": "The last reader to leave."
+    },
+    {
+     "q": "Why does readcount need its own mutex?",
+     "a": "It is shared data updated by several readers, so unprotected updates could be lost."
+    }
+   ],
+   "asked": "Asked: no standalone blueprint pattern; readers-writers appears in semaphore bookkeeping and statement questions",
+   "try": {
+    "id": "gen.sync.006",
+    "label": "Try: the readers-writers question (L1)"
+   },
+   "scene": "os.sync.s8",
+   "example": {
+    "setup": "Reader-preference readers-writers with mutex = 1, wrt = 1, readcount = 0. R1 arrives and reads. Then writer W arrives. Then R2 arrives. Then R1 and R2 leave. Follow readcount and wrt, and say when W writes.",
+    "steps": [
+     "R1 arrives. readcount becomes 1. R1 is the first reader, so it does wait(wrt): wrt = 0. R1 reads.",
+     "A writer W arrives. wait(wrt) makes wrt = -1, so W blocks.",
+     "R2 arrives. readcount becomes 2. R2 is not first, so it does not touch wrt and starts reading at once.",
+     "R1 leaves. readcount becomes 1. R1 is not the last reader, so wrt stays as it is.",
+     "R2 leaves. readcount becomes 0. R2 is the last reader, so it does signal(wrt): wrt = 0 and W wakes up.",
+     "W writes alone. Readers share, but a writer needs the data to itself."
+    ],
+    "answer": "W writes only after the last reader leaves. R2 was allowed in although W was already waiting."
+   },
+   "what": "**Readers-writers**: many readers may read at once, but a writer needs the data alone. A shared **readcount** tells readers whether they are first or last. The first reader does **wait(wrt)** and the last does **signal(wrt)**. readcount is updated inside its own **mutex**. In this reader-preference solution, a steady stream of readers can **starve** a writer.",
+   "what_full": "**Readers-writers**: many readers may read at once, but a writer needs the data alone. A shared **readcount** tells readers whether they are first or last. The first reader does **wait(wrt)** and the last does **signal(wrt)**. readcount is updated inside its own **mutex**. In this reader-preference solution, a steady stream of readers can **starve** a writer.\n\nReader: wait(mutex); readcount++; if (readcount == 1) wait(wrt); signal(mutex); read; wait(mutex); readcount--; if (readcount == 0) signal(wrt); signal(mutex).\n\nWriter: wait(wrt); write; signal(wrt).\n\nmutex $=1$ guards readcount; wrt $=1$ guards the data. Two readers may overlap; a reader and a writer, or two writers, may not.\n\n**Worked example.** Reader-preference readers-writers with mutex = 1, wrt = 1, readcount = 0. R1 arrives and reads. Then writer W arrives. Then R2 arrives. Then R1 and R2 leave. Follow readcount and wrt, and say when W writes.\n\n1. R1 arrives. readcount becomes 1. R1 is the first reader, so it does wait(wrt): wrt = 0. R1 reads.\n2. A writer W arrives. wait(wrt) makes wrt = -1, so W blocks.\n3. R2 arrives. readcount becomes 2. R2 is not first, so it does not touch wrt and starts reading at once.\n4. R1 leaves. readcount becomes 1. R1 is not the last reader, so wrt stays as it is.\n5. R2 leaves. readcount becomes 0. R2 is the last reader, so it does signal(wrt): wrt = 0 and W wakes up.\n6. W writes alone. Readers share, but a writer needs the data to itself.\n\n**Answer:** W writes only after the last reader leaves. R2 was allowed in although W was already waiting.",
+   "why_full": "Readers-writers shows how to let readers share while still protecting writers. In GATE: what the first and last reader do, which pairs may run together, and what starves.\n\nAsked: no standalone blueprint pattern; readers-writers appears in semaphore bookkeeping and statement questions",
+   "trap": "Letting every reader wait on wrt, which stops readers from overlapping, or updating readcount without its mutex. Another slip is believing a waiting writer blocks new readers in this version."
+  },
+  {
+   "atom_id": "s9",
+   "title": "Possible values and outputs of concurrent code",
+   "simple": "Two people each have a short to-do list, and the lists share one notebook. Person 1 does step 1 then step 2, and person 2 does step 1 then step 2. But their steps can be mixed in any order, as long as each person keeps their own order. To find all the things that can happen, write out every way of mixing the two lists. With 2 steps each there are 6 ways. Then work through each way to see what the notebook says at the end. In exam words: enumerate the interleavings that respect each thread's program order and any semaphore blocking, then collect the distinct final values or outputs.",
+   "idea": "To find every possible final value or output of concurrent code, **list the legal interleavings**. Each thread keeps its own order of steps. Semaphore waits block until a signal exists. Trace each interleaving and collect the **distinct** results. For $a$ and $b$ steps in two threads there are $\\binom{a+b}{a}$ interleavings.",
+   "definition": "A legal schedule is a merge of the threads' step sequences that keeps each thread's order and never runs a wait that would block. Result set $=\\{\\text{final state of schedule } \\sigma\\}$ over all legal $\\sigma$.\n\nCounts: two threads with $a$ and $b$ steps have $\\binom{a+b}{a}$ merges. Count distinct results, not schedules. Split non-atomic updates into load, compute, store before enumerating.",
+   "intuition_full": "There is no shortcut that always beats enumeration, and enumeration is safe. The skill is doing it with little work. First, decide what the atomic steps are. If the problem says each statement is atomic, the steps are statements. If not, split updates into load, compute and store. Second, merge the sequences systematically, always choosing which thread moves next, so that you do not miss or repeat one. Third, evaluate each merge. Often many merges give the same result, and you only need the distinct ones. Look for symmetry and for shortcuts: if two statements commute (their order does not change the state), many merges collapse. Semaphores prune the list, since schedules in which a thread runs a wait with no signal are illegal. A final sanity check is that a lost update only loses writes, never invents values.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "x = y = 1. T1 runs A1: x = x + 3, then A2: y = y * 2. T2 runs B1: y = y + 1, then B2: x = x * 2. Each statement is atomic. List all legal orders and the distinct final pairs (x, y).",
+     "steps": [
+      "Order A1 A2 B1 B2. A1: x=4, y=1; A2: x=4, y=2; B1: x=4, y=3; B2: x=8, y=3. Result (8, 3).",
+      "Order A1 B1 A2 B2. A1: x=4, y=1; B1: x=4, y=2; A2: x=4, y=4; B2: x=8, y=4. Result (8, 4).",
+      "Order A1 B1 B2 A2. A1: x=4, y=1; B1: x=4, y=2; B2: x=8, y=2; A2: x=8, y=4. Result (8, 4).",
+      "Order B1 A1 A2 B2. B1: x=1, y=2; A1: x=4, y=2; A2: x=4, y=4; B2: x=8, y=4. Result (8, 4).",
+      "Order B1 A1 B2 A2. B1: x=1, y=2; A1: x=4, y=2; B2: x=8, y=2; A2: x=8, y=4. Result (8, 4).",
+      "Order B1 B2 A1 A2. B1: x=1, y=2; B2: x=2, y=2; A1: x=5, y=2; A2: x=5, y=4. Result (5, 4).",
+      "Six legal orders give three distinct final pairs: (8, 3), (8, 4) and (5, 4). Only A1 A2 B1 B2 gives y = 3, and only B1 B2 A1 A2 gives x = 5."
+     ],
+     "answer": "Six legal orders, three distinct final pairs: (8, 3), (8, 4) and (5, 4)."
+    },
+    {
+     "level": "gate",
+     "setup": "Semaphore s starts at 0. T1: print A; print B; signal(s). T2: wait(s); print C; print D. T3: print E. How many distinct output strings are possible?",
+     "steps": [
+      "T1 prints A then B then signals. T2 cannot start until the signal, so C and D come after B: the order A, B, C, D is forced.",
+      "E belongs to T3 and has no constraint, so it can sit in any of the 5 positions among A, B, C, D.",
+      "The strings are EABCD, AEBCD, ABECD, ABCED and ABCDE."
+     ],
+     "answer": "5 output strings. An exhaustive enumeration finds exactly these five."
+    },
+    {
+     "level": "twist",
+     "setup": "x = 10. T1: x = x + 5 and T2: x = x * 2, each as load, compute, store inside wait(m) ... signal(m). How many distinct final values if m is initialised to 1? If m is initialised to 2?",
+     "steps": [
+      "m = 1: the three steps of each thread cannot overlap, so only the two serial orders remain: $(10+5)\\times2=30$ or $10\\times2+5=25$.",
+      "m = 2: both threads can pass wait(m) together, so the lost-update schedules return. The final values are 15, 20, 25 and 30.",
+      "A semaphore only gives mutual exclusion if its initial value is 1."
+     ],
+     "answer": "Two values (25, 30) with m = 1, and four values (15, 20, 25, 30) with m = 2."
+    }
+   ],
+   "why": "This is the most repeated concurrency question type. In GATE: possible final values, possible printed strings, or how many of them there are.",
+   "how": [
+    "Decide the atomic steps; split non-atomic updates into load, compute, store.",
+    "Merge the thread sequences systematically, respecting each thread's order and the semaphores.",
+    "Evaluate each merge and collect the distinct results.",
+    "For orderings, use the constraint graph: outputs are the orders that respect it."
+   ],
+   "mistake": "Counting final values as the sum of all updates, or forgetting that a lost update loses a write but never creates a new value. Also counting schedules instead of distinct results.",
+   "edge_cases": [
+    "Blocking forever (deadlock) means the run has no final state; say so if asked.",
+    "A thread that does not touch shared data has no effect on the result set.",
+    "Reads of the same variable by two threads in a row can be swapped without changing anything."
+   ],
+   "connections": [
+    "Builds on race conditions (card s1) and semaphores (cards s5, s6).",
+    "Locks (cards s3, s4) remove interleavings by making blocks atomic."
+   ],
+   "check": [
+    {
+     "q": "Two threads, 2 atomic statements each. How many legal merges are there?",
+     "a": "$\\binom{4}{2}=6$."
+    },
+    {
+     "q": "A lost update can produce a value that no thread wrote. True or false?",
+     "a": "False. It loses writes, never invents values."
+    },
+    {
+     "q": "A semaphore starts at 0 and a thread waits on it. What does that restrict?",
+     "a": "Schedules in which the wait would run before any signal are illegal."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q33, 2024 CS1 Q40, 2024 CS2 Q46, 2026 CS2 Q51, 2021 CS1 Q56, 2023 CS Q38, 2013 CS Q34, 2015 CS1 Q9, 2010 CS Q45",
+   "try": {
+    "id": "gen.sync.011",
+    "label": "Try: the smallest counter value with two threads question (L2)"
+   },
+   "scene": "os.sync.s9",
+   "example": {
+    "setup": "x = y = 1. T1 runs A1: x = x + 3, then A2: y = y * 2. T2 runs B1: y = y + 1, then B2: x = x * 2. Each statement is atomic. List all legal orders and the distinct final pairs (x, y).",
+    "steps": [
+     "Order A1 A2 B1 B2. A1: x=4, y=1; A2: x=4, y=2; B1: x=4, y=3; B2: x=8, y=3. Result (8, 3).",
+     "Order A1 B1 A2 B2. A1: x=4, y=1; B1: x=4, y=2; A2: x=4, y=4; B2: x=8, y=4. Result (8, 4).",
+     "Order A1 B1 B2 A2. A1: x=4, y=1; B1: x=4, y=2; B2: x=8, y=2; A2: x=8, y=4. Result (8, 4).",
+     "Order B1 A1 A2 B2. B1: x=1, y=2; A1: x=4, y=2; A2: x=4, y=4; B2: x=8, y=4. Result (8, 4).",
+     "Order B1 A1 B2 A2. B1: x=1, y=2; A1: x=4, y=2; B2: x=8, y=2; A2: x=8, y=4. Result (8, 4).",
+     "Order B1 B2 A1 A2. B1: x=1, y=2; B2: x=2, y=2; A1: x=5, y=2; A2: x=5, y=4. Result (5, 4).",
+     "Six legal orders give three distinct final pairs: (8, 3), (8, 4) and (5, 4). Only A1 A2 B1 B2 gives y = 3, and only B1 B2 A1 A2 gives x = 5."
+    ],
+    "answer": "Six legal orders, three distinct final pairs: (8, 3), (8, 4) and (5, 4)."
+   },
+   "what": "To find every possible final value or output of concurrent code, **list the legal interleavings**. Each thread keeps its own order of steps. Semaphore waits block until a signal exists. Trace each interleaving and collect the **distinct** results. For $a$ and $b$ steps in two threads there are $\\binom{a+b}{a}$ interleavings.",
+   "what_full": "To find every possible final value or output of concurrent code, **list the legal interleavings**. Each thread keeps its own order of steps. Semaphore waits block until a signal exists. Trace each interleaving and collect the **distinct** results. For $a$ and $b$ steps in two threads there are $\\binom{a+b}{a}$ interleavings.\n\nA legal schedule is a merge of the threads' step sequences that keeps each thread's order and never runs a wait that would block. Result set $=\\{\\text{final state of schedule } \\sigma\\}$ over all legal $\\sigma$.\n\nCounts: two threads with $a$ and $b$ steps have $\\binom{a+b}{a}$ merges. Count distinct results, not schedules. Split non-atomic updates into load, compute, store before enumerating.\n\n**Worked example.** x = y = 1. T1 runs A1: x = x + 3, then A2: y = y * 2. T2 runs B1: y = y + 1, then B2: x = x * 2. Each statement is atomic. List all legal orders and the distinct final pairs (x, y).\n\n1. Order A1 A2 B1 B2. A1: x=4, y=1; A2: x=4, y=2; B1: x=4, y=3; B2: x=8, y=3. Result (8, 3).\n2. Order A1 B1 A2 B2. A1: x=4, y=1; B1: x=4, y=2; A2: x=4, y=4; B2: x=8, y=4. Result (8, 4).\n3. Order A1 B1 B2 A2. A1: x=4, y=1; B1: x=4, y=2; B2: x=8, y=2; A2: x=8, y=4. Result (8, 4).\n4. Order B1 A1 A2 B2. B1: x=1, y=2; A1: x=4, y=2; A2: x=4, y=4; B2: x=8, y=4. Result (8, 4).\n5. Order B1 A1 B2 A2. B1: x=1, y=2; A1: x=4, y=2; B2: x=8, y=2; A2: x=8, y=4. Result (8, 4).\n6. Order B1 B2 A1 A2. B1: x=1, y=2; B2: x=2, y=2; A1: x=5, y=2; A2: x=5, y=4. Result (5, 4).\n7. Six legal orders give three distinct final pairs: (8, 3), (8, 4) and (5, 4). Only A1 A2 B1 B2 gives y = 3, and only B1 B2 A1 A2 gives x = 5.\n\n**Answer:** Six legal orders, three distinct final pairs: (8, 3), (8, 4) and (5, 4).",
+   "why_full": "This is the most repeated concurrency question type. In GATE: possible final values, possible printed strings, or how many of them there are.\n\nAsked: 2019 CS Q33, 2024 CS1 Q40, 2024 CS2 Q46, 2026 CS2 Q51, 2021 CS1 Q56, 2023 CS Q38, 2013 CS Q34, 2015 CS1 Q9, 2010 CS Q45",
+   "trap": "Counting final values as the sum of all updates, or forgetting that a lost update loses a write but never creates a new value. Also counting schedules instead of distinct results."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "os.sync.s1",
+   "title": "A lost update between two threads",
+   "viewBox": [
+    0,
+    0,
+    360,
+    244
+   ],
+   "objects": [
+    {
+     "id": "xv",
+     "kind": "box",
+     "x": 130,
+     "y": 14,
+     "w": 100,
+     "h": 34,
+     "label": "x = 10"
+    },
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 89,
+     "y": 72,
+     "text": "T1: x = x + 5",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "h2",
+     "kind": "text",
+     "x": 271,
+     "y": 72,
+     "text": "T2: x = x * 2",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "c1",
+     "kind": "array",
+     "x": 14,
+     "y": 88,
+     "cells": [
+      "load",
+      "add 5",
+      "store"
+     ],
+     "cw": 50,
+     "ch": 26,
+     "indices": false
+    },
+    {
+     "id": "c2",
+     "kind": "array",
+     "x": 196,
+     "y": 88,
+     "cells": [
+      "load",
+      "mul 2",
+      "store"
+     ],
+     "cw": 50,
+     "ch": 26,
+     "indices": false
+    },
+    {
+     "id": "r1",
+     "kind": "box",
+     "x": 14,
+     "y": 130,
+     "w": 150,
+     "h": 28,
+     "label": "r1 = -"
+    },
+    {
+     "id": "r2",
+     "kind": "box",
+     "x": 196,
+     "y": 130,
+     "w": 150,
+     "h": 28,
+     "label": "r2 = -"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 196,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 180,
+     "y": 222,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "T1 loads x into its register: r1 = 10.",
+     "set": {
+      "id": "r1",
+      "label": "r1 = 10"
+     },
+     "highlight": [
+      {
+       "id": "c1",
+       "cells": [
+        0
+       ]
+      },
+      {
+       "id": "r1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Before T1 stores anything, T2 loads x too: r2 = 10. Both now hold the old value.",
+     "set": {
+      "id": "r2",
+      "label": "r2 = 10"
+     },
+     "highlight": [
+      {
+       "id": "c2",
+       "cells": [
+        0
+       ]
+      },
+      {
+       "id": "r2",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "T1 adds 5 in its register: r1 = 15.",
+     "set": {
+      "id": "r1",
+      "label": "r1 = 15"
+     },
+     "highlight": [
+      {
+       "id": "c1",
+       "cells": [
+        1
+       ]
+      },
+      {
+       "id": "r1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "T1 stores: x = 15.",
+     "set": {
+      "id": "xv",
+      "label": "x = 15"
+     },
+     "highlight": [
+      {
+       "id": "c1",
+       "cells": [
+        2
+       ]
+      },
+      {
+       "id": "xv",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "T2 multiplies its stale copy: r2 = 10 $\\times$ 2 = 20. T2 never saw T1's 15.",
+     "set": {
+      "id": "r2",
+      "label": "r2 = 20"
+     },
+     "highlight": [
+      {
+       "id": "c2",
+       "cells": [
+        1
+       ]
+      },
+      {
+       "id": "r2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "T2 stores: x = 20. T1's update has been lost. Running the threads one after the other would give 25 or 30, never 20.",
+     "set": [
+      {
+       "id": "xv",
+       "label": "x = 20"
+      },
+      {
+       "id": "n2",
+       "text": "T1's write is lost: x = 20"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "c2",
+       "cells": [
+        2
+       ]
+      },
+      {
+       "id": "xv",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.sync.s2",
+   "title": "Strict alternation breaks progress",
+   "viewBox": [
+    0,
+    0,
+    360,
+    256
+   ],
+   "objects": [
+    {
+     "id": "turn",
+     "kind": "box",
+     "x": 140,
+     "y": 14,
+     "w": 80,
+     "h": 30,
+     "label": "turn = 0"
+    },
+    {
+     "id": "p0",
+     "kind": "box",
+     "x": 14,
+     "y": 84,
+     "w": 110,
+     "h": 34,
+     "label": "P0 area"
+    },
+    {
+     "id": "p1",
+     "kind": "box",
+     "x": 236,
+     "y": 84,
+     "w": 110,
+     "h": 34,
+     "label": "P1 area"
+    },
+    {
+     "id": "p1n",
+     "kind": "text",
+     "x": 291,
+     "y": 136,
+     "text": "remainder section",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "cs",
+     "kind": "box",
+     "x": 130,
+     "y": 150,
+     "w": 100,
+     "h": 50,
+     "label": "CS"
+    },
+    {
+     "id": "cst",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "critical section",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "tk",
+     "kind": "node",
+     "x": 108,
+     "y": 101,
+     "r": 11,
+     "label": "P0",
+     "tone": "accent"
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 240,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "turn = 0, so P0 may enter. Its test while (turn != 0) is false at once, and P0 enters the critical section.",
+     "move": {
+      "id": "tk",
+      "x": 146,
+      "y": 175
+     },
+     "highlight": "cs",
+     "set": {
+      "id": "st",
+      "text": "P0 inside the CS"
+     }
+    },
+    {
+     "caption": "P0 leaves the critical section and hands over the turn: turn = 1.",
+     "move": {
+      "id": "tk",
+      "x": 108,
+      "y": 101
+     },
+     "set": [
+      {
+       "id": "turn",
+       "label": "turn = 1"
+      },
+      {
+       "id": "st",
+       "text": "P0 sets turn = 1"
+      }
+     ],
+     "highlight": "turn"
+    },
+    {
+     "caption": "P0 wants to enter again. Its test while (turn != 0) is now true, so it spins, although the critical section is empty.",
+     "set": {
+      "id": "st",
+      "text": "P0 spins on turn != 0"
+     },
+     "highlight": [
+      {
+       "id": "p0",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "P1 is in its remainder section, doing something unrelated. It will not set turn = 0 until it has used the critical section itself.",
+     "show": "p1n",
+     "highlight": [
+      {
+       "id": "p1",
+       "tone": "mid"
+      }
+     ],
+     "set": {
+      "id": "st",
+      "text": "P1 is not interested"
+     }
+    },
+    {
+     "caption": "P0 is held up by a process that does not even want to enter. That breaks progress. Mutual exclusion still holds, because only the process whose turn it is can enter.",
+     "set": {
+      "id": "st",
+      "text": "progress violated"
+     },
+     "highlight": [
+      {
+       "id": "p0",
+       "tone": "bad"
+      },
+      {
+       "id": "cs",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.sync.s3",
+   "title": "Peterson when both want the critical section",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "f0",
+     "kind": "box",
+     "x": 14,
+     "y": 14,
+     "w": 100,
+     "h": 28,
+     "label": "flag[0] = 0"
+    },
+    {
+     "id": "tv",
+     "kind": "box",
+     "x": 130,
+     "y": 14,
+     "w": 100,
+     "h": 28,
+     "label": "turn = ?"
+    },
+    {
+     "id": "f1",
+     "kind": "box",
+     "x": 246,
+     "y": 14,
+     "w": 100,
+     "h": 28,
+     "label": "flag[1] = 0"
+    },
+    {
+     "id": "c0",
+     "kind": "array",
+     "x": 14,
+     "y": 76,
+     "cells": [
+      "flag[0] = 1",
+      "turn = 1",
+      "wait f1 && t==1",
+      "CS"
+     ],
+     "cw": 150,
+     "ch": 26,
+     "dir": "down",
+     "indices": false,
+     "label": "P0"
+    },
+    {
+     "id": "c1",
+     "kind": "array",
+     "x": 196,
+     "y": 76,
+     "cells": [
+      "flag[1] = 1",
+      "turn = 0",
+      "wait f0 && t==0",
+      "CS"
+     ],
+     "cw": 150,
+     "ch": 26,
+     "dir": "down",
+     "indices": false,
+     "label": "P1"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 180,
+     "y": 232,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "P0 raises its flag: flag[0] = 1. It says: I want to enter.",
+     "set": {
+      "id": "f0",
+      "label": "flag[0] = 1"
+     },
+     "highlight": [
+      {
+       "id": "c0",
+       "cells": [
+        0
+       ]
+      },
+      {
+       "id": "f0",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "P1 raises its flag too: flag[1] = 1. Both want in.",
+     "set": {
+      "id": "f1",
+      "label": "flag[1] = 1"
+     },
+     "highlight": [
+      {
+       "id": "c1",
+       "cells": [
+        0
+       ]
+      },
+      {
+       "id": "f1",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "P0 politely gives the turn to P1: turn = 1.",
+     "set": {
+      "id": "tv",
+      "label": "turn = 1"
+     },
+     "highlight": [
+      {
+       "id": "c0",
+       "cells": [
+        1
+       ]
+      },
+      {
+       "id": "tv",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "P1 also gives the turn away: turn = 0. This write comes last and decides the tie.",
+     "set": {
+      "id": "tv",
+      "label": "turn = 0"
+     },
+     "highlight": [
+      {
+       "id": "c1",
+       "cells": [
+        1
+       ]
+      },
+      {
+       "id": "tv",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "P0 tests flag[1] && turn == 1. turn is 0, so the test is false and P0 enters the critical section.",
+     "set": {
+      "id": "n2",
+      "text": "P0 in the CS"
+     },
+     "highlight": [
+      {
+       "id": "c0",
+       "cells": [
+        2,
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P1 tests flag[0] && turn == 0. Both parts are true, so P1 waits. Only one process is inside.",
+     "set": {
+      "id": "nt",
+      "text": "P1 spins: P0 wants in, turn = 0"
+     },
+     "highlight": [
+      {
+       "id": "c1",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "P0 leaves and sets flag[0] = 0. Now P1's test is false and it enters. Each process got its turn.",
+     "set": [
+      {
+       "id": "f0",
+       "label": "flag[0] = 0"
+      },
+      {
+       "id": "nt",
+       "text": "P0 has left: P1 test is now false"
+      },
+      {
+       "id": "n2",
+       "text": "P1 enters next"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "c1",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.sync.s4",
+   "title": "A spin lock built from TestAndSet",
+   "viewBox": [
+    0,
+    0,
+    360,
+    244
+   ],
+   "objects": [
+    {
+     "id": "lock",
+     "kind": "box",
+     "x": 140,
+     "y": 14,
+     "w": 80,
+     "h": 30,
+     "label": "lock = 0"
+    },
+    {
+     "id": "P1",
+     "kind": "box",
+     "x": 14,
+     "y": 78,
+     "w": 90,
+     "h": 34,
+     "label": "P1"
+    },
+    {
+     "id": "P2",
+     "kind": "box",
+     "x": 135,
+     "y": 78,
+     "w": 90,
+     "h": 34,
+     "label": "P2"
+    },
+    {
+     "id": "P3",
+     "kind": "box",
+     "x": 256,
+     "y": 78,
+     "w": 90,
+     "h": 34,
+     "label": "P3"
+    },
+    {
+     "id": "u1",
+     "kind": "text",
+     "x": 59,
+     "y": 128,
+     "text": "",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "u2",
+     "kind": "text",
+     "x": 180,
+     "y": 128,
+     "text": "",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "u3",
+     "kind": "text",
+     "x": 301,
+     "y": 128,
+     "text": "",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "cs",
+     "kind": "box",
+     "x": 130,
+     "y": 160,
+     "w": 100,
+     "h": 40,
+     "label": "CS"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "lock = 0 means free. P1 runs TestAndSet(&lock). It returns the old value, 0, and sets lock = 1 in one indivisible step. The 0 means P1 got the lock.",
+     "set": [
+      {
+       "id": "lock",
+       "label": "lock = 1"
+      },
+      {
+       "id": "u1",
+       "text": "TAS: 0 (got it)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "P1",
+       "tone": "good"
+      },
+      {
+       "id": "cs",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P1 is in the critical section. P2 runs TestAndSet: the old value is 1, so P2 did not get the lock. It loops and tries again.",
+     "set": {
+      "id": "u2",
+      "text": "TAS: 1 (spin)"
+     },
+     "highlight": [
+      {
+       "id": "P2",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "P3 also spins on TestAndSet and gets 1 every time. P2 and P3 both burn CPU time while they wait.",
+     "set": {
+      "id": "u3",
+      "text": "TAS: 1 (spin)"
+     },
+     "highlight": [
+      {
+       "id": "P3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "P1 finishes and sets lock = 0.",
+     "set": [
+      {
+       "id": "lock",
+       "label": "lock = 0"
+      },
+      {
+       "id": "u1",
+       "text": "released lock"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "lock",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Whoever runs TestAndSet first now wins. P3 happens to get there before P2: it sees 0, sets lock = 1 and enters.",
+     "set": [
+      {
+       "id": "lock",
+       "label": "lock = 1"
+      },
+      {
+       "id": "u3",
+       "text": "TAS: 0 (in CS)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "P3",
+       "tone": "good"
+      },
+      {
+       "id": "cs",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "P2 keeps spinning. Nothing in the code orders the waiters, so P2 could lose again and again. Mutual exclusion holds, but bounded waiting does not.",
+     "set": {
+      "id": "nt",
+      "text": "no queue: P2 may starve"
+     },
+     "highlight": [
+      {
+       "id": "P2",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.sync.s5",
+   "title": "A counting semaphore with a blocked queue",
+   "viewBox": [
+    0,
+    0,
+    360,
+    236
+   ],
+   "objects": [
+    {
+     "id": "sv",
+     "kind": "box",
+     "x": 14,
+     "y": 26,
+     "w": 110,
+     "h": 36,
+     "label": "S = 2"
+    },
+    {
+     "id": "q",
+     "kind": "array",
+     "x": 150,
+     "y": 36,
+     "cells": [],
+     "cw": 40,
+     "ch": 30,
+     "slots": 4,
+     "indices": false,
+     "label": "blocked queue"
+    },
+    {
+     "id": "op",
+     "kind": "text",
+     "x": 180,
+     "y": 106,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "rs",
+     "kind": "text",
+     "x": 180,
+     "y": 134,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "fm",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "accent",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "S starts at 2: two permits. A calls wait(S). S becomes 1 and A passes.",
+     "set": [
+      {
+       "id": "sv",
+       "label": "S = 1"
+      },
+      {
+       "id": "op",
+       "text": "A: wait(S)"
+      },
+      {
+       "id": "rs",
+       "text": "S >= 0 after: A passes"
+      }
+     ],
+     "highlight": "sv"
+    },
+    {
+     "caption": "B calls wait(S). S becomes 0 and B passes. No permits are left.",
+     "set": [
+      {
+       "id": "sv",
+       "label": "S = 0"
+      },
+      {
+       "id": "op",
+       "text": "B: wait(S)"
+      },
+      {
+       "id": "rs",
+       "text": "S = 0: B passes"
+      }
+     ],
+     "highlight": "sv"
+    },
+    {
+     "caption": "C calls wait(S). S becomes -1, which is below 0, so C blocks. A negative S counts the blocked processes: one.",
+     "set": [
+      {
+       "id": "sv",
+       "label": "S = -1"
+      },
+      {
+       "id": "op",
+       "text": "C: wait(S)"
+      },
+      {
+       "id": "rs",
+       "text": "S < 0: C blocks"
+      }
+     ],
+     "push": {
+      "id": "q",
+      "value": "C"
+     },
+     "highlight": [
+      {
+       "id": "sv",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "D calls wait(S). S becomes -2 and D blocks too. Two processes are waiting.",
+     "set": [
+      {
+       "id": "sv",
+       "label": "S = -2"
+      },
+      {
+       "id": "op",
+       "text": "D: wait(S)"
+      },
+      {
+       "id": "rs",
+       "text": "S < 0: D blocks"
+      }
+     ],
+     "push": {
+      "id": "q",
+      "value": "D"
+     },
+     "highlight": [
+      {
+       "id": "sv",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Somebody calls signal(S). S becomes -1 and one blocked process, C, the oldest, is woken.",
+     "set": [
+      {
+       "id": "sv",
+       "label": "S = -1"
+      },
+      {
+       "id": "op",
+       "text": "signal(S)"
+      },
+      {
+       "id": "rs",
+       "text": "wake the oldest: C"
+      }
+     ],
+     "pop": {
+      "id": "q",
+      "end": "front"
+     },
+     "highlight": [
+      {
+       "id": "sv",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Another signal(S): S becomes 0 and D is woken. The queue is empty.",
+     "set": [
+      {
+       "id": "sv",
+       "label": "S = 0"
+      },
+      {
+       "id": "op",
+       "text": "signal(S)"
+      },
+      {
+       "id": "rs",
+       "text": "wake D"
+      }
+     ],
+     "pop": {
+      "id": "q",
+      "end": "front"
+     },
+     "highlight": [
+      {
+       "id": "sv",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "E calls wait(S). S becomes -1 and E blocks. Check: $2-5\\text{ waits}+2\\text{ signals}=-1$, so one process is blocked.",
+     "set": [
+      {
+       "id": "sv",
+       "label": "S = -1"
+      },
+      {
+       "id": "op",
+       "text": "E: wait(S)"
+      },
+      {
+       "id": "rs",
+       "text": "S < 0: E blocks"
+      },
+      {
+       "id": "fm",
+       "text": "final S = 2 - 5 + 2 = -1"
+      }
+     ],
+     "push": {
+      "id": "q",
+      "value": "E"
+     },
+     "highlight": [
+      {
+       "id": "sv",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.sync.s6",
+   "title": "Semaphores force A, then B and C, then D",
+   "viewBox": [
+    0,
+    0,
+    360,
+    266
+   ],
+   "objects": [
+    {
+     "id": "A",
+     "kind": "node",
+     "x": 180,
+     "y": 40,
+     "r": 20,
+     "label": "A"
+    },
+    {
+     "id": "B",
+     "kind": "node",
+     "x": 90,
+     "y": 112,
+     "r": 20,
+     "label": "B"
+    },
+    {
+     "id": "C",
+     "kind": "node",
+     "x": 270,
+     "y": 112,
+     "r": 20,
+     "label": "C"
+    },
+    {
+     "id": "D",
+     "kind": "node",
+     "x": 180,
+     "y": 184,
+     "r": 20,
+     "label": "D"
+    },
+    {
+     "id": "ab",
+     "kind": "arrow",
+     "from": "A",
+     "to": "B",
+     "label": "x"
+    },
+    {
+     "id": "ac",
+     "kind": "arrow",
+     "from": "A",
+     "to": "C",
+     "label": "y"
+    },
+    {
+     "id": "bd",
+     "kind": "arrow",
+     "from": "B",
+     "to": "D",
+     "label": "z"
+    },
+    {
+     "id": "cd",
+     "kind": "arrow",
+     "from": "C",
+     "to": "D",
+     "label": "z"
+    },
+    {
+     "id": "sm",
+     "kind": "text",
+     "x": 180,
+     "y": 226,
+     "text": "x = 0    y = 0    z = 0",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "out",
+     "kind": "text",
+     "x": 180,
+     "y": 250,
+     "text": "output:",
+     "size": 15,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "All semaphores start at 0, so any wait blocks. A has no wait, so it prints first.",
+     "set": [
+      {
+       "id": "out",
+       "text": "output: A"
+      }
+     ],
+     "highlight": "A"
+    },
+    {
+     "caption": "A signals x and y: x = 1 and y = 1. Now B and C are both allowed to run.",
+     "set": [
+      {
+       "id": "sm",
+       "text": "x = 1    y = 1    z = 0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ab",
+       "tone": "accent"
+      },
+      {
+       "id": "ac",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "B passes wait(x), making x = 0. It prints B and signals z: z = 1.",
+     "set": [
+      {
+       "id": "sm",
+       "text": "x = 0    y = 1    z = 1"
+      },
+      {
+       "id": "out",
+       "text": "output: A B"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "B",
+       "tone": "good"
+      },
+      {
+       "id": "bd",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "C passes wait(y), making y = 0. It prints C and signals z: z = 2.",
+     "set": [
+      {
+       "id": "sm",
+       "text": "x = 0    y = 0    z = 2"
+      },
+      {
+       "id": "out",
+       "text": "output: A B C"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "C",
+       "tone": "good"
+      },
+      {
+       "id": "cd",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "D needs two waits on z: z goes 2, 1, 0. Then it prints D.",
+     "set": [
+      {
+       "id": "sm",
+       "text": "x = 0    y = 0    z = 0"
+      },
+      {
+       "id": "out",
+       "text": "output: A B C D"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "D",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Output ABCD. B and C are not ordered with each other: if C had run first the output would be ACBD. Only A first and D last are forced.",
+     "highlight": [
+      {
+       "id": "B",
+       "tone": "mid"
+      },
+      {
+       "id": "C",
+       "tone": "mid"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.sync.s7",
+   "title": "Producer and consumer with empty, full and mutex",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "buf",
+     "kind": "array",
+     "x": 20,
+     "y": 56,
+     "cells": [
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 80,
+     "ch": 34,
+     "indices": false,
+     "label": "buffer, 4 slots"
+    },
+    {
+     "id": "ce",
+     "kind": "box",
+     "x": 20,
+     "y": 124,
+     "w": 100,
+     "h": 30,
+     "label": "empty = 4"
+    },
+    {
+     "id": "cf",
+     "kind": "box",
+     "x": 130,
+     "y": 124,
+     "w": 100,
+     "h": 30,
+     "label": "full = 0"
+    },
+    {
+     "id": "cm",
+     "kind": "box",
+     "x": 240,
+     "y": 124,
+     "w": 100,
+     "h": 30,
+     "label": "mutex = 1"
+    },
+    {
+     "id": "op",
+     "kind": "text",
+     "x": 180,
+     "y": 182,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "rs",
+     "kind": "text",
+     "x": 180,
+     "y": 208,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Producer makes A: wait(empty) takes empty from 4 to 3; wait(mutex) takes the buffer lock (0); A goes into a slot; signal(mutex) releases it; signal(full) raises full to 1.",
+     "set": [
+      {
+       "id": "buf",
+       "cells": [
+        "A",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ce",
+       "label": "empty = 3"
+      },
+      {
+       "id": "cf",
+       "label": "full = 1"
+      },
+      {
+       "id": "op",
+       "text": "produce A"
+      },
+      {
+       "id": "rs",
+       "text": "empty + full = 4 (slots always add up to 4)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "buf",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Producer makes B: empty 3 to 2, full 1 to 2. The mutex goes 1, 0, 1 again around the store.",
+     "set": [
+      {
+       "id": "buf",
+       "cells": [
+        "A",
+        "B",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ce",
+       "label": "empty = 2"
+      },
+      {
+       "id": "cf",
+       "label": "full = 2"
+      },
+      {
+       "id": "op",
+       "text": "produce B"
+      },
+      {
+       "id": "rs",
+       "text": "empty + full = 4 (slots always add up to 4)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "buf",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Producer makes C: empty 2 to 1, full 2 to 3.",
+     "set": [
+      {
+       "id": "buf",
+       "cells": [
+        "A",
+        "B",
+        "C",
+        ""
+       ]
+      },
+      {
+       "id": "ce",
+       "label": "empty = 1"
+      },
+      {
+       "id": "cf",
+       "label": "full = 3"
+      },
+      {
+       "id": "op",
+       "text": "produce C"
+      },
+      {
+       "id": "rs",
+       "text": "empty + full = 4 (slots always add up to 4)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "buf",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Consumer takes A: wait(full) 3 to 2, remove A under the mutex, signal(empty) 1 to 2. A slot is free again.",
+     "set": [
+      {
+       "id": "buf",
+       "cells": [
+        "",
+        "B",
+        "C",
+        ""
+       ]
+      },
+      {
+       "id": "ce",
+       "label": "empty = 2"
+      },
+      {
+       "id": "cf",
+       "label": "full = 2"
+      },
+      {
+       "id": "op",
+       "text": "consume A"
+      },
+      {
+       "id": "rs",
+       "text": "empty + full = 4 (slots always add up to 4)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "buf",
+       "cells": [
+        0
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Producer makes D: empty 2 to 1, full 2 to 3.",
+     "set": [
+      {
+       "id": "buf",
+       "cells": [
+        "",
+        "B",
+        "C",
+        "D"
+       ]
+      },
+      {
+       "id": "ce",
+       "label": "empty = 1"
+      },
+      {
+       "id": "cf",
+       "label": "full = 3"
+      },
+      {
+       "id": "op",
+       "text": "produce D"
+      },
+      {
+       "id": "rs",
+       "text": "empty + full = 4 (slots always add up to 4)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "buf",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Producer makes E: empty 1 to 0, full 3 to 4. The buffer is full. A further producer would block on wait(empty).",
+     "set": [
+      {
+       "id": "buf",
+       "cells": [
+        "E",
+        "B",
+        "C",
+        "D"
+       ]
+      },
+      {
+       "id": "ce",
+       "label": "empty = 0"
+      },
+      {
+       "id": "cf",
+       "label": "full = 4"
+      },
+      {
+       "id": "op",
+       "text": "produce E"
+      },
+      {
+       "id": "rs",
+       "text": "empty + full = 4 (slots always add up to 4)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "buf",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.sync.s8",
+   "title": "Readers share, a writer waits for the last reader",
+   "viewBox": [
+    0,
+    0,
+    360,
+    222
+   ],
+   "objects": [
+    {
+     "id": "rcb",
+     "kind": "box",
+     "x": 54,
+     "y": 14,
+     "w": 120,
+     "h": 30,
+     "label": "readcount = 0"
+    },
+    {
+     "id": "wrb",
+     "kind": "box",
+     "x": 196,
+     "y": 14,
+     "w": 110,
+     "h": 30,
+     "label": "wrt = 1"
+    },
+    {
+     "id": "R1",
+     "kind": "box",
+     "x": 14,
+     "y": 74,
+     "w": 70,
+     "h": 30,
+     "label": "R1"
+    },
+    {
+     "id": "R2",
+     "kind": "box",
+     "x": 104,
+     "y": 74,
+     "w": 70,
+     "h": 30,
+     "label": "R2"
+    },
+    {
+     "id": "W",
+     "kind": "box",
+     "x": 274,
+     "y": 74,
+     "w": 70,
+     "h": 30,
+     "label": "W"
+    },
+    {
+     "id": "s1",
+     "kind": "text",
+     "x": 49,
+     "y": 120,
+     "text": "idle",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "s2",
+     "kind": "text",
+     "x": 139,
+     "y": 120,
+     "text": "idle",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "sw",
+     "kind": "text",
+     "x": 309,
+     "y": 120,
+     "text": "idle",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "nt",
+     "kind": "text",
+     "x": 180,
+     "y": 170,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 180,
+     "y": 198,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "R1 arrives. readcount becomes 1. R1 is the first reader, so it does wait(wrt): wrt = 0. R1 reads.",
+     "set": [
+      {
+       "id": "rcb",
+       "label": "readcount = 1"
+      },
+      {
+       "id": "wrb",
+       "label": "wrt = 0"
+      },
+      {
+       "id": "s1",
+       "text": "reading"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "R1",
+       "tone": "good"
+      },
+      {
+       "id": "wrb",
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "A writer W arrives. wait(wrt) makes wrt = -1, so W blocks.",
+     "set": [
+      {
+       "id": "wrb",
+       "label": "wrt = -1"
+      },
+      {
+       "id": "sw",
+       "text": "blocked"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "W",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "R2 arrives. readcount becomes 2. R2 is not first, so it does not touch wrt and starts reading at once.",
+     "set": [
+      {
+       "id": "rcb",
+       "label": "readcount = 2"
+      },
+      {
+       "id": "s2",
+       "text": "reading"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "R2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "R1 leaves. readcount becomes 1. R1 is not the last reader, so wrt stays as it is.",
+     "set": [
+      {
+       "id": "rcb",
+       "label": "readcount = 1"
+      },
+      {
+       "id": "s1",
+       "text": "left"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "R1",
+       "tone": "muted"
+      }
+     ]
+    },
+    {
+     "caption": "R2 leaves. readcount becomes 0. R2 is the last reader, so it does signal(wrt): wrt = 0 and W wakes up.",
+     "set": [
+      {
+       "id": "rcb",
+       "label": "readcount = 0"
+      },
+      {
+       "id": "wrb",
+       "label": "wrt = 0"
+      },
+      {
+       "id": "s2",
+       "text": "left"
+      },
+      {
+       "id": "sw",
+       "text": "woken"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "R2",
+       "tone": "accent"
+      },
+      {
+       "id": "W",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "W writes alone. Readers share, but a writer needs the data to itself.",
+     "set": [
+      {
+       "id": "sw",
+       "text": "writing alone"
+      },
+      {
+       "id": "nt",
+       "text": "readers share; a writer excludes all"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "W",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os.sync.s9",
+   "title": "Listing every legal interleaving",
+   "viewBox": [
+    0,
+    -5,
+    360,
+    267
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 14,
+     "text": "T1: A1 x = x + 3; A2 y = y * 2\nT2: B1 y = y + 1; B2 x = x * 2   (x = y = 1)",
+     "size": 12,
+     "anchor": "middle"
+    },
+    {
+     "id": "tb",
+     "kind": "grid",
+     "x": 45,
+     "y": 66,
+     "rows": 6,
+     "cols": 3,
+     "cw": 90,
+     "ch": 26,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "order",
+      "x",
+      "y"
+     ]
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 180,
+     "y": 246,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Order A1 A2 B1 B2. A1: x=4, y=1; A2: x=4, y=2; B1: x=4, y=3; B2: x=8, y=3. Result (8, 3).",
+     "set": {
+      "id": "tb",
+      "cells": [
+       "A1A2B1B2",
+       "8",
+       "3",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     },
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        0,
+        1,
+        2
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Order A1 B1 A2 B2. A1: x=4, y=1; B1: x=4, y=2; A2: x=4, y=4; B2: x=8, y=4. Result (8, 4).",
+     "set": {
+      "id": "tb",
+      "cells": [
+       "A1A2B1B2",
+       "8",
+       "3",
+       "A1B1A2B2",
+       "8",
+       "4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     },
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        3,
+        4,
+        5
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Order A1 B1 B2 A2. A1: x=4, y=1; B1: x=4, y=2; B2: x=8, y=2; A2: x=8, y=4. Result (8, 4).",
+     "set": {
+      "id": "tb",
+      "cells": [
+       "A1A2B1B2",
+       "8",
+       "3",
+       "A1B1A2B2",
+       "8",
+       "4",
+       "A1B1B2A2",
+       "8",
+       "4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     },
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        6,
+        7,
+        8
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Order B1 A1 A2 B2. B1: x=1, y=2; A1: x=4, y=2; A2: x=4, y=4; B2: x=8, y=4. Result (8, 4).",
+     "set": {
+      "id": "tb",
+      "cells": [
+       "A1A2B1B2",
+       "8",
+       "3",
+       "A1B1A2B2",
+       "8",
+       "4",
+       "A1B1B2A2",
+       "8",
+       "4",
+       "B1A1A2B2",
+       "8",
+       "4",
+       "",
+       "",
+       "",
+       "",
+       "",
+       ""
+      ]
+     },
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        9,
+        10,
+        11
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Order B1 A1 B2 A2. B1: x=1, y=2; A1: x=4, y=2; B2: x=8, y=2; A2: x=8, y=4. Result (8, 4).",
+     "set": {
+      "id": "tb",
+      "cells": [
+       "A1A2B1B2",
+       "8",
+       "3",
+       "A1B1A2B2",
+       "8",
+       "4",
+       "A1B1B2A2",
+       "8",
+       "4",
+       "B1A1A2B2",
+       "8",
+       "4",
+       "B1A1B2A2",
+       "8",
+       "4",
+       "",
+       "",
+       ""
+      ]
+     },
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        12,
+        13,
+        14
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Order B1 B2 A1 A2. B1: x=1, y=2; B2: x=2, y=2; A1: x=5, y=2; A2: x=5, y=4. Result (5, 4).",
+     "set": {
+      "id": "tb",
+      "cells": [
+       "A1A2B1B2",
+       "8",
+       "3",
+       "A1B1A2B2",
+       "8",
+       "4",
+       "A1B1B2A2",
+       "8",
+       "4",
+       "B1A1A2B2",
+       "8",
+       "4",
+       "B1A1B2A2",
+       "8",
+       "4",
+       "B1B2A1A2",
+       "5",
+       "4"
+      ]
+     },
+     "highlight": [
+      {
+       "id": "tb",
+       "cells": [
+        15,
+        16,
+        17
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Six legal orders give three distinct final pairs: (8, 3), (8, 4) and (5, 4). Only A1 A2 B1 B2 gives y = 3, and only B1 B2 A1 A2 gives x = 5.",
+     "set": {
+      "id": "n1",
+      "text": "distinct results: (8,3) (8,4) (5,4)"
+     },
+     "highlight": [
+      {
+       "id": "tb",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

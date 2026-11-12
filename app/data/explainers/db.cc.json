@@ -1,0 +1,2434 @@
+{
+ "topic_id": "db.cc",
+ "title": "Concurrency control",
+ "chapter_note": {
+  "about": "Concurrency control lets many transactions run at once while the result still looks as if they ran one after another. This chapter starts from the conflict test and the lock modes, then two-phase locking and its variants, deadlock, and finally the other big family, timestamp ordering with Thomas' write rule. Most questions give you a short schedule or a few timestamps and ask what is allowed, who waits, or who is rolled back. The last card compares what each protocol guarantees.",
+  "simple": "Many people share one set of tools and want to work at the same time. One way is locks: grab every tool you need, then give them back, and never take a new tool after giving one back. That keeps things fair but people can end up waiting on each other in a circle. Another way is queue numbers: everyone gets a number and anyone who arrives too late for a tool is sent back to start again with a new number. Nobody waits, so there is no circle. In exam words: lock modes, two-phase locking and variants, deadlock prevention, timestamp ordering and Thomas' write rule.",
+  "concept_map": [
+   {
+    "atom_id": "c1",
+    "title": "Conflict test recap",
+    "one_line": "Only read-read commutes; swaps reach a serial schedule iff conflict serializable."
+   },
+   {
+    "atom_id": "c2",
+    "title": "Lock modes",
+    "one_line": "S and X locks; only S-S is compatible."
+   },
+   {
+    "atom_id": "c3",
+    "title": "Two-phase locking",
+    "one_line": "Growing then shrinking; the lock point order is the serial order."
+   },
+   {
+    "atom_id": "c4",
+    "title": "2PL variants",
+    "one_line": "Strict, rigorous, conservative: what each holds and guarantees."
+   },
+   {
+    "atom_id": "c5",
+    "title": "Deadlock",
+    "one_line": "Wait-for cycles; wait-die and wound-wait."
+   },
+   {
+    "atom_id": "c6",
+    "title": "Timestamp ordering",
+    "one_line": "RTS and WTS; a late operation rolls its transaction back."
+   },
+   {
+    "atom_id": "c7",
+    "title": "Thomas' write rule",
+    "one_line": "Ignore an obsolete write; view serializable."
+   },
+   {
+    "atom_id": "c8",
+    "title": "Protocol comparison",
+    "one_line": "What each protocol guarantees; 2PL and TSO accept different schedules."
+   }
+  ],
+  "gate_patterns": [
+   "Conflict serializability of a lock-free schedule: precedence graph and equivalent serial orders (2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42, 2025 CS2 Q53).",
+   "2PL and its variants: what is guaranteed and what is not, strict versus rigorous versus conservative (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51).",
+   "Recoverability, cascading aborts and deadlock prevention with timestamps (2025 CS1 Q15, 2017 CS1 Q42). Weightage: about 0.9 marks per CS paper; the chapter is not tested in DA."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "c1",
+   "title": "Conflict test recap",
+   "simple": "Two friends can swap places in a queue without changing anything only if what they do does not affect each other. Two people just reading the same notice can swap freely. Someone writing and someone reading the same notice cannot, because who goes first changes what the reader sees. If you can slide the actions of different people around, using only harmless swaps, until each person's actions are together, then the schedule is as good as taking turns. In exam words: only read-read pairs (and pairs on different items) commute; if swaps reach a serial schedule, it is conflict serializable.",
+   "idea": "A schedule is **conflict serializable** if swapping adjacent **non-conflicting** operations can turn it into a serial schedule. Operations commute only when they are on different items, or both are reads. The precedence-graph test says the same thing with a cycle check.",
+   "definition": "Two operations of different transactions **conflict** if they access the same item and at least one is a write. Two schedules are **conflict equivalent** if they order every conflicting pair the same way. $S$ is conflict serializable iff it is conflict equivalent to a serial schedule, iff its precedence graph is acyclic.",
+   "intuition_full": "This card is a short bridge from the transactions chapter into locking. A locking protocol is a way to make sure that only schedules which could be unscrambled by safe swaps are ever produced. The swap picture explains why only conflicting pairs matter: two non-conflicting operations leave the database in the same state in either order, so their relative order is not part of the outcome. If swaps can gather each transaction's operations together, the result is a serial schedule. If conflicting pairs force a cycle of 'must come before' constraints, no sequence of safe swaps can reach a serial schedule.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Schedule $S$: $r_1(x)\\ w_2(y)\\ w_1(x)\\ r_2(x)$. Use swaps of adjacent non-conflicting operations to see whether it is equivalent to a serial schedule.",
+     "steps": [
+      "$S$ is $r_1(x),\\ w_2(y),\\ w_1(x),\\ r_2(x)$. Two adjacent operations can be swapped only if they do not conflict. Check each neighbouring pair.",
+      "$(r_1(x), w_2(y))$: different items, can swap. $(w_2(y), w_1(x))$: different items, can swap. $(w_1(x), r_2(x))$: same item, different transactions, one write: **conflict**, cannot swap.",
+      "Swap $w_2(y)$ and $w_1(x)$. The schedule becomes $r_1(x),\\ w_1(x),\\ w_2(y),\\ r_2(x)$.",
+      "All of $T_1$'s operations now come before all of $T_2$'s: the serial schedule $T_1\\,T_2$. Swaps keep the outcome unchanged, so $S$ is conflict equivalent to it, hence conflict serializable."
+     ],
+     "answer": "$S$ is conflict equivalent to the serial schedule $T_1\\,T_2$."
+    },
+    {
+     "level": "gate",
+     "setup": "For two different transactions, which adjacent pairs can be swapped without changing the outcome? (1) $r_1(x), r_2(x)$ (2) $w_1(x), r_2(y)$ (3) $r_1(x), w_2(x)$ (4) $w_1(x), w_2(x)$.",
+     "steps": [
+      "A pair is swappable when its two operations commute: no conflict.",
+      "(1) Read-read on the same item: swappable.",
+      "(2) Different items ($x$ and $y$): swappable.",
+      "(3) and (4) share item $x$ and include a write: conflicting, not swappable."
+     ],
+     "answer": "Swappable: (1) and (2)."
+    },
+    {
+     "level": "twist",
+     "setup": "Schedule $S$: $r_1(x)\\ w_2(x)\\ w_1(x)$. Can swaps of non-conflicting neighbours turn it into a serial schedule?",
+     "steps": [
+      "Neighbours: $(r_1(x), w_2(x))$ conflict, and $(w_2(x), w_1(x))$ conflict. Nothing can be swapped.",
+      "A serial schedule needs all of $T_1$ first ($r_1(x), w_1(x)$) or all of $T_2$ first. Neither is reachable without swapping a conflicting pair.",
+      "The precedence graph has $T_1 \\to T_2$ (from $r_1, w_2$) and $T_2 \\to T_1$ (from $w_2, w_1$): a cycle."
+     ],
+     "answer": "No. $S$ is not conflict serializable."
+    }
+   ],
+   "why": "Every lock-free schedule question in this chapter reduces to this test. In GATE: is the schedule conflict serializable, or which serial order is equivalent (2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42, 2025 CS2 Q53).",
+   "how": [
+    "List conflicting pairs: same item, different transactions, one write.",
+    "Draw an edge from the transaction whose operation comes first.",
+    "Acyclic means conflict serializable; a topological order is an equivalent serial schedule.",
+    "Remember: read-read pairs and pairs on different items never constrain the order."
+   ],
+   "mistake": "Counting read-read pairs as conflicts, or checking only two-transaction cycles. A cycle can involve three or more transactions.",
+   "edge_cases": [
+    "A schedule with only one transaction is trivially serial.",
+    "Two transactions that touch disjoint items are always serializable.",
+    "Equivalent serial schedules need not be unique.",
+    "Conflict serializable does not mean recoverable."
+   ],
+   "connections": [
+    "**Precedence graph** in `db.txn` is the formal version of this test.",
+    "**Two-phase locking** (next cards) guarantees that the swap test passes.",
+    "**Timestamp ordering** forces the serial order to be the timestamp order."
+   ],
+   "check": [
+    {
+     "q": "Can $r_1(x)$ and $r_2(x)$ be swapped?",
+     "a": "Yes. Two reads commute."
+    },
+    {
+     "q": "Can $w_1(x)$ and $w_2(y)$ be swapped?",
+     "a": "Yes. Different items."
+    },
+    {
+     "q": "Can $w_1(x)$ and $r_2(x)$ be swapped?",
+     "a": "No. They conflict."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42, 2025 CS2 Q53",
+   "try": {
+    "id": "gen.db.cc.003",
+    "label": "Try: which pair of operations can be swapped (L1)"
+   },
+   "scene": "db.cc.c1.swaps",
+   "example": {
+    "setup": "Schedule $S$: $r_1(x)\\ w_2(y)\\ w_1(x)\\ r_2(x)$. Use swaps of adjacent non-conflicting operations to see whether it is equivalent to a serial schedule.",
+    "steps": [
+     "$S$ is $r_1(x),\\ w_2(y),\\ w_1(x),\\ r_2(x)$. Two adjacent operations can be swapped only if they do not conflict. Check each neighbouring pair.",
+     "$(r_1(x), w_2(y))$: different items, can swap. $(w_2(y), w_1(x))$: different items, can swap. $(w_1(x), r_2(x))$: same item, different transactions, one write: **conflict**, cannot swap.",
+     "Swap $w_2(y)$ and $w_1(x)$. The schedule becomes $r_1(x),\\ w_1(x),\\ w_2(y),\\ r_2(x)$.",
+     "All of $T_1$'s operations now come before all of $T_2$'s: the serial schedule $T_1\\,T_2$. Swaps keep the outcome unchanged, so $S$ is conflict equivalent to it, hence conflict serializable."
+    ],
+    "answer": "$S$ is conflict equivalent to the serial schedule $T_1\\,T_2$."
+   },
+   "what": "A schedule is **conflict serializable** if swapping adjacent **non-conflicting** operations can turn it into a serial schedule. Operations commute only when they are on different items, or both are reads. The precedence-graph test says the same thing with a cycle check.",
+   "what_full": "A schedule is **conflict serializable** if swapping adjacent **non-conflicting** operations can turn it into a serial schedule. Operations commute only when they are on different items, or both are reads. The precedence-graph test says the same thing with a cycle check.\n\nTwo operations of different transactions **conflict** if they access the same item and at least one is a write. Two schedules are **conflict equivalent** if they order every conflicting pair the same way. $S$ is conflict serializable iff it is conflict equivalent to a serial schedule, iff its precedence graph is acyclic.\n\n**Worked example.** Schedule $S$: $r_1(x)\\ w_2(y)\\ w_1(x)\\ r_2(x)$. Use swaps of adjacent non-conflicting operations to see whether it is equivalent to a serial schedule.\n\n1. $S$ is $r_1(x),\\ w_2(y),\\ w_1(x),\\ r_2(x)$. Two adjacent operations can be swapped only if they do not conflict. Check each neighbouring pair.\n2. $(r_1(x), w_2(y))$: different items, can swap. $(w_2(y), w_1(x))$: different items, can swap. $(w_1(x), r_2(x))$: same item, different transactions, one write: **conflict**, cannot swap.\n3. Swap $w_2(y)$ and $w_1(x)$. The schedule becomes $r_1(x),\\ w_1(x),\\ w_2(y),\\ r_2(x)$.\n4. All of $T_1$'s operations now come before all of $T_2$'s: the serial schedule $T_1\\,T_2$. Swaps keep the outcome unchanged, so $S$ is conflict equivalent to it, hence conflict serializable.\n\n**Answer:** $S$ is conflict equivalent to the serial schedule $T_1\\,T_2$.",
+   "why_full": "Every lock-free schedule question in this chapter reduces to this test. In GATE: is the schedule conflict serializable, or which serial order is equivalent (2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42, 2025 CS2 Q53).\n\nAsked: 2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42, 2025 CS2 Q53",
+   "trap": "Counting read-read pairs as conflicts, or checking only two-transaction cycles. A cycle can involve three or more transactions."
+  },
+  {
+   "atom_id": "c2",
+   "title": "Lock modes",
+   "simple": "Think of a library book. Many people can read the same book in the reading room at once. But if one person wants to write notes in it, nobody else may read or write it at that time. A shared lock is permission to read together with others. An exclusive lock is sole permission to read and write. A request that clashes with what is already held has to wait in the queue. In exam words: S (shared) is compatible only with S; X (exclusive) is compatible with nothing.",
+   "idea": "A **lock** is permission to use an item. A **shared (S)** lock allows reading and can be held by many transactions at once. An **exclusive (X)** lock allows writing and is held by only one. A request that is incompatible with the locks already held has to **wait**.",
+   "definition": "Compatibility matrix (held vs requested): S/S yes, S/X no, X/S no, X/X no.\n\nA transaction must hold $S$ (or $X$) to read and $X$ to write. **Upgrade:** converting $S$ to $X$ needs all other locks on the item to be released first. **Downgrade:** the reverse.",
+   "intuition_full": "The matrix mirrors the conflict rule from the transactions chapter: two operations conflict unless both are reads. Two shared locks are allowed together because two reads never conflict. Everything else would let a write overlap with another access, so it is refused. A lock manager keeps, for each item, the list of holders and a queue of waiters. Requests are granted in order when compatible. Upgrades are risky: if two transactions each hold a shared lock and both ask for an upgrade, each waits for the other. That is why some systems provide an update lock for 'read now, write later'.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Four transactions use item $A$. $T_1$ asks for a shared lock S, then $T_2$ asks for S, then $T_3$ asks for an exclusive lock X, then $T_1$ and $T_2$ unlock, and finally $T_4$ asks for S. Follow the lock table.",
+     "steps": [
+      "$A$ is free. $T_1$ requests $S(A)$: granted. $A$ is held by $T_1$ in shared mode.",
+      "$T_2$ requests $S(A)$. Shared with shared is compatible, so it is granted. Many readers may share an item.",
+      "$T_3$ requests $X(A)$. Exclusive conflicts with the held shared locks, so $T_3$ must wait.",
+      "$T_1$ and $T_2$ unlock $A$. Now nothing is held, and the waiting $T_3$ is granted $X(A)$.",
+      "$T_4$ requests $S(A)$ while $T_3$ holds $X(A)$. Exclusive blocks everything, so $T_4$ waits."
+     ],
+     "answer": "Only S with S is compatible. $T_1$ and $T_2$ share; $T_3$ and then $T_4$ wait."
+    },
+    {
+     "level": "gate",
+     "setup": "Current locks: $T_1$ holds $S(A)$ and $X(B)$; $T_2$ holds $S(C)$. Which new requests can be granted at once? (1) $T_3$: $S(A)$ (2) $T_3$: $X(A)$ (3) $T_3$: $S(B)$ (4) $T_4$: $X(C)$ (5) $T_4$: $S(C)$.",
+     "steps": [
+      "(1) $S$ requested, $S$ held by $T_1$: compatible. Granted.",
+      "(2) $X$ requested while $S$ is held: conflict. Wait.",
+      "(3) $S$ requested while $X$ is held on $B$: conflict. Wait.",
+      "(4) $X$ requested while $T_2$ holds $S(C)$: conflict. Wait.",
+      "(5) $S$ requested, $S$ held on $C$: compatible. Granted."
+     ],
+     "answer": "Granted: (1) and (5). The rest must wait."
+    },
+    {
+     "level": "twist",
+     "setup": "$T_1$ and $T_2$ both hold $S(A)$. Each now tries to **upgrade** to $X(A)$. What happens?",
+     "steps": [
+      "An upgrade needs every other lock on $A$ to be gone.",
+      "$T_1$ waits for $T_2$ to release its $S(A)$, and $T_2$ waits for $T_1$ to release its $S(A)$.",
+      "Neither will release before it commits. This is a **deadlock**.",
+      "One transaction must be rolled back. A common fix is to request $X$ from the start if a write is likely."
+     ],
+     "answer": "Deadlock; one of the two must abort."
+    }
+   ],
+   "why": "Compatibility is the base of every locking question. In GATE: which requests can be granted at once, and what a lock sequence does (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51).",
+   "how": [
+    "Write down the locks held on the item and by whom.",
+    "A new request is granted only if it is compatible with every held lock.",
+    "S/S is the only compatible pair.",
+    "Check upgrades: they need the transaction to be the only holder."
+   ],
+   "mistake": "Treating S/X as compatible when the same transaction asks for both. A transaction's own locks never block it, but it can upgrade only when no other transaction holds the item. Another slip is forgetting that waiting requests queue behind earlier incompatible ones.",
+   "edge_cases": [
+    "A transaction holding $X$ can read the item without an extra lock.",
+    "Locks on different items never interact.",
+    "Upgrade deadlock: two shared holders both asking for $X$.",
+    "Some systems queue new shared requests behind a waiting exclusive one to avoid starving writers."
+   ],
+   "connections": [
+    "**Two-phase locking** (next card) says when locks may be taken and released.",
+    "**Deadlock** (later card) arises from waiting on locks.",
+    "Mutexes and reader-writer locks in `os.sync` are the same two modes."
+   ],
+   "check": [
+    {
+     "q": "Which pair of lock modes is compatible: S/S, S/X or X/X?",
+     "a": "S/S only."
+    },
+    {
+     "q": "$T_1$ holds $X(A)$. Can $T_2$ get $S(A)$?",
+     "a": "No. It must wait."
+    },
+    {
+     "q": "Two transactions hold $S(A)$ and both ask for $X(A)$. What happens?",
+     "a": "Deadlock."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51",
+   "try": {
+    "id": "gen.db.cc.001",
+    "label": "Try: which pair of locks can two transactions hold together (L1)"
+   },
+   "scene": "db.cc.c2.lockmodes",
+   "example": {
+    "setup": "Four transactions use item $A$. $T_1$ asks for a shared lock S, then $T_2$ asks for S, then $T_3$ asks for an exclusive lock X, then $T_1$ and $T_2$ unlock, and finally $T_4$ asks for S. Follow the lock table.",
+    "steps": [
+     "$A$ is free. $T_1$ requests $S(A)$: granted. $A$ is held by $T_1$ in shared mode.",
+     "$T_2$ requests $S(A)$. Shared with shared is compatible, so it is granted. Many readers may share an item.",
+     "$T_3$ requests $X(A)$. Exclusive conflicts with the held shared locks, so $T_3$ must wait.",
+     "$T_1$ and $T_2$ unlock $A$. Now nothing is held, and the waiting $T_3$ is granted $X(A)$.",
+     "$T_4$ requests $S(A)$ while $T_3$ holds $X(A)$. Exclusive blocks everything, so $T_4$ waits."
+    ],
+    "answer": "Only S with S is compatible. $T_1$ and $T_2$ share; $T_3$ and then $T_4$ wait."
+   },
+   "what": "A **lock** is permission to use an item. A **shared (S)** lock allows reading and can be held by many transactions at once. An **exclusive (X)** lock allows writing and is held by only one. A request that is incompatible with the locks already held has to **wait**.",
+   "what_full": "A **lock** is permission to use an item. A **shared (S)** lock allows reading and can be held by many transactions at once. An **exclusive (X)** lock allows writing and is held by only one. A request that is incompatible with the locks already held has to **wait**.\n\nCompatibility matrix (held vs requested): S/S yes, S/X no, X/S no, X/X no.\n\nA transaction must hold $S$ (or $X$) to read and $X$ to write. **Upgrade:** converting $S$ to $X$ needs all other locks on the item to be released first. **Downgrade:** the reverse.\n\n**Worked example.** Four transactions use item $A$. $T_1$ asks for a shared lock S, then $T_2$ asks for S, then $T_3$ asks for an exclusive lock X, then $T_1$ and $T_2$ unlock, and finally $T_4$ asks for S. Follow the lock table.\n\n1. $A$ is free. $T_1$ requests $S(A)$: granted. $A$ is held by $T_1$ in shared mode.\n2. $T_2$ requests $S(A)$. Shared with shared is compatible, so it is granted. Many readers may share an item.\n3. $T_3$ requests $X(A)$. Exclusive conflicts with the held shared locks, so $T_3$ must wait.\n4. $T_1$ and $T_2$ unlock $A$. Now nothing is held, and the waiting $T_3$ is granted $X(A)$.\n5. $T_4$ requests $S(A)$ while $T_3$ holds $X(A)$. Exclusive blocks everything, so $T_4$ waits.\n\n**Answer:** Only S with S is compatible. $T_1$ and $T_2$ share; $T_3$ and then $T_4$ wait.",
+   "why_full": "Compatibility is the base of every locking question. In GATE: which requests can be granted at once, and what a lock sequence does (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51).\n\nAsked: 2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51",
+   "trap": "Treating S/X as compatible when the same transaction asks for both. A transaction's own locks never block it, but it can upgrade only when no other transaction holds the item. Another slip is forgetting that waiting requests queue behind earlier incompatible ones."
+  },
+  {
+   "atom_id": "c3",
+   "title": "Two-phase locking",
+   "simple": "Think of borrowing tools for a job. The rule is: first pick up every tool you will need, and only then start putting tools back. Once you put one tool back, you may not pick up another. If every worker follows this rule, workers who need the same tool cannot get in each other's way, and the jobs can be put in order of when each one finished picking up tools. In exam words: in two-phase locking all locks are acquired before the first unlock; this guarantees conflict serializability, in the order of the lock points.",
+   "idea": "**Two-phase locking (2PL)** says a transaction first only acquires locks (growing phase), then only releases them (shrinking phase). Once it unlocks anything, it may not lock again. Every schedule 2PL produces is **conflict serializable**.",
+   "definition": "A transaction is **two-phase** if no lock request follows its first unlock. The **lock point** is the moment it holds all its locks (end of the growing phase).\n\n**Theorem:** a schedule of 2PL transactions is conflict serializable, and the serial order is the order of the lock points. 2PL does *not* guarantee freedom from deadlock or recoverability.",
+   "intuition_full": "If $T_i$ and $T_j$ conflict on an item, one of them holds the lock first and the other must wait until it is released. Because of the two-phase rule, the first one has already reached its lock point by the time it releases anything, so everything it needs is already locked. Hence every conflict edge points from the transaction with the earlier lock point to the later one. A cycle would need a transaction with an earlier lock point than itself, which is impossible. So the precedence graph is acyclic. The same argument shows why a deadlock can still happen: two transactions each hold something the other wants during their growing phases. And since locks may be released before commit, other transactions can read uncommitted data, so recoverability is not guaranteed.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A transaction runs: lock-S($a$), lock-X($b$), lock-S($c$), unlock($c$), unlock($a$), unlock($b$). Is it two-phase, and where is its lock point?",
+     "steps": [
+      "**Two-phase rule:** all lock requests come before the first unlock. A growing phase, then a shrinking phase.",
+      "lock-S($a$): one lock held.",
+      "lock-X($b$) and lock-S($c$): the count grows to 3. No unlock has happened yet.",
+      "The moment the last lock is acquired is the **lock point**. Here it is after lock-S($c$), with 3 locks held.",
+      "unlock($c$) and unlock($a$): the shrinking phase begins. From now on the transaction may not take any new lock.",
+      "unlock($b$): all released. Every lock came before every unlock, so the transaction is two-phase."
+     ],
+     "answer": "Yes, it is two-phase; the lock point is after lock-S($c$)."
+    },
+    {
+     "level": "gate",
+     "setup": "Which of these transactions follow two-phase locking? $T_a$: lock-X($p$), lock-S($q$), unlock($p$), lock-X($r$), unlock($q$), unlock($r$). $T_b$: lock-S($x$), lock-X($y$), unlock($x$), unlock($y$). $T_c$: lock-S($u$), unlock($u$), lock-S($v$), unlock($v$).",
+     "steps": [
+      "For each transaction find the first unlock, then check that no lock comes after it.",
+      "$T_a$: the first unlock is unlock($p$), and lock-X($r$) comes after it. Not two-phase.",
+      "$T_b$: both locks come before the first unlock. Two-phase.",
+      "$T_c$: lock-S($v$) comes after unlock($u$). Not two-phase."
+     ],
+     "answer": "Only $T_b$ is two-phase."
+    },
+    {
+     "level": "twist",
+     "setup": "Under 2PL, $T_1$, $T_2$ and $T_3$ reach their lock points at times 12, 7 and 9. All three conflict on the same items. Which serial schedule is equivalent?",
+     "steps": [
+      "Under 2PL, a transaction holds every lock it will ever need at its lock point.",
+      "Two conflicting transactions cannot both hold the lock at once, so the one with the earlier lock point finishes its use of the item first.",
+      "The equivalent serial order is the order of lock points: 7, 9, 12, which is $T_2, T_3, T_1$."
+     ],
+     "answer": "$T_2\\,T_3\\,T_1$."
+    }
+   ],
+   "why": "2PL is the core protocol of the chapter. In GATE: is a transaction two-phase, what 2PL guarantees and does not, and the equivalent serial order by lock points (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51).",
+   "how": [
+    "Find the first unlock in the transaction.",
+    "If any lock request appears after it, the transaction is not two-phase.",
+    "For the serial order of 2PL schedules, sort transactions by lock point.",
+    "Remember: 2PL guarantees conflict serializability only."
+   ],
+   "mistake": "Believing 2PL prevents deadlocks or guarantees recoverability. It does neither. Another slip is calling a transaction two-phase because it unlocks at the end; what matters is that no lock comes after an unlock.",
+   "edge_cases": [
+    "A lock upgrade after the first unlock breaks the two-phase rule.",
+    "The lock point may come before some reads or writes are done, as long as the locks are held.",
+    "Releasing a lock for an item the transaction did not use is still an unlock.",
+    "Not every serializable schedule can be produced by 2PL."
+   ],
+   "connections": [
+    "**2PL variants** (next card) add recoverability.",
+    "**Deadlock** (later card) is the price of waiting for locks.",
+    "**Timestamp ordering** is an alternative that never makes transactions wait."
+   ],
+   "check": [
+    {
+     "q": "Transaction: lock-X($a$), unlock($a$), lock-X($b$). Two-phase?",
+     "a": "No. A lock follows an unlock."
+    },
+    {
+     "q": "What serial order does 2PL give?",
+     "a": "The order of the lock points."
+    },
+    {
+     "q": "Does 2PL prevent deadlock?",
+     "a": "No."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51",
+   "try": {
+    "id": "gen.db.cc.002",
+    "label": "Try: what a 2PL transaction may not do after its first unlock (L1)"
+   },
+   "scene": "db.cc.c3.twophase",
+   "example": {
+    "setup": "A transaction runs: lock-S($a$), lock-X($b$), lock-S($c$), unlock($c$), unlock($a$), unlock($b$). Is it two-phase, and where is its lock point?",
+    "steps": [
+     "**Two-phase rule:** all lock requests come before the first unlock. A growing phase, then a shrinking phase.",
+     "lock-S($a$): one lock held.",
+     "lock-X($b$) and lock-S($c$): the count grows to 3. No unlock has happened yet.",
+     "The moment the last lock is acquired is the **lock point**. Here it is after lock-S($c$), with 3 locks held.",
+     "unlock($c$) and unlock($a$): the shrinking phase begins. From now on the transaction may not take any new lock.",
+     "unlock($b$): all released. Every lock came before every unlock, so the transaction is two-phase."
+    ],
+    "answer": "Yes, it is two-phase; the lock point is after lock-S($c$)."
+   },
+   "what": "**Two-phase locking (2PL)** says a transaction first only acquires locks (growing phase), then only releases them (shrinking phase). Once it unlocks anything, it may not lock again. Every schedule 2PL produces is **conflict serializable**.",
+   "what_full": "**Two-phase locking (2PL)** says a transaction first only acquires locks (growing phase), then only releases them (shrinking phase). Once it unlocks anything, it may not lock again. Every schedule 2PL produces is **conflict serializable**.\n\nA transaction is **two-phase** if no lock request follows its first unlock. The **lock point** is the moment it holds all its locks (end of the growing phase).\n\n**Theorem:** a schedule of 2PL transactions is conflict serializable, and the serial order is the order of the lock points. 2PL does *not* guarantee freedom from deadlock or recoverability.\n\n**Worked example.** A transaction runs: lock-S($a$), lock-X($b$), lock-S($c$), unlock($c$), unlock($a$), unlock($b$). Is it two-phase, and where is its lock point?\n\n1. **Two-phase rule:** all lock requests come before the first unlock. A growing phase, then a shrinking phase.\n2. lock-S($a$): one lock held.\n3. lock-X($b$) and lock-S($c$): the count grows to 3. No unlock has happened yet.\n4. The moment the last lock is acquired is the **lock point**. Here it is after lock-S($c$), with 3 locks held.\n5. unlock($c$) and unlock($a$): the shrinking phase begins. From now on the transaction may not take any new lock.\n6. unlock($b$): all released. Every lock came before every unlock, so the transaction is two-phase.\n\n**Answer:** Yes, it is two-phase; the lock point is after lock-S($c$).",
+   "why_full": "2PL is the core protocol of the chapter. In GATE: is a transaction two-phase, what 2PL guarantees and does not, and the equivalent serial order by lock points (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51).\n\nAsked: 2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51",
+   "trap": "Believing 2PL prevents deadlocks or guarantees recoverability. It does neither. Another slip is calling a transaction two-phase because it unlocks at the end; what matters is that no lock comes after an unlock."
+  },
+  {
+   "atom_id": "c4",
+   "title": "2PL variants",
+   "simple": "Basic two-phase locking is like returning tools whenever you are done. Strict is a stronger rule: any tool you wrote with must stay locked until your whole job is signed off, so no one uses a half-finished result. Rigorous holds every tool, even ones you only looked at, until sign-off. Conservative takes all the tools at the very start, or does not start. Each stricter version gives an extra safety. In exam words: strict holds X locks to commit (cascadeless), rigorous holds all locks to commit (serial order equals commit order), conservative takes all locks first (no deadlock).",
+   "idea": "The variants of 2PL differ in **when locks are released**. **Strict** holds exclusive locks until commit or abort. **Rigorous** holds all locks until the end. **Conservative** acquires all locks before the transaction starts. Each adds a guarantee to plain serializability.",
+   "definition": "**Basic 2PL:** conflict serializable only. **Strict 2PL:** holds X locks until commit/abort; schedules are strict (hence cascadeless and recoverable). **Rigorous 2PL:** holds all locks until commit/abort; serial order = commit order. **Conservative (static) 2PL:** locks all items before running; deadlock-free but needs the read/write set in advance.",
+   "intuition_full": "The problem with basic 2PL is that an exclusive lock can be released early, so another transaction may read an uncommitted value. If the writer then aborts, the reader must abort too (a cascade), and if the reader has already committed the schedule is not even recoverable. Strict 2PL fixes this by delaying the release of exclusive locks until the writer's fate is decided. Rigorous goes further and makes the order of commits equal the equivalent serial order, which is simple to reason about. Conservative 2PL tackles a different problem: deadlock. If a transaction either gets all its locks at once or none, it never waits while holding something, so a wait cycle cannot form. The cost is that the read and write sets must be known in advance and concurrency is reduced.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A transaction takes $S(a)$ at time 1, $X(b)$ at time 2, and commits at time 6. Show when the basic, strict, rigorous and conservative 2PL variants release or acquire its locks.",
+     "steps": [
+      "The transaction needs $S(a)$ from time 1 and $X(b)$ from time 2, and commits at time 6. Its lock point is time 2.",
+      "**Basic 2PL:** after the lock point, locks may be released at any time. Here $S(a)$ is released at 3 and $X(b)$ at 4, before the commit.",
+      "**Strict 2PL:** every exclusive lock is held until commit or abort. $X(b)$ is held to time 6; $S(a)$ may still be released early. No one can read dirty data, so schedules are cascadeless.",
+      "**Rigorous 2PL:** all locks, shared and exclusive, are held until commit. The serial order equals the commit order.",
+      "**Conservative 2PL:** acquire all locks before starting, at time 0, or wait. There is no waiting while holding locks, so no deadlock."
+     ],
+     "answer": "Basic: serializable. Strict: also cascadeless and strict schedules. Rigorous: commit order is the serial order. Conservative: deadlock-free."
+    },
+    {
+     "level": "gate",
+     "setup": "Which statements are true? (1) Strict 2PL schedules are cascadeless. (2) Basic 2PL schedules are recoverable. (3) Conservative 2PL cannot deadlock. (4) Every rigorous 2PL schedule is strict.",
+     "steps": [
+      "(1) True. Exclusive locks are held to commit, so no one reads uncommitted writes.",
+      "(2) False. Basic 2PL can release an exclusive lock early, so a reader may commit before the writer.",
+      "(3) True. All locks are taken at the start, so no transaction waits while holding a lock.",
+      "(4) True. Rigorous holds every lock to commit, which includes the exclusive locks that strict requires."
+     ],
+     "answer": "True: (1), (3), (4). False: (2)."
+    },
+    {
+     "level": "twist",
+     "setup": "Under strict 2PL, $T_1$ reads $x$ (shared lock) and releases that lock early. $T_2$ then writes $x$. Is the schedule still conflict serializable?",
+     "steps": [
+      "Strict 2PL requires only **exclusive** locks to be held until commit. Shared locks may be released after the lock point.",
+      "$T_1$ reads $x$, then releases $S(x)$. All its locks were already acquired, so it is two-phase.",
+      "So $T_2$ may write $x$ afterward, and the order is $T_1 \\to T_2$. The schedule is still conflict serializable.",
+      "Under rigorous 2PL the shared lock would be held to commit, and $T_2$ would have to wait."
+     ],
+     "answer": "Yes, still serializable."
+    }
+   ],
+   "why": "The variants are the usual true/false material. In GATE: which guarantee comes from which variant, and which anomaly each prevents (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51, 2025 CS1 Q15).",
+   "how": [
+    "Recall the three questions: which locks are held until commit, are all locks taken first, and what follows.",
+    "Strict: X to commit, so cascadeless and recoverable.",
+    "Rigorous: all locks to commit, so commit order is serial order.",
+    "Conservative: no hold-and-wait, so deadlock-free. Basic 2PL guarantees only conflict serializability."
+   ],
+   "mistake": "Saying strict 2PL holds all locks until commit. Only the exclusive locks must be held; shared locks may be released after the lock point. Also, assuming 2PL variants other than conservative are deadlock-free.",
+   "edge_cases": [
+    "Strict and rigorous 2PL can still deadlock.",
+    "Conservative 2PL is not necessarily strict unless it also holds X locks to commit.",
+    "Rigorous is stricter than strict; every rigorous schedule is strict.",
+    "Commercial DBMSs usually use strict or rigorous 2PL."
+   ],
+   "connections": [
+    "**Recoverability** (`db.txn`): strict schedules are cascadeless.",
+    "**Deadlock** (next card): only conservative avoids it by construction.",
+    "**Protocol comparison** (last card) tabulates these guarantees."
+   ],
+   "check": [
+    {
+     "q": "Which 2PL variant holds all locks until commit?",
+     "a": "Rigorous."
+    },
+    {
+     "q": "Which variant is deadlock-free?",
+     "a": "Conservative 2PL."
+    },
+    {
+     "q": "Does strict 2PL guarantee cascadeless schedules?",
+     "a": "Yes."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51, 2025 CS1 Q15",
+   "try": {
+    "id": "gen.db.cc.006",
+    "label": "Try: which locks strict 2PL holds until commit (L1)"
+   },
+   "scene": "db.cc.c4.variants",
+   "example": {
+    "setup": "A transaction takes $S(a)$ at time 1, $X(b)$ at time 2, and commits at time 6. Show when the basic, strict, rigorous and conservative 2PL variants release or acquire its locks.",
+    "steps": [
+     "The transaction needs $S(a)$ from time 1 and $X(b)$ from time 2, and commits at time 6. Its lock point is time 2.",
+     "**Basic 2PL:** after the lock point, locks may be released at any time. Here $S(a)$ is released at 3 and $X(b)$ at 4, before the commit.",
+     "**Strict 2PL:** every exclusive lock is held until commit or abort. $X(b)$ is held to time 6; $S(a)$ may still be released early. No one can read dirty data, so schedules are cascadeless.",
+     "**Rigorous 2PL:** all locks, shared and exclusive, are held until commit. The serial order equals the commit order.",
+     "**Conservative 2PL:** acquire all locks before starting, at time 0, or wait. There is no waiting while holding locks, so no deadlock."
+    ],
+    "answer": "Basic: serializable. Strict: also cascadeless and strict schedules. Rigorous: commit order is the serial order. Conservative: deadlock-free."
+   },
+   "what": "The variants of 2PL differ in **when locks are released**. **Strict** holds exclusive locks until commit or abort. **Rigorous** holds all locks until the end. **Conservative** acquires all locks before the transaction starts. Each adds a guarantee to plain serializability.",
+   "what_full": "The variants of 2PL differ in **when locks are released**. **Strict** holds exclusive locks until commit or abort. **Rigorous** holds all locks until the end. **Conservative** acquires all locks before the transaction starts. Each adds a guarantee to plain serializability.\n\n**Basic 2PL:** conflict serializable only. **Strict 2PL:** holds X locks until commit/abort; schedules are strict (hence cascadeless and recoverable). **Rigorous 2PL:** holds all locks until commit/abort; serial order = commit order. **Conservative (static) 2PL:** locks all items before running; deadlock-free but needs the read/write set in advance.\n\n**Worked example.** A transaction takes $S(a)$ at time 1, $X(b)$ at time 2, and commits at time 6. Show when the basic, strict, rigorous and conservative 2PL variants release or acquire its locks.\n\n1. The transaction needs $S(a)$ from time 1 and $X(b)$ from time 2, and commits at time 6. Its lock point is time 2.\n2. **Basic 2PL:** after the lock point, locks may be released at any time. Here $S(a)$ is released at 3 and $X(b)$ at 4, before the commit.\n3. **Strict 2PL:** every exclusive lock is held until commit or abort. $X(b)$ is held to time 6; $S(a)$ may still be released early. No one can read dirty data, so schedules are cascadeless.\n4. **Rigorous 2PL:** all locks, shared and exclusive, are held until commit. The serial order equals the commit order.\n5. **Conservative 2PL:** acquire all locks before starting, at time 0, or wait. There is no waiting while holding locks, so no deadlock.\n\n**Answer:** Basic: serializable. Strict: also cascadeless and strict schedules. Rigorous: commit order is the serial order. Conservative: deadlock-free.",
+   "why_full": "The variants are the usual true/false material. In GATE: which guarantee comes from which variant, and which anomaly each prevents (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51, 2025 CS1 Q15).\n\nAsked: 2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51, 2025 CS1 Q15",
+   "trap": "Saying strict 2PL holds all locks until commit. Only the exclusive locks must be held; shared locks may be released after the lock point. Also, assuming 2PL variants other than conservative are deadlock-free."
+  },
+  {
+   "atom_id": "c5",
+   "title": "Deadlock",
+   "simple": "Imagine three friends in a corridor. Asha holds a door key and needs Ravi's key; Ravi needs Meera's; Meera needs Asha's. Everyone is waiting for the next person, so no one can move. That is a deadlock. To find it, draw an arrow from each waiting person to the person they wait for, and look for a loop. To prevent it, give everyone an age and agree: when an old person meets a young one, either the young one steps back or the old one forces the young one out. In exam words: deadlock is a cycle in the wait-for graph; wait-die and wound-wait use timestamps to prevent cycles.",
+   "idea": "A **deadlock** is a group of transactions each waiting for a lock another holds, in a circle. The system can detect it by finding a **cycle in the wait-for graph**, or prevent it with timestamp rules: **wait-die** and **wound-wait**. Aborted transactions restart with their original timestamp.",
+   "definition": "**Wait-for graph:** nodes are transactions, with an edge $T_i \\to T_j$ if $T_i$ waits for a lock held by $T_j$. A deadlock exists iff there is a cycle.\n\n**Wait-die:** if $TS(T_i) < TS(T_j)$ (requester older) then $T_i$ waits, else $T_i$ dies. **Wound-wait:** if requester is older, it wounds (aborts) the holder; else it waits. Recovery by detection: choose a victim on the cycle and abort it.",
+   "intuition_full": "A cycle in the wait-for graph means no transaction on it can ever proceed, because each needs the next one to release a lock first. Detection finds the cycle and breaks it by aborting a victim, usually the cheapest or youngest. Prevention avoids cycles altogether by ordering waits. In wait-die, an older transaction may wait for a younger one but never the reverse, so the edges all point from older to younger and cannot form a loop. In wound-wait, a younger transaction may wait for an older one and never the reverse; again all edges point the same way by age. In both, the restarted transaction keeps its original timestamp so that it eventually becomes the oldest and cannot starve.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "$T_1$ holds $A$, $T_2$ holds $B$, $T_3$ holds $C$. Then $T_1$ requests $B$, $T_2$ requests $C$ and $T_3$ requests $A$. Draw the wait-for graph, find the deadlock and break it.",
+     "steps": [
+      "Each transaction holds one lock: $T_1$ has $A$, $T_2$ has $B$, $T_3$ has $C$. Nobody waits yet.",
+      "$T_1$ requests $B$, held by $T_2$. $T_1$ waits for $T_2$: edge $T_1 \\to T_2$.",
+      "$T_2$ requests $C$, held by $T_3$. Edge $T_2 \\to T_3$.",
+      "$T_3$ requests $A$, held by $T_1$. Edge $T_3 \\to T_1$. The edges form the cycle $T_1 \\to T_2 \\to T_3 \\to T_1$. Each waits for the next: **deadlock**.",
+      "Abort one victim, say $T_3$. It releases $C$, so $T_2$ gets $C$ and can finish, then $T_1$ gets $B$. The cycle is gone."
+     ],
+     "answer": "Deadlock cycle $T_1 \\to T_2 \\to T_3 \\to T_1$; aborting any one of them breaks it."
+    },
+    {
+     "level": "gate",
+     "setup": "$TS(T_1)=8$ and $TS(T_2)=3$ (a smaller timestamp is older). Apply wait-die and wound-wait to: (a) $T_1$ requests a lock held by $T_2$; (b) $T_2$ requests a lock held by $T_1$.",
+     "steps": [
+      "**Wait-die** (non-preemptive): an older requester waits; a younger requester dies (is rolled back). **Wound-wait** (preemptive): an older requester wounds (aborts) the younger holder; a younger requester waits.",
+      "(a) $T_1$ (8, younger) asks $T_2$ (3, older). Wait-die: the younger requester dies, so $T_1$ is rolled back. Wound-wait: the younger requester waits.",
+      "(b) $T_2$ (3, older) asks $T_1$ (8, younger). Wait-die: the older requester waits. Wound-wait: the older wounds the younger, so $T_1$ is rolled back.",
+      "In both schemes waits only go in one direction of age, so no cycle can form."
+     ],
+     "answer": "(a) wait-die: $T_1$ dies; wound-wait: $T_1$ waits. (b) wait-die: $T_2$ waits; wound-wait: $T_1$ is wounded."
+    },
+    {
+     "level": "twist",
+     "setup": "In wait-die a young transaction keeps dying. Should it restart with a new timestamp or its original one?",
+     "steps": [
+      "With a **new** (later) timestamp it would be younger than before and could die again and again. That is starvation.",
+      "With its **original** timestamp it keeps getting relatively older as others finish.",
+      "Eventually it is the oldest and never dies. So the restart keeps the original timestamp."
+     ],
+     "answer": "The original timestamp, which prevents starvation."
+    }
+   ],
+   "why": "Deadlock questions are small and mechanical. In GATE: who waits and who aborts under each scheme, or how many transactions must be aborted to break the cycles (2017 CS1 Q42).",
+   "how": [
+    "Draw the wait-for graph from the lock requests and holders.",
+    "A cycle means deadlock; to break all cycles abort a minimum set of nodes on them.",
+    "For wait-die: older requester waits, younger requester dies.",
+    "For wound-wait: older requester wounds the holder, younger requester waits."
+   ],
+   "mistake": "Mixing up the two schemes. In wait-die the younger requester dies and the older waits; in wound-wait the older requester wounds and the younger waits. Another slip is restarting with a fresh timestamp, which can cause starvation.",
+   "edge_cases": [
+    "A wait-for graph with no cycle may still have long waits, but no deadlock.",
+    "Deadlock needs hold-and-wait plus a circular wait.",
+    "Several disjoint cycles need one victim each unless a node lies on more than one.",
+    "Conservative 2PL avoids deadlock by taking all locks at the start."
+   ],
+   "connections": [
+    "**Lock modes** and **2PL** create the waits.",
+    "**Timestamp ordering** (next card) uses the same timestamps but never waits.",
+    "Deadlock conditions are covered for processes in `os.deadlock`."
+   ],
+   "check": [
+    {
+     "q": "Edges $T_1 \\to T_2$ and $T_2 \\to T_1$. Is there a deadlock?",
+     "a": "Yes. That is a cycle."
+    },
+    {
+     "q": "Wait-die: an older transaction requests a lock held by a younger one. What happens?",
+     "a": "The older transaction waits."
+    },
+    {
+     "q": "Wound-wait: a younger transaction requests a lock held by an older one. What happens?",
+     "a": "The younger waits."
+    }
+   ],
+   "asked": "Asked: 2017 CS1 Q42",
+   "try": {
+    "id": "gen.db.cc.004",
+    "label": "Try: what a deadlock looks like in the wait-for graph (L1)"
+   },
+   "scene": "db.cc.c5.waitfor",
+   "example": {
+    "setup": "$T_1$ holds $A$, $T_2$ holds $B$, $T_3$ holds $C$. Then $T_1$ requests $B$, $T_2$ requests $C$ and $T_3$ requests $A$. Draw the wait-for graph, find the deadlock and break it.",
+    "steps": [
+     "Each transaction holds one lock: $T_1$ has $A$, $T_2$ has $B$, $T_3$ has $C$. Nobody waits yet.",
+     "$T_1$ requests $B$, held by $T_2$. $T_1$ waits for $T_2$: edge $T_1 \\to T_2$.",
+     "$T_2$ requests $C$, held by $T_3$. Edge $T_2 \\to T_3$.",
+     "$T_3$ requests $A$, held by $T_1$. Edge $T_3 \\to T_1$. The edges form the cycle $T_1 \\to T_2 \\to T_3 \\to T_1$. Each waits for the next: **deadlock**.",
+     "Abort one victim, say $T_3$. It releases $C$, so $T_2$ gets $C$ and can finish, then $T_1$ gets $B$. The cycle is gone."
+    ],
+    "answer": "Deadlock cycle $T_1 \\to T_2 \\to T_3 \\to T_1$; aborting any one of them breaks it."
+   },
+   "what": "A **deadlock** is a group of transactions each waiting for a lock another holds, in a circle. The system can detect it by finding a **cycle in the wait-for graph**, or prevent it with timestamp rules: **wait-die** and **wound-wait**. Aborted transactions restart with their original timestamp.",
+   "what_full": "A **deadlock** is a group of transactions each waiting for a lock another holds, in a circle. The system can detect it by finding a **cycle in the wait-for graph**, or prevent it with timestamp rules: **wait-die** and **wound-wait**. Aborted transactions restart with their original timestamp.\n\n**Wait-for graph:** nodes are transactions, with an edge $T_i \\to T_j$ if $T_i$ waits for a lock held by $T_j$. A deadlock exists iff there is a cycle.\n\n**Wait-die:** if $TS(T_i) < TS(T_j)$ (requester older) then $T_i$ waits, else $T_i$ dies. **Wound-wait:** if requester is older, it wounds (aborts) the holder; else it waits. Recovery by detection: choose a victim on the cycle and abort it.\n\n**Worked example.** $T_1$ holds $A$, $T_2$ holds $B$, $T_3$ holds $C$. Then $T_1$ requests $B$, $T_2$ requests $C$ and $T_3$ requests $A$. Draw the wait-for graph, find the deadlock and break it.\n\n1. Each transaction holds one lock: $T_1$ has $A$, $T_2$ has $B$, $T_3$ has $C$. Nobody waits yet.\n2. $T_1$ requests $B$, held by $T_2$. $T_1$ waits for $T_2$: edge $T_1 \\to T_2$.\n3. $T_2$ requests $C$, held by $T_3$. Edge $T_2 \\to T_3$.\n4. $T_3$ requests $A$, held by $T_1$. Edge $T_3 \\to T_1$. The edges form the cycle $T_1 \\to T_2 \\to T_3 \\to T_1$. Each waits for the next: **deadlock**.\n5. Abort one victim, say $T_3$. It releases $C$, so $T_2$ gets $C$ and can finish, then $T_1$ gets $B$. The cycle is gone.\n\n**Answer:** Deadlock cycle $T_1 \\to T_2 \\to T_3 \\to T_1$; aborting any one of them breaks it.",
+   "why_full": "Deadlock questions are small and mechanical. In GATE: who waits and who aborts under each scheme, or how many transactions must be aborted to break the cycles (2017 CS1 Q42).\n\nAsked: 2017 CS1 Q42",
+   "trap": "Mixing up the two schemes. In wait-die the younger requester dies and the older waits; in wound-wait the older requester wounds and the younger waits. Another slip is restarting with a fresh timestamp, which can cause starvation."
+  },
+  {
+   "atom_id": "c6",
+   "title": "Timestamp ordering",
+   "simple": "Imagine giving every student a number when they enter the exam hall, and the rule is that the work must look as if students took turns in the order of their numbers. Each item remembers the biggest number that has read it and the biggest number that has written it. If a student with a small number now tries to do something that a bigger-numbered student has already done, they have come too late and must start again with a new number. Nobody ever waits, so there is no deadlock. In exam words: basic timestamp ordering uses RTS and WTS; a late operation causes a rollback.",
+   "idea": "In **timestamp ordering** each transaction gets a timestamp when it starts. The protocol forces the equivalent serial order to be the timestamp order. Each item stores its largest reader and writer timestamps, $RTS$ and $WTS$. An operation that arrives too late is rejected, and its transaction **rolls back** and restarts with a new timestamp.",
+   "definition": "**Read** $r_T(x)$: if $TS(T) < WTS(x)$, roll back $T$; else allow and set $RTS(x) = \\max(RTS(x), TS(T))$.\n\n**Write** $w_T(x)$: if $TS(T) < RTS(x)$ or $TS(T) < WTS(x)$, roll back $T$; else allow and set $WTS(x) = TS(T)$.\n\nGuarantees: conflict serializable in timestamp order; deadlock-free; not necessarily recoverable or cascadeless.",
+   "intuition_full": "The serial order is decided up front by the timestamps, so any operation that would contradict it must be rejected. A read by an old transaction is too late if a younger transaction has already overwritten the value it should have seen: $TS < WTS$. A write is too late if a younger transaction has already read the old value, or already written a newer one: $TS < RTS$ or $TS < WTS$. Since transactions never wait, there is no wait-for graph and no deadlock. The cost is wasted work from rollbacks. Also, a transaction can read data written by an uncommitted younger writer's predecessor, so the basic protocol does not give recoverability.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Timestamp ordering with $TS(T_1)=10$, $TS(T_2)=20$, $TS(T_3)=30$ and $RTS(x)=WTS(x)=0$. Process $r_2(x)\\ w_3(x)\\ r_1(x)\\ w_2(x)$ in that order.",
+     "steps": [
+      "Rules. **Read** $r_T(x)$: if $TS(T) < WTS(x)$, roll $T$ back; else allow it and set $RTS(x)=\\max(RTS(x), TS(T))$. **Write** $w_T(x)$: if $TS(T) < RTS(x)$ or $TS(T) < WTS(x)$, roll $T$ back; else allow it and set $WTS(x) = TS(T)$.",
+      "$r_2(x)$: $20 \\ge WTS(x) = 0$. Allowed. $RTS(x) = 20$.",
+      "$w_3(x)$: $30 \\ge RTS(x) = 20$ and $30 \\ge WTS(x) = 0$. Allowed. $WTS(x) = 30$.",
+      "$r_1(x)$: $10 < WTS(x) = 30$. $T_1$ would read a value written by a younger transaction. **$T_1$ is rolled back.**",
+      "$w_2(x)$: $20 < WTS(x) = 30$. A younger transaction already wrote $x$. **$T_2$ is rolled back.**"
+     ],
+     "answer": "$T_1$ and $T_2$ are rolled back; $T_3$ succeeds. Final $RTS(x)=20$, $WTS(x)=30$."
+    },
+    {
+     "level": "gate",
+     "setup": "Timestamp ordering with $TS(T_i)=i$. Process $w_1(x)\\ r_1(y)\\ r_3(y)\\ w_2(y)\\ w_3(x)\\ r_1(x)$. Which transactions are rolled back?",
+     "steps": [
+      "$w_1(x)$: allowed. $WTS(x) = 1$.",
+      "$r_1(y)$: allowed, $RTS(y) = 1$. $r_3(y)$: allowed, $RTS(y) = 3$.",
+      "$w_2(y)$: $TS=2 < RTS(y)=3$. A younger transaction already read $y$, so $T_2$ is rolled back.",
+      "$w_3(x)$: $3 \\ge RTS(x)=0$ and $3 \\ge WTS(x)=1$. Allowed, $WTS(x)=3$.",
+      "$r_1(x)$: $TS=1 < WTS(x)=3$, so $T_1$ is rolled back."
+     ],
+     "answer": "$T_1$ and $T_2$ are rolled back."
+    },
+    {
+     "level": "twist",
+     "setup": "In the schedule above, $T_2$ is rolled back. It restarts. What timestamp does it get, and will the same conflict happen again?",
+     "steps": [
+      "A rolled-back transaction restarts with a **new, later** timestamp, later than every transaction that has run.",
+      "With the larger timestamp, $TS(T_2) \\ge RTS(y)$, so the write that failed before now passes.",
+      "Timestamp ordering has no waiting, so it never deadlocks, but transactions can be restarted repeatedly."
+     ],
+     "answer": "A new, larger timestamp; the conflict does not repeat in the same way."
+    }
+   ],
+   "why": "Timestamp ordering simulations are the biggest source of marks in this chapter. In GATE: process a schedule and report rolled-back transactions or the final RTS/WTS (2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42).",
+   "how": [
+    "Write the timestamps and start with $RTS = WTS = 0$ for each item.",
+    "For each operation, apply the read or write rule and update RTS/WTS only if allowed.",
+    "Once a transaction is rolled back, ignore its later operations.",
+    "Report the rolled-back transactions or the required value."
+   ],
+   "mistake": "Updating RTS or WTS for an operation that was rolled back, or using the sum instead of the maximum for RTS. Another slip is forgetting that RTS only grows, via a maximum.",
+   "edge_cases": [
+    "A write with $TS(T) = RTS(x)$ is allowed (the test is strict less-than).",
+    "A transaction can read an item it wrote itself even if $WTS(x)$ equals its timestamp.",
+    "The protocol is deadlock-free but can starve a transaction that keeps restarting.",
+    "A rolled-back transaction's earlier writes are undone."
+   ],
+   "connections": [
+    "**Thomas' write rule** (next card) relaxes the write test.",
+    "**2PL** (earlier cards) uses locks and waiting instead.",
+    "Timestamps relate to logical clocks in distributed systems."
+   ],
+   "check": [
+    {
+     "q": "$TS(T)=5$, $WTS(x)=9$. $T$ reads $x$. Outcome?",
+     "a": "Rollback, because $5 < 9$."
+    },
+    {
+     "q": "$TS(T)=15$, $RTS(x)=12$, $WTS(x)=9$. $T$ writes $x$. New $WTS(x)$?",
+     "a": "15. The write is allowed."
+    },
+    {
+     "q": "Can timestamp ordering deadlock?",
+     "a": "No. Transactions never wait."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42",
+   "try": {
+    "id": "gen.db.cc.005",
+    "label": "Try: the serial order timestamp ordering forces (L1)"
+   },
+   "scene": "db.cc.c6.tso",
+   "example": {
+    "setup": "Timestamp ordering with $TS(T_1)=10$, $TS(T_2)=20$, $TS(T_3)=30$ and $RTS(x)=WTS(x)=0$. Process $r_2(x)\\ w_3(x)\\ r_1(x)\\ w_2(x)$ in that order.",
+    "steps": [
+     "Rules. **Read** $r_T(x)$: if $TS(T) < WTS(x)$, roll $T$ back; else allow it and set $RTS(x)=\\max(RTS(x), TS(T))$. **Write** $w_T(x)$: if $TS(T) < RTS(x)$ or $TS(T) < WTS(x)$, roll $T$ back; else allow it and set $WTS(x) = TS(T)$.",
+     "$r_2(x)$: $20 \\ge WTS(x) = 0$. Allowed. $RTS(x) = 20$.",
+     "$w_3(x)$: $30 \\ge RTS(x) = 20$ and $30 \\ge WTS(x) = 0$. Allowed. $WTS(x) = 30$.",
+     "$r_1(x)$: $10 < WTS(x) = 30$. $T_1$ would read a value written by a younger transaction. **$T_1$ is rolled back.**",
+     "$w_2(x)$: $20 < WTS(x) = 30$. A younger transaction already wrote $x$. **$T_2$ is rolled back.**"
+    ],
+    "answer": "$T_1$ and $T_2$ are rolled back; $T_3$ succeeds. Final $RTS(x)=20$, $WTS(x)=30$."
+   },
+   "what": "In **timestamp ordering** each transaction gets a timestamp when it starts. The protocol forces the equivalent serial order to be the timestamp order. Each item stores its largest reader and writer timestamps, $RTS$ and $WTS$. An operation that arrives too late is rejected, and its transaction **rolls back** and restarts with a new timestamp.",
+   "what_full": "In **timestamp ordering** each transaction gets a timestamp when it starts. The protocol forces the equivalent serial order to be the timestamp order. Each item stores its largest reader and writer timestamps, $RTS$ and $WTS$. An operation that arrives too late is rejected, and its transaction **rolls back** and restarts with a new timestamp.\n\n**Read** $r_T(x)$: if $TS(T) < WTS(x)$, roll back $T$; else allow and set $RTS(x) = \\max(RTS(x), TS(T))$.\n\n**Write** $w_T(x)$: if $TS(T) < RTS(x)$ or $TS(T) < WTS(x)$, roll back $T$; else allow and set $WTS(x) = TS(T)$.\n\nGuarantees: conflict serializable in timestamp order; deadlock-free; not necessarily recoverable or cascadeless.\n\n**Worked example.** Timestamp ordering with $TS(T_1)=10$, $TS(T_2)=20$, $TS(T_3)=30$ and $RTS(x)=WTS(x)=0$. Process $r_2(x)\\ w_3(x)\\ r_1(x)\\ w_2(x)$ in that order.\n\n1. Rules. **Read** $r_T(x)$: if $TS(T) < WTS(x)$, roll $T$ back; else allow it and set $RTS(x)=\\max(RTS(x), TS(T))$. **Write** $w_T(x)$: if $TS(T) < RTS(x)$ or $TS(T) < WTS(x)$, roll $T$ back; else allow it and set $WTS(x) = TS(T)$.\n2. $r_2(x)$: $20 \\ge WTS(x) = 0$. Allowed. $RTS(x) = 20$.\n3. $w_3(x)$: $30 \\ge RTS(x) = 20$ and $30 \\ge WTS(x) = 0$. Allowed. $WTS(x) = 30$.\n4. $r_1(x)$: $10 < WTS(x) = 30$. $T_1$ would read a value written by a younger transaction. **$T_1$ is rolled back.**\n5. $w_2(x)$: $20 < WTS(x) = 30$. A younger transaction already wrote $x$. **$T_2$ is rolled back.**\n\n**Answer:** $T_1$ and $T_2$ are rolled back; $T_3$ succeeds. Final $RTS(x)=20$, $WTS(x)=30$.",
+   "why_full": "Timestamp ordering simulations are the biggest source of marks in this chapter. In GATE: process a schedule and report rolled-back transactions or the final RTS/WTS (2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42).\n\nAsked: 2024 CS1 Q46, 2022 CS Q39, 2021 CS1 Q42",
+   "trap": "Updating RTS or WTS for an operation that was rolled back, or using the sum instead of the maximum for RTS. Another slip is forgetting that RTS only grows, via a maximum."
+  },
+  {
+   "atom_id": "c7",
+   "title": "Thomas' write rule",
+   "simple": "Suppose you try to write a note on a page, but a later person has already written a newer note on the same page. Your note would be overwritten straight away, and nobody read it in between. So instead of throwing out your whole job, you simply skip that one note and carry on. But if someone later than you has already read the page, skipping would change what they saw, so you must still start again. In exam words: Thomas' write rule ignores an obsolete write instead of rolling back; it gives view serializable schedules.",
+   "idea": "In basic timestamp ordering, a write with $TS(T) < WTS(x)$ rolls $T$ back. **Thomas' write rule** says: if no later transaction has read $x$ ($TS(T) \\ge RTS(x)$), just **skip** the obsolete write and let $T$ continue.",
+   "definition": "**Write** $w_T(x)$ under Thomas' rule: if $TS(T) < RTS(x)$, roll back $T$. Else if $TS(T) < WTS(x)$, ignore the write (no rollback). Else perform it and set $WTS(x) = TS(T)$.\n\nReads follow the basic rule. The schedules are view serializable but not always conflict serializable.",
+   "intuition_full": "A write that is older than the current value can only matter to readers whose timestamps lie between it and the current writer. Those readers would have set $RTS(x)$ to at least their own timestamp. If $RTS(x) \\le TS(T)$, no such reader exists, so the write would never be visible; the later write overwrites it. Skipping it saves a rollback and gives the same outcome as the serial order by timestamps. If $RTS(x) > TS(T)$, someone later has read the value that $T$'s write should have replaced, so that read would be wrong, and the rollback is necessary. That is why Thomas' rule produces view serializable schedules: the ignored write is a blind write whose effect is overwritten before any read.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Item $x$ has $RTS(x)=3$ and $WTS(x)=10$. A transaction with $TS(T)=6$ writes $x$. What does basic timestamp ordering do, and what does Thomas' write rule do? Then repeat with $RTS(x)=8$.",
+     "steps": [
+      "Mark $RTS(x)=3$ and $WTS(x)=10$ on a timeline of timestamps.",
+      "Mark $TS(T)=6$. It lies between the reader and the writer.",
+      "First check: is $TS(T) < RTS(x)$? $6 \\ge 3$, so no reader with a larger timestamp has seen an older value. This test passes.",
+      "Second check: $TS(T) = 6 < WTS(x) = 10$. A transaction after $T$ in the serial order has already written $x$. Basic TSO rolls $T$ back. **Thomas' rule** just ignores the write: it would be overwritten by the later write anyway, and nobody read it.",
+      "Now take $RTS(x)=8$: $TS(T) = 6 < 8$, so a later transaction has already read $x$ and would have needed $T$'s value. The write must fail even under Thomas' rule: $T$ is rolled back."
+     ],
+     "answer": "With $RTS=3$: basic rolls back, Thomas ignores the write. With $RTS=8$: both roll back."
+    },
+    {
+     "level": "gate",
+     "setup": "$TS(T_i)=i$. Process $w_3(x)\\ w_1(x)\\ r_1(y)\\ w_2(x)\\ r_1(x)\\ w_2(x)$. How many transactions are rolled back under basic timestamp ordering, and under Thomas' write rule?",
+     "steps": [
+      "$w_3(x)$: allowed. $WTS(x)=3$.",
+      "$w_1(x)$: $1 < WTS(x) = 3$. Basic TSO: roll back $T_1$. Thomas: ignore this write, $T_1$ continues.",
+      "$w_2(x)$: $2 < WTS(x)=3$. Basic TSO: roll back $T_2$. Thomas: ignore.",
+      "$r_1(x)$ (only under Thomas): $1 < WTS(x)=3$. A read is never ignored, so $T_1$ is rolled back. Later operations of $T_2$ are ignored by Thomas.",
+      "Basic: $T_1$ and $T_2$ are rolled back (2). Thomas: only $T_1$ (1)."
+     ],
+     "answer": "Basic: 2 rollbacks. Thomas' rule: 1 rollback."
+    },
+    {
+     "level": "twist",
+     "setup": "Does Thomas' write rule ever ignore a write when $TS(T) < RTS(x)$?",
+     "steps": [
+      "No. If $TS(T) < RTS(x)$, a later transaction has read the earlier version and needs $T$'s value to be there. Ignoring the write would change what that reader saw.",
+      "Thomas' rule only relaxes the case $TS(T) < WTS(x)$ with $TS(T) \\ge RTS(x)$, where the write is obsolete.",
+      "Because of this, the result is view serializable, but it need not be conflict serializable."
+     ],
+     "answer": "No; in that case the transaction is rolled back."
+    }
+   ],
+   "why": "Thomas' write rule is a standard variant. In GATE: count the rollbacks with and without the rule, or say what the rule guarantees (2024 CS1 Q46, 2022 CS Q39).",
+   "how": [
+    "Run basic timestamp ordering on reads exactly as before.",
+    "For a write, first test $TS < RTS$: roll back.",
+    "Else test $TS < WTS$: ignore the write and continue.",
+    "Otherwise perform the write and set $WTS$."
+   ],
+   "mistake": "Ignoring writes when $TS < RTS$, or thinking Thomas' rule gives conflict serializability. It gives view serializability only, and reads are never ignored.",
+   "edge_cases": [
+    "A transaction whose writes are all ignored still commits.",
+    "Reads that violate $TS < WTS$ still cause rollback.",
+    "With only blind writes, Thomas' rule rolls back nothing.",
+    "If no transaction reads, the rule never rolls back on writes."
+   ],
+   "connections": [
+    "**Timestamp ordering** (previous card) is the base protocol.",
+    "**View serializability** (`db.txn`) explains why ignored blind writes are fine.",
+    "**Protocol comparison** (next card) lists its guarantees."
+   ],
+   "check": [
+    {
+     "q": "$TS=4$, $RTS=2$, $WTS=9$. What does Thomas' rule do on a write?",
+     "a": "Ignores it: $4 \\ge 2$ but $4 < 9$."
+    },
+    {
+     "q": "Does Thomas' rule guarantee conflict serializability?",
+     "a": "No. It guarantees view serializability."
+    },
+    {
+     "q": "$TS=4$, $RTS=7$. Thomas' rule on a write?",
+     "a": "Rollback, because $4 < 7$."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q46, 2022 CS Q39",
+   "try": {
+    "id": "gen.db.cc.012",
+    "label": "Try: Thomas write rule with TS 10, RTS 5, WTS 14 (L2)"
+   },
+   "scene": "db.cc.c7.thomas",
+   "example": {
+    "setup": "Item $x$ has $RTS(x)=3$ and $WTS(x)=10$. A transaction with $TS(T)=6$ writes $x$. What does basic timestamp ordering do, and what does Thomas' write rule do? Then repeat with $RTS(x)=8$.",
+    "steps": [
+     "Mark $RTS(x)=3$ and $WTS(x)=10$ on a timeline of timestamps.",
+     "Mark $TS(T)=6$. It lies between the reader and the writer.",
+     "First check: is $TS(T) < RTS(x)$? $6 \\ge 3$, so no reader with a larger timestamp has seen an older value. This test passes.",
+     "Second check: $TS(T) = 6 < WTS(x) = 10$. A transaction after $T$ in the serial order has already written $x$. Basic TSO rolls $T$ back. **Thomas' rule** just ignores the write: it would be overwritten by the later write anyway, and nobody read it.",
+     "Now take $RTS(x)=8$: $TS(T) = 6 < 8$, so a later transaction has already read $x$ and would have needed $T$'s value. The write must fail even under Thomas' rule: $T$ is rolled back."
+    ],
+    "answer": "With $RTS=3$: basic rolls back, Thomas ignores the write. With $RTS=8$: both roll back."
+   },
+   "what": "In basic timestamp ordering, a write with $TS(T) < WTS(x)$ rolls $T$ back. **Thomas' write rule** says: if no later transaction has read $x$ ($TS(T) \\ge RTS(x)$), just **skip** the obsolete write and let $T$ continue.",
+   "what_full": "In basic timestamp ordering, a write with $TS(T) < WTS(x)$ rolls $T$ back. **Thomas' write rule** says: if no later transaction has read $x$ ($TS(T) \\ge RTS(x)$), just **skip** the obsolete write and let $T$ continue.\n\n**Write** $w_T(x)$ under Thomas' rule: if $TS(T) < RTS(x)$, roll back $T$. Else if $TS(T) < WTS(x)$, ignore the write (no rollback). Else perform it and set $WTS(x) = TS(T)$.\n\nReads follow the basic rule. The schedules are view serializable but not always conflict serializable.\n\n**Worked example.** Item $x$ has $RTS(x)=3$ and $WTS(x)=10$. A transaction with $TS(T)=6$ writes $x$. What does basic timestamp ordering do, and what does Thomas' write rule do? Then repeat with $RTS(x)=8$.\n\n1. Mark $RTS(x)=3$ and $WTS(x)=10$ on a timeline of timestamps.\n2. Mark $TS(T)=6$. It lies between the reader and the writer.\n3. First check: is $TS(T) < RTS(x)$? $6 \\ge 3$, so no reader with a larger timestamp has seen an older value. This test passes.\n4. Second check: $TS(T) = 6 < WTS(x) = 10$. A transaction after $T$ in the serial order has already written $x$. Basic TSO rolls $T$ back. **Thomas' rule** just ignores the write: it would be overwritten by the later write anyway, and nobody read it.\n5. Now take $RTS(x)=8$: $TS(T) = 6 < 8$, so a later transaction has already read $x$ and would have needed $T$'s value. The write must fail even under Thomas' rule: $T$ is rolled back.\n\n**Answer:** With $RTS=3$: basic rolls back, Thomas ignores the write. With $RTS=8$: both roll back.",
+   "why_full": "Thomas' write rule is a standard variant. In GATE: count the rollbacks with and without the rule, or say what the rule guarantees (2024 CS1 Q46, 2022 CS Q39).\n\nAsked: 2024 CS1 Q46, 2022 CS Q39",
+   "trap": "Ignoring writes when $TS < RTS$, or thinking Thomas' rule gives conflict serializability. It gives view serializability only, and reads are never ignored."
+  },
+  {
+   "atom_id": "c8",
+   "title": "Protocol comparison",
+   "simple": "Four different traffic systems: one with waiting rooms where people can get stuck (basic 2PL), one that also forbids sharing half-finished work (strict 2PL), one that books everything before starting so no one gets stuck (conservative 2PL), and one that uses queue numbers and sends latecomers back to the start (timestamp ordering). All of them make the result look like people took turns. They differ in whether they can deadlock and whether a cancelled job can drag others down. In exam words: compare serializability, recoverability, cascadelessness and deadlock-freedom.",
+   "idea": "All the protocols here give **serializable** schedules. They differ in two more things: whether they can **deadlock**, and whether schedules are **recoverable** and **cascadeless**. Strict 2PL adds recoverability, conservative 2PL and timestamp ordering avoid deadlock, and Thomas' rule drops conflict to view serializability.",
+   "definition": "**Summary table.**\n\n| Protocol | CSR | Recoverable | Cascadeless | Deadlock-free |\n|---|---|---|---|---|\n| Basic 2PL | yes | no | no | no |\n| Strict 2PL | yes | yes | yes | no |\n| Conservative 2PL | yes | no | no | yes |\n| Timestamp ordering | yes | no | no | yes |\n| TSO + Thomas | view only | no | no | yes |",
+   "intuition_full": "Locks and timestamps solve the same problem in opposite ways. Locks make a conflicting transaction wait, which risks a deadlock but wastes little work. Timestamps never wait, which means no deadlock, but conflicting transactions are rolled back and redone. Recoverability is a separate concern about commit order, and neither pure family gives it by itself. Strict 2PL gets it by holding exclusive locks to commit; timestamp ordering can be given it by delaying reads or commits (variants not in the syllabus). The sets of schedules accepted by 2PL and by timestamp ordering are incomparable: each accepts some schedules the other rejects.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Fill in what each protocol guarantees: conflict serializability (CSR), recoverability (Rec), cascadeless (ACA), and freedom from deadlock (No DL), for basic 2PL, strict 2PL, conservative 2PL, basic timestamp ordering and timestamp ordering with Thomas' rule.",
+     "steps": [
+      "**Basic 2PL:** conflict serializable. It can release exclusive locks early, so no recoverability. It can deadlock.",
+      "**Strict 2PL:** conflict serializable, and exclusive locks are held to commit, so recoverable and cascadeless. It can still deadlock.",
+      "**Conservative 2PL:** conflict serializable and deadlock-free (no hold-and-wait). Not recoverable by itself.",
+      "**Basic timestamp ordering:** conflict serializable in timestamp order and deadlock-free (no waiting). Not recoverable by itself.",
+      "**Thomas' rule:** deadlock-free, but only view serializable (not always conflict serializable), and not recoverable by itself."
+     ],
+     "answer": "Only strict 2PL gives recoverable and cascadeless schedules; only conservative 2PL and the timestamp protocols are deadlock-free; Thomas' rule drops CSR to VSR."
+    },
+    {
+     "level": "gate",
+     "setup": "Which statements are true? (a) Every schedule allowed by strict 2PL is cascadeless. (b) Every schedule allowed by basic timestamp ordering is recoverable. (c) 2PL can deadlock but timestamp ordering cannot. (d) Thomas' rule schedules are always conflict serializable. (e) Conservative 2PL is deadlock-free.",
+     "steps": [
+      "(a) True: X locks held to commit prevents dirty reads.",
+      "(b) False: basic TSO lets a transaction read data written by an uncommitted writer and then commit first, so it is not recoverable by itself.",
+      "(c) True: 2PL waits for locks, TSO never waits.",
+      "(d) False: Thomas' rule gives view serializable schedules only.",
+      "(e) True: all locks are acquired at the start, so no hold-and-wait."
+     ],
+     "answer": "True: (a), (c), (e). False: (b), (d)."
+    },
+    {
+     "level": "twist",
+     "setup": "With $TS(T_1) < TS(T_2)$, is $S: r_1(x)\\ w_2(x)\\ r_1(y)$ allowed by timestamp ordering? By 2PL?",
+     "steps": [
+      "Timestamp ordering: $r_1(x)$ sets $RTS(x) = TS(T_1)$. $w_2(x)$: $TS(T_2) \\ge RTS(x)$, allowed. $r_1(y)$ is untouched. All allowed.",
+      "2PL: $T_2$ needs $X(x)$ after $r_1(x)$, so $T_1$ must have released $S(x)$ by then.",
+      "But $T_1$ still needs to lock $y$ afterwards. That is a lock after an unlock, which breaks the two-phase rule.",
+      "So this interleaving is possible under timestamp ordering and impossible under 2PL. The sets of schedules the two protocols accept are not nested."
+     ],
+     "answer": "Allowed by timestamp ordering; not producible by 2PL."
+    }
+   ],
+   "why": "These comparison statements are the usual true/false cases. In GATE: which protocol guarantees what, and whether 2PL and TSO accept the same schedules (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2025 CS1 Q15).",
+   "how": [
+    "Make the table of four properties for each protocol.",
+    "For deadlock: waits create it, so 2PL can deadlock; TSO and conservative 2PL cannot.",
+    "For recoverability: only strict (and rigorous) 2PL give it.",
+    "For a given schedule, test 2PL by lock order and TSO by timestamps separately."
+   ],
+   "mistake": "Saying timestamp ordering is recoverable, or that 2PL prevents deadlock. Neither is true. Also, assuming one protocol accepts a superset of the other's schedules.",
+   "edge_cases": [
+    "Strict 2PL can still deadlock.",
+    "Conservative 2PL needs read and write sets in advance.",
+    "A schedule can be conflict serializable and rejected by both 2PL and TSO.",
+    "Timestamp ordering can starve a transaction that keeps restarting."
+   ],
+   "connections": [
+    "**2PL variants**, **deadlock**, **timestamp ordering** and **Thomas' rule** (earlier cards) supply each row.",
+    "**Recoverability** in `db.txn` defines the classes.",
+    "Optimistic concurrency control is a related approach outside this syllabus."
+   ],
+   "check": [
+    {
+     "q": "Which protocol here guarantees cascadeless schedules?",
+     "a": "Strict 2PL."
+    },
+    {
+     "q": "Which protocols are deadlock-free?",
+     "a": "Conservative 2PL and the timestamp protocols."
+    },
+    {
+     "q": "Is the set of schedules accepted by 2PL contained in the set accepted by TSO?",
+     "a": "No. Neither contains the other."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51, 2025 CS1 Q15",
+   "try": {
+    "id": "gen.db.cc.013",
+    "label": "Try: which protocol can never deadlock (L2)"
+   },
+   "scene": "db.cc.c8.compare",
+   "example": {
+    "setup": "Fill in what each protocol guarantees: conflict serializability (CSR), recoverability (Rec), cascadeless (ACA), and freedom from deadlock (No DL), for basic 2PL, strict 2PL, conservative 2PL, basic timestamp ordering and timestamp ordering with Thomas' rule.",
+    "steps": [
+     "**Basic 2PL:** conflict serializable. It can release exclusive locks early, so no recoverability. It can deadlock.",
+     "**Strict 2PL:** conflict serializable, and exclusive locks are held to commit, so recoverable and cascadeless. It can still deadlock.",
+     "**Conservative 2PL:** conflict serializable and deadlock-free (no hold-and-wait). Not recoverable by itself.",
+     "**Basic timestamp ordering:** conflict serializable in timestamp order and deadlock-free (no waiting). Not recoverable by itself.",
+     "**Thomas' rule:** deadlock-free, but only view serializable (not always conflict serializable), and not recoverable by itself."
+    ],
+    "answer": "Only strict 2PL gives recoverable and cascadeless schedules; only conservative 2PL and the timestamp protocols are deadlock-free; Thomas' rule drops CSR to VSR."
+   },
+   "what": "All the protocols here give **serializable** schedules. They differ in two more things: whether they can **deadlock**, and whether schedules are **recoverable** and **cascadeless**. Strict 2PL adds recoverability, conservative 2PL and timestamp ordering avoid deadlock, and Thomas' rule drops conflict to view serializability.",
+   "what_full": "All the protocols here give **serializable** schedules. They differ in two more things: whether they can **deadlock**, and whether schedules are **recoverable** and **cascadeless**. Strict 2PL adds recoverability, conservative 2PL and timestamp ordering avoid deadlock, and Thomas' rule drops conflict to view serializability.\n\n**Summary table.**\n\n| Protocol | CSR | Recoverable | Cascadeless | Deadlock-free |\n|---|---|---|---|---|\n| Basic 2PL | yes | no | no | no |\n| Strict 2PL | yes | yes | yes | no |\n| Conservative 2PL | yes | no | no | yes |\n| Timestamp ordering | yes | no | no | yes |\n| TSO + Thomas | view only | no | no | yes |\n\n**Worked example.** Fill in what each protocol guarantees: conflict serializability (CSR), recoverability (Rec), cascadeless (ACA), and freedom from deadlock (No DL), for basic 2PL, strict 2PL, conservative 2PL, basic timestamp ordering and timestamp ordering with Thomas' rule.\n\n1. **Basic 2PL:** conflict serializable. It can release exclusive locks early, so no recoverability. It can deadlock.\n2. **Strict 2PL:** conflict serializable, and exclusive locks are held to commit, so recoverable and cascadeless. It can still deadlock.\n3. **Conservative 2PL:** conflict serializable and deadlock-free (no hold-and-wait). Not recoverable by itself.\n4. **Basic timestamp ordering:** conflict serializable in timestamp order and deadlock-free (no waiting). Not recoverable by itself.\n5. **Thomas' rule:** deadlock-free, but only view serializable (not always conflict serializable), and not recoverable by itself.\n\n**Answer:** Only strict 2PL gives recoverable and cascadeless schedules; only conservative 2PL and the timestamp protocols are deadlock-free; Thomas' rule drops CSR to VSR.",
+   "why_full": "These comparison statements are the usual true/false cases. In GATE: which protocol guarantees what, and whether 2PL and TSO accept the same schedules (2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2025 CS1 Q15).\n\nAsked: 2024 CS2 Q27, 2019 CS Q21, 2010 CS Q20, 2016 CS1 Q51, 2025 CS1 Q15",
+   "trap": "Saying timestamp ordering is recoverable, or that 2PL prevents deadlock. Neither is true. Also, assuming one protocol accepts a superset of the other's schedules."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "db.cc.c1.swaps",
+   "title": "Swapping non-conflicting neighbours",
+   "viewBox": [
+    0,
+    0,
+    360,
+    230
+   ],
+   "objects": [
+    {
+     "id": "ops",
+     "kind": "array",
+     "x": 20,
+     "y": 50,
+     "cells": [
+      "r1(x)",
+      "w2(y)",
+      "w1(x)",
+      "r2(x)"
+     ],
+     "cw": 80,
+     "ch": 34,
+     "indices": true,
+     "label": "schedule S"
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 134,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "v",
+     "kind": "text",
+     "x": 180,
+     "y": 170,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "$S$ is $r_1(x),\\ w_2(y),\\ w_1(x),\\ r_2(x)$. Two adjacent operations can be swapped only if they do not conflict. Check each neighbouring pair.",
+     "highlight": [
+      "ops"
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "which neighbours can swap?"
+      }
+     ]
+    },
+    {
+     "caption": "$(r_1(x), w_2(y))$: different items, can swap. $(w_2(y), w_1(x))$: different items, can swap. $(w_1(x), r_2(x))$: same item, different transactions, one write: **conflict**, cannot swap.",
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        1,
+        2
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "w2(y), w1(x): different items"
+      },
+      {
+       "id": "v",
+       "text": "w1(x), r2(x) conflict: no swap",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Swap $w_2(y)$ and $w_1(x)$. The schedule becomes $r_1(x),\\ w_1(x),\\ w_2(y),\\ r_2(x)$.",
+     "swap": {
+      "id": "ops",
+      "i": 1,
+      "j": 2
+     },
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        1,
+        2
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "ev",
+       "text": "swapped w2(y) and w1(x)",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "All of $T_1$'s operations now come before all of $T_2$'s: the serial schedule $T_1\\,T_2$. Swaps keep the outcome unchanged, so $S$ is conflict equivalent to it, hence conflict serializable.",
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        0,
+        1
+       ],
+       "tone": "accent"
+      },
+      {
+       "id": "v",
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "v",
+       "text": "T1 first, then T2: serial",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.cc.c2.lockmodes",
+   "title": "Shared and exclusive locks on item A",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 76,
+     "y": 70,
+     "rows": 2,
+     "cols": 2,
+     "cw": 50,
+     "ch": 34,
+     "cells": [
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "S",
+      "X"
+     ],
+     "rowLabels": [
+      "S",
+      "X"
+     ],
+     "colTitle": "asked",
+     "rowTitle": "held"
+    },
+    {
+     "id": "held",
+     "kind": "array",
+     "x": 186,
+     "y": 60,
+     "cells": [],
+     "cw": 54,
+     "ch": 30,
+     "slots": 3,
+     "indices": false,
+     "label": "holds A"
+    },
+    {
+     "id": "wait",
+     "kind": "array",
+     "x": 186,
+     "y": 126,
+     "cells": [],
+     "cw": 54,
+     "ch": 30,
+     "slots": 3,
+     "indices": false,
+     "label": "waits for A"
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "$A$ is free. $T_1$ requests $S(A)$: granted. $A$ is held by $T_1$ in shared mode.",
+     "set": [
+      {
+       "id": "held",
+       "cells": [
+        "T1:S"
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "T1 gets S(A)"
+      }
+     ],
+     "highlight": [
+      "held"
+     ]
+    },
+    {
+     "caption": "$T_2$ requests $S(A)$. Shared with shared is compatible, so it is granted. Many readers may share an item.",
+     "set": [
+      {
+       "id": "held",
+       "cells": [
+        "T1:S",
+        "T2:S"
+       ]
+      },
+      {
+       "id": "g",
+       "cells": [
+        "✓",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "S with S: both granted",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      },
+      "held"
+     ]
+    },
+    {
+     "caption": "$T_3$ requests $X(A)$. Exclusive conflicts with the held shared locks, so $T_3$ must wait.",
+     "set": [
+      {
+       "id": "wait",
+       "cells": [
+        "T3:X"
+       ]
+      },
+      {
+       "id": "g",
+       "cells": [
+        "✓",
+        "✗",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "X vs held S: T3 waits",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        1
+       ],
+       "tone": "bad"
+      },
+      "wait"
+     ]
+    },
+    {
+     "caption": "$T_1$ and $T_2$ unlock $A$. Now nothing is held, and the waiting $T_3$ is granted $X(A)$.",
+     "set": [
+      {
+       "id": "held",
+       "cells": [
+        "T3:X"
+       ]
+      },
+      {
+       "id": "wait",
+       "cells": []
+      },
+      {
+       "id": "ev",
+       "text": "T1, T2 unlock: T3 gets X(A)"
+      }
+     ],
+     "highlight": [
+      "held"
+     ]
+    },
+    {
+     "caption": "$T_4$ requests $S(A)$ while $T_3$ holds $X(A)$. Exclusive blocks everything, so $T_4$ waits.",
+     "set": [
+      {
+       "id": "wait",
+       "cells": [
+        "T4:S"
+       ]
+      },
+      {
+       "id": "g",
+       "cells": [
+        "✓",
+        "✗",
+        "✗",
+        "✗"
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "X blocks everyone: T4 waits",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        2,
+        3
+       ],
+       "tone": "bad"
+      },
+      "wait"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.cc.c3.twophase",
+   "title": "Locks held over time: growing then shrinking",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "phase",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "",
+     "size": 14,
+     "bold": true,
+     "tone": "accent"
+    },
+    {
+     "id": "held",
+     "kind": "bar",
+     "x": 30,
+     "y": 48,
+     "w": 300,
+     "h": 110,
+     "values": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "L a",
+      "L b",
+      "L c",
+      "U c",
+      "U a",
+      "U b"
+     ],
+     "max": 3
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 212,
+     "text": "",
+     "size": 14,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "**Two-phase rule:** all lock requests come before the first unlock. A growing phase, then a shrinking phase.",
+     "set": [
+      {
+       "id": "phase",
+       "text": "all locks first, then all unlocks"
+      }
+     ],
+     "highlight": [
+      "phase"
+     ]
+    },
+    {
+     "caption": "lock-S($a$): one lock held.",
+     "set": [
+      {
+       "id": "held",
+       "values": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "phase",
+       "text": "growing phase"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "held",
+       "cells": [
+        0
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "lock-X($b$) and lock-S($c$): the count grows to 3. No unlock has happened yet.",
+     "set": [
+      {
+       "id": "held",
+       "values": [
+        1,
+        2,
+        3,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "phase",
+       "text": "growing phase: 3 locks held"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "held",
+       "cells": [
+        1,
+        2
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "The moment the last lock is acquired is the **lock point**. Here it is after lock-S($c$), with 3 locks held.",
+     "set": [
+      {
+       "id": "res",
+       "text": "lock point: all locks acquired",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "held",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "unlock($c$) and unlock($a$): the shrinking phase begins. From now on the transaction may not take any new lock.",
+     "set": [
+      {
+       "id": "held",
+       "values": [
+        1,
+        2,
+        3,
+        2,
+        1,
+        0
+       ]
+      },
+      {
+       "id": "phase",
+       "text": "shrinking phase: no new locks"
+      },
+      {
+       "id": "res",
+       "text": ""
+      }
+     ],
+     "highlight": [
+      {
+       "id": "held",
+       "cells": [
+        3,
+        4
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "unlock($b$): all released. Every lock came before every unlock, so the transaction is two-phase.",
+     "set": [
+      {
+       "id": "res",
+       "text": "two-phase: growing then shrinking",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "held",
+       "cells": [
+        5
+       ],
+       "tone": "mid"
+      },
+      "res"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.cc.c4.variants",
+   "title": "When each 2PL variant holds its locks",
+   "viewBox": [
+    0,
+    0,
+    360,
+    252
+   ],
+   "objects": [
+    {
+     "id": "n0",
+     "kind": "text",
+     "x": 8,
+     "y": 63,
+     "text": "basic",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 8,
+     "y": 115,
+     "text": "strict",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "n2",
+     "kind": "text",
+     "x": 8,
+     "y": 167,
+     "text": "rigorous",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "n3",
+     "kind": "text",
+     "x": 8,
+     "y": 219,
+     "text": "conserv.",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "cm",
+     "kind": "edge",
+     "x1": 324,
+     "y1": 28,
+     "x2": 324,
+     "y2": 244,
+     "dash": true
+    },
+    {
+     "id": "cmt",
+     "kind": "text",
+     "x": 324,
+     "y": 18,
+     "text": "commit",
+     "size": 13
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 84,
+     "y": 18,
+     "text": "start",
+     "size": 13
+    },
+    {
+     "id": "l0a",
+     "kind": "box",
+     "x": 124,
+     "y": 34,
+     "w": 80,
+     "h": 20,
+     "label": "S(a)"
+    },
+    {
+     "id": "l0b",
+     "kind": "box",
+     "x": 164,
+     "y": 56,
+     "w": 80,
+     "h": 20,
+     "label": "X(b)"
+    },
+    {
+     "id": "l1a",
+     "kind": "box",
+     "x": 124,
+     "y": 86,
+     "w": 80,
+     "h": 20,
+     "label": "S(a)"
+    },
+    {
+     "id": "l1b",
+     "kind": "box",
+     "x": 164,
+     "y": 108,
+     "w": 160,
+     "h": 20,
+     "label": "X(b)"
+    },
+    {
+     "id": "l2a",
+     "kind": "box",
+     "x": 124,
+     "y": 138,
+     "w": 200,
+     "h": 20,
+     "label": "S(a)"
+    },
+    {
+     "id": "l2b",
+     "kind": "box",
+     "x": 164,
+     "y": 160,
+     "w": 160,
+     "h": 20,
+     "label": "X(b)"
+    },
+    {
+     "id": "l3a",
+     "kind": "box",
+     "x": 84,
+     "y": 190,
+     "w": 120,
+     "h": 20,
+     "label": "S(a)"
+    },
+    {
+     "id": "l3b",
+     "kind": "box",
+     "x": 84,
+     "y": 212,
+     "w": 160,
+     "h": 20,
+     "label": "X(b)"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The transaction needs $S(a)$ from time 1 and $X(b)$ from time 2, and commits at time 6. Its lock point is time 2.",
+     "highlight": [
+      "cm"
+     ]
+    },
+    {
+     "caption": "**Basic 2PL:** after the lock point, locks may be released at any time. Here $S(a)$ is released at 3 and $X(b)$ at 4, before the commit.",
+     "show": [
+      "n0",
+      "l0a",
+      "l0b"
+     ],
+     "highlight": [
+      "l0a",
+      "l0b"
+     ]
+    },
+    {
+     "caption": "**Strict 2PL:** every exclusive lock is held until commit or abort. $X(b)$ is held to time 6; $S(a)$ may still be released early. No one can read dirty data, so schedules are cascadeless.",
+     "show": [
+      "n1",
+      "l1a",
+      "l1b"
+     ],
+     "highlight": [
+      {
+       "id": "l1b",
+       "tone": "bad"
+      },
+      "l1a"
+     ]
+    },
+    {
+     "caption": "**Rigorous 2PL:** all locks, shared and exclusive, are held until commit. The serial order equals the commit order.",
+     "show": [
+      "n2",
+      "l2a",
+      "l2b"
+     ],
+     "highlight": [
+      {
+       "id": "l2a",
+       "tone": "bad"
+      },
+      {
+       "id": "l2b",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "**Conservative 2PL:** acquire all locks before starting, at time 0, or wait. There is no waiting while holding locks, so no deadlock.",
+     "show": [
+      "n3",
+      "l3a",
+      "l3b"
+     ],
+     "highlight": [
+      {
+       "id": "l3a",
+       "tone": "good"
+      },
+      {
+       "id": "l3b",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.cc.c5.waitfor",
+   "title": "A wait-for cycle and breaking it",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 22,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "n1",
+     "kind": "node",
+     "x": 60,
+     "y": 74,
+     "label": "T1",
+     "r": 20
+    },
+    {
+     "id": "n2",
+     "kind": "node",
+     "x": 300,
+     "y": 74,
+     "label": "T2",
+     "r": 20
+    },
+    {
+     "id": "n3",
+     "kind": "node",
+     "x": 180,
+     "y": 170,
+     "label": "T3",
+     "r": 20
+    },
+    {
+     "id": "h1",
+     "kind": "text",
+     "x": 60,
+     "y": 110,
+     "text": "holds A",
+     "size": 13
+    },
+    {
+     "id": "h2",
+     "kind": "text",
+     "x": 300,
+     "y": 110,
+     "text": "holds B",
+     "size": 13
+    },
+    {
+     "id": "h3",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "holds C",
+     "size": 13
+    },
+    {
+     "id": "e12",
+     "kind": "arrow",
+     "from": "n1",
+     "to": "n2",
+     "label": "B"
+    },
+    {
+     "id": "e23",
+     "kind": "arrow",
+     "from": "n2",
+     "to": "n3",
+     "label": "C"
+    },
+    {
+     "id": "e31",
+     "kind": "arrow",
+     "from": "n3",
+     "to": "n1",
+     "label": "A"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Each transaction holds one lock: $T_1$ has $A$, $T_2$ has $B$, $T_3$ has $C$. Nobody waits yet.",
+     "set": [
+      {
+       "id": "note",
+       "text": "each holds one lock"
+      }
+     ],
+     "highlight": [
+      "h1",
+      "h2",
+      "h3"
+     ]
+    },
+    {
+     "caption": "$T_1$ requests $B$, held by $T_2$. $T_1$ waits for $T_2$: edge $T_1 \\to T_2$.",
+     "draw": [
+      "e12"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "T1 waits for T2"
+      }
+     ],
+     "highlight": [
+      "e12"
+     ]
+    },
+    {
+     "caption": "$T_2$ requests $C$, held by $T_3$. Edge $T_2 \\to T_3$.",
+     "draw": [
+      "e23"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "T2 waits for T3"
+      }
+     ],
+     "highlight": [
+      "e23"
+     ]
+    },
+    {
+     "caption": "$T_3$ requests $A$, held by $T_1$. Edge $T_3 \\to T_1$. The edges form the cycle $T_1 \\to T_2 \\to T_3 \\to T_1$. Each waits for the next: **deadlock**.",
+     "draw": [
+      "e31"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "cycle: deadlock",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "e12",
+       "tone": "bad"
+      },
+      {
+       "id": "e23",
+       "tone": "bad"
+      },
+      {
+       "id": "e31",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Abort one victim, say $T_3$. It releases $C$, so $T_2$ gets $C$ and can finish, then $T_1$ gets $B$. The cycle is gone.",
+     "dim": [
+      "n3",
+      "e23",
+      "e31",
+      "h3"
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "abort T3: T2 gets C, then T1 gets B",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "n3",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.cc.c6.tso",
+   "title": "Timestamp ordering: RTS and WTS for item x",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "ts",
+     "kind": "text",
+     "x": 180,
+     "y": 20,
+     "text": "TS:  T1 = 10   T2 = 20   T3 = 30",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "ops",
+     "kind": "array",
+     "x": 20,
+     "y": 44,
+     "cells": [
+      "r2(x)",
+      "w3(x)",
+      "r1(x)",
+      "w2(x)"
+     ],
+     "cw": 80,
+     "ch": 32,
+     "indices": false
+    },
+    {
+     "id": "rts",
+     "kind": "box",
+     "x": 60,
+     "y": 118,
+     "w": 110,
+     "h": 34,
+     "label": "RTS(x) = 0"
+    },
+    {
+     "id": "wts",
+     "kind": "box",
+     "x": 190,
+     "y": 118,
+     "w": 110,
+     "h": 34,
+     "label": "WTS(x) = 0"
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 182,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 214,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Rules. **Read** $r_T(x)$: if $TS(T) < WTS(x)$, roll $T$ back; else allow it and set $RTS(x)=\\max(RTS(x), TS(T))$. **Write** $w_T(x)$: if $TS(T) < RTS(x)$ or $TS(T) < WTS(x)$, roll $T$ back; else allow it and set $WTS(x) = TS(T)$.",
+     "highlight": [
+      "rts",
+      "wts"
+     ]
+    },
+    {
+     "caption": "$r_2(x)$: $20 \\ge WTS(x) = 0$. Allowed. $RTS(x) = 20$.",
+     "set": [
+      {
+       "id": "rts",
+       "label": "RTS(x) = 20"
+      },
+      {
+       "id": "ev",
+       "text": "r2: 20 ≥ WTS 0, ok",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      },
+      "rts"
+     ]
+    },
+    {
+     "caption": "$w_3(x)$: $30 \\ge RTS(x) = 20$ and $30 \\ge WTS(x) = 0$. Allowed. $WTS(x) = 30$.",
+     "set": [
+      {
+       "id": "wts",
+       "label": "WTS(x) = 30"
+      },
+      {
+       "id": "ev",
+       "text": "w3: 30 ≥ RTS 20, ok",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      },
+      "wts"
+     ]
+    },
+    {
+     "caption": "$r_1(x)$: $10 < WTS(x) = 30$. $T_1$ would read a value written by a younger transaction. **$T_1$ is rolled back.**",
+     "set": [
+      {
+       "id": "ev",
+       "text": "r1: 10 < WTS 30: T1 rolls back",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        2
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "wts",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "$w_2(x)$: $20 < WTS(x) = 30$. A younger transaction already wrote $x$. **$T_2$ is rolled back.**",
+     "set": [
+      {
+       "id": "ev",
+       "text": "w2: 20 < WTS 30: T2 rolls back",
+       "tone": "bad"
+      },
+      {
+       "id": "res",
+       "text": "only T3 survives"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "ops",
+       "cells": [
+        3
+       ],
+       "tone": "bad"
+      },
+      {
+       "id": "wts",
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.cc.c7.thomas",
+   "title": "Thomas' write rule on a timeline of timestamps",
+   "viewBox": [
+    0,
+    0,
+    360,
+    240
+   ],
+   "objects": [
+    {
+     "id": "ax",
+     "kind": "axis",
+     "x": 24,
+     "y": 112,
+     "unit": 26,
+     "xr": [
+      0,
+      12
+     ],
+     "yr": [
+      0,
+      1
+     ],
+     "xlabel": "ts"
+    },
+    {
+     "id": "pR",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      3,
+      0
+     ],
+     "label": "RTS 3"
+    },
+    {
+     "id": "pW",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      10,
+      0
+     ],
+     "label": "WTS 10"
+    },
+    {
+     "id": "pT",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      6,
+      0
+     ],
+     "label": "TS 6",
+     "hollow": true,
+     "tone": "accent"
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 172,
+     "text": "",
+     "size": 14,
+     "bold": true
+    },
+    {
+     "id": "ev2",
+     "kind": "text",
+     "x": 180,
+     "y": 200,
+     "text": "",
+     "size": 13
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Mark $RTS(x)=3$ and $WTS(x)=10$ on a timeline of timestamps.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "write w_T(x), item has RTS and WTS"
+      }
+     ],
+     "highlight": [
+      "pR",
+      "pW"
+     ]
+    },
+    {
+     "caption": "Mark $TS(T)=6$. It lies between the reader and the writer.",
+     "show": [
+      "pT"
+     ],
+     "highlight": [
+      "pT"
+     ]
+    },
+    {
+     "caption": "First check: is $TS(T) < RTS(x)$? $6 \\ge 3$, so no reader with a larger timestamp has seen an older value. This test passes.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "TS ≥ RTS: no later reader missed",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pR",
+       "tone": "good"
+      },
+      "pT"
+     ]
+    },
+    {
+     "caption": "Second check: $TS(T) = 6 < WTS(x) = 10$. A transaction after $T$ in the serial order has already written $x$. Basic TSO rolls $T$ back. **Thomas' rule** just ignores the write: it would be overwritten by the later write anyway, and nobody read it.",
+     "set": [
+      {
+       "id": "ev",
+       "text": "TS < WTS: basic TSO rolls back",
+       "tone": "bad"
+      },
+      {
+       "id": "ev2",
+       "text": "Thomas: skip the obsolete write",
+       "tone": "good"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pW",
+       "tone": "bad"
+      },
+      "pT"
+     ]
+    },
+    {
+     "caption": "Now take $RTS(x)=8$: $TS(T) = 6 < 8$, so a later transaction has already read $x$ and would have needed $T$'s value. The write must fail even under Thomas' rule: $T$ is rolled back.",
+     "move": {
+      "id": "pR",
+      "x": 8,
+      "y": 0
+     },
+     "set": [
+      {
+       "id": "pR",
+       "label": "RTS 8"
+      },
+      {
+       "id": "ev",
+       "text": "RTS now 8 > TS 6: rollback even with Thomas",
+       "tone": "bad"
+      },
+      {
+       "id": "ev2",
+       "text": "a later reader needed this write"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "pR",
+       "tone": "bad"
+      },
+      "pT"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "db.cc.c8.compare",
+   "title": "What each protocol guarantees",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 104,
+     "y": 44,
+     "rows": 5,
+     "cols": 4,
+     "cw": 62,
+     "ch": 32,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "colLabels": [
+      "CSR",
+      "Rec",
+      "ACA",
+      "No DL"
+     ],
+     "rowLabels": [
+      "2PL",
+      "strict 2PL",
+      "cons. 2PL",
+      "TSO",
+      "TSO+Thomas"
+     ]
+    },
+    {
+     "id": "ev",
+     "kind": "text",
+     "x": 180,
+     "y": 236,
+     "text": "",
+     "size": 13,
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "**Basic 2PL:** conflict serializable. It can release exclusive locks early, so no recoverability. It can deadlock.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✓",
+        "✗",
+        "✗",
+        "✗",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "basic 2PL: serializable only"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "**Strict 2PL:** conflict serializable, and exclusive locks are held to commit, so recoverable and cascadeless. It can still deadlock.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✓",
+        "✗",
+        "✗",
+        "✗",
+        "✓",
+        "✓",
+        "✓",
+        "✗",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "strict 2PL adds Rec and ACA"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        5,
+        6
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "**Conservative 2PL:** conflict serializable and deadlock-free (no hold-and-wait). Not recoverable by itself.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✓",
+        "✗",
+        "✗",
+        "✗",
+        "✓",
+        "✓",
+        "✓",
+        "✗",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "conservative: no deadlock"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        11
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "**Basic timestamp ordering:** conflict serializable in timestamp order and deadlock-free (no waiting). Not recoverable by itself.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✓",
+        "✗",
+        "✗",
+        "✗",
+        "✓",
+        "✓",
+        "✓",
+        "✗",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "TSO: never waits, no deadlock"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        15
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "**Thomas' rule:** deadlock-free, but only view serializable (not always conflict serializable), and not recoverable by itself.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "✓",
+        "✗",
+        "✗",
+        "✗",
+        "✓",
+        "✓",
+        "✓",
+        "✗",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "✓",
+        "✗",
+        "✗",
+        "✓",
+        "✗",
+        "✗",
+        "✗",
+        "✓"
+       ]
+      },
+      {
+       "id": "ev",
+       "text": "Thomas: view, not conflict, serializable",
+       "tone": "bad"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        16
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,3047 @@
+{
+  "topic_id": "ai.informed",
+  "title": "Informed search and heuristics",
+  "chapter_note": {
+    "about": "Informed search adds a guess to the search. The guess h(n) says how far a node still is from the goal. Greedy best-first search follows h alone, which is fast but can pick a costly route. A* follows f = g + h, the cost so far plus the guess, and returns the cheapest path when h never overestimates. Most of the chapter checks that promise: admissible heuristics, consistent heuristics, how to combine heuristics, and how large a heuristic may be. IDA* is the memory-light version. You trace all of them with a table of g, h and f.",
+    "concept_map": [
+      {
+        "atom_id": "i1",
+        "title": "Evaluation functions: UCS, greedy, A*",
+        "one_line": "UCS ranks by g, greedy by h, A* by g + h. With h = 0, A* is UCS."
+      },
+      {
+        "atom_id": "i2",
+        "title": "Greedy best-first behaviour",
+        "one_line": "Lowest h first. Fast, but it can return a costly path, and as tree search it can loop."
+      },
+      {
+        "atom_id": "i3",
+        "title": "A* expansion order",
+        "one_line": "Remove the lowest f, update cheaper paths, test the goal on removal, apply the stated tie-break."
+      },
+      {
+        "atom_id": "i4",
+        "title": "Admissibility",
+        "one_line": "h never exceeds the true cost h*. This makes A* tree search optimal."
+      },
+      {
+        "atom_id": "i5",
+        "title": "Consistency",
+        "one_line": "On every edge h(n) is at most c plus h(n'). It implies admissible, and f never decreases."
+      },
+      {
+        "atom_id": "i6",
+        "title": "Dominance and combining heuristics",
+        "one_line": "Max, min and average of admissible heuristics stay admissible. The sum does not."
+      },
+      {
+        "atom_id": "i7",
+        "title": "IDA*",
+        "one_line": "Iterative deepening on f. The next threshold is the smallest f that was cut."
+      },
+      {
+        "atom_id": "i8",
+        "title": "Bounding h values",
+        "one_line": "The largest admissible h(n) is the cheapest route to any goal."
+      }
+    ],
+    "gate_patterns": [
+      "Trace A* on a small graph with a heuristic table, tracking g and f. The heuristic may be inconsistent, so a node can be expanded twice. Asked in 2025 DA and the 2024 DA sample paper.",
+      "Say which combinations of admissible heuristics stay admissible: max, min and the average do, the sum and the product do not. Asked in 2024 DA.",
+      "Find the largest admissible h for a node (the cheapest route to any goal), judge heuristics from relaxed problems, or count IDA* repeats. Asked in the 2024 DA sample paper. About 1 mark per DA paper."
+    ],
+    "simple": "Informed search is search with a guess. Each place on your list gets a guess of how far the goal still is. Greedy search follows only the guess and can be fooled. A* adds the cost paid so far to the guess, and always tries the place with the smallest total. It finds the cheapest route as long as the guesses are never too big. The rest of the chapter is about checking that rule, mixing guesses, and a version that uses very little memory. In exam words: informed search with evaluation functions, greedy and A*, admissible and consistent heuristics, dominance, IDA*, and bounds on h."
+  },
+  "cards": [
+    {
+      "atom_id": "i1",
+      "title": "Evaluation functions: UCS, greedy, A*",
+      "simple": "When a search has a list of places to try next, it needs a score to decide which one goes first. UCS scores a place by what you have already paid to get there, called g. Greedy scores it by your guess of how far is left, called h. A* adds the two: paid so far plus guessed rest, written f = g + h. It is like choosing a route by the taxi meter so far, by the satnav's remaining estimate, or by the total predicted fare. If the guess is always zero, A* turns into plain UCS. In exam words: UCS uses f = g, greedy best-first uses f = h, and A* uses f = g + h.",
+      "idea": "Every informed search keeps a frontier and removes the node with the **lowest score**. The score is the whole difference between the algorithms. UCS scores by g(n), the cost so far. Greedy scores by h(n), the guessed cost to go. A* scores by **f(n) = g(n) + h(n)**, the guessed total cost through n. If h is 0 everywhere, A* is UCS.",
+      "idea_full": "g(n) is exact: it is what you have already paid. h(n) is a guess: it is how much you think is left. UCS trusts only the facts, so it is safe but slow, because it spreads out in all directions. Greedy trusts only the guess, so it rushes towards the goal but can take a costly route. A* uses both. The sum f = g + h is the best estimate of the total cost of a solution that passes through n. Always removing the lowest f means A* tries the most promising whole route first. If h = 0 for every node, the guess adds nothing and f = g, so A* does exactly what UCS does.",
+      "definition": "$$f(n)=g(n)+h(n)$$\n\nSymbols: g(n) is the exact cost of the path from the start to n. h(n) is the estimated cheapest cost from n to a goal. f(n) is the estimated cost of the cheapest solution through n.\n\nUCS: f = g. Greedy best-first: f = h. A*: f = g + h. Each removes the frontier node with the smallest f. In general, a best-first search with f = (2 − w)·g + w·h gives UCS at w = 0, A* at w = 1 and greedy at w = 2.",
+      "intuition_full": "Imagine three drivers choosing between three roads out of town. The first looks only at his trip meter and takes the road where he has driven the least so far. That is UCS, and it never looks ahead. The second looks only at the signpost saying how far the destination is. He takes the road with the smallest number on the sign, whatever it cost to get there. That is greedy. The third adds trip meter and signpost, and takes the road with the smallest total. That is A*. The sum is the key. g stops you being lured by a cheap-looking sign at the end of an expensive road. h stops you wasting time on roads that lead away from the goal. When you set h = 0 you throw away the signpost, and you are back to the first driver.",
+      "example": {
+        "setup": "S has three children. The edge costs give g and a heuristic gives h. A has g = 2 and h = 7. B has g = 4 and h = 3. C has g = 6 and h = 2. Which child do UCS, greedy and A* expand first?",
+        "steps": [
+          "Write g and h for each child. A: 2 and 7. B: 4 and 3. C: 6 and 2.",
+          "UCS ranks by g. The smallest is A with 2. UCS picks A.",
+          "Greedy ranks by h. The smallest is C with 2. Greedy picks C.",
+          "A* ranks by f = g + h. A: 2 + 7 = 9. B: 4 + 3 = 7. C: 6 + 2 = 8. The smallest is B with 7.",
+          "One frontier, three keys, three different picks."
+        ],
+        "answer": "UCS picks A, greedy picks C and A* picks B."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "S has three children. The edge costs give g and a heuristic gives h. A has g = 2 and h = 7. B has g = 4 and h = 3. C has g = 6 and h = 2. Which child do UCS, greedy and A* expand first?",
+          "steps": [
+            "Write g and h for each child. A: 2 and 7. B: 4 and 3. C: 6 and 2.",
+            "UCS ranks by g. The smallest is A with 2. UCS picks A.",
+            "Greedy ranks by h. The smallest is C with 2. Greedy picks C.",
+            "A* ranks by f = g + h. A: 2 + 7 = 9. B: 4 + 3 = 7. C: 6 + 2 = 8. The smallest is B with 7.",
+            "One frontier, three keys, three different picks."
+          ],
+          "answer": "UCS picks A, greedy picks C and A* picks B."
+        },
+        {
+          "level": "gate",
+          "setup": "A best-first search ranks nodes by f(n) = (2 − w)·g(n) + w·h(n). For a node with g = 6 and h = 4, find f when w = 0, w = 1 and w = 2. Which algorithm does each w give?",
+          "steps": [
+            "w = 0: f = (2 − 0) × 6 + 0 × 4 = 12 + 0 = 12. This is 2g, which orders nodes exactly like g. So it is UCS.",
+            "w = 1: f = (2 − 1) × 6 + 1 × 4 = 6 + 4 = 10. This is g + h. So it is A*.",
+            "w = 2: f = (2 − 2) × 6 + 2 × 4 = 0 + 8 = 8. This is 2h, which orders nodes exactly like h. So it is greedy.",
+            "The values 12, 10 and 8 differ, but only the ordering across nodes matters. 2g ranks like g, and 2h ranks like h."
+          ],
+          "answer": "w = 0 is UCS (f = 12), w = 1 is A* (f = 10) and w = 2 is greedy (f = 8)."
+        },
+        {
+          "level": "twist",
+          "setup": "A* is run with h(n) = 0 for every node, including a node that is clearly close to the goal. What does it do?",
+          "steps": [
+            "With h = 0, f = g + 0 = g for every node.",
+            "A* removes the node with the smallest f, which is now the smallest g. That is exactly UCS.",
+            "h = 0 never overestimates, since 0 is at most any true cost. So it is admissible, and A* still returns an optimal path.",
+            "It just gets no help from the guess, so it expands as many nodes as UCS does."
+          ],
+          "answer": "A* with h = 0 behaves as UCS: the same order, the same optimal answer, and no speed-up."
+        }
+      ],
+      "why": "The evaluation function is the whole algorithm. In GATE: you are told which algorithm to run and must rank the frontier with the right key, or you must match algorithms to their keys.",
+      "how": [
+        "Write the key for this algorithm: g for UCS, h for greedy, g + h for A*.",
+        "Compute the key for every frontier node.",
+        "Remove the node with the lowest key. Apply the tie-break if two are equal.",
+        "Add its children, with g = the parent's g plus the edge cost.",
+        "Repeat, and test the goal when it is removed."
+      ],
+      "mistake": "Dropping g. Ranking by h alone is greedy, not A*. A* needs the sum g + h. The reverse slip is forgetting h when a question asks for A*, and ranking by the cost so far, which gives UCS.",
+      "edge_cases": [
+        "h(goal) = 0, so for a goal f equals g, the true cost of the path so far.",
+        "h = 0 everywhere makes A* equal to UCS.",
+        "Greedy can pick a node whose f is large, because it ignores g.",
+        "On ties in f, use the stated tie-break, usually alphabetical order."
+      ],
+      "connections": [
+        "Uniform-cost search is the f = g case (see Uninformed search).",
+        "Dijkstra's algorithm is UCS, so A* is Dijkstra with a guess added (see Shortest paths).",
+        "The same ranking idea runs through the next cards: greedy, A* expansion order and admissibility."
+      ],
+      "check": [
+        {
+          "q": "Node X has g = 5 and h = 3. What is f(X) in A*, and what key does greedy use?",
+          "a": "f = 5 + 3 = 8. Greedy uses h = 3."
+        },
+        {
+          "q": "Which algorithm uses f(n) = g(n)?",
+          "a": "Uniform-cost search."
+        },
+        {
+          "q": "A* runs with h(n) = 0 for all nodes. Which algorithm does it match?",
+          "a": "Uniform-cost search."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q44",
+      "try": {
+        "id": "gen.ai.informed.001",
+        "label": "Which function does each algorithm use?"
+      },
+      "scene": "ai.informed.keys",
+      "what": "Every informed search keeps a frontier and removes the node with the **lowest score**. The score is the whole difference between the algorithms. UCS scores by g(n), the cost so far. Greedy scores by h(n), the guessed cost to go. A* scores by **f(n) = g(n) + h(n)**, the guessed total cost through n. If h is 0 everywhere, A* is UCS.",
+      "what_full": "g(n) is exact: it is what you have already paid. h(n) is a guess: it is how much you think is left. UCS trusts only the facts, so it is safe but slow, because it spreads out in all directions. Greedy trusts only the guess, so it rushes towards the goal but can take a costly route. A* uses both. The sum f = g + h is the best estimate of the total cost of a solution that passes through n. Always removing the lowest f means A* tries the most promising whole route first. If h = 0 for every node, the guess adds nothing and f = g, so A* does exactly what UCS does.\n\n$$f(n)=g(n)+h(n)$$\n\nSymbols: g(n) is the exact cost of the path from the start to n. h(n) is the estimated cheapest cost from n to a goal. f(n) is the estimated cost of the cheapest solution through n.\n\nUCS: f = g. Greedy best-first: f = h. A*: f = g + h. Each removes the frontier node with the smallest f. In general, a best-first search with f = (2 − w)·g + w·h gives UCS at w = 0, A* at w = 1 and greedy at w = 2.\n\n**Worked example.** S has three children. The edge costs give g and a heuristic gives h. A has g = 2 and h = 7. B has g = 4 and h = 3. C has g = 6 and h = 2. Which child do UCS, greedy and A* expand first?\n\n1. Write g and h for each child. A: 2 and 7. B: 4 and 3. C: 6 and 2.\n2. UCS ranks by g. The smallest is A with 2. UCS picks A.\n3. Greedy ranks by h. The smallest is C with 2. Greedy picks C.\n4. A* ranks by f = g + h. A: 2 + 7 = 9. B: 4 + 3 = 7. C: 6 + 2 = 8. The smallest is B with 7.\n5. One frontier, three keys, three different picks.\n\n**Answer:** UCS picks A, greedy picks C and A* picks B.\n\n**Check yourself:** Node X has g = 5 and h = 3. What is f(X) in A*, and what key does greedy use?\n\n*Answer:* f = 5 + 3 = 8. Greedy uses h = 3.",
+      "trap": "Dropping g. Ranking by h alone is greedy, not A*. A* needs the sum g + h. The reverse slip is forgetting h when a question asks for A*, and ranking by the cost so far, which gives UCS.",
+      "why_full": "The evaluation function is the whole algorithm. In GATE: you are told which algorithm to run and must rank the frontier with the right key, or you must match algorithms to their keys.\n\nAsked: 2025 DA Q44"
+    },
+    {
+      "atom_id": "i2",
+      "title": "Greedy best-first behaviour",
+      "simple": "Greedy search is like always walking toward the tower that looks closest, without checking whether the road to it is long or blocked. At every step it picks the place that looks nearest the goal and ignores how much it has already paid. That makes it quick when the guess is good. But it can end up on a long expensive route, or even go back and forth between two places that both look good. In exam words: greedy best-first search expands the node with the lowest h(n). It is fast but not optimal, and as tree search it can loop.",
+      "idea": "**Greedy best-first search** always expands the frontier node with the lowest h(n), the one that looks closest to the goal. It ignores g, the cost already paid. So it often finds a path quickly, but not the cheapest one. As tree search it can also loop forever between nodes that look good.",
+      "idea_full": "Greedy is A* with g thrown away. Its only question is 'which node looks nearest?'. When h is good, it heads straight for the goal and expands very few nodes. But h is only a guess. A node that looks close can sit at the end of a very expensive road, and greedy has no memory of the price it paid. It is not optimal even when h is admissible. Without an explored set it can also bounce between two nodes that both look better than the way forward.",
+      "definition": "$$f(n)=h(n)$$\n\nGreedy best-first search removes the frontier node with the smallest h(n). It is not optimal, even when h is admissible. Tree search can loop forever. Graph search (with an explored set) terminates on a finite graph. The edge costs never change the order in which it explores: only h does.",
+      "intuition_full": "Think of a hiker who always heads for the peak that looks closest on the horizon. Often that is right. But a river may stand between him and that peak, and the closest-looking peak may need a huge detour. He never counts the miles already walked, only how close the peak looks. Because greedy ranks by h alone, changing an edge cost never changes which node it removes next. It changes only how good the final answer is. A second weakness is repeats. Suppose a dead-end node A looks closer than the real route B. Greedy goes to A, finds only a way back to S, and now S looks better than B, so it goes back to S, then to A again. Round and round. An explored set stops that, because S is not allowed back.",
+      "example": {
+        "setup": "Directed edges: S to A 2, S to B 1, A to G 3, B to C 2, C to G 6. Heuristic: S 4, A 3, B 2, C 1, G 0. Run greedy best-first and compare it with the cheapest path.",
+        "steps": [
+          "Greedy ranks by h only. The frontier is [S:4].",
+          "Remove S. Add A (h = 3) and B (h = 2). The lowest h goes first: [B:2, A:3].",
+          "Remove B, the lowest h. Add C (h = 1). The frontier is [C:1, A:3].",
+          "Remove C. Add G (h = 0). The frontier is [G:0, A:3].",
+          "Remove G. It is the goal. Greedy returns S, B, C, G with cost 1 + 2 + 6 = 9.",
+          "The route S, A, G costs only 2 + 3 = 5. Greedy never went there, because it looks at how close a node seems and ignores what was paid."
+        ],
+        "answer": "Greedy returns S, B, C, G at cost 9. The cheapest path is S, A, G at cost 5."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Directed edges: S to A 2, S to B 1, A to G 3, B to C 2, C to G 6. Heuristic: S 4, A 3, B 2, C 1, G 0. Run greedy best-first and compare it with the cheapest path.",
+          "steps": [
+            "Greedy ranks by h only. The frontier is [S:4].",
+            "Remove S. Add A (h = 3) and B (h = 2). The lowest h goes first: [B:2, A:3].",
+            "Remove B, the lowest h. Add C (h = 1). The frontier is [C:1, A:3].",
+            "Remove C. Add G (h = 0). The frontier is [G:0, A:3].",
+            "Remove G. It is the goal. Greedy returns S, B, C, G with cost 1 + 2 + 6 = 9.",
+            "The route S, A, G costs only 2 + 3 = 5. Greedy never went there, because it looks at how close a node seems and ignores what was paid."
+          ],
+          "answer": "Greedy returns S, B, C, G at cost 9. The cheapest path is S, A, G at cost 5."
+        },
+        {
+          "level": "gate",
+          "setup": "Undirected edges: S-A cost 1, S-B cost 2, B-G cost 3. Heuristic: S 2, A 1, B 3, G 0. Children are taken alphabetically. Does greedy tree search terminate? What does greedy graph search (with an explored set) return?",
+          "steps": [
+            "Tree search. Remove S. Add A (h = 1) and B (h = 3). The lowest is A.",
+            "Remove A. Its only neighbour is S, so add S (h = 2). The frontier holds B (3) and S (2).",
+            "S has the lower h, so remove S again. Add A (1) and B (3) again. Then A is removed, then S again.",
+            "The order S, A, S, A, ... never ends. B, the only way to G, stays behind because h(B) = 3 is bigger than h(S) = 2.",
+            "Graph search. Remove S, then A (explored: S, A). A's neighbour S is explored, so nothing is added. The frontier is just B.",
+            "Remove B, add G, remove G. The path is S, B, G with cost 2 + 3 = 5."
+          ],
+          "answer": "Tree search loops forever. Graph search returns S, B, G at cost 5. That happens to be optimal here, but greedy gives no such guarantee."
+        },
+        {
+          "level": "twist",
+          "setup": "In the first example, change the cost of C to G from 6 to 1. Does greedy's path change? Is it optimal now?",
+          "steps": [
+            "Greedy ranks by h only. Edge costs are not part of the key.",
+            "So the expansions are the same as before: S, B, C, then G. The path is S, B, C, G.",
+            "Its cost is now 1 + 2 + 1 = 4.",
+            "The other route S, A, G still costs 5. So 4 is the cheapest, and greedy is optimal this time."
+          ],
+          "answer": "The path is unchanged, and now it is optimal at cost 4. Greedy's order ignores edge costs, so the quality of its answer is luck."
+        }
+      ],
+      "why": "Greedy shows why you need g. It is the cleanest example of speed bought at the price of optimality. In GATE: statements ask whether greedy is optimal or complete, and traces compare its path and cost with A*.",
+      "how": [
+        "Write h for every node from the table.",
+        "Remove the frontier node with the lowest h. Ignore g and all edge costs when choosing.",
+        "Add its children. In graph search skip explored nodes.",
+        "Stop when the goal is removed.",
+        "If asked for the cost, add up the edge costs along the path found."
+      ],
+      "mistake": "Thinking greedy is optimal when h is admissible. It is not. It ignores g, so it can return a costly path. Also remember that greedy tree search can loop forever.",
+      "edge_cases": [
+        "If h is perfect (equal to the true cost), greedy follows a cheapest path.",
+        "Ties in h: use the stated tie-break.",
+        "Greedy tree search can loop. An explored set fixes this on a finite graph.",
+        "Greedy need not be complete on an infinite graph, even with an explored set."
+      ],
+      "connections": [
+        "Greedy is A* with g dropped (see Evaluation functions).",
+        "A* repairs greedy's weakness by adding g (see A* expansion order).",
+        "Tree-search looping is the same trap as DFS on a cycle (see Uninformed search)."
+      ],
+      "check": [
+        {
+          "q": "Does greedy best-first search use g(n) to choose the next node?",
+          "a": "No. It uses h(n) only."
+        },
+        {
+          "q": "Is greedy best-first search optimal when h is admissible?",
+          "a": "No. It can return a costlier path than the cheapest one."
+        },
+        {
+          "q": "What stops greedy tree search looping on a graph with cycles?",
+          "a": "An explored set, which makes it graph search."
+        }
+      ],
+      "asked": "Asked: no standalone year in the blueprint. Greedy is the comparison point in the A* questions.",
+      "try": {
+        "id": "gen.ai.informed.004",
+        "label": "Which statement about greedy best-first search is correct?"
+      },
+      "scene": "ai.informed.greedy",
+      "what": "**Greedy best-first search** always expands the frontier node with the lowest h(n), the one that looks closest to the goal. It ignores g, the cost already paid. So it often finds a path quickly, but not the cheapest one. As tree search it can also loop forever between nodes that look good.",
+      "what_full": "Greedy is A* with g thrown away. Its only question is 'which node looks nearest?'. When h is good, it heads straight for the goal and expands very few nodes. But h is only a guess. A node that looks close can sit at the end of a very expensive road, and greedy has no memory of the price it paid. It is not optimal even when h is admissible. Without an explored set it can also bounce between two nodes that both look better than the way forward.\n\n$$f(n)=h(n)$$\n\nGreedy best-first search removes the frontier node with the smallest h(n). It is not optimal, even when h is admissible. Tree search can loop forever. Graph search (with an explored set) terminates on a finite graph. The edge costs never change the order in which it explores: only h does.\n\n**Worked example.** Directed edges: S to A 2, S to B 1, A to G 3, B to C 2, C to G 6. Heuristic: S 4, A 3, B 2, C 1, G 0. Run greedy best-first and compare it with the cheapest path.\n\n1. Greedy ranks by h only. The frontier is [S:4].\n2. Remove S. Add A (h = 3) and B (h = 2). The lowest h goes first: [B:2, A:3].\n3. Remove B, the lowest h. Add C (h = 1). The frontier is [C:1, A:3].\n4. Remove C. Add G (h = 0). The frontier is [G:0, A:3].\n5. Remove G. It is the goal. Greedy returns S, B, C, G with cost 1 + 2 + 6 = 9.\n6. The route S, A, G costs only 2 + 3 = 5. Greedy never went there, because it looks at how close a node seems and ignores what was paid.\n\n**Answer:** Greedy returns S, B, C, G at cost 9. The cheapest path is S, A, G at cost 5.\n\n**Check yourself:** Does greedy best-first search use g(n) to choose the next node?\n\n*Answer:* No. It uses h(n) only.",
+      "trap": "Thinking greedy is optimal when h is admissible. It is not. It ignores g, so it can return a costly path. Also remember that greedy tree search can loop forever.",
+      "why_full": "Greedy shows why you need g. It is the cleanest example of speed bought at the price of optimality. In GATE: statements ask whether greedy is optimal or complete, and traces compare its path and cost with A*.\n\nAsked: no standalone year in the blueprint. Greedy is the comparison point in the A* questions."
+    },
+    {
+      "atom_id": "i3",
+      "title": "A* expansion order",
+      "simple": "A* is like planning a trip with a running bill and a guess. For every place on your list, write the bill so far (g), your guess of what is left (h), and add them (f). Always go next to the place with the smallest f. If you find a cheaper way to a place, update its bill. You are only finished when the goal reaches the top of your list, not the first time you see it. In exam words: A* removes the lowest f = g + h, updates a node reached with a lower g, breaks ties as stated, and tests the goal on removal.",
+      "idea": "A* keeps a table of g, h and f for the frontier. It removes the node with the lowest f, adds its children, and updates a child if it is reached by a cheaper path. It stops when the goal is **removed**, not when it is first generated. Ties are broken by the stated rule.",
+      "idea_full": "Run the same loop as UCS, but with a new key. After removing a node, work out for each child g = the parent's g plus the edge cost, h from the table, and f = g + h. If the child is already in the frontier with a larger g, replace it with the cheaper entry. If the heuristic is inconsistent, a child you already expanded may be reached again with a lower g. Then it goes back into the frontier and is expanded again. Write the frontier as a small table after every removal. The expansion order is the order of removals.",
+      "definition": "$$f(n)=g(n)+h(n),\\qquad g(\\text{child})=g(n)+c(n,\\text{child})$$\n\nLoop: remove the lowest f (ties as stated), goal-test it, expand it. For each child: if it is new, add it. If it is already waiting with a larger g, replace it. If it was already expanded and the new g is lower, put it back in the frontier (re-open it). Stop when the goal is removed.",
+      "intuition_full": "Think of the frontier as a to-do list sorted by predicted total cost. The top item is the one that currently looks best for the whole trip: money already spent plus an estimate of the rest. As you learn more, the numbers on the list change. A cheaper way to reach a place lowers its g, and so lowers its f. That is why you must update. The goal check on removal is the safety belt. When the goal is generated with some f, a cheaper route may still be waiting with a lower predicted total. Only when the goal is at the top, with the lowest f on the list, can you be sure that nothing waiting beats it (for an admissible h). Finally, if h is inconsistent, a node expanded earlier with a bad g may later be found by a better road. The better entry must be allowed back in, so that its children get the better costs too.",
+      "example": {
+        "setup": "Directed edges: S to A 1, S to B 4, A to B 2, A to G 12, B to G 5. Heuristic: S 7, A 6, B 4, G 0. Run A* and give the expansion order and the cost.",
+        "steps": [
+          "A* ranks by f = g + h. Start: S has g = 0 and h = 7, so f = 7.",
+          "Remove S. Add A: g = 1, f = 1 + 6 = 7. Add B: g = 4, f = 4 + 4 = 8.",
+          "Remove A (f = 7). B is cheaper via A: g = 3, f = 3 + 4 = 7, so it replaces f = 8. G enters with g = 13, f = 13.",
+          "Remove B (f = 7). G via B: g = 3 + 5 = 8, f = 8, better than 13, so it replaces it.",
+          "Remove G. The goal passes the test, with cost 8 along S, A, B, G."
+        ],
+        "answer": "The expansion order is S, A, B, and then G is removed. The cost is 8 along S, A, B, G."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Directed edges: S to A 1, S to B 4, A to B 2, A to G 12, B to G 5. Heuristic: S 7, A 6, B 4, G 0. Run A* and give the expansion order and the cost.",
+          "steps": [
+            "A* ranks by f = g + h. Start: S has g = 0 and h = 7, so f = 7.",
+            "Remove S. Add A: g = 1, f = 1 + 6 = 7. Add B: g = 4, f = 4 + 4 = 8.",
+            "Remove A (f = 7). B is cheaper via A: g = 3, f = 3 + 4 = 7, so it replaces f = 8. G enters with g = 13, f = 13.",
+            "Remove B (f = 7). G via B: g = 3 + 5 = 8, f = 8, better than 13, so it replaces it.",
+            "Remove G. The goal passes the test, with cost 8 along S, A, B, G."
+          ],
+          "answer": "The expansion order is S, A, B, and then G is removed. The cost is 8 along S, A, B, G."
+        },
+        {
+          "level": "gate",
+          "setup": "Directed edges: S to A 1, S to C 2, A to D 4, C to D 2, D to B 3, D to G 5, B to G 2. Heuristic: S 7, A 6, B 1, C 6, D 2, G 0. Ties on f go alphabetically, and a node reached with a lower g is expanded again. Give the expansion order and the cost.",
+          "steps": [
+            "Remove S (f = 7). Add A: g = 1, f = 7. Add C: g = 2, f = 8.",
+            "Remove A (f = 7). Add D: g = 5, f = 5 + 2 = 7.",
+            "Remove D (f = 7, the lowest). Add B: g = 8, f = 9. Add G: g = 10, f = 10. The frontier is C 8, B 9, G 10.",
+            "Remove C (f = 8). D is reached with g = 2 + 2 = 4, lower than 5. So D goes back in with f = 4 + 2 = 6.",
+            "Remove D again (f = 6). B via D: g = 7, f = 8, better than 9. G via D: g = 9, f = 9, better than 10.",
+            "Remove B (f = 8). G via B: g = 7 + 2 = 9, f = 9. That ties with the entry already there, so nothing changes.",
+            "Remove G (f = 9). It is the goal."
+          ],
+          "answer": "The expansion order is S, A, D, C, D, B, and then G is removed. D is expanded twice. The cost is 9 along S, C, D, G. The trap avoided is not re-opening D."
+        },
+        {
+          "level": "twist",
+          "setup": "Directed edges: S to A 2, S to B 2, A to G 3, B to G 3. Heuristic: S 4, A 3, B 3, G 0. After S and A are expanded there is a tie on f = 5 between B and G. How many nodes are expanded before the goal if ties go (a) alphabetically, (b) to the smaller h?",
+          "steps": [
+            "Remove S. A: g = 2, f = 2 + 3 = 5. B: g = 2, f = 5. A tie. Both rules pick A (equal h, so alphabetical).",
+            "Remove A. G via A: g = 5, f = 5. The frontier now has B (f = 5) and G (f = 5). Another tie.",
+            "(a) Alphabetical: B comes before G. Remove B and expand it (G via B is g = 5, no better). Then remove G. Expanded before G: S, A, B, which is 3.",
+            "(b) Smaller h first: h(G) = 0 is less than h(B) = 3, so remove G straight away. Expanded before G: S, A, which is 2."
+          ],
+          "answer": "3 expansions with the alphabetical rule, 2 with the smaller-h rule. The cost is 5 either way. Always apply the tie-break the question states."
+        }
+      ],
+      "why": "A* expansion order is the most-asked informed-search pattern. The same table of g, h and f also feeds IDA* thresholds. In GATE: you list the expansion order on a small graph, or count the expansions or the cost.",
+      "how": [
+        "Make a table with columns node, g, h, f. Put S in it with g = 0.",
+        "Remove the node with the lowest f. Use the stated tie-break.",
+        "For each child compute g, h and f. Add it, or update it if its new g is lower.",
+        "If a node was already expanded and is reached with a lower g, put it back and expand it again.",
+        "Stop when the goal is removed. The expansion order is the order of removals."
+      ],
+      "mistake": "Stopping when the goal is generated. The goal can enter the frontier with a high f while a better route is still waiting. Wait until the goal is the one removed. A second slip is forgetting to update a node that is reached again with a lower g.",
+      "edge_cases": [
+        "If h is consistent, a node is never reached with a lower g after it is expanded, so there is no re-expansion.",
+        "If h is inconsistent, a node may be expanded more than once. List it each time it is expanded.",
+        "With two goals, the first goal removed is the one returned.",
+        "Ties in f: use the stated rule, such as alphabetical or smaller h."
+      ],
+      "connections": [
+        "UCS is the same loop with f = g (see Uninformed search).",
+        "Why re-expansion is rare with a consistent heuristic: see the Consistency card.",
+        "The same f table gives the thresholds for IDA* (see the IDA* card)."
+      ],
+      "check": [
+        {
+          "q": "A node is in the frontier with g = 6 and h = 2. It is reached again with g = 5. What do you do?",
+          "a": "Update the entry to g = 5, so f = 5 + 2 = 7 instead of 8."
+        },
+        {
+          "q": "Two frontier nodes both have f = 9 and the rule says alphabetical. Which is removed first, B or D?",
+          "a": "B."
+        },
+        {
+          "q": "A* generates the goal with f = 12 while another node waits with f = 10. Do you stop?",
+          "a": "No. The node with f = 10 is removed first. Stop only when the goal itself is removed."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q44, 2024 DA sample Q27",
+      "try": {
+        "id": "gen.ai.informed.007",
+        "label": "A* expansion order on a directed graph"
+      },
+      "scene": "ai.informed.astar",
+      "what": "A* keeps a table of g, h and f for the frontier. It removes the node with the lowest f, adds its children, and updates a child if it is reached by a cheaper path. It stops when the goal is **removed**, not when it is first generated. Ties are broken by the stated rule.",
+      "what_full": "Run the same loop as UCS, but with a new key. After removing a node, work out for each child g = the parent's g plus the edge cost, h from the table, and f = g + h. If the child is already in the frontier with a larger g, replace it with the cheaper entry. If the heuristic is inconsistent, a child you already expanded may be reached again with a lower g. Then it goes back into the frontier and is expanded again. Write the frontier as a small table after every removal. The expansion order is the order of removals.\n\n$$f(n)=g(n)+h(n),\\qquad g(\\text{child})=g(n)+c(n,\\text{child})$$\n\nLoop: remove the lowest f (ties as stated), goal-test it, expand it. For each child: if it is new, add it. If it is already waiting with a larger g, replace it. If it was already expanded and the new g is lower, put it back in the frontier (re-open it). Stop when the goal is removed.\n\n**Worked example.** Directed edges: S to A 1, S to B 4, A to B 2, A to G 12, B to G 5. Heuristic: S 7, A 6, B 4, G 0. Run A* and give the expansion order and the cost.\n\n1. A* ranks by f = g + h. Start: S has g = 0 and h = 7, so f = 7.\n2. Remove S. Add A: g = 1, f = 1 + 6 = 7. Add B: g = 4, f = 4 + 4 = 8.\n3. Remove A (f = 7). B is cheaper via A: g = 3, f = 3 + 4 = 7, so it replaces f = 8. G enters with g = 13, f = 13.\n4. Remove B (f = 7). G via B: g = 3 + 5 = 8, f = 8, better than 13, so it replaces it.\n5. Remove G. The goal passes the test, with cost 8 along S, A, B, G.\n\n**Answer:** The expansion order is S, A, B, and then G is removed. The cost is 8 along S, A, B, G.\n\n**Check yourself:** A node is in the frontier with g = 6 and h = 2. It is reached again with g = 5. What do you do?\n\n*Answer:* Update the entry to g = 5, so f = 5 + 2 = 7 instead of 8.",
+      "trap": "Stopping when the goal is generated. The goal can enter the frontier with a high f while a better route is still waiting. Wait until the goal is the one removed. A second slip is forgetting to update a node that is reached again with a lower g.",
+      "why_full": "A* expansion order is the most-asked informed-search pattern. The same table of g, h and f also feeds IDA* thresholds. In GATE: you list the expansion order on a small graph, or count the expansions or the cost.\n\nAsked: 2025 DA Q44, 2024 DA sample Q27"
+    },
+    {
+      "atom_id": "i4",
+      "title": "Admissibility",
+      "simple": "A heuristic is a friend guessing how far you still have to go. A friend is admissible if they never say the distance is longer than it really is. They may guess too short, which is safe, but never too long. If the friend says 10 miles when the true distance is 6, you might skip the road that really is shortest, because it looks too long. That is why A* needs a guess that never overestimates. In exam words: h is admissible if h(n) ≤ h*(n) at every node n, where h*(n) is the true cheapest cost to a goal. Then A* tree search is optimal.",
+      "idea": "A heuristic h is **admissible** if it never overestimates: h(n) ≤ h*(n) at every node n, where h*(n) is the true cheapest cost from n to a goal. It may guess too low, but never too high. A single node that overestimates breaks it. With an admissible h, A* tree search returns an optimal path.",
+      "idea_full": "To test admissibility, you need h*(n) for each node. Compute it backward from the goal: h*(goal) = 0, and for any other node take the cheapest 'edge cost plus h* of the next node'. Then compare h(n) with h*(n) in each column of a small table. Why does it matter? A* trusts h to say a path is expensive. If h exaggerates at a node on the best route, A* sees that route as costly. It may leave that route waiting while it finishes another route and returns it as the answer. If h never exaggerates, every waiting node on the best route has an f at most the optimal cost, so A* cannot return anything worse before expanding it.",
+      "definition": "$$h(n)\\le h^*(n)\\ \\text{ for every node } n$$\n\nSymbols: h(n) is the heuristic estimate. h*(n) is the true cheapest cost from n to a goal. Computing h*: h*(goal) = 0, and h*(n) = the minimum over edges (n, m) of c(n, m) + h*(m). A relaxed problem (fewer constraints, such as walls removed) can only have a cost at most the true one, so its exact cost is an admissible heuristic.",
+      "intuition_full": "Picture a smart-watch that estimates the time to walk home. If it sometimes says less than the real time, you plan with hope but never skip a good road. If it ever says two hours for a ten-minute walk, you take the bus instead and never discover the short walk. A* behaves the same way: it compares routes by f = g + h, and an overestimate at a node makes every route through that node look worse than it is. The proof is short. Take the optimal path, with cost C*. For any node n on it, g(n) + h(n) ≤ g(n) + h*(n) = C*. So the optimal path always has a waiting node with f at most C*, and A* removes that before it removes a goal whose f is more than C*. Relaxations give admissible heuristics for free. If you ignore a rule of the game, the best cost can only go down. Manhattan distance on a grid ignores the walls, so it never exceeds the real cost.",
+      "example": {
+        "setup": "Edges: S to A 3, S to B 4, A to C 3, B to C 1, B to G 7, C to G 4. Heuristic h: S 8, A 7, B 6, C 3, G 0. Is h admissible?",
+        "steps": [
+          "Compute h*, the true cheapest cost to G, backward from G. h*(G) = 0.",
+          "C to G costs 4, so h*(C) = 4. For B, going through C costs 1 + 4 = 5 and going direct costs 7. So h*(B) = 5.",
+          "For A: A to C to G costs 3 + 4 = 7, so h*(A) = 7. For S: through A is 3 + 7 = 10 and through B is 4 + 5 = 9. So h*(S) = 9.",
+          "Compare column by column. S: 8 ≤ 9 ok. A: 7 ≤ 7 ok. C: 3 ≤ 4 ok. G: 0 ≤ 0 ok. B: 6 > 5, so B overestimates.",
+          "One bad node is enough. h is not admissible."
+        ],
+        "answer": "No. h(B) = 6 is above h*(B) = 5, so one node overestimates."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Edges: S to A 3, S to B 4, A to C 3, B to C 1, B to G 7, C to G 4. Heuristic h: S 8, A 7, B 6, C 3, G 0. Is h admissible?",
+          "steps": [
+            "Compute h*, the true cheapest cost to G, backward from G. h*(G) = 0.",
+            "C to G costs 4, so h*(C) = 4. For B, going through C costs 1 + 4 = 5 and going direct costs 7. So h*(B) = 5.",
+            "For A: A to C to G costs 3 + 4 = 7, so h*(A) = 7. For S: through A is 3 + 7 = 10 and through B is 4 + 5 = 9. So h*(S) = 9.",
+            "Compare column by column. S: 8 ≤ 9 ok. A: 7 ≤ 7 ok. C: 3 ≤ 4 ok. G: 0 ≤ 0 ok. B: 6 > 5, so B overestimates.",
+            "One bad node is enough. h is not admissible."
+          ],
+          "answer": "No. h(B) = 6 is above h*(B) = 5, so one node overestimates."
+        },
+        {
+          "level": "gate",
+          "setup": "A robot moves one cell at a time on a 4 by 4 grid and each move costs 1. Walls (#) fill column 1 in rows 0 to 2. Rows from the top: row 0 is . # . . ; row 1 is S # . G ; row 2 is . # . . ; row 3 is . . . . The start S is at column 0, row 1. The goal G is at column 3, row 1. Heuristic h1 = Manhattan distance to G (ignores walls). Heuristic h2 = 2 × Manhattan distance. Which is admissible?",
+          "steps": [
+            "The walls block column 1 in rows 0 to 2. From S the robot must go down 2, right 3 along row 3, then up 2. The true cost from S is 7.",
+            "h1 at S is |3 − 0| + |1 − 1| = 3, which is at most 7.",
+            "Removing the walls is a relaxation. Without walls the direct route costs the Manhattan distance, which is at most the real cost. So h1 never overestimates at any cell. h1 is admissible.",
+            "h2 at S is 2 × 3 = 6, which is at most 7. It looks fine at the start.",
+            "Check the cell right next to G, at column 2, row 1. Its true cost is 1, but h2 = 2 × 1 = 2. That is more than 1, so h2 overestimates there.",
+            "So h2 is not admissible, even though it passes at S."
+          ],
+          "answer": "h1 (Manhattan distance) is admissible. h2 is not, because of cells such as the one next to the goal. The trap avoided is checking only the start cell."
+        },
+        {
+          "level": "twist",
+          "setup": "Use the graph of the first example, but change h(B) to 8, so h is S 8, A 7, B 8, C 3, G 0. Run A* tree search. What does it return, and what is the cheapest path?",
+          "steps": [
+            "The cheapest path is S, B, C, G with cost 4 + 1 + 4 = 9. h*(B) = 5, so h(B) = 8 overestimates by 3.",
+            "Remove S (f = 8). Add A: g = 3, f = 3 + 7 = 10. Add B: g = 4, f = 4 + 8 = 12.",
+            "Remove A (f = 10). Add C: g = 6, f = 6 + 3 = 9.",
+            "Remove C (f = 9). Add G: g = 10, f = 10. The frontier is G (10) and B (12).",
+            "Remove G (f = 10). It is the goal. A* returns S, A, C, G with cost 10.",
+            "B was never expanded, because its inflated f = 12 pushed it behind G."
+          ],
+          "answer": "A* returns cost 10, but the cheapest path costs 9 through B. An overestimate on the optimal path can make A* miss it."
+        }
+      ],
+      "why": "Admissibility is the condition that makes A* optimal. In GATE: you check a heuristic against h*, find how many nodes violate it, or decide whether a relaxation gives an admissible heuristic.",
+      "how": [
+        "Compute h* for every node: work backward from the goal with the cheapest cost to it.",
+        "Compare h(n) with h*(n) at every node.",
+        "If any h(n) is above h*(n), h is not admissible.",
+        "For a puzzle or a grid, ask whether h is the exact cost of a relaxed version.",
+        "Check the goal: h(goal) must be 0."
+      ],
+      "mistake": "Checking only one node, usually the start. Admissibility is a rule for every node. One overestimate anywhere is enough to break it, so build the whole h* row and compare each column.",
+      "edge_cases": [
+        "h = 0 everywhere is admissible (and gives UCS).",
+        "h = h* everywhere is admissible, and A* then walks straight to the goal.",
+        "A larger admissible h is better: it prunes more, as long as it never exceeds h*.",
+        "Admissible is about the true cost. It does not mean h is consistent."
+      ],
+      "connections": [
+        "Consistency is a stronger condition (the next card).",
+        "Combining admissible heuristics with max: see Dominance and combining heuristics.",
+        "Finding h* is a backward shortest-path computation (see Shortest paths)."
+      ],
+      "check": [
+        {
+          "q": "h*(n) = 8 and h(n) = 10. Is that allowed for an admissible heuristic?",
+          "a": "No. 10 is above 8, so h overestimates at n."
+        },
+        {
+          "q": "Is h(n) = 0 for every node admissible?",
+          "a": "Yes. Zero is at most any true cost."
+        },
+        {
+          "q": "A robot moves on a grid with walls. Is straight-line distance ignoring the walls admissible?",
+          "a": "Yes. Ignoring walls can only shorten the path, so it never exceeds the true cost."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q23, 2024 DA sample Q46",
+      "try": {
+        "id": "gen.ai.informed.002",
+        "label": "Admissibility and h*"
+      },
+      "scene": "ai.informed.admissible",
+      "what": "A heuristic h is **admissible** if it never overestimates: h(n) ≤ h*(n) at every node n, where h*(n) is the true cheapest cost from n to a goal. It may guess too low, but never too high. A single node that overestimates breaks it. With an admissible h, A* tree search returns an optimal path.",
+      "what_full": "To test admissibility, you need h*(n) for each node. Compute it backward from the goal: h*(goal) = 0, and for any other node take the cheapest 'edge cost plus h* of the next node'. Then compare h(n) with h*(n) in each column of a small table. Why does it matter? A* trusts h to say a path is expensive. If h exaggerates at a node on the best route, A* sees that route as costly. It may leave that route waiting while it finishes another route and returns it as the answer. If h never exaggerates, every waiting node on the best route has an f at most the optimal cost, so A* cannot return anything worse before expanding it.\n\n$$h(n)\\le h^*(n)\\ \\text{ for every node } n$$\n\nSymbols: h(n) is the heuristic estimate. h*(n) is the true cheapest cost from n to a goal. Computing h*: h*(goal) = 0, and h*(n) = the minimum over edges (n, m) of c(n, m) + h*(m). A relaxed problem (fewer constraints, such as walls removed) can only have a cost at most the true one, so its exact cost is an admissible heuristic.\n\n**Worked example.** Edges: S to A 3, S to B 4, A to C 3, B to C 1, B to G 7, C to G 4. Heuristic h: S 8, A 7, B 6, C 3, G 0. Is h admissible?\n\n1. Compute h*, the true cheapest cost to G, backward from G. h*(G) = 0.\n2. C to G costs 4, so h*(C) = 4. For B, going through C costs 1 + 4 = 5 and going direct costs 7. So h*(B) = 5.\n3. For A: A to C to G costs 3 + 4 = 7, so h*(A) = 7. For S: through A is 3 + 7 = 10 and through B is 4 + 5 = 9. So h*(S) = 9.\n4. Compare column by column. S: 8 ≤ 9 ok. A: 7 ≤ 7 ok. C: 3 ≤ 4 ok. G: 0 ≤ 0 ok. B: 6 > 5, so B overestimates.\n5. One bad node is enough. h is not admissible.\n\n**Answer:** No. h(B) = 6 is above h*(B) = 5, so one node overestimates.\n\n**Check yourself:** h*(n) = 8 and h(n) = 10. Is that allowed for an admissible heuristic?\n\n*Answer:* No. 10 is above 8, so h overestimates at n.",
+      "trap": "Checking only one node, usually the start. Admissibility is a rule for every node. One overestimate anywhere is enough to break it, so build the whole h* row and compare each column.",
+      "why_full": "Admissibility is the condition that makes A* optimal. In GATE: you check a heuristic against h*, find how many nodes violate it, or decide whether a relaxation gives an admissible heuristic.\n\nAsked: 2024 DA Q23, 2024 DA sample Q46"
+    },
+    {
+      "atom_id": "i5",
+      "title": "Consistency",
+      "simple": "Think of a guess that stays honest at every step. Say your friend tells you it is 7 miles to the goal from here, and one road step of 2 miles takes you to a place he says is 5 miles from the goal. That fits: 7 is no more than 2 + 5. But if he says 5 from here and 1 from the next place, while the step between costs only 3, then 5 is more than 3 + 1. His guesses disagree with each other. A consistent guess never jumps like that, and you test it one road at a time. In exam words: h is consistent if h(n) ≤ c(n, n') + h(n') on every edge, and h(goal) = 0. Consistent implies admissible, and f never decreases along a path.",
+      "idea": "A heuristic is **consistent** if, on every edge, h(n) ≤ c(n, n') + h(n'), and h(goal) = 0. It is a triangle rule: going through a neighbour cannot look cheaper than the estimate at n itself. A consistent h is always admissible, but an admissible h need not be consistent. With a consistent h, f = g + h never decreases along a path.",
+      "idea_full": "Admissibility compares h with the true cost. Consistency compares h at two neighbouring nodes, so it needs only the edge costs. For each edge n to n', check h(n) ≤ c + h(n'). It says that stepping from n to n' costs c, so the estimate cannot drop by more than c. If h drops by more than c, the estimate at n was too big compared with what the neighbour says. Add g to see the effect on f. Going from n to n', g rises by c and h changes from h(n) to h(n'). So f changes by c + h(n') − h(n), which is at least 0 exactly when the edge passes the test. Consistency is therefore the same as 'f never decreases along any edge'.",
+      "definition": "$$h(n)\\le c(n,n')+h(n')\\ \\text{ for every edge } n\\to n',\\qquad h(\\text{goal})=0$$\n\nSymbols: c(n, n') is the cost of the edge from n to its neighbour n'. The inequality is the triangle inequality. Consistent implies admissible. The converse is false. With a consistent h, $f(n')=g(n)+c+h(n')\\ge g(n)+h(n)=f(n)$, so f never decreases along a path, and A* graph search never needs to re-open a node.",
+      "intuition_full": "Draw the edge as two sides of a triangle. The straight way from n to the goal is the estimate h(n). The detour through n' costs c + h(n'). A good estimate should never think the straight way is longer than the detour, that is, h(n) ≤ c + h(n'). If it does, the estimates at n and n' disagree. Why does this give admissibility? Follow any path from n to the goal and add up the inequalities: h(n) ≤ c1 + h(n1) ≤ c1 + c2 + h(n2) ≤ ... ≤ the total cost + h(goal) = the total cost. This holds for every path, so also for the cheapest, giving h(n) ≤ h*(n). That is the direction 'consistent implies admissible'. The other direction fails: h can be below the true cost at every node and still jump between two neighbours. One more point. A constant h = 5 passes every edge test (5 ≤ c + 5) but fails at the goal. That is why the definition includes h(goal) = 0.",
+      "example": {
+        "setup": "A chain S to A to B to G with edge costs 2, 3, 2 and h values 7, 5, 1, 0. Is h consistent? What does f do along the path?",
+        "steps": [
+          "Edges: S to A (2), A to B (3), B to G (2). h: S 7, A 5, B 1, G 0. The true costs are h*(B) = 2, h*(A) = 5, h*(S) = 7, so h is admissible.",
+          "S to A: h(S) = 7 and c + h(A) = 2 + 5 = 7. 7 ≤ 7 holds.",
+          "A to B: h(A) = 5 and c + h(B) = 3 + 1 = 4. 5 ≤ 4 fails.",
+          "B to G: h(B) = 1 and c + h(G) = 2 + 0 = 2. 1 ≤ 2 holds.",
+          "Now f = g + h along the path: S 0 + 7 = 7, A 2 + 5 = 7, B 5 + 1 = 6, G 7 + 0 = 7. f drops from 7 to 6 at B, because the edge A to B fails."
+        ],
+        "answer": "h is admissible but not consistent. The edge A to B breaks the rule, and f falls from 7 to 6 there."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A chain S to A to B to G with edge costs 2, 3, 2 and h values 7, 5, 1, 0. Is h consistent? What does f do along the path?",
+          "steps": [
+            "Edges: S to A (2), A to B (3), B to G (2). h: S 7, A 5, B 1, G 0. The true costs are h*(B) = 2, h*(A) = 5, h*(S) = 7, so h is admissible.",
+            "S to A: h(S) = 7 and c + h(A) = 2 + 5 = 7. 7 ≤ 7 holds.",
+            "A to B: h(A) = 5 and c + h(B) = 3 + 1 = 4. 5 ≤ 4 fails.",
+            "B to G: h(B) = 1 and c + h(G) = 2 + 0 = 2. 1 ≤ 2 holds.",
+            "Now f = g + h along the path: S 0 + 7 = 7, A 2 + 5 = 7, B 5 + 1 = 6, G 7 + 0 = 7. f drops from 7 to 6 at B, because the edge A to B fails."
+          ],
+          "answer": "h is admissible but not consistent. The edge A to B breaks the rule, and f falls from 7 to 6 there."
+        },
+        {
+          "level": "gate",
+          "setup": "Directed edges: S to A 1, S to B 3, A to C 2, B to C 1, C to G 3. Heuristic: S 5, A 5, B 3, C 2, G 0. Is h admissible? Is it consistent? Which edges violate consistency?",
+          "steps": [
+            "First find h*. C to G costs 3, so h*(C) = 3. A to C to G is 2 + 3 = 5, so h*(A) = 5. B to C to G is 1 + 3 = 4, so h*(B) = 4. For S, via A is 1 + 5 = 6 and via B is 3 + 4 = 7, so h*(S) = 6.",
+            "Admissible check: S 5 ≤ 6, A 5 ≤ 5, B 3 ≤ 4, C 2 ≤ 3, G 0 ≤ 0. All pass, so h is admissible.",
+            "Consistency, edge by edge. S to A: 5 ≤ 1 + 5 = 6 ok. S to B: 5 ≤ 3 + 3 = 6 ok. A to C: 5 ≤ 2 + 2 = 4 fails. B to C: 3 ≤ 1 + 2 = 3 ok. C to G: 2 ≤ 3 + 0 = 3 ok.",
+            "Only A to C fails."
+          ],
+          "answer": "h is admissible but not consistent. The only violating edge is A to C (5 is more than 4)."
+        },
+        {
+          "level": "twist",
+          "setup": "Use the same graph, but let h(n) = 5 for every node, including G. Is h consistent? Is it admissible?",
+          "steps": [
+            "Edge test: h(n) = 5 and c + h(n') = c + 5. Every cost c is positive, so 5 ≤ c + 5 holds on every edge.",
+            "So every edge passes. But the definition also needs h(goal) = 0. Here h(G) = 5.",
+            "h*(G) = 0, so h(G) = 5 overestimates at the goal. It is not admissible.",
+            "A consistent h must also be admissible, so this h is not consistent."
+          ],
+          "answer": "Not consistent and not admissible. It passes every edge but fails at the goal. h(goal) = 0 is part of the definition."
+        }
+      ],
+      "why": "Consistency is what lets A* graph search skip re-opening nodes. In GATE: you test a heuristic edge by edge, find the violating edge, or decide which statements about admissible and consistent heuristics hold.",
+      "how": [
+        "List every edge with its cost.",
+        "For each edge n to n', compute c + h(n') and compare it with h(n).",
+        "Any edge where h(n) is bigger violates consistency.",
+        "Check that h(goal) = 0.",
+        "Remember: consistent implies admissible, but admissible does not imply consistent."
+      ],
+      "mistake": "Assuming admissible means consistent. An admissible heuristic can be inconsistent, and GATE uses such heuristics in A* traces. Test each edge separately. Do not stop at the true-cost check.",
+      "edge_cases": [
+        "The edge test is directional: use the direction of travel, n to n'.",
+        "h = 0 everywhere is consistent.",
+        "A constant h passes the edge tests but fails at the goal unless it is 0.",
+        "The maximum of two consistent heuristics is consistent."
+      ],
+      "connections": [
+        "Consistent implies admissible (see Admissibility).",
+        "Consistency removes re-expansion in A* (see A* expansion order).",
+        "The triangle inequality is also behind shortest-path relaxation (see Shortest paths)."
+      ],
+      "check": [
+        {
+          "q": "Edge n to n' costs 4, with h(n) = 9 and h(n') = 3. Does the edge pass?",
+          "a": "No. 9 is more than 4 + 3 = 7."
+        },
+        {
+          "q": "Is every admissible heuristic consistent?",
+          "a": "No. Every consistent heuristic is admissible, but not the other way round."
+        },
+        {
+          "q": "With a consistent h, what happens to f = g + h as you move along a path?",
+          "a": "It never decreases."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q23, 2025 DA Q44 (an inconsistent heuristic)",
+      "try": {
+        "id": "gen.ai.informed.003",
+        "label": "Define a consistent heuristic"
+      },
+      "scene": "ai.informed.consistent",
+      "what": "A heuristic is **consistent** if, on every edge, h(n) ≤ c(n, n') + h(n'), and h(goal) = 0. It is a triangle rule: going through a neighbour cannot look cheaper than the estimate at n itself. A consistent h is always admissible, but an admissible h need not be consistent. With a consistent h, f = g + h never decreases along a path.",
+      "what_full": "Admissibility compares h with the true cost. Consistency compares h at two neighbouring nodes, so it needs only the edge costs. For each edge n to n', check h(n) ≤ c + h(n'). It says that stepping from n to n' costs c, so the estimate cannot drop by more than c. If h drops by more than c, the estimate at n was too big compared with what the neighbour says. Add g to see the effect on f. Going from n to n', g rises by c and h changes from h(n) to h(n'). So f changes by c + h(n') − h(n), which is at least 0 exactly when the edge passes the test. Consistency is therefore the same as 'f never decreases along any edge'.\n\n$$h(n)\\le c(n,n')+h(n')\\ \\text{ for every edge } n\\to n',\\qquad h(\\text{goal})=0$$\n\nSymbols: c(n, n') is the cost of the edge from n to its neighbour n'. The inequality is the triangle inequality. Consistent implies admissible. The converse is false. With a consistent h, $f(n')=g(n)+c+h(n')\\ge g(n)+h(n)=f(n)$, so f never decreases along a path, and A* graph search never needs to re-open a node.\n\n**Worked example.** A chain S to A to B to G with edge costs 2, 3, 2 and h values 7, 5, 1, 0. Is h consistent? What does f do along the path?\n\n1. Edges: S to A (2), A to B (3), B to G (2). h: S 7, A 5, B 1, G 0. The true costs are h*(B) = 2, h*(A) = 5, h*(S) = 7, so h is admissible.\n2. S to A: h(S) = 7 and c + h(A) = 2 + 5 = 7. 7 ≤ 7 holds.\n3. A to B: h(A) = 5 and c + h(B) = 3 + 1 = 4. 5 ≤ 4 fails.\n4. B to G: h(B) = 1 and c + h(G) = 2 + 0 = 2. 1 ≤ 2 holds.\n5. Now f = g + h along the path: S 0 + 7 = 7, A 2 + 5 = 7, B 5 + 1 = 6, G 7 + 0 = 7. f drops from 7 to 6 at B, because the edge A to B fails.\n\n**Answer:** h is admissible but not consistent. The edge A to B breaks the rule, and f falls from 7 to 6 there.\n\n**Check yourself:** Edge n to n' costs 4, with h(n) = 9 and h(n') = 3. Does the edge pass?\n\n*Answer:* No. 9 is more than 4 + 3 = 7.",
+      "trap": "Assuming admissible means consistent. An admissible heuristic can be inconsistent, and GATE uses such heuristics in A* traces. Test each edge separately. Do not stop at the true-cost check.",
+      "why_full": "Consistency is what lets A* graph search skip re-opening nodes. In GATE: you test a heuristic edge by edge, find the violating edge, or decide which statements about admissible and consistent heuristics hold.\n\nAsked: 2024 DA Q23, 2025 DA Q44 (an inconsistent heuristic)"
+    },
+    {
+      "atom_id": "i6",
+      "title": "Dominance and combining heuristics",
+      "simple": "Imagine two friends who each guess how far home is, and both are careful never to say too much. If for each street you take whichever friend guessed longer, you still never say too much, because the longer guess is still no more than the truth. And your combined guess is at least as informative as either friend alone. But if you add their guesses together, you can easily say too much: two honest guesses of 6 add up to 12 when the true distance is 6. In exam words: max and min of admissible heuristics are admissible, the sum is not. If h2 ≥ h1 at every node, h2 dominates, and A* with it expands no more nodes.",
+      "idea": "If h1 and h2 are admissible, then **max(h1, h2)**, min(h1, h2) and their average are admissible too, but the **sum** is not. If h2(n) ≥ h1(n) at every node, h2 **dominates** h1, and A* with h2 expands no more nodes (apart from ties). So a larger admissible h is better.",
+      "idea_full": "Admissible means every value is at most h*. Taking the larger of two such numbers still gives a number at most h*, so max is safe. Taking the smaller is safe too. The average is at most the max, so it is safe. A sum of two numbers that are each near h* can reach twice h*, so it can overshoot. A dominating heuristic is closer to h* from below. A* with it prunes more nodes, because a node with f above the optimal cost is never expanded, and a bigger h pushes more nodes above that cost. The max of two heuristics dominates both, so it is the standard way to combine them.",
+      "definition": "If h1 and h2 are admissible (and not negative):\n\nmax(h1, h2), min(h1, h2), (h1 + h2) / 2 and |h1 − h2| are admissible. h1 + h2 and h1 × h2 are not guaranteed to be.\n\nh2 dominates h1 if h2(n) ≥ h1(n) for every node n. If both are admissible, A* with h2 never expands a node that A* with h1 skips (ties aside). The same closure holds for consistency: max, min and averages of consistent heuristics are consistent.",
+      "intuition_full": "Think of two careful friends estimating the walk home, each rounding down to be safe. For each street you can ask the one who rounded less. That is the max, and it is still safe, because both numbers are below the truth. It is also closer to the truth than either alone. Now try adding. If each friend says 6 and the truth is 6, the sum is 12, an overestimate. That is the standard counterexample, and it is all you need to say 'not always admissible'. An average cannot exceed the larger of the two, so it is safe. The absolute difference is at most the larger number, so it is safe too. Dominance is about quality. If one safe heuristic is larger everywhere than another, it knows more. A* with the larger one wastes less time, because a node is expanded only if g + h is at most the optimal cost, and a larger h makes that harder to satisfy.",
+      "example": {
+        "setup": "Three nodes A, B, C have true costs h* = 10, 6, 8. Two admissible heuristics are h1 = 4, 6, 2 and h2 = 7, 3, 5. Test max, min and the sum. Does either heuristic dominate the other?",
+        "steps": [
+          "Both are admissible: h1 is at most h* in each column (4 ≤ 10, 6 ≤ 6, 2 ≤ 8), and so is h2 (7 ≤ 10, 3 ≤ 6, 5 ≤ 8).",
+          "max(h1, h2) = 7, 6, 5. Each is at most h*. Admissible.",
+          "min(h1, h2) = 4, 3, 2. Each is at most h*. Admissible.",
+          "h1 + h2 = 11, 9, 7. At A, 11 > 10. At B, 9 > 6. Not admissible.",
+          "Dominance: h2 is bigger at A and C, but h1 is bigger at B, so neither dominates the other. max is at least both at every node, so max dominates both."
+        ],
+        "answer": "max and min are admissible, the sum is not. Neither h1 nor h2 dominates the other, but max dominates both."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Three nodes A, B, C have true costs h* = 10, 6, 8. Two admissible heuristics are h1 = 4, 6, 2 and h2 = 7, 3, 5. Test max, min and the sum. Does either heuristic dominate the other?",
+          "steps": [
+            "Both are admissible: h1 is at most h* in each column (4 ≤ 10, 6 ≤ 6, 2 ≤ 8), and so is h2 (7 ≤ 10, 3 ≤ 6, 5 ≤ 8).",
+            "max(h1, h2) = 7, 6, 5. Each is at most h*. Admissible.",
+            "min(h1, h2) = 4, 3, 2. Each is at most h*. Admissible.",
+            "h1 + h2 = 11, 9, 7. At A, 11 > 10. At B, 9 > 6. Not admissible.",
+            "Dominance: h2 is bigger at A and C, but h1 is bigger at B, so neither dominates the other. max is at least both at every node, so max dominates both."
+          ],
+          "answer": "max and min are admissible, the sum is not. Neither h1 nor h2 dominates the other, but max dominates both."
+        },
+        {
+          "level": "gate",
+          "setup": "h1 and h2 are admissible and never negative. Which of these are always admissible: (a) h1 + h2, (b) max(h1, h2), (c) |h1 − h2|, (d) (h1 + h2) / 2, (e) h1 × h2? Test with a node where h* = 6 and h1 = h2 = 6, then argue in general.",
+          "steps": [
+            "(a) h1 + h2 = 6 + 6 = 12, above h* = 6. Not admissible.",
+            "(e) h1 × h2 = 6 × 6 = 36, above 6. Not admissible.",
+            "(b) Both are at most h*, so the larger is at most h*. Admissible.",
+            "(c) |h1 − h2| is at most the larger of the two (both are 0 or more), and the larger is at most h*. Admissible.",
+            "(d) The average is at most the larger of the two, which is at most h*. Admissible."
+          ],
+          "answer": "(b), (c) and (d) are always admissible. (a) and (e) are not. One counterexample, h1 = h2 = h* = 6, kills each of them."
+        },
+        {
+          "level": "twist",
+          "setup": "At a node, h1 = h2 = h* = 10. Is 0.5·h1 + 0.5·h2 admissible there? What about 0.7·h1 + 0.7·h2?",
+          "steps": [
+            "0.5 × 10 + 0.5 × 10 = 5 + 5 = 10. This equals h*, so it is admissible. It is just the average.",
+            "0.7 × 10 + 0.7 × 10 = 7 + 7 = 14. That is above 10, so it overestimates.",
+            "Weights that add up to at most 1 keep the result at most the larger value. Weights adding to more than 1 can overshoot."
+          ],
+          "answer": "The 0.5 and 0.5 blend is admissible. The 0.7 and 0.7 blend is not. A weighted sum is safe only when the weights add up to at most 1."
+        }
+      ],
+      "why": "Dominance explains why the max beats the min when combining heuristics, and why a bigger admissible h is better. In GATE: you are asked which combinations of admissible heuristics stay admissible, often with a sum or a product as the trap.",
+      "how": [
+        "List the combination rule to test: max, min, average, sum, product, difference.",
+        "For a sum or a product, try h1 = h2 = h* at one node. If the result is above h*, it fails.",
+        "For max, min, average and absolute difference, show the result is at most the larger of h1 and h2, and so at most h*.",
+        "For dominance, compare h2(n) with h1(n) at every node. All must be at least as big.",
+        "Prefer the dominating heuristic."
+      ],
+      "mistake": "Adding admissible heuristics and calling the sum admissible. Each is only guaranteed to be at most h*, so two together can reach twice h*. Use the max instead.",
+      "edge_cases": [
+        "If h2 beats h1 only at some nodes, h2 does not dominate. Use max(h1, h2) to get the best of both.",
+        "Dominance needs both heuristics to be admissible. A larger but inadmissible h is not 'better'.",
+        "A product of numbers below 1 shrinks, but there is no guarantee in general. Use a counterexample.",
+        "Dominance says 'no more nodes', up to the tie-breaking."
+      ],
+      "connections": [
+        "Relies on admissibility (see Admissibility).",
+        "The max of consistent heuristics is also consistent (see Consistency).",
+        "The proofs use simple inequalities (see Foundations: Algebra, Inequalities)."
+      ],
+      "check": [
+        {
+          "q": "h1 and h2 are admissible and h*(n) = 10. Can max(h1, h2) at n be 12?",
+          "a": "No. Both are at most 10, so the larger is at most 10."
+        },
+        {
+          "q": "h1(n) = 5 and h2(n) = 6 at every node n. Which dominates?",
+          "a": "h2 dominates h1, since h2(n) ≥ h1(n) everywhere."
+        },
+        {
+          "q": "If h1 is admissible, is 3 × h1 admissible?",
+          "a": "Not guaranteed. If h1 = h*, then 3 × h1 = 3 × h*, which overestimates."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q23",
+      "try": {
+        "id": "gen.ai.informed.010",
+        "label": "Which combinations stay admissible?"
+      },
+      "scene": "ai.informed.combine",
+      "what": "If h1 and h2 are admissible, then **max(h1, h2)**, min(h1, h2) and their average are admissible too, but the **sum** is not. If h2(n) ≥ h1(n) at every node, h2 **dominates** h1, and A* with h2 expands no more nodes (apart from ties). So a larger admissible h is better.",
+      "what_full": "Admissible means every value is at most h*. Taking the larger of two such numbers still gives a number at most h*, so max is safe. Taking the smaller is safe too. The average is at most the max, so it is safe. A sum of two numbers that are each near h* can reach twice h*, so it can overshoot. A dominating heuristic is closer to h* from below. A* with it prunes more nodes, because a node with f above the optimal cost is never expanded, and a bigger h pushes more nodes above that cost. The max of two heuristics dominates both, so it is the standard way to combine them.\n\nIf h1 and h2 are admissible (and not negative):\n\nmax(h1, h2), min(h1, h2), (h1 + h2) / 2 and |h1 − h2| are admissible. h1 + h2 and h1 × h2 are not guaranteed to be.\n\nh2 dominates h1 if h2(n) ≥ h1(n) for every node n. If both are admissible, A* with h2 never expands a node that A* with h1 skips (ties aside). The same closure holds for consistency: max, min and averages of consistent heuristics are consistent.\n\n**Worked example.** Three nodes A, B, C have true costs h* = 10, 6, 8. Two admissible heuristics are h1 = 4, 6, 2 and h2 = 7, 3, 5. Test max, min and the sum. Does either heuristic dominate the other?\n\n1. Both are admissible: h1 is at most h* in each column (4 ≤ 10, 6 ≤ 6, 2 ≤ 8), and so is h2 (7 ≤ 10, 3 ≤ 6, 5 ≤ 8).\n2. max(h1, h2) = 7, 6, 5. Each is at most h*. Admissible.\n3. min(h1, h2) = 4, 3, 2. Each is at most h*. Admissible.\n4. h1 + h2 = 11, 9, 7. At A, 11 > 10. At B, 9 > 6. Not admissible.\n5. Dominance: h2 is bigger at A and C, but h1 is bigger at B, so neither dominates the other. max is at least both at every node, so max dominates both.\n\n**Answer:** max and min are admissible, the sum is not. Neither h1 nor h2 dominates the other, but max dominates both.\n\n**Check yourself:** h1 and h2 are admissible and h*(n) = 10. Can max(h1, h2) at n be 12?\n\n*Answer:* No. Both are at most 10, so the larger is at most 10.",
+      "trap": "Adding admissible heuristics and calling the sum admissible. Each is only guaranteed to be at most h*, so two together can reach twice h*. Use the max instead.",
+      "why_full": "Dominance explains why the max beats the min when combining heuristics, and why a bigger admissible h is better. In GATE: you are asked which combinations of admissible heuristics stay admissible, often with a sum or a product as the trap.\n\nAsked: 2024 DA Q23"
+    },
+    {
+      "atom_id": "i7",
+      "title": "IDA*",
+      "simple": "Imagine searching a maze with a spending limit. First you allow yourself to spend only as much as the best-looking route is predicted to cost. If you cannot reach the goal within that limit, you raise the limit to the smallest amount that would have let you go one step further, and start again. You only remember your current path, so you use almost no memory. The price is that you re-walk the early part of the maze each time you raise the limit. In exam words: IDA* is iterative deepening on f = g + h. Each round does a depth-first search that cuts nodes with f above the threshold, and the next threshold is the smallest f that was cut.",
+      "idea": "IDA* is iterative deepening where the cutoff is on **f = g + h**, not on depth. Start with threshold T = h(start). Run depth-first search and cut every node with f > T. If no goal is found, set the next T to the **smallest f that was cut**, and repeat. Memory is small, but nodes get re-expanded.",
+      "idea_full": "IDS raises a depth limit by one each round. IDA* raises an f limit. The first round allows only nodes whose predicted total is at most h(start). Nodes with a larger f are cut, but we note their f. The smallest of these is the cheapest next step up. Raising T to exactly that value lets in at least one new node and no more than needed. Repeat until the goal falls inside the threshold. Because it is DFS, only the current path is stored. Each round starts over from the start, so the start node and the shallow nodes are expanded many times.",
+      "definition": "IDA*: set T = h(start). Repeat: run DFS, cutting any node with f(n) = g(n) + h(n) > T, and record the smallest cut f. If the goal is reached, stop. Otherwise set T to that smallest cut f.\n\nMemory is O(bd), like DFS. With an admissible h, the first goal found is optimal. Raising T to the next distinct f value, not by 1, is what keeps the number of rounds small.",
+      "intuition_full": "Think of IDS with a better ruler. In IDS every round adds one more level. In IDA* the levels are not equally spaced in cost: some rounds let in a single node and some let in many. So rather than adding 1 to T, which could waste rounds where nothing changes, we jump to the smallest f that was blocked. That is the next value at which something new can happen. The method trades time for memory. A* must store the whole frontier, which can be huge. IDA* stores one path. The price is repeated work, since the start is expanded in every round. In the worst case every round admits just one new node, so the number of rounds is as large as the number of distinct f values, up to b^d. That is why IDDFS re-expands the root only d times while IDA* can re-expand it far more often.",
+      "example": {
+        "setup": "Directed edges with costs: S to A 2, S to B 4, A to C 2, A to D 3, B to E 2, D to G 2. Heuristic: S 5, A 4, B 3, C 3, D 1, E 1, G 0. Run IDA* with children taken alphabetically. List the thresholds and the cost found.",
+        "steps": [
+          "Round 1, T = h(S) = 5. S has f = 5, so it is expanded.",
+          "A has f = 2 + 4 = 6 and B has f = 4 + 3 = 7. Both exceed 5, so they are cut. The smallest cut f is 6.",
+          "Round 2, T = 6. Expand S, then A (f = 6). C has f = 4 + 3 = 7, cut. D has f = 5 + 1 = 6, so expand it. G has f = 7, cut. B is cut (7). The smallest cut f is 7.",
+          "Round 3, T = 7. Expand S, A, then C (f = 7, a leaf) and D. G has f = 7, within T, and it is the goal.",
+          "The goal is found with cost 7 along S, A, D, G. S was expanded in all 3 rounds."
+        ],
+        "answer": "The thresholds are 5, 6, 7. The goal is found in round 3 with cost 7 along S, A, D, G."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Directed edges with costs: S to A 2, S to B 4, A to C 2, A to D 3, B to E 2, D to G 2. Heuristic: S 5, A 4, B 3, C 3, D 1, E 1, G 0. Run IDA* with children taken alphabetically. List the thresholds and the cost found.",
+          "steps": [
+            "Round 1, T = h(S) = 5. S has f = 5, so it is expanded.",
+            "A has f = 2 + 4 = 6 and B has f = 4 + 3 = 7. Both exceed 5, so they are cut. The smallest cut f is 6.",
+            "Round 2, T = 6. Expand S, then A (f = 6). C has f = 4 + 3 = 7, cut. D has f = 5 + 1 = 6, so expand it. G has f = 7, cut. B is cut (7). The smallest cut f is 7.",
+            "Round 3, T = 7. Expand S, A, then C (f = 7, a leaf) and D. G has f = 7, within T, and it is the goal.",
+            "The goal is found with cost 7 along S, A, D, G. S was expanded in all 3 rounds."
+          ],
+          "answer": "The thresholds are 5, 6, 7. The goal is found in round 3 with cost 7 along S, A, D, G."
+        },
+        {
+          "level": "gate",
+          "setup": "In a tree with branching factor 3, the goal is at depth 4. In the worst case, how many times does iterative deepening DFS expand the root, and how many times can IDA* expand it?",
+          "steps": [
+            "IDDFS uses limits 0, 1, 2, 3, 4. At limit 0 the root is only goal-tested. It is expanded at limits 1, 2, 3 and 4, which is 4 times.",
+            "IDA* is driven by f thresholds, not by depth. Each round raises T to the smallest cut f.",
+            "Worst case: every f is different, so each round lets in only one new node at the deepest level.",
+            "There are b^d = 3^4 = 81 nodes at depth 4, so there can be up to 81 rounds. The root is expanded in every round."
+          ],
+          "answer": "IDDFS expands the root 4 times. IDA* can expand it up to 81 times, which is b^d. IDA* rounds follow cost values, so they can be far more numerous than depth levels."
+        },
+        {
+          "level": "twist",
+          "setup": "S has h = 2. Its children are A with f = 10 and B with f = 12. Why does IDA* raise T to 10 and not to 3?",
+          "steps": [
+            "Round 1: T = 2. S is expanded. A (f = 10) and B (f = 12) are cut. The smallest cut f is 10.",
+            "If we raised T by 1, to 3, the round would expand only S and cut A and B again. The same happens at T = 4, 5, ..., 9.",
+            "That is 7 wasted rounds (T = 3 to 9), each repeating the same work.",
+            "Jumping straight to T = 10 lets A in, which is the first change that can happen."
+          ],
+          "answer": "Raise T to the smallest cut f, here 10. Adding 1 wastes 7 identical rounds."
+        }
+      ],
+      "why": "IDA* shows how to get A*-style search with DFS memory. The idea is the same as IDS, with f in place of depth. In GATE: you count the iterations or the repeated expansions, or state the next threshold.",
+      "how": [
+        "Set T to h of the start.",
+        "Run DFS from the start. For each node compute f = g + h. If f > T, cut it and remember its f.",
+        "If you reach a goal within T, stop. Its cost is the answer.",
+        "Otherwise set T to the smallest remembered f and restart.",
+        "Count rounds or expansions as asked. The start is expanded in every round."
+      ],
+      "mistake": "Raising the threshold by 1. The next threshold is the smallest f that was cut, which can be much larger than T + 1. Also remember that each round restarts from the root, so shallow nodes are expanded again and again.",
+      "edge_cases": [
+        "If T is large enough in the first round, IDA* needs just one round.",
+        "With an admissible h, the first goal found is optimal.",
+        "Basic IDA* has no explored set, so on a graph it may revisit nodes.",
+        "If no node is cut in a round, there is nothing left to search, and it stops with failure."
+      ],
+      "connections": [
+        "IDS in Uninformed search, with f in place of depth.",
+        "A* stores the whole frontier, IDA* only the current path (see A* expansion order).",
+        "The worst-case b^d rounds echo the repeated-expansion argument for IDS."
+      ],
+      "check": [
+        {
+          "q": "After a round with T = 8, the cut nodes have f = 11, 9 and 14. What is the next T?",
+          "a": "9, the smallest f that was cut."
+        },
+        {
+          "q": "What is the first threshold in IDA*?",
+          "a": "h(start)."
+        },
+        {
+          "q": "Why does IDA* use little memory?",
+          "a": "It is depth-first search, so it keeps only the current path."
+        }
+      ],
+      "asked": "Asked: 2024 DA sample Q1",
+      "try": {
+        "id": "gen.ai.informed.012",
+        "label": "IDA* threshold update"
+      },
+      "scene": "ai.informed.idastar",
+      "what": "IDA* is iterative deepening where the cutoff is on **f = g + h**, not on depth. Start with threshold T = h(start). Run depth-first search and cut every node with f > T. If no goal is found, set the next T to the **smallest f that was cut**, and repeat. Memory is small, but nodes get re-expanded.",
+      "what_full": "IDS raises a depth limit by one each round. IDA* raises an f limit. The first round allows only nodes whose predicted total is at most h(start). Nodes with a larger f are cut, but we note their f. The smallest of these is the cheapest next step up. Raising T to exactly that value lets in at least one new node and no more than needed. Repeat until the goal falls inside the threshold. Because it is DFS, only the current path is stored. Each round starts over from the start, so the start node and the shallow nodes are expanded many times.\n\nIDA*: set T = h(start). Repeat: run DFS, cutting any node with f(n) = g(n) + h(n) > T, and record the smallest cut f. If the goal is reached, stop. Otherwise set T to that smallest cut f.\n\nMemory is O(bd), like DFS. With an admissible h, the first goal found is optimal. Raising T to the next distinct f value, not by 1, is what keeps the number of rounds small.\n\n**Worked example.** Directed edges with costs: S to A 2, S to B 4, A to C 2, A to D 3, B to E 2, D to G 2. Heuristic: S 5, A 4, B 3, C 3, D 1, E 1, G 0. Run IDA* with children taken alphabetically. List the thresholds and the cost found.\n\n1. Round 1, T = h(S) = 5. S has f = 5, so it is expanded.\n2. A has f = 2 + 4 = 6 and B has f = 4 + 3 = 7. Both exceed 5, so they are cut. The smallest cut f is 6.\n3. Round 2, T = 6. Expand S, then A (f = 6). C has f = 4 + 3 = 7, cut. D has f = 5 + 1 = 6, so expand it. G has f = 7, cut. B is cut (7). The smallest cut f is 7.\n4. Round 3, T = 7. Expand S, A, then C (f = 7, a leaf) and D. G has f = 7, within T, and it is the goal.\n5. The goal is found with cost 7 along S, A, D, G. S was expanded in all 3 rounds.\n\n**Answer:** The thresholds are 5, 6, 7. The goal is found in round 3 with cost 7 along S, A, D, G.\n\n**Check yourself:** After a round with T = 8, the cut nodes have f = 11, 9 and 14. What is the next T?\n\n*Answer:* 9, the smallest f that was cut.",
+      "trap": "Raising the threshold by 1. The next threshold is the smallest f that was cut, which can be much larger than T + 1. Also remember that each round restarts from the root, so shallow nodes are expanded again and again.",
+      "why_full": "IDA* shows how to get A*-style search with DFS memory. The idea is the same as IDS, with f in place of depth. In GATE: you count the iterations or the repeated expansions, or state the next threshold.\n\nAsked: 2024 DA sample Q1"
+    },
+    {
+      "atom_id": "i8",
+      "title": "Bounding h values",
+      "simple": "You are told that a guess must be honest: it can never be bigger than the true distance. So what is the biggest honest guess you can make for a place? It is the true distance itself. To find it, list every route from that place to the goal, add up the costs on each, and take the cheapest. If there are several goals, the nearest one counts. And if the guesses must also agree with their neighbours (consistency), the neighbours' guesses can squeeze the allowed range further. In exam words: the largest admissible h(n) is h*(n), the cheapest cost from n to any goal. Consistency adds interval bounds from the neighbours.",
+      "idea": "The **largest** value h(n) can take and stay admissible is **h*(n)**, the cheapest cost from n to a goal. Find it by listing every route from n to a goal and taking the cheapest. With several goals, take the nearest. If h must also be **consistent**, each edge gives an extra bound from the neighbour's h.",
+      "idea_full": "Admissible means h(n) ≤ h*(n). So the ceiling is h*(n) itself. Do not read it from the first path you see, or from the path A* would take. Compute the cheapest of all routes. Two more points. If the graph has two goals, the cheapest route to either goal counts. And if h must be consistent, then each edge n to n' gives h(n) ≤ c + h(n'), an upper bound from the neighbour's value. Each edge m to n gives h(m) ≤ c + h(n), a lower bound h(n) ≥ h(m) − c. Together these may leave only a narrow range, or a single value.",
+      "definition": "Largest admissible h(n) = h*(n) = the cheapest route cost from n to any goal.\n\nIf h must be consistent, then for an edge n to n' with cost c: h(n) ≤ c + h(n'). For an edge m to n with cost c: h(n) ≥ h(m) − c. So\n\n$$h(m)-c(m,n)\\ \\le\\ h(n)\\ \\le\\ \\min_{n'}\\big(c(n,n')+h(n')\\big)$$\n\nand h(n) ≤ h*(n) as well. The min is over the edges leaving n.",
+      "intuition_full": "Think of h(n) as a promise: 'it costs at least this much to finish'. A promise that exceeds the real cheapest cost is a lie. So the largest honest promise is the real cheapest cost. That is why you must find the cheapest route, not the first one. With several goals the real cheapest finish goes to whichever goal is nearest. Consistency adds a neighbour rule. If the next place n' promises 'at least 1 more', then from n, with the edge costing 3, the promise cannot exceed 3 + 1 = 4: you could reach n' for 3 and finish for 1. And if the place before n promises 6 and the edge into n costs 2, then n has to promise at least 6 − 2 = 4, otherwise the two promises would not fit together. Pinning from both sides can fix a value exactly.",
+      "example": {
+        "setup": "A has three routes to the goal G. A to P to G costs 4 and 5. A to Q to R to G costs 2, 3 and 6. The direct edge A to G costs 12. What is the largest admissible h(A)?",
+        "steps": [
+          "The largest admissible h(A) is h*(A), the cheapest cost from A to the goal. List the routes.",
+          "A, P, G costs 4 + 5 = 9.",
+          "A, Q, R, G costs 2 + 3 + 6 = 11.",
+          "A, G costs 12.",
+          "The cheapest is 9, so h*(A) = 9. A larger h(A) would overestimate."
+        ],
+        "answer": "9."
+      },
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A has three routes to the goal G. A to P to G costs 4 and 5. A to Q to R to G costs 2, 3 and 6. The direct edge A to G costs 12. What is the largest admissible h(A)?",
+          "steps": [
+            "The largest admissible h(A) is h*(A), the cheapest cost from A to the goal. List the routes.",
+            "A, P, G costs 4 + 5 = 9.",
+            "A, Q, R, G costs 2 + 3 + 6 = 11.",
+            "A, G costs 12.",
+            "The cheapest is 9, so h*(A) = 9. A larger h(A) would overestimate."
+          ],
+          "answer": "9."
+        },
+        {
+          "level": "gate",
+          "setup": "S to A costs 2. A to B costs 4 and A to D costs 3. B to G1 costs 7. D to G2 costs 5. Both G1 and G2 are goals. What is the largest admissible h(A)?",
+          "steps": [
+            "Routes from A to a goal: A, B, G1 costs 4 + 7 = 11. A, D, G2 costs 3 + 5 = 8.",
+            "Either goal will do, so the cheapest of all the routes counts: min(11, 8) = 8.",
+            "So h*(A) = 8. The edge S to A is not part of the cost from A."
+          ],
+          "answer": "8. The trap avoided is taking 11 (the first goal found) or adding the cost of S to A."
+        },
+        {
+          "level": "twist",
+          "setup": "Edges: S to A costs 2, A to B costs 3, B to G costs 2. The heuristic must be consistent, with h(S) = 6 and h(B) = 1 given. What values can h(A) take? What is the largest admissible value if consistency is ignored?",
+          "steps": [
+            "Ignoring consistency, h*(A) = 3 + 2 = 5. The largest admissible h(A) is 5.",
+            "Edge S to A: h(S) ≤ 2 + h(A). So 6 ≤ 2 + h(A), which gives h(A) ≥ 4.",
+            "Edge A to B: h(A) ≤ 3 + h(B) = 3 + 1 = 4.",
+            "So 4 ≤ h(A) ≤ 4. Consistency forces h(A) = 4.",
+            "Check admissibility: 4 ≤ h*(A) = 5. It holds."
+          ],
+          "answer": "h(A) must be exactly 4. Without the consistency constraints, the largest admissible value would be 5."
+        }
+      ],
+      "why": "This asks what the best honest estimate at a node is. In GATE: you find the largest h(n) that keeps h admissible, and you watch for two goals.",
+      "how": [
+        "List every route from the node to a goal.",
+        "Add the edge costs along each route.",
+        "Take the smallest total over all goals. That is h*(n), the ceiling.",
+        "If consistency is also needed, add the edge bounds from the neighbours' h values.",
+        "Pick the largest value that satisfies all the bounds."
+      ],
+      "mistake": "Reading the bound from the first path found, or from the path to a different goal. The largest admissible h is the cheapest route to any goal, so compute all routes and take the minimum.",
+      "edge_cases": [
+        "h(goal) = 0 always, so the largest admissible value at a goal is 0.",
+        "If a node cannot reach any goal, h* is infinite, and any finite h is admissible there.",
+        "The cost from the start to the node (g) is not part of h*.",
+        "With consistency, the bound can be lower than h*. Take the smaller."
+      ],
+      "connections": [
+        "Finding h* is a shortest-path problem (see Shortest paths, Dijkstra run backward from the goal).",
+        "The edge bounds are the consistency inequality (see Consistency).",
+        "Compare with dominance: a bigger admissible h is better (see Dominance and combining heuristics)."
+      ],
+      "check": [
+        {
+          "q": "Routes from X to the goal cost 7, 9 and 12. What is the largest admissible h(X)?",
+          "a": "7."
+        },
+        {
+          "q": "What is the largest admissible h at a goal node?",
+          "a": "0."
+        },
+        {
+          "q": "X reaches goal G1 for 6 and goal G2 for 10. What is the largest admissible h(X)?",
+          "a": "6, the cheapest cost to any goal."
+        }
+      ],
+      "asked": "Asked: 2024 DA sample Q27",
+      "try": {
+        "id": "gen.ai.informed.011",
+        "label": "Largest admissible h for a node"
+      },
+      "scene": "ai.informed.bound",
+      "what": "The **largest** value h(n) can take and stay admissible is **h*(n)**, the cheapest cost from n to a goal. Find it by listing every route from n to a goal and taking the cheapest. With several goals, take the nearest. If h must also be **consistent**, each edge gives an extra bound from the neighbour's h.",
+      "what_full": "Admissible means h(n) ≤ h*(n). So the ceiling is h*(n) itself. Do not read it from the first path you see, or from the path A* would take. Compute the cheapest of all routes. Two more points. If the graph has two goals, the cheapest route to either goal counts. And if h must be consistent, then each edge n to n' gives h(n) ≤ c + h(n'), an upper bound from the neighbour's value. Each edge m to n gives h(m) ≤ c + h(n), a lower bound h(n) ≥ h(m) − c. Together these may leave only a narrow range, or a single value.\n\nLargest admissible h(n) = h*(n) = the cheapest route cost from n to any goal.\n\nIf h must be consistent, then for an edge n to n' with cost c: h(n) ≤ c + h(n'). For an edge m to n with cost c: h(n) ≥ h(m) − c. So\n\n$$h(m)-c(m,n)\\ \\le\\ h(n)\\ \\le\\ \\min_{n'}\\big(c(n,n')+h(n')\\big)$$\n\nand h(n) ≤ h*(n) as well. The min is over the edges leaving n.\n\n**Worked example.** A has three routes to the goal G. A to P to G costs 4 and 5. A to Q to R to G costs 2, 3 and 6. The direct edge A to G costs 12. What is the largest admissible h(A)?\n\n1. The largest admissible h(A) is h*(A), the cheapest cost from A to the goal. List the routes.\n2. A, P, G costs 4 + 5 = 9.\n3. A, Q, R, G costs 2 + 3 + 6 = 11.\n4. A, G costs 12.\n5. The cheapest is 9, so h*(A) = 9. A larger h(A) would overestimate.\n\n**Answer:** 9.\n\n**Check yourself:** Routes from X to the goal cost 7, 9 and 12. What is the largest admissible h(X)?\n\n*Answer:* 7.",
+      "trap": "Reading the bound from the first path found, or from the path to a different goal. The largest admissible h is the cheapest route to any goal, so compute all routes and take the minimum.",
+      "why_full": "This asks what the best honest estimate at a node is. In GATE: you find the largest h(n) that keeps h admissible, and you watch for two goals.\n\nAsked: 2024 DA sample Q27"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "ai.informed.keys",
+      "title": "The same frontier ranked three ways",
+      "viewBox": [
+        0,
+        0,
+        360,
+        278
+      ],
+      "objects": [
+        {
+          "id": "S",
+          "kind": "node",
+          "x": 36,
+          "y": 120,
+          "label": "S",
+          "r": 16
+        },
+        {
+          "id": "A",
+          "kind": "node",
+          "x": 150,
+          "y": 50,
+          "label": "A",
+          "r": 16
+        },
+        {
+          "id": "B",
+          "kind": "node",
+          "x": 150,
+          "y": 120,
+          "label": "B",
+          "r": 16
+        },
+        {
+          "id": "C",
+          "kind": "node",
+          "x": 150,
+          "y": 190,
+          "label": "C",
+          "r": 16
+        },
+        {
+          "id": "sa",
+          "kind": "arrow",
+          "from": "S",
+          "to": "A",
+          "label": "2"
+        },
+        {
+          "id": "sb",
+          "kind": "arrow",
+          "from": "S",
+          "to": "B",
+          "label": "4"
+        },
+        {
+          "id": "sc",
+          "kind": "arrow",
+          "from": "S",
+          "to": "C",
+          "label": "6"
+        },
+        {
+          "id": "hA",
+          "kind": "text",
+          "x": 176,
+          "y": 50,
+          "text": "h=7",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "hB",
+          "kind": "text",
+          "x": 176,
+          "y": 120,
+          "text": "h=3",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "hC",
+          "kind": "text",
+          "x": 176,
+          "y": 190,
+          "text": "h=2",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "t",
+          "kind": "grid",
+          "x": 254,
+          "y": 66,
+          "rows": 3,
+          "cols": 3,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "cw": 34,
+          "ch": 30,
+          "rowLabels": [
+            "A",
+            "B",
+            "C"
+          ],
+          "colLabels": [
+            "g",
+            "h",
+            "f"
+          ]
+        },
+        {
+          "id": "ucs",
+          "kind": "text",
+          "x": 14,
+          "y": 224,
+          "text": "UCS picks A: smallest g = 2",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "gr",
+          "kind": "text",
+          "x": 14,
+          "y": 244,
+          "text": "Greedy picks C: smallest h = 2",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "as",
+          "kind": "text",
+          "x": 14,
+          "y": 264,
+          "text": "A* picks B: smallest f = 7",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "S has three children. The edge costs give g: A has g = 2, B has g = 4, C has g = 6. The heuristic gives h: A is 7, B is 3, C is 2.",
+          "set": {
+            "id": "t",
+            "cells": [
+              2,
+              7,
+              "",
+              4,
+              3,
+              "",
+              6,
+              2,
+              ""
+            ]
+          },
+          "highlight": [
+            "hA",
+            "hB",
+            "hC"
+          ]
+        },
+        {
+          "caption": "UCS ranks by g alone. The smallest g is A with 2. UCS picks A.",
+          "show": "ucs",
+          "set": {
+            "id": "A",
+            "tone": "good"
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                0,
+                3,
+                6
+              ],
+              "tone": "accent"
+            },
+            {
+              "id": "ucs",
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "Greedy ranks by h alone. The smallest h is C with 2. Greedy picks C.",
+          "show": "gr",
+          "set": {
+            "id": "C",
+            "tone": "mid"
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                1,
+                4,
+                7
+              ],
+              "tone": "accent"
+            },
+            {
+              "id": "gr",
+              "tone": "mid"
+            }
+          ]
+        },
+        {
+          "caption": "A* ranks by f = g + h. A: 2 + 7 = 9. B: 4 + 3 = 7. C: 6 + 2 = 8. The smallest is B with 7. A* picks B.",
+          "show": "as",
+          "set": [
+            {
+              "id": "t",
+              "cells": [
+                2,
+                7,
+                9,
+                4,
+                3,
+                7,
+                6,
+                2,
+                8
+              ]
+            },
+            {
+              "id": "B",
+              "tone": "accent"
+            }
+          ],
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                2,
+                5,
+                8
+              ],
+              "tone": "accent"
+            },
+            {
+              "id": "as",
+              "tone": "accent"
+            }
+          ]
+        },
+        {
+          "caption": "One frontier, three keys, three different picks: A, C and B. The key is the algorithm.",
+          "highlight": [
+            "ucs",
+            "gr",
+            "as"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai.informed.greedy",
+      "title": "Greedy follows h and ignores cost",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "S",
+          "kind": "node",
+          "x": 30,
+          "y": 110,
+          "label": "S",
+          "r": 16
+        },
+        {
+          "id": "A",
+          "kind": "node",
+          "x": 140,
+          "y": 50,
+          "label": "A",
+          "r": 16
+        },
+        {
+          "id": "B",
+          "kind": "node",
+          "x": 140,
+          "y": 170,
+          "label": "B",
+          "r": 16
+        },
+        {
+          "id": "C",
+          "kind": "node",
+          "x": 230,
+          "y": 170,
+          "label": "C",
+          "r": 16
+        },
+        {
+          "id": "G",
+          "kind": "node",
+          "x": 320,
+          "y": 110,
+          "label": "G",
+          "r": 16
+        },
+        {
+          "id": "sa",
+          "kind": "arrow",
+          "from": "S",
+          "to": "A",
+          "label": "2"
+        },
+        {
+          "id": "sb",
+          "kind": "arrow",
+          "from": "S",
+          "to": "B",
+          "label": "1"
+        },
+        {
+          "id": "ag",
+          "kind": "arrow",
+          "from": "A",
+          "to": "G",
+          "label": "3"
+        },
+        {
+          "id": "bc",
+          "kind": "arrow",
+          "from": "B",
+          "to": "C",
+          "label": "2"
+        },
+        {
+          "id": "cg",
+          "kind": "arrow",
+          "from": "C",
+          "to": "G",
+          "label": "6"
+        },
+        {
+          "id": "hS",
+          "kind": "text",
+          "x": 30,
+          "y": 136,
+          "text": "h=4",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hA",
+          "kind": "text",
+          "x": 140,
+          "y": 22,
+          "text": "h=3",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hB",
+          "kind": "text",
+          "x": 140,
+          "y": 198,
+          "text": "h=2",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hC",
+          "kind": "text",
+          "x": 230,
+          "y": 198,
+          "text": "h=1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hG",
+          "kind": "text",
+          "x": 320,
+          "y": 136,
+          "text": "h=0",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "fr",
+          "kind": "array",
+          "x": 14,
+          "y": 232,
+          "cells": [
+            "S:4"
+          ],
+          "cw": 56,
+          "ch": 28,
+          "slots": 4,
+          "indices": false,
+          "label": "Frontier (lowest h on the left)"
+        },
+        {
+          "id": "res",
+          "kind": "text",
+          "x": 14,
+          "y": 286,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Greedy ranks by h only. The frontier is [S:4]. Edge costs play no part in the ranking.",
+          "highlight": [
+            "hS"
+          ]
+        },
+        {
+          "caption": "Remove S. Add A (h = 3) and B (h = 2). Lowest h goes to the left: [B:2, A:3].",
+          "set": {
+            "id": "fr",
+            "cells": [
+              "B:2",
+              "A:3"
+            ]
+          },
+          "highlight": [
+            "sa",
+            "sb"
+          ]
+        },
+        {
+          "caption": "Remove B, the lowest h. Add C (h = 1). The frontier is [C:1, A:3].",
+          "set": [
+            {
+              "id": "fr",
+              "cells": [
+                "C:1",
+                "A:3"
+              ]
+            },
+            {
+              "id": "B",
+              "tone": "good"
+            }
+          ],
+          "highlight": [
+            "bc"
+          ]
+        },
+        {
+          "caption": "Remove C. Add G (h = 0). The frontier is [G:0, A:3].",
+          "set": [
+            {
+              "id": "fr",
+              "cells": [
+                "G:0",
+                "A:3"
+              ]
+            },
+            {
+              "id": "C",
+              "tone": "good"
+            }
+          ],
+          "highlight": [
+            "cg"
+          ]
+        },
+        {
+          "caption": "Remove G. It is the goal. Greedy returns S, B, C, G with cost 1 + 2 + 6 = 9.",
+          "set": [
+            {
+              "id": "fr",
+              "cells": [
+                "A:3"
+              ]
+            },
+            {
+              "id": "G",
+              "tone": "good"
+            },
+            {
+              "id": "res",
+              "text": "greedy: S, B, C, G  cost 9"
+            }
+          ],
+          "highlight": [
+            "sb",
+            "bc",
+            "cg"
+          ]
+        },
+        {
+          "caption": "Route S, A, G costs only 2 + 3 = 5. Greedy never went there, because it looks at how close a node seems and ignores what was paid.",
+          "set": {
+            "id": "res",
+            "text": "greedy 9, but S, A, G costs 5"
+          },
+          "highlight": [
+            {
+              "id": "sa",
+              "tone": "mid"
+            },
+            {
+              "id": "ag",
+              "tone": "mid"
+            },
+            "res"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai.informed.astar",
+      "title": "A* with f = g + h and expansion order",
+      "viewBox": [
+        0,
+        0,
+        360,
+        296
+      ],
+      "objects": [
+        {
+          "id": "S",
+          "kind": "node",
+          "x": 40,
+          "y": 100,
+          "label": "S",
+          "r": 18
+        },
+        {
+          "id": "A",
+          "kind": "node",
+          "x": 140,
+          "y": 50,
+          "label": "A",
+          "r": 18
+        },
+        {
+          "id": "B",
+          "kind": "node",
+          "x": 140,
+          "y": 160,
+          "label": "B",
+          "r": 18
+        },
+        {
+          "id": "G",
+          "kind": "node",
+          "x": 300,
+          "y": 100,
+          "label": "G",
+          "r": 18
+        },
+        {
+          "id": "sa",
+          "kind": "arrow",
+          "from": "S",
+          "to": "A",
+          "label": "1"
+        },
+        {
+          "id": "sb",
+          "kind": "arrow",
+          "from": "S",
+          "to": "B",
+          "label": "4"
+        },
+        {
+          "id": "ab",
+          "kind": "arrow",
+          "from": "A",
+          "to": "B",
+          "label": "2"
+        },
+        {
+          "id": "ag",
+          "kind": "arrow",
+          "from": "A",
+          "to": "G",
+          "label": "12"
+        },
+        {
+          "id": "bg",
+          "kind": "arrow",
+          "from": "B",
+          "to": "G",
+          "label": "5"
+        },
+        {
+          "id": "hS",
+          "kind": "text",
+          "x": 40,
+          "y": 128,
+          "text": "h=7",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hA",
+          "kind": "text",
+          "x": 140,
+          "y": 22,
+          "text": "h=6",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hB",
+          "kind": "text",
+          "x": 140,
+          "y": 190,
+          "text": "h=4",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hG",
+          "kind": "text",
+          "x": 300,
+          "y": 128,
+          "text": "h=0",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "fr",
+          "kind": "array",
+          "x": 20,
+          "y": 222,
+          "cells": [],
+          "cw": 72,
+          "ch": 30,
+          "slots": 3,
+          "label": "Frontier (lowest f on the left)",
+          "indices": false
+        },
+        {
+          "id": "ex",
+          "kind": "text",
+          "x": 20,
+          "y": 280,
+          "text": "expanded:",
+          "size": 13,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "A* ranks by f = g + h. Start: S has g = 0 and h = 7, so f = 7.",
+          "push": {
+            "id": "fr",
+            "value": "S f=7"
+          }
+        },
+        {
+          "caption": "Expand S. A: g = 1, f = 1 + 6 = 7. B: g = 4, f = 4 + 4 = 8.",
+          "pop": {
+            "id": "fr",
+            "end": "front"
+          },
+          "push": [
+            {
+              "id": "fr",
+              "value": "A f=7"
+            },
+            {
+              "id": "fr",
+              "value": "B f=8"
+            }
+          ],
+          "set": [
+            {
+              "id": "S",
+              "tone": "good"
+            },
+            {
+              "id": "ex",
+              "text": "expanded: S"
+            }
+          ],
+          "highlight": [
+            "sa",
+            "sb"
+          ]
+        },
+        {
+          "caption": "Expand A. B is cheaper via A: g = 3, f = 7, so it replaces f = 8. G enters with f = 1 + 12 = 13.",
+          "set": [
+            {
+              "id": "fr",
+              "cells": [
+                "A f=7",
+                "B f=7"
+              ]
+            },
+            {
+              "id": "A",
+              "tone": "good"
+            },
+            {
+              "id": "ex",
+              "text": "expanded: S A"
+            }
+          ],
+          "pop": {
+            "id": "fr",
+            "end": "front"
+          },
+          "push": {
+            "id": "fr",
+            "value": "G f=13"
+          },
+          "highlight": [
+            "ab",
+            "ag"
+          ]
+        },
+        {
+          "caption": "Expand B (f = 7). G via B: g = 3 + 5 = 8, f = 8, better than 13, so it replaces it.",
+          "set": [
+            {
+              "id": "fr",
+              "cells": [
+                "B f=7",
+                "G f=8"
+              ]
+            },
+            {
+              "id": "B",
+              "tone": "good"
+            },
+            {
+              "id": "ex",
+              "text": "expanded: S A B"
+            }
+          ],
+          "pop": {
+            "id": "fr",
+            "end": "front"
+          },
+          "highlight": [
+            "bg"
+          ]
+        },
+        {
+          "caption": "G is at the front. Removing it passes the goal test: cost 8 along S, A, B, G.",
+          "pop": {
+            "id": "fr",
+            "end": "front"
+          },
+          "set": [
+            {
+              "id": "G",
+              "tone": "good"
+            },
+            {
+              "id": "ex",
+              "text": "expanded: S A B G   cost 8"
+            }
+          ],
+          "highlight": [
+            "sa",
+            "ab",
+            "bg"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai.informed.admissible",
+      "title": "Checking admissibility node by node",
+      "viewBox": [
+        0,
+        0,
+        360,
+        312
+      ],
+      "objects": [
+        {
+          "id": "S",
+          "kind": "node",
+          "x": 30,
+          "y": 95,
+          "label": "S",
+          "r": 15
+        },
+        {
+          "id": "A",
+          "kind": "node",
+          "x": 110,
+          "y": 40,
+          "label": "A",
+          "r": 15
+        },
+        {
+          "id": "B",
+          "kind": "node",
+          "x": 110,
+          "y": 150,
+          "label": "B",
+          "r": 15
+        },
+        {
+          "id": "C",
+          "kind": "node",
+          "x": 200,
+          "y": 95,
+          "label": "C",
+          "r": 15
+        },
+        {
+          "id": "G",
+          "kind": "node",
+          "x": 310,
+          "y": 95,
+          "label": "G",
+          "r": 15
+        },
+        {
+          "id": "sa",
+          "kind": "arrow",
+          "from": "S",
+          "to": "A",
+          "label": "3"
+        },
+        {
+          "id": "sb",
+          "kind": "arrow",
+          "from": "S",
+          "to": "B",
+          "label": "4"
+        },
+        {
+          "id": "ac",
+          "kind": "arrow",
+          "from": "A",
+          "to": "C",
+          "label": "3"
+        },
+        {
+          "id": "bc",
+          "kind": "arrow",
+          "from": "B",
+          "to": "C",
+          "label": "1"
+        },
+        {
+          "id": "cg",
+          "kind": "arrow",
+          "from": "C",
+          "to": "G",
+          "label": "4"
+        },
+        {
+          "id": "bg",
+          "kind": "arrow",
+          "from": "B",
+          "to": "G",
+          "label": "7"
+        },
+        {
+          "id": "hS",
+          "kind": "text",
+          "x": 30,
+          "y": 118,
+          "text": "h=8",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hA",
+          "kind": "text",
+          "x": 110,
+          "y": 16,
+          "text": "h=7",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hB",
+          "kind": "text",
+          "x": 110,
+          "y": 174,
+          "text": "h=6",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hC",
+          "kind": "text",
+          "x": 200,
+          "y": 70,
+          "text": "h=3",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "hG",
+          "kind": "text",
+          "x": 310,
+          "y": 118,
+          "text": "h=0",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "t",
+          "kind": "grid",
+          "x": 94,
+          "y": 232,
+          "rows": 3,
+          "cols": 5,
+          "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "cw": 44,
+          "ch": 24,
+          "rowLabels": [
+            "h",
+            "h*",
+            "ok?"
+          ],
+          "colLabels": [
+            "S",
+            "A",
+            "B",
+            "C",
+            "G"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Check h against h*, the true cheapest cost to G. Work backward from G, filling h* as we go.",
+          "set": {
+            "id": "t",
+            "cells": [
+              8,
+              7,
+              6,
+              3,
+              0,
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            "hS",
+            "hA",
+            "hB",
+            "hC",
+            "hG"
+          ]
+        },
+        {
+          "caption": "C to G costs 4, so h*(C) = 4. For B, going through C costs 1 + 4 = 5 and going direct costs 7. So h*(B) = 5.",
+          "set": {
+            "id": "t",
+            "cells": [
+              8,
+              7,
+              6,
+              3,
+              0,
+              "",
+              "",
+              5,
+              4,
+              0,
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            "cg",
+            "bc",
+            {
+              "id": "t",
+              "cells": [
+                7,
+                8
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "For A: A to C to G costs 3 + 4 = 7, so h*(A) = 7. For S: through A is 3 + 7 = 10, through B is 4 + 5 = 9. So h*(S) = 9.",
+          "set": {
+            "id": "t",
+            "cells": [
+              8,
+              7,
+              6,
+              3,
+              0,
+              9,
+              7,
+              5,
+              4,
+              0,
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                5,
+                6
+              ],
+              "tone": "good"
+            },
+            "sa",
+            "ac"
+          ]
+        },
+        {
+          "caption": "Compare each column. S: 8 is at most 9, ok. A: 7 is at most 7, ok. C: 3 is at most 4, ok. G: 0 is at most 0, ok. B: 6 is more than 5.",
+          "set": {
+            "id": "t",
+            "cells": [
+              8,
+              7,
+              6,
+              3,
+              0,
+              9,
+              7,
+              5,
+              4,
+              0,
+              "ok",
+              "ok",
+              "NO",
+              "ok",
+              "ok"
+            ]
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                2,
+                7,
+                12
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "B overestimates, so h is not admissible. One bad node is enough, and you must check every node, not just S.",
+          "highlight": [
+            {
+              "id": "B",
+              "tone": "bad"
+            },
+            {
+              "id": "hB",
+              "tone": "bad"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai.informed.consistent",
+      "title": "Consistency checked edge by edge",
+      "viewBox": [
+        0,
+        0,
+        360,
+        214
+      ],
+      "objects": [
+        {
+          "id": "S",
+          "kind": "node",
+          "x": 40,
+          "y": 50,
+          "label": "S",
+          "r": 16
+        },
+        {
+          "id": "A",
+          "kind": "node",
+          "x": 130,
+          "y": 50,
+          "label": "A",
+          "r": 16
+        },
+        {
+          "id": "B",
+          "kind": "node",
+          "x": 220,
+          "y": 50,
+          "label": "B",
+          "r": 16
+        },
+        {
+          "id": "G",
+          "kind": "node",
+          "x": 310,
+          "y": 50,
+          "label": "G",
+          "r": 16
+        },
+        {
+          "id": "sa",
+          "kind": "arrow",
+          "from": "S",
+          "to": "A",
+          "label": "2"
+        },
+        {
+          "id": "ab",
+          "kind": "arrow",
+          "from": "A",
+          "to": "B",
+          "label": "3"
+        },
+        {
+          "id": "bg",
+          "kind": "arrow",
+          "from": "B",
+          "to": "G",
+          "label": "2"
+        },
+        {
+          "id": "hS",
+          "kind": "text",
+          "x": 40,
+          "y": 96,
+          "text": "h=7",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "gS",
+          "kind": "text",
+          "x": 40,
+          "y": 116,
+          "text": "g=0",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "fS",
+          "kind": "text",
+          "x": 40,
+          "y": 136,
+          "text": "f=7",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "hA",
+          "kind": "text",
+          "x": 130,
+          "y": 96,
+          "text": "h=5",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "gA",
+          "kind": "text",
+          "x": 130,
+          "y": 116,
+          "text": "g=2",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "fA",
+          "kind": "text",
+          "x": 130,
+          "y": 136,
+          "text": "f=7",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "hB",
+          "kind": "text",
+          "x": 220,
+          "y": 96,
+          "text": "h=1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "gB",
+          "kind": "text",
+          "x": 220,
+          "y": 116,
+          "text": "g=5",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "fB",
+          "kind": "text",
+          "x": 220,
+          "y": 136,
+          "text": "f=6",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "hG",
+          "kind": "text",
+          "x": 310,
+          "y": 96,
+          "text": "h=0",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "gG",
+          "kind": "text",
+          "x": 310,
+          "y": 116,
+          "text": "g=7",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "fG",
+          "kind": "text",
+          "x": 310,
+          "y": 136,
+          "text": "f=7",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "c1",
+          "kind": "text",
+          "x": 85,
+          "y": 176,
+          "text": "7 <= 2 + 5\nok",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "c2",
+          "kind": "text",
+          "x": 175,
+          "y": 176,
+          "text": "5 <= 3 + 1\nNO",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "c3",
+          "kind": "text",
+          "x": 265,
+          "y": 176,
+          "text": "1 <= 2 + 0\nok",
+          "size": 12,
+          "anchor": "middle"
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Path S, A, B, G with edge costs 2, 3, 2. The heuristic values are h = 7, 5, 1, 0. Is h consistent?",
+          "highlight": [
+            "hS",
+            "hA",
+            "hB",
+            "hG"
+          ]
+        },
+        {
+          "caption": "Test each edge: h(n) must be at most c(n, n') + h(n'). S to A: 7 <= 2 + 5 = 7. It holds.",
+          "show": "c1",
+          "set": {
+            "id": "c1",
+            "tone": "good"
+          },
+          "highlight": [
+            "sa"
+          ]
+        },
+        {
+          "caption": "A to B: 5 <= 3 + 1 = 4? No. 5 is more than 4. This edge breaks consistency, even though h is admissible.",
+          "show": "c2",
+          "set": {
+            "id": "c2",
+            "tone": "bad"
+          },
+          "highlight": [
+            {
+              "id": "ab",
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "B to G: 1 <= 2 + 0 = 2. It holds. One bad edge is enough to make h inconsistent.",
+          "show": "c3",
+          "set": {
+            "id": "c3",
+            "tone": "good"
+          },
+          "highlight": [
+            "bg"
+          ]
+        },
+        {
+          "caption": "Follow f = g + h along the path: 7, 7, 6, 7. It drops at B because of the bad edge. With a consistent h, f never decreases along a path.",
+          "show": [
+            "gS",
+            "gA",
+            "gB",
+            "gG",
+            "fS",
+            "fA",
+            "fB",
+            "fG"
+          ],
+          "highlight": [
+            {
+              "id": "fB",
+              "tone": "bad"
+            },
+            "fS",
+            "fA",
+            "fG"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai.informed.combine",
+      "title": "Combining two admissible heuristics",
+      "viewBox": [
+        0,
+        0,
+        360,
+        252
+      ],
+      "objects": [
+        {
+          "id": "hd",
+          "kind": "text",
+          "x": 14,
+          "y": 20,
+          "text": "Is the result at most h* at every node?",
+          "size": 12,
+          "anchor": "start",
+          "tone": "muted"
+        },
+        {
+          "id": "t",
+          "kind": "grid",
+          "x": 100,
+          "y": 56,
+          "rows": 6,
+          "cols": 4,
+          "cells": [
+            10,
+            6,
+            8,
+            "",
+            4,
+            6,
+            2,
+            "yes",
+            7,
+            3,
+            5,
+            "yes",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "cw": 52,
+          "ch": 26,
+          "rowLabels": [
+            "h*",
+            "h1",
+            "h2",
+            "max",
+            "min",
+            "sum"
+          ],
+          "colLabels": [
+            "A",
+            "B",
+            "C",
+            "ok?"
+          ]
+        },
+        {
+          "id": "res",
+          "kind": "text",
+          "x": 14,
+          "y": 238,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Three nodes A, B, C with true costs h* = 10, 6, 8. Two admissible heuristics: h1 = 4, 6, 2 and h2 = 7, 3, 5. Each is at most h* everywhere.",
+          "set": {
+            "id": "t",
+            "cells": [
+              10,
+              6,
+              8,
+              "",
+              4,
+              6,
+              2,
+              "yes",
+              7,
+              3,
+              5,
+              "yes",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          }
+        },
+        {
+          "caption": "max(h1, h2) = 7, 6, 5. Each is the larger of two numbers that are both at most h*, so it is still at most h*. Admissible.",
+          "set": {
+            "id": "t",
+            "cells": [
+              10,
+              6,
+              8,
+              "",
+              4,
+              6,
+              2,
+              "yes",
+              7,
+              3,
+              5,
+              "yes",
+              7,
+              6,
+              5,
+              "yes",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                12,
+                13,
+                14,
+                15
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "min(h1, h2) = 4, 3, 2. It is at most each of them, so it is at most h*. Admissible.",
+          "set": {
+            "id": "t",
+            "cells": [
+              10,
+              6,
+              8,
+              "",
+              4,
+              6,
+              2,
+              "yes",
+              7,
+              3,
+              5,
+              "yes",
+              7,
+              6,
+              5,
+              "yes",
+              4,
+              3,
+              2,
+              "yes",
+              "",
+              "",
+              "",
+              ""
+            ]
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                16,
+                17,
+                18,
+                19
+              ],
+              "tone": "good"
+            }
+          ]
+        },
+        {
+          "caption": "h1 + h2 = 11, 9, 7. At A, 11 is more than 10. At B, 9 is more than 6. The sum overestimates, so it is not admissible.",
+          "set": {
+            "id": "t",
+            "cells": [
+              10,
+              6,
+              8,
+              "",
+              4,
+              6,
+              2,
+              "yes",
+              7,
+              3,
+              5,
+              "yes",
+              7,
+              6,
+              5,
+              "yes",
+              4,
+              3,
+              2,
+              "yes",
+              11,
+              9,
+              7,
+              "NO"
+            ]
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                20,
+                21,
+                23
+              ],
+              "tone": "bad"
+            }
+          ]
+        },
+        {
+          "caption": "Dominance: max is at least h1 and at least h2 at every node, so it dominates both and is still admissible. Neither h1 nor h2 dominates the other.",
+          "set": {
+            "id": "res",
+            "text": "max dominates h1 and h2"
+          },
+          "highlight": [
+            {
+              "id": "t",
+              "cells": [
+                12,
+                13,
+                14
+              ],
+              "tone": "good"
+            },
+            "res"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai.informed.idastar",
+      "title": "IDA* thresholds on f",
+      "viewBox": [
+        0,
+        0,
+        360,
+        280
+      ],
+      "objects": [
+        {
+          "id": "S",
+          "kind": "node",
+          "x": 180,
+          "y": 30,
+          "label": "S",
+          "r": 15
+        },
+        {
+          "id": "A",
+          "kind": "node",
+          "x": 100,
+          "y": 92,
+          "label": "A",
+          "r": 15
+        },
+        {
+          "id": "B",
+          "kind": "node",
+          "x": 260,
+          "y": 92,
+          "label": "B",
+          "r": 15
+        },
+        {
+          "id": "C",
+          "kind": "node",
+          "x": 50,
+          "y": 164,
+          "label": "C",
+          "r": 15
+        },
+        {
+          "id": "D",
+          "kind": "node",
+          "x": 140,
+          "y": 164,
+          "label": "D",
+          "r": 15
+        },
+        {
+          "id": "E",
+          "kind": "node",
+          "x": 260,
+          "y": 164,
+          "label": "E",
+          "r": 15
+        },
+        {
+          "id": "G",
+          "kind": "node",
+          "x": 140,
+          "y": 232,
+          "label": "G",
+          "r": 15
+        },
+        {
+          "id": "eSA",
+          "kind": "edge",
+          "from": "S",
+          "to": "A",
+          "label": "2"
+        },
+        {
+          "id": "eSB",
+          "kind": "edge",
+          "from": "S",
+          "to": "B",
+          "label": "4"
+        },
+        {
+          "id": "eAC",
+          "kind": "edge",
+          "from": "A",
+          "to": "C",
+          "label": "2"
+        },
+        {
+          "id": "eAD",
+          "kind": "edge",
+          "from": "A",
+          "to": "D",
+          "label": "3"
+        },
+        {
+          "id": "eBE",
+          "kind": "edge",
+          "from": "B",
+          "to": "E",
+          "label": "2"
+        },
+        {
+          "id": "eDG",
+          "kind": "edge",
+          "from": "D",
+          "to": "G",
+          "label": "2"
+        },
+        {
+          "id": "fS",
+          "kind": "text",
+          "x": 204,
+          "y": 30,
+          "text": "f=5",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "fA",
+          "kind": "text",
+          "x": 124,
+          "y": 92,
+          "text": "f=6",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "fB",
+          "kind": "text",
+          "x": 284,
+          "y": 92,
+          "text": "f=7",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "fC",
+          "kind": "text",
+          "x": 74,
+          "y": 164,
+          "text": "f=7",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "fD",
+          "kind": "text",
+          "x": 164,
+          "y": 164,
+          "text": "f=6",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "fG",
+          "kind": "text",
+          "x": 164,
+          "y": 232,
+          "text": "f=7",
+          "size": 12,
+          "anchor": "start"
+        },
+        {
+          "id": "T",
+          "kind": "text",
+          "x": 14,
+          "y": 20,
+          "text": "T = 5",
+          "size": 14,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "nx",
+          "kind": "text",
+          "x": 14,
+          "y": 266,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "IDA* is iterative deepening on f = g + h. Start with the threshold T = f(S) = 5. S passes (f = 5), so S is expanded.",
+          "show": [
+            "fS"
+          ],
+          "hide": [],
+          "set": [
+            {
+              "id": "S",
+              "tone": "good"
+            }
+          ],
+          "dim": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "G",
+            "eSA",
+            "eSB",
+            "eAC",
+            "eAD",
+            "eBE",
+            "eDG",
+            "fA",
+            "fB",
+            "fC",
+            "fD",
+            "fG"
+          ]
+        },
+        {
+          "caption": "A has f = 2 + 4 = 6 and B has f = 4 + 3 = 7. Both are above 5, so both are cut. The smallest cut f is 6. That is the next threshold.",
+          "show": [
+            "fA",
+            "fB"
+          ],
+          "undim": [
+            "A",
+            "B",
+            "eSA",
+            "eSB",
+            "fA",
+            "fB"
+          ],
+          "set": [
+            {
+              "id": "A",
+              "tone": "bad"
+            },
+            {
+              "id": "B",
+              "tone": "bad"
+            },
+            {
+              "id": "nx",
+              "text": "cut: 6, 7. Next T = 6"
+            }
+          ]
+        },
+        {
+          "caption": "Round 2, T = 6. S and A (f = 6) are expanded. C has f = 4 + 3 = 7, cut. D has f = 5 + 1 = 6, expanded. G has f = 7, cut. B is still cut. The smallest cut f is 7.",
+          "set": [
+            {
+              "id": "T",
+              "text": "T = 6"
+            },
+            {
+              "id": "A",
+              "tone": "good"
+            },
+            {
+              "id": "D",
+              "tone": "good"
+            },
+            {
+              "id": "C",
+              "tone": "bad"
+            },
+            {
+              "id": "G",
+              "tone": "bad"
+            },
+            {
+              "id": "nx",
+              "text": "cut: 7, 7, 7. Next T = 7"
+            }
+          ],
+          "undim": [
+            "C",
+            "D",
+            "G",
+            "eAC",
+            "eAD",
+            "eDG",
+            "fC",
+            "fD",
+            "fG"
+          ],
+          "show": [
+            "fC",
+            "fD",
+            "fG"
+          ]
+        },
+        {
+          "caption": "Round 3, T = 7. Now f = 7 is allowed. S, A, then C (a leaf) and D are expanded. G has f = 7, within T, and G is the goal. Stop. B (f = 7) would also be allowed, but the search never needs it.",
+          "set": [
+            {
+              "id": "T",
+              "text": "T = 7"
+            },
+            {
+              "id": "C",
+              "tone": "good"
+            },
+            {
+              "id": "G",
+              "tone": "good"
+            },
+            {
+              "id": "B",
+              "tone": "muted"
+            },
+            {
+              "id": "nx",
+              "text": "goal found, cost 7"
+            }
+          ],
+          "highlight": [
+            "eSA",
+            "eAD",
+            "eDG"
+          ]
+        },
+        {
+          "caption": "The goal is found at cost 7 along S, A, D, G, after 3 rounds. S was expanded in all 3 rounds, and A and D in 2 of them.",
+          "highlight": [
+            "eSA",
+            "eAD",
+            "eDG",
+            "S",
+            "A",
+            "D",
+            "G"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai.informed.bound",
+      "title": "Largest admissible h is the cheapest route",
+      "viewBox": [
+        0,
+        0,
+        360,
+        272
+      ],
+      "objects": [
+        {
+          "id": "A",
+          "kind": "node",
+          "x": 40,
+          "y": 110,
+          "label": "A",
+          "r": 16
+        },
+        {
+          "id": "P",
+          "kind": "node",
+          "x": 150,
+          "y": 40,
+          "label": "P",
+          "r": 16
+        },
+        {
+          "id": "Q",
+          "kind": "node",
+          "x": 110,
+          "y": 176,
+          "label": "Q",
+          "r": 16
+        },
+        {
+          "id": "R",
+          "kind": "node",
+          "x": 230,
+          "y": 196,
+          "label": "R",
+          "r": 16
+        },
+        {
+          "id": "G",
+          "kind": "node",
+          "x": 320,
+          "y": 110,
+          "label": "G",
+          "r": 16
+        },
+        {
+          "id": "ap",
+          "kind": "arrow",
+          "from": "A",
+          "to": "P",
+          "label": "4"
+        },
+        {
+          "id": "pg",
+          "kind": "arrow",
+          "from": "P",
+          "to": "G",
+          "label": "5"
+        },
+        {
+          "id": "aq",
+          "kind": "arrow",
+          "from": "A",
+          "to": "Q",
+          "label": "2"
+        },
+        {
+          "id": "qr",
+          "kind": "arrow",
+          "from": "Q",
+          "to": "R",
+          "label": "3"
+        },
+        {
+          "id": "rg",
+          "kind": "arrow",
+          "from": "R",
+          "to": "G",
+          "label": "6"
+        },
+        {
+          "id": "ag",
+          "kind": "arrow",
+          "from": "A",
+          "to": "G",
+          "label": "12"
+        },
+        {
+          "id": "r1",
+          "kind": "text",
+          "x": 14,
+          "y": 238,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        },
+        {
+          "id": "r2",
+          "kind": "text",
+          "x": 14,
+          "y": 258,
+          "text": "",
+          "size": 12,
+          "anchor": "start",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The largest value h(A) can have and stay admissible is h*(A), the cheapest cost from A to the goal G. List every route.",
+          "highlight": [
+            "A",
+            "G"
+          ]
+        },
+        {
+          "caption": "Route A, P, G costs 4 + 5 = 9.",
+          "highlight": [
+            {
+              "id": "ap",
+              "tone": "good"
+            },
+            {
+              "id": "pg",
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "r1",
+            "text": "A,P,G = 9"
+          }
+        },
+        {
+          "caption": "Route A, Q, R, G costs 2 + 3 + 6 = 11.",
+          "highlight": [
+            {
+              "id": "aq",
+              "tone": "mid"
+            },
+            {
+              "id": "qr",
+              "tone": "mid"
+            },
+            {
+              "id": "rg",
+              "tone": "mid"
+            }
+          ],
+          "set": {
+            "id": "r1",
+            "text": "A,P,G = 9    A,Q,R,G = 11"
+          }
+        },
+        {
+          "caption": "The direct edge A, G costs 12.",
+          "highlight": [
+            {
+              "id": "ag",
+              "tone": "mid"
+            }
+          ],
+          "set": {
+            "id": "r1",
+            "text": "A,P,G = 9    A,Q,R,G = 11    A,G = 12"
+          }
+        },
+        {
+          "caption": "The cheapest route is 9, so h*(A) = 9. Any h(A) above 9 would overestimate. The largest admissible value is 9.",
+          "highlight": [
+            {
+              "id": "ap",
+              "tone": "good"
+            },
+            {
+              "id": "pg",
+              "tone": "good"
+            }
+          ],
+          "set": {
+            "id": "r2",
+            "text": "largest admissible h(A) = 9"
+          }
+        }
+      ]
+    }
+  ]
+}

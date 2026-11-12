@@ -1,0 +1,3268 @@
+{
+  "topic_id": "ml.ffnn",
+  "title": "Feed-forward networks and backpropagation",
+  "chapter_note": {
+    "about": "A feed-forward neural network is a stack of layers. Each layer multiplies by weights, adds a bias and applies an activation. This chapter covers the forward pass, counting parameters, the activation functions and their slopes, the facts about ReLU, softmax, the squared-error loss, backpropagation, the gradient descent step, and collapsing a ReLU network into one linear unit. GATE questions on this topic are hand calculations on a very small network.",
+    "concept_map": [
+      {
+        "atom_id": "f1",
+        "title": "Forward pass",
+        "one_line": "Per layer, z = Wa + b and a = φ(z). Keep every z and a."
+      },
+      {
+        "atom_id": "f1b",
+        "title": "Counting parameters",
+        "one_line": "Weights are m × n per layer pair, plus one bias per unit."
+      },
+      {
+        "atom_id": "f2",
+        "title": "Activations and derivatives",
+        "one_line": "ReLU slope is 0 or 1. Sigmoid slope is σ(1 − σ). Tanh slope is 1 − tanh²."
+      },
+      {
+        "atom_id": "f2b",
+        "title": "ReLU facts: kink and scaling",
+        "one_line": "Continuous, not differentiable at 0, and ReLU(az) = a·ReLU(z) only for a ≥ 0."
+      },
+      {
+        "atom_id": "f2c",
+        "title": "Softmax",
+        "one_line": "Exponentiate, then divide by the sum. Outputs are positive and add to 1."
+      },
+      {
+        "atom_id": "f3",
+        "title": "Loss and output gradient",
+        "one_line": "Squared error ½(ŷ − y)² has gradient ŷ − y."
+      },
+      {
+        "atom_id": "f4",
+        "title": "Backpropagation",
+        "one_line": "Delta × weight × slope goes back. Gradient = delta × input. A dead ReLU blocks."
+      },
+      {
+        "atom_id": "f5",
+        "title": "Gradient descent step",
+        "one_line": "New w = w − η × gradient. A step that is too big overshoots."
+      },
+      {
+        "atom_id": "f6",
+        "title": "Paths and equivalent networks",
+        "one_line": "Multiply along a path, add across paths, with positive inputs."
+      }
+    ],
+    "gate_patterns": [
+      "Gradient through a small ReLU net: find ∂y/∂weight for given weights. A dead ReLU gives 0. Asked in 2025 DA (Q42).",
+      "Equivalent network: collapse ReLU layers for positive inputs by summing path products, reading the drawn edges. Asked in 2024 DA (Q43).",
+      "ReLU facts (continuity, no derivative at 0, scaling) and parameter counts (weights plus biases). Asked in 2025 DA (Q48), 2026 DA (Q56) and the 2024 sample paper (Q43). About 2 marks per DA paper."
+    ],
+    "simple": "A neural network is a row of layers of little calculators, with numbers going in at the left. Each calculator multiplies by its dials (weights), adds the results and a nudge (bias), and lets only positive values through (ReLU). The last calculator gives the answer. If the answer is wrong, we work backwards, share out the blame to each dial, and turn every dial a tiny bit to shrink the error, and we repeat this many times. In the exam you do all this by hand on a network with two or three units, so the skill is careful arithmetic and knowing that a switched-off unit passes on no blame."
+  },
+  "cards": [
+    {
+      "atom_id": "f1",
+      "title": "Forward pass",
+      "simple": "Think of a neural network as a row of little calculators. Each one takes the numbers coming in, multiplies each by its own dial (a weight), adds the results, and adds one extra nudge (a bias). Then a gate rule called ReLU lets positive numbers through and turns negative ones into zero. The answer goes to the next row of calculators. Nothing goes backwards here. You just push the numbers forward, like a note passed down a row of friends who each rewrite it. In exam words: each layer computes z = Wa + b and then a = φ(z), and the last layer's output is the prediction ŷ.",
+      "idea": "A neural network is a chain of layers. Each unit multiplies the numbers from the previous layer by its **weights**, adds them, adds a **bias**, and passes the total through an activation such as ReLU. Do this layer by layer, left to right, and the last layer gives the prediction. Keep every number you compute, because backpropagation needs them later.",
+      "definition": "$$z=Wa+b,\\qquad a=\\phi(z)$$\n\nSymbols: $a$ is the vector of numbers coming from the previous layer (for the first layer, the input $x$). $W$ is the weight matrix, and row $j$ holds the weights of unit $j$. $b$ is the bias vector, one number per unit. $z$ is the pre-activation, the raw weighted sum. $\\phi$ is the activation, applied to each entry of $z$. For ReLU, $\\phi(z)=\\max(0,z)$.",
+      "intuition_full": "A single unit is a score-keeper. Each input says how big it is, each weight says how much that input matters, and the bias shifts the whole score up or down. The sum w·a + b is the unit's score. The activation then decides what to pass on: ReLU passes a positive score unchanged and blocks a negative one. Without the activation, stacking layers would add nothing, because a weighted sum of weighted sums is still one weighted sum. The activation lets each layer bend the picture. The matrix form Wa + b is only a compact way to compute every unit of a layer at once: row j of W times a gives the score of unit j. In the exam you do exactly this with a pencil, one unit at a time, and write z and a next to each unit.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A 2-2-1 network (2 inputs, 2 hidden units, 1 output) has ReLU on the hidden units and no activation on the output. The input is x = (2, 1). Hidden unit 1 has weights (1, 3) and bias −1. Hidden unit 2 has weights (2, −2) and bias 1. The output unit has weights v = (2, −1) and bias c = 1. Find the prediction ŷ.",
+          "steps": [
+            "Line up the numbers: input (2, 1), and for each unit its weights and its bias.",
+            "Hidden unit 1: z1 = 1×2 + 3×1 + (−1) = 2 + 3 − 1 = 4. ReLU keeps positive numbers, so a1 = 4.",
+            "Hidden unit 2: z2 = 2×2 + (−2)×1 + 1 = 4 − 2 + 1 = 3. Positive again, so a2 = 3.",
+            "Output unit: ŷ = 2×4 + (−1)×3 + 1 = 8 − 3 + 1 = 6.",
+            "Keep z = (4, 3), a = (4, 3) and ŷ = 6. The backpropagation card reuses them."
+          ],
+          "answer": "ŷ = 6, with hidden activations a = (4, 3)."
+        },
+        {
+          "level": "gate",
+          "setup": "Layer 1 has three ReLU units. The input is x = (2, 3). The unit weights are (2, 1), (−1, 3) and (1, −2), with biases 0, 1 and −1. The output unit has weights (1, −1, 4), bias 2 and no activation. Find ŷ.",
+          "steps": [
+            "Unit 1: z = 2×2 + 1×3 + 0 = 7. ReLU gives 7.",
+            "Unit 2: z = −1×2 + 3×3 + 1 = −2 + 9 + 1 = 8. ReLU gives 8.",
+            "Unit 3: z = 1×2 − 2×3 − 1 = 2 − 6 − 1 = −5. Negative, so ReLU gives 0.",
+            "Output: ŷ = 1×7 − 1×8 + 4×0 + 2 = 7 − 8 + 0 + 2 = 1."
+          ],
+          "answer": "ŷ = 1. Unit 3 was clipped to 0, so it adds nothing."
+        },
+        {
+          "level": "twist",
+          "setup": "Use the data of the GATE-level example, but forget the ReLU on unit 3. What does the output become?",
+          "steps": [
+            "Unit 3 keeps its raw value z = −5 instead of 0.",
+            "ŷ = 1×7 − 1×8 + 4×(−5) + 2 = 7 − 8 − 20 + 2 = −19.",
+            "With ReLU the answer was 1."
+          ],
+          "answer": "−19 without the ReLU against 1 with it. One missed activation changes the answer a lot."
+        }
+      ],
+      "why": "Every other calculation in this chapter starts from a forward pass: the loss, the gradients and the weight updates all use the numbers it produces. In GATE: a small network with given weights is evaluated by hand, and then something is asked about it.",
+      "how": [
+        "Write the input vector and each unit's weights and bias.",
+        "For each unit in the first layer, compute z = (weights · inputs) + bias.",
+        "Apply the activation to get a. For ReLU, a negative z becomes 0.",
+        "Repeat for the next layer, using the previous layer's a as its inputs.",
+        "Write z and a next to every unit. You need them for the gradients."
+      ],
+      "mistake": "Skipping the activation between layers, or leaving out the bias. Without the activation, the layers collapse into one linear map. Add the bias before the activation, and apply the activation to every hidden unit.",
+      "edge_cases": [
+        "z exactly 0: ReLU gives 0, so the unit is off. Its slope is also taken as 0.",
+        "Negative z on a hidden ReLU unit: it outputs 0 and sends nothing forward.",
+        "Regression networks usually have no activation on the output. Classifiers use a sigmoid or softmax there.",
+        "If the question says no biases, set every b to 0."
+      ],
+      "connections": [
+        "Foundations: Algebra. Multiplying and adding signed numbers is all the arithmetic you need.",
+        "Next cards: counting the parameters of this structure, then the activations and their slopes.",
+        "Logistic regression is this forward pass with a single unit and a sigmoid."
+      ],
+      "check": [
+        {
+          "q": "x = (3, 1). A ReLU unit has weights (2, −4) and bias 1. What does it output?",
+          "a": "z = 2×3 − 4×1 + 1 = 3. Positive, so the output is 3."
+        },
+        {
+          "q": "The same unit gets x = (0, 2). What is its output?",
+          "a": "z = 0 − 8 + 1 = −7. Negative, so ReLU gives 0."
+        },
+        {
+          "q": "Why can we not skip the activation between two layers?",
+          "a": "Two linear layers collapse into one linear map, so the extra layer would add nothing."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q42 (forward pass through a ReLU net, then gradients) and 2024 DA Q43 (equivalent network). Every backprop question starts here.",
+      "scene": "ml.ffnn.forward",
+      "try": {
+        "id": "gen.ml.ffnn.001",
+        "label": "What feed-forward means"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "A 2-2-1 network (2 inputs, 2 hidden units, 1 output) has ReLU on the hidden units and no activation on the output. The input is x = (2, 1). Hidden unit 1 has weights (1, 3) and bias −1. Hidden unit 2 has weights (2, −2) and bias 1. The output unit has weights v = (2, −1) and bias c = 1. Find the prediction ŷ.",
+        "steps": [
+          "Line up the numbers: input (2, 1), and for each unit its weights and its bias.",
+          "Hidden unit 1: z1 = 1×2 + 3×1 + (−1) = 2 + 3 − 1 = 4. ReLU keeps positive numbers, so a1 = 4.",
+          "Hidden unit 2: z2 = 2×2 + (−2)×1 + 1 = 4 − 2 + 1 = 3. Positive again, so a2 = 3.",
+          "Output unit: ŷ = 2×4 + (−1)×3 + 1 = 8 − 3 + 1 = 6.",
+          "Keep z = (4, 3), a = (4, 3) and ŷ = 6. The backpropagation card reuses them."
+        ],
+        "answer": "ŷ = 6, with hidden activations a = (4, 3)."
+      },
+      "what": "A neural network is a chain of layers. Each unit multiplies the numbers from the previous layer by its **weights**, adds them, adds a **bias**, and passes the total through an activation such as ReLU. Do this layer by layer, left to right, and the last layer gives the prediction. Keep every number you compute, because backpropagation needs them later.",
+      "what_full": "A neural network is a chain of layers. Each unit multiplies the numbers from the previous layer by its **weights**, adds them, adds a **bias**, and passes the total through an activation such as ReLU. Do this layer by layer, left to right, and the last layer gives the prediction. Keep every number you compute, because backpropagation needs them later.\n\n$$z=Wa+b,\\qquad a=\\phi(z)$$\n\nSymbols: $a$ is the vector of numbers coming from the previous layer (for the first layer, the input $x$). $W$ is the weight matrix, and row $j$ holds the weights of unit $j$. $b$ is the bias vector, one number per unit. $z$ is the pre-activation, the raw weighted sum. $\\phi$ is the activation, applied to each entry of $z$. For ReLU, $\\phi(z)=\\max(0,z)$.\n\n**Worked example.** A 2-2-1 network (2 inputs, 2 hidden units, 1 output) has ReLU on the hidden units and no activation on the output. The input is x = (2, 1). Hidden unit 1 has weights (1, 3) and bias −1. Hidden unit 2 has weights (2, −2) and bias 1. The output unit has weights v = (2, −1) and bias c = 1. Find the prediction ŷ.\n\n1. Line up the numbers: input (2, 1), and for each unit its weights and its bias.\n2. Hidden unit 1: z1 = 1×2 + 3×1 + (−1) = 2 + 3 − 1 = 4. ReLU keeps positive numbers, so a1 = 4.\n3. Hidden unit 2: z2 = 2×2 + (−2)×1 + 1 = 4 − 2 + 1 = 3. Positive again, so a2 = 3.\n4. Output unit: ŷ = 2×4 + (−1)×3 + 1 = 8 − 3 + 1 = 6.\n5. Keep z = (4, 3), a = (4, 3) and ŷ = 6. The backpropagation card reuses them.\n\n**Answer:** ŷ = 6, with hidden activations a = (4, 3).\n\n**Check yourself:** x = (3, 1). A ReLU unit has weights (2, −4) and bias 1. What does it output?\n\n*Answer:* z = 2×3 − 4×1 + 1 = 3. Positive, so the output is 3.",
+      "trap": "Skipping the activation between layers, or leaving out the bias. Without the activation, the layers collapse into one linear map. Add the bias before the activation, and apply the activation to every hidden unit.",
+      "why_full": "Every other calculation in this chapter starts from a forward pass: the loss, the gradients and the weight updates all use the numbers it produces. In GATE: a small network with given weights is evaluated by hand, and then something is asked about it.\n\nAsked: 2025 DA Q42 (forward pass through a ReLU net, then gradients) and 2024 DA Q43 (equivalent network). Every backprop question starts here."
+    },
+    {
+      "atom_id": "f1b",
+      "title": "Counting parameters",
+      "simple": "Every connection between two units has a dial (a weight), and every unit except the inputs has one extra dial (a bias). Counting parameters is just counting dials. Between two neighbouring layers, every unit on the left connects to every unit on the right, so the number of weights is left size times right size. Then add one bias for each unit on the right. Do this for each pair of neighbouring layers and add everything up. The activation rules like ReLU have no dials of their own. In exam words: parameters = the sum over all layers of (inputs × outputs + outputs).",
+      "idea": "The **parameters** of a fully connected network are its weights and biases. Between a layer of m units and the next layer of n units there are **m × n weights** and **n biases**. Add these up over every pair of neighbouring layers. Activations such as ReLU or softmax have no parameters.",
+      "definition": "$$\\#\\text{params}=\\sum_{\\ell}\\bigl(n_{\\ell-1}\\,n_{\\ell}+n_{\\ell}\\bigr)$$\n\nSymbols: $n_\\ell$ is the number of units in layer $\\ell$, and layer 0 is the input. The first term $n_{\\ell-1}n_\\ell$ counts the weights, one per connection. The second term $n_\\ell$ counts the biases, one per unit. If the question says there are no biases, drop the second term.",
+      "intuition_full": "Think of each layer as a table. Each of the n units in the new layer owns one row of the table: one weight for each of the m incoming units, plus one bias. So each unit owns m + 1 numbers and the layer owns n × (m + 1). The input layer owns nothing, because it only holds the data. Activations and softmax are fixed functions, so they add no parameters. Read the stem carefully for words such as 'with bias', 'no bias' and 'fully connected'. The count grows with the product of neighbouring widths, so doubling the width of two neighbouring layers quadruples the weights between them. This is why wide networks have so many parameters, and why they can overfit.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "A fully connected network has 4 inputs, one hidden layer of 5 units and an output layer of 3 units. Every non-input unit has a bias. How many parameters does it have?",
+          "steps": [
+            "Inputs to hidden: 4 × 5 = 20 weights, plus 5 biases, so 25.",
+            "Hidden to output: 5 × 3 = 15 weights, plus 3 biases, so 18.",
+            "ReLU and softmax have no parameters.",
+            "Total = 25 + 18 = 43 (35 weights and 8 biases)."
+          ],
+          "answer": "43 parameters."
+        },
+        {
+          "level": "gate",
+          "setup": "A network has 12 inputs, one hidden layer of h units and 2 outputs. Every non-input unit has a bias. The total number of parameters is 92. Find h.",
+          "steps": [
+            "Hidden layer: 12 weights per unit plus 1 bias, so 13 per unit. That is 13h.",
+            "Output layer: h weights per output unit, 2 units, plus 2 biases. That is 2h + 2.",
+            "Total = 13h + 2h + 2 = 15h + 2.",
+            "15h + 2 = 92, so 15h = 90 and h = 6.",
+            "Check: 12×6 + 6 = 78 and 6×2 + 2 = 14, and 78 + 14 = 92."
+          ],
+          "answer": "h = 6."
+        },
+        {
+          "level": "twist",
+          "setup": "A network has layers 20 → 3 → 2 → 1. The question says only the output unit has a bias; all other units have none. Count the parameters.",
+          "steps": [
+            "Weights: 20×3 = 60, 3×2 = 6 and 2×1 = 2. That is 68.",
+            "Biases: only the output unit has one, so add 1.",
+            "Total = 68 + 1 = 69.",
+            "Adding a bias for every unit (3 + 2 + 1 = 6) would give 74, which is wrong here."
+          ],
+          "answer": "69. Read the stem to see which units have biases."
+        }
+      ],
+      "why": "Parameter counts are quick marks: pure arithmetic, but easy to get wrong by leaving out the biases. They also measure the size of a model, because more parameters means more flexibility and more risk of overfitting. In GATE: count the weights plus biases for given layer sizes.",
+      "how": [
+        "List the layer sizes from the input to the output.",
+        "For each neighbouring pair (m, n), the weights are m × n.",
+        "Add n biases for the new layer, unless the stem says there is no bias.",
+        "Add up all the layers. Ignore activations.",
+        "For a reverse question, write the total as a formula in the unknown width and solve."
+      ],
+      "mistake": "Adding the numbers of neurons instead of multiplying neighbouring layer sizes, or leaving out the biases. The weights between two layers are m × n. The biases are one per non-input unit. Check the stem for 'no bias'.",
+      "edge_cases": [
+        "The input layer has no weights or biases of its own.",
+        "Weights only (no bias): drop the second term of the formula.",
+        "Networks that share weights, such as convolutional ones, have far fewer parameters than fully connected ones.",
+        "ReLU, sigmoid and softmax add 0 parameters."
+      ],
+      "connections": [
+        "Foundations: Algebra. A reverse question gives a linear equation in the unknown width.",
+        "Forward pass card: the weights and biases counted here are the ones used in z = Wa + b.",
+        "Bias and variance: more parameters means a more flexible model and a higher risk of variance.",
+        "Linear regression with d features is a one-unit network with d + 1 parameters."
+      ],
+      "check": [
+        {
+          "q": "A network has layers 3 → 3 → 1, with biases. How many parameters?",
+          "a": "3×3 + 3 = 12 for the hidden layer and 3×1 + 1 = 4 for the output. Total 16."
+        },
+        {
+          "q": "The same network with no biases?",
+          "a": "9 + 3 = 12."
+        },
+        {
+          "q": "Layers 10 → 4 → 1 with biases. Parameters?",
+          "a": "10×4 + 4 = 44 and 4×1 + 1 = 5. Total 49."
+        }
+      ],
+      "asked": "Asked: 2026 DA Q56 (layers 30 → 4 → 3 → 1 with no bias: 135) and 2024 DA sample Q43 (5 → 10 → 3 with bias: 93).",
+      "scene": "ml.ffnn.params",
+      "try": {
+        "id": "gen.ml.ffnn.020",
+        "label": "Parameters of a 4 → 6 → 6 → 2 network"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "A fully connected network has 4 inputs, one hidden layer of 5 units and an output layer of 3 units. Every non-input unit has a bias. How many parameters does it have?",
+        "steps": [
+          "Inputs to hidden: 4 × 5 = 20 weights, plus 5 biases, so 25.",
+          "Hidden to output: 5 × 3 = 15 weights, plus 3 biases, so 18.",
+          "ReLU and softmax have no parameters.",
+          "Total = 25 + 18 = 43 (35 weights and 8 biases)."
+        ],
+        "answer": "43 parameters."
+      },
+      "what": "The **parameters** of a fully connected network are its weights and biases. Between a layer of m units and the next layer of n units there are **m × n weights** and **n biases**. Add these up over every pair of neighbouring layers. Activations such as ReLU or softmax have no parameters.",
+      "what_full": "The **parameters** of a fully connected network are its weights and biases. Between a layer of m units and the next layer of n units there are **m × n weights** and **n biases**. Add these up over every pair of neighbouring layers. Activations such as ReLU or softmax have no parameters.\n\n$$\\#\\text{params}=\\sum_{\\ell}\\bigl(n_{\\ell-1}\\,n_{\\ell}+n_{\\ell}\\bigr)$$\n\nSymbols: $n_\\ell$ is the number of units in layer $\\ell$, and layer 0 is the input. The first term $n_{\\ell-1}n_\\ell$ counts the weights, one per connection. The second term $n_\\ell$ counts the biases, one per unit. If the question says there are no biases, drop the second term.\n\n**Worked example.** A fully connected network has 4 inputs, one hidden layer of 5 units and an output layer of 3 units. Every non-input unit has a bias. How many parameters does it have?\n\n1. Inputs to hidden: 4 × 5 = 20 weights, plus 5 biases, so 25.\n2. Hidden to output: 5 × 3 = 15 weights, plus 3 biases, so 18.\n3. ReLU and softmax have no parameters.\n4. Total = 25 + 18 = 43 (35 weights and 8 biases).\n\n**Answer:** 43 parameters.\n\n**Check yourself:** A network has layers 3 → 3 → 1, with biases. How many parameters?\n\n*Answer:* 3×3 + 3 = 12 for the hidden layer and 3×1 + 1 = 4 for the output. Total 16.",
+      "trap": "Adding the numbers of neurons instead of multiplying neighbouring layer sizes, or leaving out the biases. The weights between two layers are m × n. The biases are one per non-input unit. Check the stem for 'no bias'.",
+      "why_full": "Parameter counts are quick marks: pure arithmetic, but easy to get wrong by leaving out the biases. They also measure the size of a model, because more parameters means more flexibility and more risk of overfitting. In GATE: count the weights plus biases for given layer sizes.\n\nAsked: 2026 DA Q56 (layers 30 → 4 → 3 → 1 with no bias: 135) and 2024 DA sample Q43 (5 → 10 → 3 with bias: 93)."
+    },
+    {
+      "atom_id": "f2",
+      "title": "Activations and derivatives",
+      "simple": "An activation is the rule a unit uses to decide what to pass on. ReLU is the simplest: it lets positive numbers through and turns negative ones into zero, like a one-way gate. Sigmoid squeezes any number into a value between 0 and 1, like a dimmer switch that never goes fully off or fully on. Tanh does the same but squeezes between −1 and 1. To learn, the network needs to know how fast each rule changes when its input changes, which is the slope of the rule. ReLU has slope 0 on the negative side (nothing passes, so nothing is learned there) and slope 1 on the positive side. The sigmoid slope is never bigger than 0.25, which is small. In exam words: ReLU′(z) = 1 for z > 0 and 0 for z < 0, σ′ = σ(1 − σ) and tanh′ = 1 − tanh².",
+      "idea": "An **activation** is the bend you apply after each weighted sum. **ReLU** passes positive numbers and zeroes the negatives, so its slope is 1 or 0. **Sigmoid** squeezes any number into (0, 1) and **tanh** into (−1, 1). Backpropagation needs the *slope* of the activation at the stored z, so learn these three slope rules.",
+      "definition": "$$\\operatorname{ReLU}(z)=\\max(0,z),\\qquad \\sigma(z)=\\frac{1}{1+e^{-z}},\\qquad \\tanh(z)=\\frac{e^{z}-e^{-z}}{e^{z}+e^{-z}}$$\n\nSlopes: $\\operatorname{ReLU}'(z)=1$ if $z>0$ and $0$ if $z<0$. $\\sigma'(z)=\\sigma(z)\\bigl(1-\\sigma(z)\\bigr)\\le 0.25$. $\\tanh'(z)=1-\\tanh^2(z)\\le 1$.\n\nSymbols: $z$ is the pre-activation of the unit. The slope tells you how much the output changes for a tiny change in $z$.",
+      "intuition_full": "The slope tells you how far the output moves when the input moves a tiny bit. For ReLU the answer is simple. On the right of zero the graph is the line y = z, with slope 1. On the left it is flat at 0, with slope 0. Sigmoid is an S-curve. It is steepest in the middle, at z = 0, where the slope is 0.25. Far out on either side it is almost flat, so the slope is almost 0. A unit with a very large or very small z therefore learns slowly. This is called saturation. Tanh has the same S-shape but runs from −1 to 1, and its steepest slope is 1. Both S-curves have a shortcut: the slope can be computed from the output itself, as σ(1 − σ) or 1 − tanh². That is why you store the activation as well as z.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Find the output and the slope for ReLU at z = −2 and z = 3, for the sigmoid at z = 2, and for tanh at z = 0.5.",
+          "steps": [
+            "ReLU(z) = max(0, z). Its slope is 1 where z > 0 and 0 where z < 0.",
+            "z = −2: ReLU(−2) = 0 and the slope is 0. The unit is off for this input.",
+            "z = 3: ReLU(3) = 3 and the slope is 1.",
+            "Sigmoid at z = 2: σ = 1 / (1 + e⁻²) = 1 / (1 + 0.135) = 0.881. Slope = 0.881 × (1 − 0.881) = 0.881 × 0.119 = 0.105.",
+            "tanh at z = 0.5: tanh = 0.46. Slope = 1 − 0.46² = 1 − 0.21 = 0.79."
+          ],
+          "answer": "ReLU: (0, slope 0) and (3, slope 1). Sigmoid at 2: 0.881 with slope 0.105. tanh at 0.5: 0.46 with slope 0.79."
+        },
+        {
+          "level": "gate",
+          "setup": "A hidden layer of four ReLU units has stored pre-activations z = (3, −1, 0.5, −4). The gradient arriving from above is g = (0.4, 0.7, −0.2, 1.0). Find the gradient after passing back through the ReLU.",
+          "steps": [
+            "ReLU slopes: z = 3 gives 1, z = −1 gives 0, z = 0.5 gives 1, z = −4 gives 0. So the slope vector is (1, 0, 1, 0).",
+            "Multiply entry by entry: (0.4×1, 0.7×0, −0.2×1, 1.0×0) = (0.4, 0, −0.2, 0).",
+            "The two negative-z units pass back nothing, whatever gradient arrived."
+          ],
+          "answer": "The gradient after the ReLU is (0.4, 0, −0.2, 0)."
+        },
+        {
+          "level": "twist",
+          "setup": "A chain of 5 sigmoid layers is trained by backprop. Each layer contributes one sigmoid slope to the product. What is the largest the product of the five slopes can be? Compare it with five active ReLU units.",
+          "steps": [
+            "Each sigmoid slope is at most 0.25 (reached at z = 0).",
+            "Five layers: at most 0.25 × 0.25 × 0.25 × 0.25 × 0.25 = 0.25⁵ = 0.00098.",
+            "Five active ReLU units: 1 × 1 × 1 × 1 × 1 = 1."
+          ],
+          "answer": "At most 0.00098 for sigmoid, against 1 for active ReLU. Gradients in early sigmoid layers almost vanish, so deep sigmoid nets train slowly."
+        }
+      ],
+      "why": "Backprop multiplies by the activation's slope at every layer, so you need the slope as well as the value. A zero slope blocks learning, and a tiny slope slows it. In GATE: compute ReLU outputs and slopes for given z, or reason about a dead unit.",
+      "how": [
+        "Find the stored z of the unit.",
+        "ReLU: a = max(0, z). The slope is 1 if z > 0, else 0.",
+        "Sigmoid: compute σ first, then the slope is σ(1 − σ).",
+        "Tanh: compute tanh first, then the slope is 1 − tanh².",
+        "In backprop, multiply the gradient arriving from above by this slope."
+      ],
+      "mistake": "Using slope 1 for a ReLU whose z is negative, or writing σ′ = σ. A negative ReLU unit has slope 0, so its whole path is blocked. The sigmoid slope is σ(1 − σ), never σ itself.",
+      "edge_cases": [
+        "ReLU at z = 0 is a corner. Its value is 0, and the slope is not defined. Libraries use 0, and exam questions usually avoid it.",
+        "The sigmoid slope is biggest at z = 0, where it is 0.25. Everywhere else it is smaller.",
+        "For very large |z|, sigmoid and tanh are saturated: the slope is almost 0.",
+        "tanh is a stretched sigmoid: tanh(z) = 2σ(2z) − 1."
+      ],
+      "connections": [
+        "Foundations: Derivatives. The slope of a curve at a point is the derivative.",
+        "Foundations: Exponents and logarithms. The sigmoid uses e raised to −z.",
+        "Foundations: Functions and graphs. Read the ReLU ramp and the S-curves from their graphs.",
+        "Backpropagation card: this slope is the φ′(z) factor in every delta."
+      ],
+      "check": [
+        {
+          "q": "What is the ReLU slope at z = −5?",
+          "a": "0."
+        },
+        {
+          "q": "At some z the sigmoid output is 0.9. What is the sigmoid slope there?",
+          "a": "0.9 × (1 − 0.9) = 0.9 × 0.1 = 0.09."
+        },
+        {
+          "q": "At some z, tanh = 0.6. What is the tanh slope there?",
+          "a": "1 − 0.6² = 1 − 0.36 = 0.64."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q42 (a dead ReLU unit gives gradient 0) and 2025 DA Q48 (facts about ReLU).",
+      "scene": "ml.ffnn.act",
+      "try": {
+        "id": "gen.ml.ffnn.002",
+        "label": "ReLU of minus 3"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Find the output and the slope for ReLU at z = −2 and z = 3, for the sigmoid at z = 2, and for tanh at z = 0.5.",
+        "steps": [
+          "ReLU(z) = max(0, z). Its slope is 1 where z > 0 and 0 where z < 0.",
+          "z = −2: ReLU(−2) = 0 and the slope is 0. The unit is off for this input.",
+          "z = 3: ReLU(3) = 3 and the slope is 1.",
+          "Sigmoid at z = 2: σ = 1 / (1 + e⁻²) = 1 / (1 + 0.135) = 0.881. Slope = 0.881 × (1 − 0.881) = 0.881 × 0.119 = 0.105.",
+          "tanh at z = 0.5: tanh = 0.46. Slope = 1 − 0.46² = 1 − 0.21 = 0.79."
+        ],
+        "answer": "ReLU: (0, slope 0) and (3, slope 1). Sigmoid at 2: 0.881 with slope 0.105. tanh at 0.5: 0.46 with slope 0.79."
+      },
+      "what": "An **activation** is the bend you apply after each weighted sum. **ReLU** passes positive numbers and zeroes the negatives, so its slope is 1 or 0. **Sigmoid** squeezes any number into (0, 1) and **tanh** into (−1, 1). Backpropagation needs the *slope* of the activation at the stored z, so learn these three slope rules.",
+      "what_full": "An **activation** is the bend you apply after each weighted sum. **ReLU** passes positive numbers and zeroes the negatives, so its slope is 1 or 0. **Sigmoid** squeezes any number into (0, 1) and **tanh** into (−1, 1). Backpropagation needs the *slope* of the activation at the stored z, so learn these three slope rules.\n\n$$\\operatorname{ReLU}(z)=\\max(0,z),\\qquad \\sigma(z)=\\frac{1}{1+e^{-z}},\\qquad \\tanh(z)=\\frac{e^{z}-e^{-z}}{e^{z}+e^{-z}}$$\n\nSlopes: $\\operatorname{ReLU}'(z)=1$ if $z>0$ and $0$ if $z<0$. $\\sigma'(z)=\\sigma(z)\\bigl(1-\\sigma(z)\\bigr)\\le 0.25$. $\\tanh'(z)=1-\\tanh^2(z)\\le 1$.\n\nSymbols: $z$ is the pre-activation of the unit. The slope tells you how much the output changes for a tiny change in $z$.\n\n**Worked example.** Find the output and the slope for ReLU at z = −2 and z = 3, for the sigmoid at z = 2, and for tanh at z = 0.5.\n\n1. ReLU(z) = max(0, z). Its slope is 1 where z > 0 and 0 where z < 0.\n2. z = −2: ReLU(−2) = 0 and the slope is 0. The unit is off for this input.\n3. z = 3: ReLU(3) = 3 and the slope is 1.\n4. Sigmoid at z = 2: σ = 1 / (1 + e⁻²) = 1 / (1 + 0.135) = 0.881. Slope = 0.881 × (1 − 0.881) = 0.881 × 0.119 = 0.105.\n5. tanh at z = 0.5: tanh = 0.46. Slope = 1 − 0.46² = 1 − 0.21 = 0.79.\n\n**Answer:** ReLU: (0, slope 0) and (3, slope 1). Sigmoid at 2: 0.881 with slope 0.105. tanh at 0.5: 0.46 with slope 0.79.\n\n**Check yourself:** What is the ReLU slope at z = −5?\n\n*Answer:* 0.",
+      "trap": "Using slope 1 for a ReLU whose z is negative, or writing σ′ = σ. A negative ReLU unit has slope 0, so its whole path is blocked. The sigmoid slope is σ(1 − σ), never σ itself.",
+      "why_full": "Backprop multiplies by the activation's slope at every layer, so you need the slope as well as the value. A zero slope blocks learning, and a tiny slope slows it. In GATE: compute ReLU outputs and slopes for given z, or reason about a dead unit.\n\nAsked: 2025 DA Q42 (a dead ReLU unit gives gradient 0) and 2025 DA Q48 (facts about ReLU)."
+    },
+    {
+      "atom_id": "f2b",
+      "title": "ReLU facts: kink and scaling",
+      "simple": "Picture ReLU as a skateboard ramp. For negative numbers it is flat ground, and from zero onwards it is a straight ramp going up. There is no gap in the ramp, so you can draw it without lifting your pen, but right at zero there is a sharp corner. If someone asks 'how steep is it exactly here?', there is no single answer: flat from the left, steepness 1 from the right. If you double a positive input, the output doubles too. Flip the sign of the input and it breaks, because the negative side is flat. In exam words: ReLU is continuous, not differentiable at 0, and ReLU(a·z) = a·ReLU(z) only for a ≥ 0.",
+      "idea": "ReLU is **continuous** everywhere, but it has a **kink** at z = 0, so it is not differentiable there. It also **scales**: ReLU(a·z) = a·ReLU(z) for any a ≥ 0, but not for negative a. GATE likes to list statements about these facts and ask which ones are true.",
+      "definition": "$$\\operatorname{ReLU}(z)=\\max(0,z)$$\n\nContinuous: no jump, since both sides approach $0$ at $z=0$. Not differentiable at $0$: the left slope is $0$ and the right slope is $1$. Positive homogeneity: $\\operatorname{ReLU}(az)=a\\operatorname{ReLU}(z)$ for $a\\ge 0$. Not additive: in general $\\operatorname{ReLU}(x+y)\\neq\\operatorname{ReLU}(x)+\\operatorname{ReLU}(y)$.",
+      "intuition_full": "Draw the graph. It is the x-axis up to 0 and the line y = x after that. The two pieces meet at the origin, so the pen never lifts: the function is continuous. They meet at an angle, not smoothly, so there is a corner. A derivative is the slope of the tangent line, and a corner has two candidate tangents, one flat and one at 45 degrees. So there is no derivative at 0, only a left slope (0) and a right slope (1). Software picks 0 by convention so that training does not crash. Scaling works because the ramp is a straight line from the origin. Stretch the picture by a factor a > 0 in both directions and it looks the same, which gives ReLU(az) = a·ReLU(z). For negative a the input flips side, so the flat part and the ramp swap, and the two sides no longer match. A network with ReLU units and all biases equal to 0 inherits this: scale the input by a > 0 and the output scales by a.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Test four properties of f(z) = max(0, z) with small numbers: continuity at 0, differentiability at 0, and scaling by a = 2 and by a = −1.",
+          "steps": [
+            "Graph: the x-axis for z ≤ 0 and the line y = z for z ≥ 0.",
+            "Continuous: approaching 0 from the left gives 0, from the right gives 0, and f(0) = 0. There is no jump.",
+            "Kink: the slope on the left is 0 and the slope on the right is 1. They differ, so f has no derivative at 0.",
+            "Scale by a = 2: f(2×2) = f(4) = 4 and 2×f(2) = 2×2 = 4. Equal.",
+            "Scale by a = −1: f(−1×2) = f(−2) = 0 but −1×f(2) = −2. Not equal."
+          ],
+          "answer": "Continuous: yes. Differentiable at 0: no. f(az) = a·f(z): yes for a ≥ 0, no for a < 0."
+        },
+        {
+          "level": "gate",
+          "setup": "For f(z) = max(0, z), which statements are true? (P) f(2z) = 2f(z) for every real z. (Q) f(z) = f(−z) for every z. (R) f(x + y) = f(x) + f(y) for all x and y. (S) f is continuous at every point. (T) If z1 < z2 then f(z1) ≤ f(z2).",
+          "steps": [
+            "P: here a = 2 is positive, so f(2z) = 2f(z) holds for every z (for z = −3: f(−6) = 0 = 2×0). True.",
+            "Q: take z = 2. f(2) = 2 but f(−2) = 0. False.",
+            "R: take x = 3 and y = −5. f(−2) = 0 but f(3) + f(−5) = 3 + 0 = 3. False.",
+            "S: the two pieces meet at 0 with the same value. True.",
+            "T: the graph never goes down, so a bigger input never gives a smaller output. True."
+          ],
+          "answer": "P, S and T are true. Q and R are false."
+        },
+        {
+          "level": "twist",
+          "setup": "A network has two hidden ReLU units, h1 = ReLU(x1 − x2) and h2 = ReLU(2x1 + x2), and output y = h1 + 2h2 with no biases. Compare y at x = (1, 2) and at x = (3, 6). Then add a bias +1 inside h2 and compare again.",
+          "steps": [
+            "x = (1, 2): z = (1 − 2, 2 + 2) = (−1, 4), so h = (0, 4) and y = 0 + 8 = 8.",
+            "x = (3, 6) = 3x: z = (3 − 6, 6 + 6) = (−3, 12), so h = (0, 12) and y = 0 + 24 = 24 = 3×8. The output scales.",
+            "Now h2 = ReLU(2x1 + x2 + 1). At x = (1, 2): z2 = 5, so y = 0 + 10 = 10.",
+            "At x = (3, 6): z2 = 13, so y = 26. But 3 × 10 = 30.",
+            "26 ≠ 30: the bias breaks the scaling."
+          ],
+          "answer": "With no biases y(3x) = 3y(x). With a bias it fails (26 against 30)."
+        }
+      ],
+      "why": "Statements about ReLU are easy marks if you know four facts, and a wrong guess costs marks. They also explain why training can stall: a unit stuck at z < 0 has slope 0. In GATE: pick the true statements about continuity, differentiability at 0 and scaling.",
+      "how": [
+        "Sketch max(0, z): flat, then a 45-degree ramp from the origin.",
+        "Continuity: the pieces meet at 0, so yes.",
+        "Differentiability at 0: left slope 0, right slope 1, so no.",
+        "Scaling: test one positive and one negative a with a small number.",
+        "Sums and evenness: test one positive and one negative input."
+      ],
+      "mistake": "Saying ReLU is differentiable everywhere because the graph looks smooth, or that ReLU(az) = a·ReLU(z) for every a. Continuous is not the same as differentiable. Scaling needs a ≥ 0, and a = −1 with z = 2 shows the failure.",
+      "edge_cases": [
+        "ReLU(ReLU(z)) = ReLU(z). Applying it twice changes nothing.",
+        "ReLU(z) ≥ 0 always, so ReLU outputs are never negative.",
+        "Biases break the scaling property of a whole network.",
+        "Leaky ReLU has a small slope (such as 0.01) on the negative side, so its units never die completely."
+      ],
+      "connections": [
+        "Foundations: Limits intuition. Continuity means the left and right limits agree.",
+        "Foundations: Derivatives. A derivative needs one tangent slope, and a corner has two.",
+        "Foundations: Functions and graphs. max, abs and piecewise graphs are the same family.",
+        "Activations card: the slopes 0 and 1 are the gate that backprop uses."
+      ],
+      "check": [
+        {
+          "q": "Is ReLU continuous at 0? Is it differentiable at 0?",
+          "a": "Continuous: yes. Differentiable: no, because the slopes 0 and 1 differ."
+        },
+        {
+          "q": "Is ReLU(−2 + 5) equal to ReLU(−2) + ReLU(5)?",
+          "a": "No. ReLU(3) = 3 but 0 + 5 = 5."
+        },
+        {
+          "q": "True or false: ReLU(3z) = 3·ReLU(z) for every real z.",
+          "a": "True. The factor 3 is positive."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q48 (continuity, non-differentiability at 0 and scaling of ReLU).",
+      "scene": "ml.ffnn.relu",
+      "try": {
+        "id": "gen.ml.ffnn.009",
+        "label": "True statements about ReLU"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Test four properties of f(z) = max(0, z) with small numbers: continuity at 0, differentiability at 0, and scaling by a = 2 and by a = −1.",
+        "steps": [
+          "Graph: the x-axis for z ≤ 0 and the line y = z for z ≥ 0.",
+          "Continuous: approaching 0 from the left gives 0, from the right gives 0, and f(0) = 0. There is no jump.",
+          "Kink: the slope on the left is 0 and the slope on the right is 1. They differ, so f has no derivative at 0.",
+          "Scale by a = 2: f(2×2) = f(4) = 4 and 2×f(2) = 2×2 = 4. Equal.",
+          "Scale by a = −1: f(−1×2) = f(−2) = 0 but −1×f(2) = −2. Not equal."
+        ],
+        "answer": "Continuous: yes. Differentiable at 0: no. f(az) = a·f(z): yes for a ≥ 0, no for a < 0."
+      },
+      "what": "ReLU is **continuous** everywhere, but it has a **kink** at z = 0, so it is not differentiable there. It also **scales**: ReLU(a·z) = a·ReLU(z) for any a ≥ 0, but not for negative a. GATE likes to list statements about these facts and ask which ones are true.",
+      "what_full": "ReLU is **continuous** everywhere, but it has a **kink** at z = 0, so it is not differentiable there. It also **scales**: ReLU(a·z) = a·ReLU(z) for any a ≥ 0, but not for negative a. GATE likes to list statements about these facts and ask which ones are true.\n\n$$\\operatorname{ReLU}(z)=\\max(0,z)$$\n\nContinuous: no jump, since both sides approach $0$ at $z=0$. Not differentiable at $0$: the left slope is $0$ and the right slope is $1$. Positive homogeneity: $\\operatorname{ReLU}(az)=a\\operatorname{ReLU}(z)$ for $a\\ge 0$. Not additive: in general $\\operatorname{ReLU}(x+y)\\neq\\operatorname{ReLU}(x)+\\operatorname{ReLU}(y)$.\n\n**Worked example.** Test four properties of f(z) = max(0, z) with small numbers: continuity at 0, differentiability at 0, and scaling by a = 2 and by a = −1.\n\n1. Graph: the x-axis for z ≤ 0 and the line y = z for z ≥ 0.\n2. Continuous: approaching 0 from the left gives 0, from the right gives 0, and f(0) = 0. There is no jump.\n3. Kink: the slope on the left is 0 and the slope on the right is 1. They differ, so f has no derivative at 0.\n4. Scale by a = 2: f(2×2) = f(4) = 4 and 2×f(2) = 2×2 = 4. Equal.\n5. Scale by a = −1: f(−1×2) = f(−2) = 0 but −1×f(2) = −2. Not equal.\n\n**Answer:** Continuous: yes. Differentiable at 0: no. f(az) = a·f(z): yes for a ≥ 0, no for a < 0.\n\n**Check yourself:** Is ReLU continuous at 0? Is it differentiable at 0?\n\n*Answer:* Continuous: yes. Differentiable: no, because the slopes 0 and 1 differ.",
+      "trap": "Saying ReLU is differentiable everywhere because the graph looks smooth, or that ReLU(az) = a·ReLU(z) for every a. Continuous is not the same as differentiable. Scaling needs a ≥ 0, and a = −1 with z = 2 shows the failure.",
+      "why_full": "Statements about ReLU are easy marks if you know four facts, and a wrong guess costs marks. They also explain why training can stall: a unit stuck at z < 0 has slope 0. In GATE: pick the true statements about continuity, differentiability at 0 and scaling.\n\nAsked: 2025 DA Q48 (continuity, non-differentiability at 0 and scaling of ReLU)."
+    },
+    {
+      "atom_id": "f2c",
+      "title": "Softmax",
+      "simple": "Softmax turns a list of scores into slices of a pie. A bigger score gives a bigger slice. First every score is made positive by raising e (a number about 2.7) to it, which also makes big scores much bigger. Then each result is divided by the total, so the slices add up to exactly 1, or 100%. Now you can read them as chances, such as 'the network is 66% sure it is class 1'. If you add the same number to every score, nothing changes, because it cancels in the division. In exam words: each probability is e raised to its score, divided by the sum of e raised to every score. The outputs are positive and sum to 1.",
+      "idea": "**Softmax** turns a vector of raw scores (logits) into probabilities. Raise e to each score, then divide by the **sum** of all of them. The outputs are positive and always add up to 1. The biggest logit gets the biggest share.",
+      "definition": "$$\\operatorname{softmax}(z)_i=\\frac{e^{z_i}}{\\sum_j e^{z_j}}$$\n\nSymbols: $z_i$ is the score (logit) of class $i$. $e\\approx 2.718$. The sum in the denominator runs over all classes, so the outputs add to 1. Adding the same constant to every $z_i$ leaves the result unchanged.",
+      "intuition_full": "Raw scores can be negative or bigger than 1, so they cannot be probabilities. The exponential fixes the sign, because e raised to any number is positive. It also boosts the winner: a score only 1 higher gets e ≈ 2.7 times the weight. Dividing by the total forces the shares to add to 1. The weights depend only on differences between scores. Shifting all logits by a constant multiplies every exponential by the same factor, and that factor cancels in the division. This is the numerical trick of subtracting the largest logit before exponentiating, which avoids overflow. With two classes, softmax reduces to a sigmoid of the difference: p1 = σ(z1 − z2). With cross-entropy loss, the gradient with respect to the logits is again prediction minus target.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The last layer of a network gives logits z = (2, 1, 0) for three classes. Find the softmax probabilities.",
+          "steps": [
+            "The logits are 2, 1 and 0. The biggest logit should get the biggest probability.",
+            "Exponentiate: e² = 7.389, e¹ = 2.718, e⁰ = 1.",
+            "Add them up: 7.389 + 2.718 + 1 = 11.107.",
+            "Divide: 7.389 / 11.107 = 0.665, 2.718 / 11.107 = 0.245, 1 / 11.107 = 0.090.",
+            "Check: 0.665 + 0.245 + 0.090 = 1.000."
+          ],
+          "answer": "p = (0.665, 0.245, 0.090). Class 1 gets about 66.5%."
+        },
+        {
+          "level": "gate",
+          "setup": "A four-class network gives logits z = (ln 2, ln 3, ln 5, 0). Find the probability of class 3. Then find it again if 10 is added to every logit.",
+          "steps": [
+            "e^(ln 2) = 2, e^(ln 3) = 3, e^(ln 5) = 5 and e⁰ = 1.",
+            "The sum is 2 + 3 + 5 + 1 = 11.",
+            "P(class 3) = 5 / 11 = 0.4545.",
+            "Add 10 to every logit: each exponential gets multiplied by e¹⁰, so the sum does too. The class-3 probability is 5e¹⁰ / (11e¹⁰) = 5/11. Same answer."
+          ],
+          "answer": "5/11 ≈ 0.455 both times. Softmax ignores a constant shift."
+        },
+        {
+          "level": "twist",
+          "setup": "A two-class network gives logits (1.5, 0.5). Find the class-1 probability with softmax, and with a sigmoid of the logit difference.",
+          "steps": [
+            "e^1.5 = 4.482 and e^0.5 = 1.649. The sum is 6.131.",
+            "Softmax: p1 = 4.482 / 6.131 = 0.731.",
+            "The difference is 1.5 − 0.5 = 1. Sigmoid: σ(1) = 1 / (1 + e⁻¹) = 1 / 1.368 = 0.731.",
+            "Both agree."
+          ],
+          "answer": "0.731 both ways. Two-class softmax is a sigmoid of the logit difference."
+        }
+      ],
+      "why": "Softmax is the standard output layer for multi-class classification, and its properties are quick marks: the outputs sum to 1, and a shift of all logits changes nothing. In GATE: compute a softmax probability for given logits, often chosen as logs so the exponentials are whole numbers.",
+      "how": [
+        "Exponentiate every logit. If a logit is ln c, its exponential is c.",
+        "Add them up to get the denominator.",
+        "Divide each exponential by that sum.",
+        "Check that the probabilities add to 1.",
+        "Shortcut: subtract the largest logit first. The answer is unchanged."
+      ],
+      "mistake": "Dividing each logit by the sum of the logits, or forgetting to exponentiate first. Softmax puts e^z in the numerator and in the denominator. Exponentiate first, then divide by the sum.",
+      "edge_cases": [
+        "Equal logits give equal probabilities, 1/n each.",
+        "One logit far bigger than the rest gives a probability close to 1.",
+        "Negative logits are fine, since e^z is still positive.",
+        "In code, a large logit overflows e^z. Subtract the maximum logit first."
+      ],
+      "connections": [
+        "Foundations: Exponents and logarithms. e^(ln c) = c and e^(a+b) = e^a × e^b.",
+        "Logistic regression: two-class softmax is the sigmoid of the difference.",
+        "LDA and naive Bayes: the posterior over classes is a softmax of the class scores."
+      ],
+      "check": [
+        {
+          "q": "All four logits are 0. What are the probabilities?",
+          "a": "Each is 1/4 = 0.25."
+        },
+        {
+          "q": "Logits are (ln 1, ln 3). What is the probability of class 2?",
+          "a": "3 / (1 + 3) = 0.75."
+        },
+        {
+          "q": "Do the logits (1, 2, 3) and (11, 12, 13) give the same softmax?",
+          "a": "Yes. Adding 10 to every logit cancels in the division."
+        }
+      ],
+      "asked": "Asked: no past GATE DA question isolates softmax yet. It is the usual output layer, so a short calculation is a fair guess.",
+      "scene": "ml.ffnn.softmax",
+      "try": {
+        "id": "gen.ml.ffnn.010",
+        "label": "Softmax of logits 0, ln 2, 0"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "The last layer of a network gives logits z = (2, 1, 0) for three classes. Find the softmax probabilities.",
+        "steps": [
+          "The logits are 2, 1 and 0. The biggest logit should get the biggest probability.",
+          "Exponentiate: e² = 7.389, e¹ = 2.718, e⁰ = 1.",
+          "Add them up: 7.389 + 2.718 + 1 = 11.107.",
+          "Divide: 7.389 / 11.107 = 0.665, 2.718 / 11.107 = 0.245, 1 / 11.107 = 0.090.",
+          "Check: 0.665 + 0.245 + 0.090 = 1.000."
+        ],
+        "answer": "p = (0.665, 0.245, 0.090). Class 1 gets about 66.5%."
+      },
+      "what": "**Softmax** turns a vector of raw scores (logits) into probabilities. Raise e to each score, then divide by the **sum** of all of them. The outputs are positive and always add up to 1. The biggest logit gets the biggest share.",
+      "what_full": "**Softmax** turns a vector of raw scores (logits) into probabilities. Raise e to each score, then divide by the **sum** of all of them. The outputs are positive and always add up to 1. The biggest logit gets the biggest share.\n\n$$\\operatorname{softmax}(z)_i=\\frac{e^{z_i}}{\\sum_j e^{z_j}}$$\n\nSymbols: $z_i$ is the score (logit) of class $i$. $e\\approx 2.718$. The sum in the denominator runs over all classes, so the outputs add to 1. Adding the same constant to every $z_i$ leaves the result unchanged.\n\n**Worked example.** The last layer of a network gives logits z = (2, 1, 0) for three classes. Find the softmax probabilities.\n\n1. The logits are 2, 1 and 0. The biggest logit should get the biggest probability.\n2. Exponentiate: e² = 7.389, e¹ = 2.718, e⁰ = 1.\n3. Add them up: 7.389 + 2.718 + 1 = 11.107.\n4. Divide: 7.389 / 11.107 = 0.665, 2.718 / 11.107 = 0.245, 1 / 11.107 = 0.090.\n5. Check: 0.665 + 0.245 + 0.090 = 1.000.\n\n**Answer:** p = (0.665, 0.245, 0.090). Class 1 gets about 66.5%.\n\n**Check yourself:** All four logits are 0. What are the probabilities?\n\n*Answer:* Each is 1/4 = 0.25.",
+      "trap": "Dividing each logit by the sum of the logits, or forgetting to exponentiate first. Softmax puts e^z in the numerator and in the denominator. Exponentiate first, then divide by the sum.",
+      "why_full": "Softmax is the standard output layer for multi-class classification, and its properties are quick marks: the outputs sum to 1, and a shift of all logits changes nothing. In GATE: compute a softmax probability for given logits, often chosen as logs so the exponentials are whole numbers.\n\nAsked: no past GATE DA question isolates softmax yet. It is the usual output layer, so a short calculation is a fair guess."
+    },
+    {
+      "atom_id": "f3",
+      "title": "Loss and output gradient",
+      "simple": "After the network makes a guess, we need a score for how wrong it was. The simplest score takes the gap between the guess and the truth and squares it, so that guessing too high and guessing too low both count as bad. We also halve it to keep later maths tidy. To improve, we need the slope of the score, which says which way to nudge the guess. It equals guess minus truth: positive means we guessed too high, so move down, and negative means too low, so move up. In exam words: L = ½(ŷ − y)² and ∂L/∂ŷ = ŷ − y, the starting number of backprop.",
+      "idea": "The **loss** scores one guess. For a numeric target, **squared error** is half the squared gap: L = ½(ŷ − y)². Its slope with respect to the prediction is simply the gap, **ŷ − y** (prediction minus target). This number starts every backprop calculation, saying how much and in which direction the output should move.",
+      "definition": "$$L=\\tfrac12(\\hat y-y)^2,\\qquad \\frac{\\partial L}{\\partial\\hat y}=\\hat y-y$$\n\nSymbols: $\\hat y$ is the prediction, $y$ is the true target, and $L$ is the loss for one example. The $\\tfrac12$ is there so the 2 from differentiating the square cancels. For a sigmoid output with log-loss, the gradient at the logit $z$ is also $\\partial L/\\partial z=\\hat y-y$.",
+      "intuition_full": "Picture the loss as a bowl. The horizontal axis is the prediction and the bottom of the bowl sits at the target. If you stand to the right of the target, the bowl rises to your right, so the slope is positive and the right move is to go left. If you stand on the left, the slope is negative and the right move is to go right. The size of the slope is the size of the gap, so far-off guesses get strong pushes and near guesses get gentle ones. That is the formula: the slope of ½u² is u, with u = ŷ − y. The ½ is a convenience. Many books drop it, and then the slope is 2(ŷ − y), so check which form the question uses. A sigmoid output with log-loss gives something neat: the slope with respect to the logit is again ŷ − y. The sigmoid's own slope cancels against the log in the loss, which is why this pairing is standard.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "The 2-2-1 network from the forward-pass card predicts ŷ = 6 for a target y = 4. Find the loss and the gradient ∂L/∂ŷ, and say which way the prediction should move.",
+          "steps": [
+            "The loss is a bowl in ŷ whose lowest point is at the target, y = 4.",
+            "Loss: L = ½ × (6 − 4)² = ½ × 4 = 2.",
+            "Gradient: ∂L/∂ŷ = ŷ − y = 6 − 4 = 2. This is the slope of the bowl at ŷ = 6.",
+            "The slope is positive, so the loss rises to the right. Gradient descent moves ŷ left, towards 4.",
+            "If the prediction were 3 instead: L = ½ × (3 − 4)² = 0.5 and the gradient is −1, so move right."
+          ],
+          "answer": "L = 2 and ∂L/∂ŷ = 2. A positive gradient means ŷ is too high."
+        },
+        {
+          "level": "gate",
+          "setup": "A network ends in a sigmoid unit and uses log-loss. For one example the target is y = 1 and the logit is z = ln 3, so ŷ = σ(z). The unit receives the activation a = 3 through its weight w. Find ∂L/∂z and ∂L/∂w.",
+          "steps": [
+            "ŷ = σ(ln 3) = 1 / (1 + e^(−ln 3)) = 1 / (1 + 1/3) = 3/4 = 0.75.",
+            "For a sigmoid with log-loss, ∂L/∂z = ŷ − y = 0.75 − 1 = −0.25.",
+            "The weight w multiplies the incoming activation, so ∂z/∂w = a = 3.",
+            "∂L/∂w = (ŷ − y) × a = −0.25 × 3 = −0.75.",
+            "The gradient is negative, so gradient descent increases w, which pushes ŷ up towards 1."
+          ],
+          "answer": "∂L/∂z = −0.25 and ∂L/∂w = −0.75."
+        },
+        {
+          "level": "twist",
+          "setup": "Same data (y = 1, ŷ = 0.75 from a sigmoid), but the loss is squared error ½(ŷ − y)². Find ∂L/∂z and compare it with the log-loss value.",
+          "steps": [
+            "∂L/∂ŷ = ŷ − y = −0.25.",
+            "The sigmoid adds its own slope: ∂ŷ/∂z = ŷ(1 − ŷ) = 0.75 × 0.25 = 0.1875.",
+            "Chain rule: ∂L/∂z = −0.25 × 0.1875 = −0.046875.",
+            "That is about 0.047, against 0.25 for log-loss: more than five times weaker."
+          ],
+          "answer": "∂L/∂z ≈ −0.047 with squared error, against −0.25 with log-loss. The sigmoid slope shrinks the signal."
+        }
+      ],
+      "why": "Every backprop calculation begins with this one number. If its sign is reversed, training climbs the loss instead of falling. In GATE: compute a loss value, or the output gradient at the start of a gradient chain.",
+      "how": [
+        "Write the loss formula the question uses, and check for the ½.",
+        "Plug in the prediction and the target. Square the gap, then multiply by ½.",
+        "Output gradient = prediction minus target. Keep its sign.",
+        "Sigmoid output with log-loss: the gradient at the logit is already ŷ − y.",
+        "Squared error with a sigmoid output: also multiply by ŷ(1 − ŷ)."
+      ],
+      "mistake": "Using target minus prediction, which flips the sign, or forgetting the ½ (or keeping it when the question has none). The sign decides the direction of the update. Write prediction minus target, and read the loss formula for the ½.",
+      "edge_cases": [
+        "ŷ = y exactly: the loss is 0, the gradient is 0 and nothing changes.",
+        "No ½ in the loss: the gradient doubles to 2(ŷ − y).",
+        "A batch of n examples: the loss and its gradient are averaged (or summed) over the examples.",
+        "Log-loss needs 0 < ŷ < 1. A confident wrong answer (ŷ near 0 when y = 1) gives a huge loss."
+      ],
+      "connections": [
+        "Foundations: Derivatives. The power rule gives the slope of ½u² as u, and the chain rule adds the sigmoid slope.",
+        "Logistic regression: the same ŷ − y gradient appears there.",
+        "Backpropagation card: this gradient is the first delta."
+      ],
+      "check": [
+        {
+          "q": "ŷ = 5 and y = 7 with L = ½(ŷ − y)². Find the loss and the gradient.",
+          "a": "L = ½ × (−2)² = 2. The gradient is 5 − 7 = −2."
+        },
+        {
+          "q": "The gradient is −2. Should the prediction go up or down?",
+          "a": "Up. A negative gradient means the loss falls when ŷ increases."
+        },
+        {
+          "q": "Sigmoid output with log-loss, ŷ = 0.9 and y = 0. What is ∂L/∂z?",
+          "a": "ŷ − y = 0.9."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q42 (a gradient chain that starts at the output).",
+      "scene": "ml.ffnn.loss",
+      "try": {
+        "id": "gen.ml.ffnn.008",
+        "label": "Squared-error loss for prediction 0.8 and target 1"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "The 2-2-1 network from the forward-pass card predicts ŷ = 6 for a target y = 4. Find the loss and the gradient ∂L/∂ŷ, and say which way the prediction should move.",
+        "steps": [
+          "The loss is a bowl in ŷ whose lowest point is at the target, y = 4.",
+          "Loss: L = ½ × (6 − 4)² = ½ × 4 = 2.",
+          "Gradient: ∂L/∂ŷ = ŷ − y = 6 − 4 = 2. This is the slope of the bowl at ŷ = 6.",
+          "The slope is positive, so the loss rises to the right. Gradient descent moves ŷ left, towards 4.",
+          "If the prediction were 3 instead: L = ½ × (3 − 4)² = 0.5 and the gradient is −1, so move right."
+        ],
+        "answer": "L = 2 and ∂L/∂ŷ = 2. A positive gradient means ŷ is too high."
+      },
+      "what": "The **loss** scores one guess. For a numeric target, **squared error** is half the squared gap: L = ½(ŷ − y)². Its slope with respect to the prediction is simply the gap, **ŷ − y** (prediction minus target). This number starts every backprop calculation, saying how much and in which direction the output should move.",
+      "what_full": "The **loss** scores one guess. For a numeric target, **squared error** is half the squared gap: L = ½(ŷ − y)². Its slope with respect to the prediction is simply the gap, **ŷ − y** (prediction minus target). This number starts every backprop calculation, saying how much and in which direction the output should move.\n\n$$L=\\tfrac12(\\hat y-y)^2,\\qquad \\frac{\\partial L}{\\partial\\hat y}=\\hat y-y$$\n\nSymbols: $\\hat y$ is the prediction, $y$ is the true target, and $L$ is the loss for one example. The $\\tfrac12$ is there so the 2 from differentiating the square cancels. For a sigmoid output with log-loss, the gradient at the logit $z$ is also $\\partial L/\\partial z=\\hat y-y$.\n\n**Worked example.** The 2-2-1 network from the forward-pass card predicts ŷ = 6 for a target y = 4. Find the loss and the gradient ∂L/∂ŷ, and say which way the prediction should move.\n\n1. The loss is a bowl in ŷ whose lowest point is at the target, y = 4.\n2. Loss: L = ½ × (6 − 4)² = ½ × 4 = 2.\n3. Gradient: ∂L/∂ŷ = ŷ − y = 6 − 4 = 2. This is the slope of the bowl at ŷ = 6.\n4. The slope is positive, so the loss rises to the right. Gradient descent moves ŷ left, towards 4.\n5. If the prediction were 3 instead: L = ½ × (3 − 4)² = 0.5 and the gradient is −1, so move right.\n\n**Answer:** L = 2 and ∂L/∂ŷ = 2. A positive gradient means ŷ is too high.\n\n**Check yourself:** ŷ = 5 and y = 7 with L = ½(ŷ − y)². Find the loss and the gradient.\n\n*Answer:* L = ½ × (−2)² = 2. The gradient is 5 − 7 = −2.",
+      "trap": "Using target minus prediction, which flips the sign, or forgetting the ½ (or keeping it when the question has none). The sign decides the direction of the update. Write prediction minus target, and read the loss formula for the ½.",
+      "why_full": "Every backprop calculation begins with this one number. If its sign is reversed, training climbs the loss instead of falling. In GATE: compute a loss value, or the output gradient at the start of a gradient chain.\n\nAsked: 2025 DA Q42 (a gradient chain that starts at the output)."
+    },
+    {
+      "atom_id": "f4",
+      "title": "Backpropagation",
+      "simple": "After a wrong guess we want to know which dials (weights) to turn and by how much. Backpropagation works backwards from the error, like a relay of blame. The last unit says 'I was too high by 2'. That blame is passed back to the units that fed it, scaled by how strongly they were connected. A unit that was switched off (its ReLU gave zero) gets no blame, because it did not affect the answer. Each weight's share of the blame is the blame at its unit times the number that came in through it. In exam words: the output δ is ŷ − y, a hidden δ is the next layer's δ sent back through the weights and multiplied by φ′(z), and ∂L/∂w = δ × input.",
+      "idea": "**Backpropagation** is the chain rule done layer by layer, from the output back to the input. Start with the output error, and pass it back through each weight and each activation slope to get a **delta** (the blame) for every unit. A weight's gradient is the delta of the unit it feeds times the activation it receives. A dead ReLU has slope 0, so no blame passes through it.",
+      "definition": "$$\\frac{\\partial L}{\\partial w_{ij}}=\\delta_j\\,a_i,\\qquad \\delta_{\\ell}=\\bigl(W_{\\ell+1}^{\\top}\\delta_{\\ell+1}\\bigr)\\odot\\phi'(z_\\ell)$$\n\nSymbols: $\\delta_j=\\partial L/\\partial z_j$ is the delta of unit $j$, the sensitivity of the loss to that unit's pre-activation. $a_i$ is the activation entering the weight from unit $i$. $W_{\\ell+1}^\\top\\delta_{\\ell+1}$ sends the next layer's deltas back along the weights. $\\odot$ means multiply entry by entry. $\\phi'(z)$ is the activation slope at the stored $z$. For the output unit with squared error and no activation, $\\delta=\\hat y-y$. A bias gradient is just $\\delta$, because its input is 1.",
+      "intuition_full": "The loss depends on a weight through a chain: weight, then the unit's z, then its activation, then the next layer's z, and so on to the output and the loss. The chain rule says the total slope is the product of the slopes along the chain. Computing that product separately for every weight would repeat a lot of work. Backprop saves the shared part. The delta of a unit already contains everything downstream of it. Move one layer back by multiplying with the connecting weight and the activation slope, and you have the next delta. A weight's own gradient is then one more multiplication, by the value that flowed in. Two things to remember. First, the forward pass must be stored, since a and φ′(z) are needed. Second, a dead ReLU has φ′ = 0, so its delta is 0, and every weight feeding it gets gradient 0. If a weight reaches the loss by two paths, add the two contributions.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Use the running network: x = (2, 1). Unit 1 has weights (1, 3) and bias −1. Unit 2 has weights (2, −2) and bias 1. The output unit has weights v = (2, −1) and bias c = 1. The target is y = 4 and the loss is ½(ŷ − y)². The forward pass gave z = (4, 3), a = (4, 3) and ŷ = 6. Find every gradient.",
+          "steps": [
+            "Stored forward values: a = (4, 3), ŷ = 6, loss 2. Both z are positive, so both ReLU slopes are 1.",
+            "Output delta: δ = ŷ − y = 6 − 4 = 2.",
+            "Output layer: ∂L/∂v1 = 2×4 = 8, ∂L/∂v2 = 2×3 = 6 and ∂L/∂c = 2.",
+            "Hidden deltas: δ1 = 2 × 2 × 1 = 4 (delta × weight v1 × slope) and δ2 = 2 × (−1) × 1 = −2.",
+            "First layer: unit 1 gets 4×(2, 1) = (8, 4) and bias 4. Unit 2 gets −2×(2, 1) = (−4, −2) and bias −2."
+          ],
+          "answer": "Output weights (8, 6), c: 2. Unit 1: (8, 4), bias 4. Unit 2: (−4, −2), bias −2."
+        },
+        {
+          "level": "gate",
+          "setup": "Inputs u = 2 and v = 1. Hidden units h1 = R(a·u + b·v) and h2 = R(c·u + d·v), output y = R(e·h1 + f·h2), where R is ReLU. The weights are a = 3, b = 1, c = 1, d = −4, e = 3, f = 5. Find ∂y/∂a, ∂y/∂c and ∂y/∂f.",
+          "steps": [
+            "Forward: z1 = 3×2 + 1×1 = 7, so h1 = 7. z2 = 1×2 + (−4)×1 = −2, so h2 = R(−2) = 0.",
+            "Output unit: z = 3×7 + 5×0 = 21 > 0. The output ReLU is active (slope 1) and y = 21.",
+            "∂y/∂a = (slope of y) × e × (slope of h1) × u = 1 × 3 × 1 × 2 = 6.",
+            "∂y/∂c goes through h2, which is dead: 1 × f × 0 × u = 0.",
+            "∂y/∂f = (slope of y) × h2 = 1 × 0 = 0, because f multiplies the dead unit's output, which is 0."
+          ],
+          "answer": "∂y/∂a = 6, ∂y/∂c = 0 and ∂y/∂f = 0."
+        },
+        {
+          "level": "twist",
+          "setup": "Same inputs and hidden weights as the GATE-level example, but now e = −1 and f = 2. Find ∂y/∂a.",
+          "steps": [
+            "The hidden values do not change: h1 = 7 and h2 = 0.",
+            "Output unit: z = −1×7 + 2×0 = −7. R(−7) = 0, so the output unit is dead and its slope is 0.",
+            "∂y/∂a = (slope of y) × e × (slope of h1) × u = 0 × (−1) × 1 × 2 = 0.",
+            "Every other gradient also has the factor 0, such as ∂y/∂e = 0 × h1 = 0."
+          ],
+          "answer": "All gradients are 0. If the output unit is dead, the network cannot learn from this example."
+        }
+      ],
+      "why": "Backprop is how every neural network learns, and it is how GATE asks for the effect of one weight on the output. On a tiny net it is a fixed recipe with no tricks. In GATE: gradients ∂y/∂weight through a small ReLU net, where a dead unit gives 0.",
+      "how": [
+        "Run the forward pass and store every z and a.",
+        "Output delta: ŷ − y for squared error, or the slope of y if the question asks for ∂y/∂w.",
+        "Move back one layer: delta × connecting weight × activation slope at z.",
+        "Weight gradient = delta of the unit it feeds × the activation entering it. Bias gradient = delta.",
+        "If a ReLU has z < 0, its delta is 0 and everything behind that path gets 0."
+      ],
+      "mistake": "Using slope 1 for a ReLU with negative z, or forgetting that one dead unit blocks its whole path. The ReLU slope is 0 for negative z. Check z before multiplying, and write 0 on the path.",
+      "edge_cases": [
+        "A weight into a dead unit and a weight out of a dead unit both get gradient 0.",
+        "Two paths from a weight to the output: add the two path products.",
+        "An output with no activation has slope 1, so its delta is ŷ − y.",
+        "If the question gives y and not a loss, start the chain with the slope of y instead of ŷ − y."
+      ],
+      "connections": [
+        "Foundations: Derivatives. The chain rule says to multiply the slopes along a path.",
+        "Activations card: you need the stored z to get φ′(z).",
+        "Gradient descent card: these gradients feed the update w ← w − η g.",
+        "Logistic regression is backprop on a one-unit network."
+      ],
+      "check": [
+        {
+          "q": "The output delta is 3. A hidden ReLU unit feeds the output with weight 2 and has z = 5. What is its delta?",
+          "a": "3 × 2 × 1 = 6."
+        },
+        {
+          "q": "The same unit has z = −5. What is its delta?",
+          "a": "0. The ReLU slope is 0."
+        },
+        {
+          "q": "A weight feeds a unit with delta 4, and the activation entering the weight is 0.5. What is the weight's gradient?",
+          "a": "4 × 0.5 = 2."
+        }
+      ],
+      "asked": "Asked: 2025 DA Q42 (∂y/∂a and ∂y/∂f for given weights in a small ReLU net; a dead unit gives 0).",
+      "scene": "ml.ffnn.backprop",
+      "try": {
+        "id": "gen.ml.ffnn.004",
+        "label": "What backpropagation computes"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Use the running network: x = (2, 1). Unit 1 has weights (1, 3) and bias −1. Unit 2 has weights (2, −2) and bias 1. The output unit has weights v = (2, −1) and bias c = 1. The target is y = 4 and the loss is ½(ŷ − y)². The forward pass gave z = (4, 3), a = (4, 3) and ŷ = 6. Find every gradient.",
+        "steps": [
+          "Stored forward values: a = (4, 3), ŷ = 6, loss 2. Both z are positive, so both ReLU slopes are 1.",
+          "Output delta: δ = ŷ − y = 6 − 4 = 2.",
+          "Output layer: ∂L/∂v1 = 2×4 = 8, ∂L/∂v2 = 2×3 = 6 and ∂L/∂c = 2.",
+          "Hidden deltas: δ1 = 2 × 2 × 1 = 4 (delta × weight v1 × slope) and δ2 = 2 × (−1) × 1 = −2.",
+          "First layer: unit 1 gets 4×(2, 1) = (8, 4) and bias 4. Unit 2 gets −2×(2, 1) = (−4, −2) and bias −2."
+        ],
+        "answer": "Output weights (8, 6), c: 2. Unit 1: (8, 4), bias 4. Unit 2: (−4, −2), bias −2."
+      },
+      "what": "**Backpropagation** is the chain rule done layer by layer, from the output back to the input. Start with the output error, and pass it back through each weight and each activation slope to get a **delta** (the blame) for every unit. A weight's gradient is the delta of the unit it feeds times the activation it receives. A dead ReLU has slope 0, so no blame passes through it.",
+      "what_full": "**Backpropagation** is the chain rule done layer by layer, from the output back to the input. Start with the output error, and pass it back through each weight and each activation slope to get a **delta** (the blame) for every unit. A weight's gradient is the delta of the unit it feeds times the activation it receives. A dead ReLU has slope 0, so no blame passes through it.\n\n$$\\frac{\\partial L}{\\partial w_{ij}}=\\delta_j\\,a_i,\\qquad \\delta_{\\ell}=\\bigl(W_{\\ell+1}^{\\top}\\delta_{\\ell+1}\\bigr)\\odot\\phi'(z_\\ell)$$\n\nSymbols: $\\delta_j=\\partial L/\\partial z_j$ is the delta of unit $j$, the sensitivity of the loss to that unit's pre-activation. $a_i$ is the activation entering the weight from unit $i$. $W_{\\ell+1}^\\top\\delta_{\\ell+1}$ sends the next layer's deltas back along the weights. $\\odot$ means multiply entry by entry. $\\phi'(z)$ is the activation slope at the stored $z$. For the output unit with squared error and no activation, $\\delta=\\hat y-y$. A bias gradient is just $\\delta$, because its input is 1.\n\n**Worked example.** Use the running network: x = (2, 1). Unit 1 has weights (1, 3) and bias −1. Unit 2 has weights (2, −2) and bias 1. The output unit has weights v = (2, −1) and bias c = 1. The target is y = 4 and the loss is ½(ŷ − y)². The forward pass gave z = (4, 3), a = (4, 3) and ŷ = 6. Find every gradient.\n\n1. Stored forward values: a = (4, 3), ŷ = 6, loss 2. Both z are positive, so both ReLU slopes are 1.\n2. Output delta: δ = ŷ − y = 6 − 4 = 2.\n3. Output layer: ∂L/∂v1 = 2×4 = 8, ∂L/∂v2 = 2×3 = 6 and ∂L/∂c = 2.\n4. Hidden deltas: δ1 = 2 × 2 × 1 = 4 (delta × weight v1 × slope) and δ2 = 2 × (−1) × 1 = −2.\n5. First layer: unit 1 gets 4×(2, 1) = (8, 4) and bias 4. Unit 2 gets −2×(2, 1) = (−4, −2) and bias −2.\n\n**Answer:** Output weights (8, 6), c: 2. Unit 1: (8, 4), bias 4. Unit 2: (−4, −2), bias −2.\n\n**Check yourself:** The output delta is 3. A hidden ReLU unit feeds the output with weight 2 and has z = 5. What is its delta?\n\n*Answer:* 3 × 2 × 1 = 6.",
+      "trap": "Using slope 1 for a ReLU with negative z, or forgetting that one dead unit blocks its whole path. The ReLU slope is 0 for negative z. Check z before multiplying, and write 0 on the path.",
+      "why_full": "Backprop is how every neural network learns, and it is how GATE asks for the effect of one weight on the output. On a tiny net it is a fixed recipe with no tricks. In GATE: gradients ∂y/∂weight through a small ReLU net, where a dead unit gives 0.\n\nAsked: 2025 DA Q42 (∂y/∂a and ∂y/∂f for given weights in a small ReLU net; a dead unit gives 0)."
+    },
+    {
+      "atom_id": "f5",
+      "title": "Gradient descent step",
+      "simple": "Imagine standing on a hilly field in thick fog, trying to reach the lowest spot. You can feel which way the ground slopes under your feet. So you take a small step downhill, feel the slope again, and step again. The gradient is the slope under your feet. The learning rate η is the size of your step. With tiny steps you get there slowly. With giant leaps you may jump over the valley and land higher up the other side. In exam words: w ← w − η ∂L/∂w, repeated.",
+      "idea": "Gradient descent nudges every weight **against** its gradient: new w = w − η × gradient. The gradient points uphill, so subtracting it goes downhill. η (eta) is the **learning rate**, the step size: a small η is slow and a large η can overshoot. Repeat until the loss stops falling.",
+      "definition": "$$w\\leftarrow w-\\eta\\,\\frac{\\partial L}{\\partial w}$$\n\nSymbols: $w$ is a weight (or a bias), $\\partial L/\\partial w$ is its gradient from backprop, and $\\eta>0$ is the learning rate. Every weight and bias is updated at the same time, each with its own gradient. Afterwards you run the forward pass again to see the new loss.",
+      "intuition_full": "The gradient is the slope of the loss with respect to one weight. A positive slope means raising the weight raises the loss, so you should lower the weight, and the other way round for a negative slope. Subtracting η times the slope does this automatically. The step is proportional to the slope, so steps are big on steep ground and shrink near the bottom, where the slope tends to 0. That gives smooth progress when η is small. But the slope only describes the ground right under your feet. Step too far and the bowl curves back up, so you can land higher than you started. For a bowl L = ½k(w − w*)², one step multiplies the distance from the minimum by (1 − ηk). If that factor is between −1 and 1 the distance shrinks. At ηk = 1 you land exactly on w*. Beyond ηk = 2 the distance grows and training diverges.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "One weight w has loss L(w) = ½(w − 2)², with its minimum at w = 2. Start at w = 4 with learning rate η = 0.5 and do two steps.",
+          "steps": [
+            "Start: w = 4 and the loss is ½ × (4 − 2)² = 2.",
+            "Gradient: dL/dw = w − 2 = 2. It is positive, so uphill is to the right and we move left.",
+            "Step 1: w = 4 − 0.5 × 2 = 3. The loss falls to ½ × 1² = 0.5.",
+            "Step 2: the gradient is 3 − 2 = 1, so w = 3 − 0.5 × 1 = 2.5. The loss falls to ½ × 0.5² = 0.125.",
+            "Each step halves the distance to w = 2: 2, 1, 0.5. The loss went 2, 0.5, 0.125."
+          ],
+          "answer": "After two steps w = 2.5 and the loss has fallen from 2 to 0.125."
+        },
+        {
+          "level": "gate",
+          "setup": "Use the running network and the gradients from the backprop card. Output weights v = (2, −1) and bias c = 1: gradients (8, 6) and 2. Unit 1 weights (1, 3), bias −1: gradients (8, 4) and 4. Unit 2 weights (2, −2), bias 1: gradients (−4, −2) and −2. The input is x = (2, 1), the target is 4, and the old loss is 2. Take one step with η = 0.01 and find the new loss.",
+          "steps": [
+            "Output layer: v1 = 2 − 0.01×8 = 1.92, v2 = −1 − 0.01×6 = −1.06, c = 1 − 0.01×2 = 0.98.",
+            "Unit 1: weights (1 − 0.08, 3 − 0.04) = (0.92, 2.96), bias −1 − 0.04 = −1.04.",
+            "Unit 2: weights (2 + 0.04, −2 + 0.02) = (2.04, −1.98), bias 1 + 0.02 = 1.02.",
+            "Forward again: z1 = 0.92×2 + 2.96×1 − 1.04 = 3.76 and z2 = 2.04×2 − 1.98×1 + 1.02 = 3.12.",
+            "ŷ = 1.92×3.76 − 1.06×3.12 + 0.98 = 7.2192 − 3.3072 + 0.98 = 4.892. Loss = ½ × (0.892)² = 0.398."
+          ],
+          "answer": "The new loss is about 0.398, down from 2. The prediction moved from 6 to 4.892 (target 4)."
+        },
+        {
+          "level": "twist",
+          "setup": "The loss is still ½(w − 2)² and we start at w = 4, but the learning rate is η = 2. What happens? What about η = 2.5?",
+          "steps": [
+            "Gradient at w = 4 is 2. With η = 2: w = 4 − 2 × 2 = 0. The loss is ½ × (0 − 2)² = 2, the same as before. We jumped over the minimum to its mirror image.",
+            "Gradient at w = 0 is −2. Next w = 0 − 2 × (−2) = 4. Back to the start.",
+            "With η = 2.5: w = 4 − 2.5 × 2 = −1 and the loss is ½ × 9 = 4.5. That is worse than 2 and it keeps growing.",
+            "Here each step multiplies the distance from the minimum by (1 − η). It shrinks only for 0 < η < 2."
+          ],
+          "answer": "η = 2 bounces between 0 and 4 forever. η = 2.5 diverges. Too large a step is worse than too small."
+        }
+      ],
+      "why": "Training a network is this step repeated. Knowing its form lets you compute one update by hand and judge whether a learning rate is sensible. In GATE: given gradients, compute a new weight or a new loss after one step.",
+      "how": [
+        "Get the gradient of each weight from backprop.",
+        "Multiply each gradient by the learning rate η.",
+        "Subtract it from the weight: new w = w − η × g.",
+        "Update the biases the same way.",
+        "Recompute the forward pass and the loss to check that it fell."
+      ],
+      "mistake": "Adding the gradient instead of subtracting it, or updating one weight and then using the new value to compute another gradient. The gradient points uphill. Compute all the gradients first, then update all the weights together.",
+      "edge_cases": [
+        "Gradient 0: the weight does not move (a dead unit, or already at a minimum).",
+        "η too large: the update overshoots, bounces or diverges.",
+        "η too small: the loss falls, but very slowly.",
+        "Mini-batch training averages the gradient over a few examples. The update rule is unchanged."
+      ],
+      "connections": [
+        "Foundations: Derivatives. The gradient is the derivative of the loss with respect to a weight.",
+        "Backpropagation card: it supplies the gradients used here.",
+        "Logistic regression is trained with the same update.",
+        "Ridge regression: the L2 penalty adds a term λw to the gradient."
+      ],
+      "check": [
+        {
+          "q": "w = 0.7, gradient = −0.4, η = 0.5. What is the new w?",
+          "a": "0.7 − 0.5 × (−0.4) = 0.7 + 0.2 = 0.9."
+        },
+        {
+          "q": "If the gradient is positive, does w go up or down?",
+          "a": "Down. We subtract a positive number."
+        },
+        {
+          "q": "L = ½(w − 2)², w = 1 and η = 1.5. What is the new w, and did the loss fall?",
+          "a": "The gradient is −1, so w = 1 + 1.5 = 2.5. The loss goes from 0.5 to 0.125, so it fell, although the step overshot."
+        }
+      ],
+      "asked": "Asked: no past paper isolates it. It is the last line of every backprop calculation.",
+      "scene": "ml.ffnn.step",
+      "try": {
+        "id": "gen.ml.ffnn.011",
+        "label": "One gradient descent step on w = 0.5"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "One weight w has loss L(w) = ½(w − 2)², with its minimum at w = 2. Start at w = 4 with learning rate η = 0.5 and do two steps.",
+        "steps": [
+          "Start: w = 4 and the loss is ½ × (4 − 2)² = 2.",
+          "Gradient: dL/dw = w − 2 = 2. It is positive, so uphill is to the right and we move left.",
+          "Step 1: w = 4 − 0.5 × 2 = 3. The loss falls to ½ × 1² = 0.5.",
+          "Step 2: the gradient is 3 − 2 = 1, so w = 3 − 0.5 × 1 = 2.5. The loss falls to ½ × 0.5² = 0.125.",
+          "Each step halves the distance to w = 2: 2, 1, 0.5. The loss went 2, 0.5, 0.125."
+        ],
+        "answer": "After two steps w = 2.5 and the loss has fallen from 2 to 0.125."
+      },
+      "what": "Gradient descent nudges every weight **against** its gradient: new w = w − η × gradient. The gradient points uphill, so subtracting it goes downhill. η (eta) is the **learning rate**, the step size: a small η is slow and a large η can overshoot. Repeat until the loss stops falling.",
+      "what_full": "Gradient descent nudges every weight **against** its gradient: new w = w − η × gradient. The gradient points uphill, so subtracting it goes downhill. η (eta) is the **learning rate**, the step size: a small η is slow and a large η can overshoot. Repeat until the loss stops falling.\n\n$$w\\leftarrow w-\\eta\\,\\frac{\\partial L}{\\partial w}$$\n\nSymbols: $w$ is a weight (or a bias), $\\partial L/\\partial w$ is its gradient from backprop, and $\\eta>0$ is the learning rate. Every weight and bias is updated at the same time, each with its own gradient. Afterwards you run the forward pass again to see the new loss.\n\n**Worked example.** One weight w has loss L(w) = ½(w − 2)², with its minimum at w = 2. Start at w = 4 with learning rate η = 0.5 and do two steps.\n\n1. Start: w = 4 and the loss is ½ × (4 − 2)² = 2.\n2. Gradient: dL/dw = w − 2 = 2. It is positive, so uphill is to the right and we move left.\n3. Step 1: w = 4 − 0.5 × 2 = 3. The loss falls to ½ × 1² = 0.5.\n4. Step 2: the gradient is 3 − 2 = 1, so w = 3 − 0.5 × 1 = 2.5. The loss falls to ½ × 0.5² = 0.125.\n5. Each step halves the distance to w = 2: 2, 1, 0.5. The loss went 2, 0.5, 0.125.\n\n**Answer:** After two steps w = 2.5 and the loss has fallen from 2 to 0.125.\n\n**Check yourself:** w = 0.7, gradient = −0.4, η = 0.5. What is the new w?\n\n*Answer:* 0.7 − 0.5 × (−0.4) = 0.7 + 0.2 = 0.9.",
+      "trap": "Adding the gradient instead of subtracting it, or updating one weight and then using the new value to compute another gradient. The gradient points uphill. Compute all the gradients first, then update all the weights together.",
+      "why_full": "Training a network is this step repeated. Knowing its form lets you compute one update by hand and judge whether a learning rate is sensible. In GATE: given gradients, compute a new weight or a new loss after one step.\n\nAsked: no past paper isolates it. It is the last line of every backprop calculation."
+    },
+    {
+      "atom_id": "f6",
+      "title": "Paths and equivalent networks",
+      "simple": "If every gate in a network is open (positive numbers pass straight through), a network with many layers does the same job as a single unit. To find that single unit's weights, look at every route from an input to the output, multiply the weights along the route, and add up all the routes. Think of water flowing from one tap to a sink through several pipes. Along one pipe the flow gets multiplied by each valve setting, and the flows from different pipes add up. In exam words: with positive inputs ReLU acts as the identity, and the effective weight from input i is the sum over paths of the product of the weights on the path.",
+      "idea": "When every ReLU input is positive, ReLU does nothing, so the whole network is one **linear** unit. Its weight from input i is the sum, over every path from input i to the output, of the **product** of the weights along the path. Multiply along a path, add across paths. Count the paths from the drawing, because not every pair of units is connected.",
+      "definition": "$$w^{\\text{eff}}_i=\\sum_{\\text{paths }i\\to\\text{out}}\\ \\prod_{\\text{edges on the path}}w_{\\text{edge}}$$\n\nSymbols: $w^{\\text{eff}}_i$ is the effective weight of input $i$ in the single equivalent unit. A path follows drawn edges from input $i$ to the output. This holds only when every ReLU on the way has a positive input, so that $\\operatorname{ReLU}(z)=z$.",
+      "intuition_full": "Think of each edge as a valve that multiplies the signal by its weight. A signal travelling along one path passes every valve in turn, so the weights multiply. A signal that can reach the output by two different routes arrives as two pieces, and they add. If every ReLU is open (its input is positive), the signal passes unchanged, so the whole network is just valves and junctions. You can then collapse it to one set of weights. Counting is the hard part, because you must read which edges are really drawn. A quick check: in a fully connected network, the number of paths from one input to the output is the product of the widths of the later layers, and fewer edges mean fewer paths. If any ReLU sees a negative number, it blocks the signal and the collapse is not valid.",
+      "examples": [
+        {
+          "level": "basic",
+          "setup": "Inputs x1, x2 > 0. Hidden units h1 = ReLU(1·x1 + 2·x2) and h2 = ReLU(3·x1 + 1·x2). Output y = 2·h1 + 3·h2 with no biases. Write y = p·x1 + q·x2.",
+          "steps": [
+            "All inputs and weights are positive, so every ReLU input is positive and ReLU passes it unchanged.",
+            "Paths from x1: x1 → h1 → y has weights 1 and 2, product 2. x1 → h2 → y has weights 3 and 3, product 9.",
+            "p = 2 + 9 = 11.",
+            "Paths from x2: x2 → h1 → y: 2 × 2 = 4. x2 → h2 → y: 1 × 3 = 3. So q = 4 + 3 = 7.",
+            "Check by expanding: 2(x1 + 2x2) + 3(3x1 + x2) = (2 + 9)x1 + (4 + 3)x2 = 11x1 + 7x2."
+          ],
+          "answer": "p = 11 and q = 7, so y = 11x1 + 7x2."
+        },
+        {
+          "level": "gate",
+          "setup": "Inputs x1, x2, x3 > 0, no biases, all weights positive. Layer 1 has three units with only these edges: x1 → h1 (weight 2), x1 → h2 (weight 1), x2 → h2 (weight 1), x2 → h3 (weight 3) and x3 → h3 (weight 1). Every hidden unit connects to both g1 and g2 in layer 2 with weight 2. Then g1 → y has weight 3 and g2 → y has weight 1. Find the equivalent neuron y = p·x1 + q·x2 + r·x3.",
+          "steps": [
+            "One hidden unit's value reaches y along two paths: through g1 (2 × 3 = 6) and through g2 (2 × 1 = 2). Total 8 per unit of hidden value.",
+            "From x1 to the hidden layer: edges to h1 (2) and to h2 (1), total 3.",
+            "From x2: edges to h2 (1) and h3 (3), total 4. From x3: only the edge to h3 (1), total 1.",
+            "Multiply by 8: p = 3 × 8 = 24, q = 4 × 8 = 32, r = 1 × 8 = 8.",
+            "Only drawn edges count. A full 3 × 3 first layer would give a different answer."
+          ],
+          "answer": "(p, q, r) = (24, 32, 8)."
+        },
+        {
+          "level": "twist",
+          "setup": "Take the basic network but change h1 to ReLU(x1 − 2·x2), so one weight is negative. Is y = 11x1 − x2 still valid? Test it at x = (1, 3).",
+          "steps": [
+            "If we collapsed blindly: y = 2(x1 − 2x2) + 3(3x1 + x2) = 11x1 − x2. At (1, 3) this gives 11 − 3 = 8.",
+            "Directly: z1 = 1 − 6 = −5, so h1 = ReLU(−5) = 0. z2 = 3 + 3 = 6, so h2 = 6.",
+            "y = 2 × 0 + 3 × 6 = 18, not 8.",
+            "The collapse needs every pre-activation positive. Here that means x1 > 2·x2, which fails at (1, 3)."
+          ],
+          "answer": "The true y is 18. The linear formula holds only where x1 − 2·x2 > 0."
+        }
+      ],
+      "why": "Equivalent-network questions reward a clean method and punish miscounting. Once you can collapse a ReLU net, you also see why depth without a nonlinearity adds no power. In GATE: find the single neuron equivalent to a drawn network for positive inputs.",
+      "how": [
+        "Check the conditions: positive inputs and weights, so each ReLU passes its input.",
+        "From the figure, list every edge that is really drawn.",
+        "For each input, list every path to the output.",
+        "Multiply the weights along each path.",
+        "Add the products for the same input. That is the effective weight."
+      ],
+      "mistake": "Assuming every unit connects to every unit in the next layer, or multiplying where two paths join. The figure decides which edges exist. Multiply down a path and add across paths.",
+      "edge_cases": [
+        "A negative weight can push a ReLU input below 0, and then the collapse is not valid.",
+        "A unit with no outgoing edge contributes nothing.",
+        "With biases, the equivalent unit also gets a constant term, if all the ReLUs stay open.",
+        "If the layers have no ReLU at all, the collapse is always valid: multiply the weight matrices."
+      ],
+      "connections": [
+        "Foundations: Algebra. Expanding brackets and collecting the coefficient of each x.",
+        "Linear algebra: Matrices and determinants covers the product of weight matrices.",
+        "Forward pass card: the same weights, applied once to a single input."
+      ],
+      "check": [
+        {
+          "q": "x1 → h1 has weight 2 and h1 → y has weight 5. x1 → h2 has weight 1 and h2 → y has weight 4. What is the effective weight of x1?",
+          "a": "2×5 + 1×4 = 10 + 4 = 14."
+        },
+        {
+          "q": "A fully connected network has 2 inputs, 5 hidden units and 1 output. How many paths lead from the inputs to the output in total?",
+          "a": "2 × 5 × 1 = 10 (5 paths for each input)."
+        },
+        {
+          "q": "Why can we not collapse when a ReLU input is negative?",
+          "a": "ReLU turns it into 0 instead of passing it unchanged, so the unit is not the identity there."
+        }
+      ],
+      "asked": "Asked: 2024 DA Q43 (equivalent network, with p, q, r = 36, 24, 24).",
+      "scene": "ml.ffnn.paths",
+      "try": {
+        "id": "gen.ml.ffnn.013",
+        "label": "Counting paths in a 3 → 4 → 2 network"
+      },
+      "example": {
+        "level": "basic",
+        "setup": "Inputs x1, x2 > 0. Hidden units h1 = ReLU(1·x1 + 2·x2) and h2 = ReLU(3·x1 + 1·x2). Output y = 2·h1 + 3·h2 with no biases. Write y = p·x1 + q·x2.",
+        "steps": [
+          "All inputs and weights are positive, so every ReLU input is positive and ReLU passes it unchanged.",
+          "Paths from x1: x1 → h1 → y has weights 1 and 2, product 2. x1 → h2 → y has weights 3 and 3, product 9.",
+          "p = 2 + 9 = 11.",
+          "Paths from x2: x2 → h1 → y: 2 × 2 = 4. x2 → h2 → y: 1 × 3 = 3. So q = 4 + 3 = 7.",
+          "Check by expanding: 2(x1 + 2x2) + 3(3x1 + x2) = (2 + 9)x1 + (4 + 3)x2 = 11x1 + 7x2."
+        ],
+        "answer": "p = 11 and q = 7, so y = 11x1 + 7x2."
+      },
+      "what": "When every ReLU input is positive, ReLU does nothing, so the whole network is one **linear** unit. Its weight from input i is the sum, over every path from input i to the output, of the **product** of the weights along the path. Multiply along a path, add across paths. Count the paths from the drawing, because not every pair of units is connected.",
+      "what_full": "When every ReLU input is positive, ReLU does nothing, so the whole network is one **linear** unit. Its weight from input i is the sum, over every path from input i to the output, of the **product** of the weights along the path. Multiply along a path, add across paths. Count the paths from the drawing, because not every pair of units is connected.\n\n$$w^{\\text{eff}}_i=\\sum_{\\text{paths }i\\to\\text{out}}\\ \\prod_{\\text{edges on the path}}w_{\\text{edge}}$$\n\nSymbols: $w^{\\text{eff}}_i$ is the effective weight of input $i$ in the single equivalent unit. A path follows drawn edges from input $i$ to the output. This holds only when every ReLU on the way has a positive input, so that $\\operatorname{ReLU}(z)=z$.\n\n**Worked example.** Inputs x1, x2 > 0. Hidden units h1 = ReLU(1·x1 + 2·x2) and h2 = ReLU(3·x1 + 1·x2). Output y = 2·h1 + 3·h2 with no biases. Write y = p·x1 + q·x2.\n\n1. All inputs and weights are positive, so every ReLU input is positive and ReLU passes it unchanged.\n2. Paths from x1: x1 → h1 → y has weights 1 and 2, product 2. x1 → h2 → y has weights 3 and 3, product 9.\n3. p = 2 + 9 = 11.\n4. Paths from x2: x2 → h1 → y: 2 × 2 = 4. x2 → h2 → y: 1 × 3 = 3. So q = 4 + 3 = 7.\n5. Check by expanding: 2(x1 + 2x2) + 3(3x1 + x2) = (2 + 9)x1 + (4 + 3)x2 = 11x1 + 7x2.\n\n**Answer:** p = 11 and q = 7, so y = 11x1 + 7x2.\n\n**Check yourself:** x1 → h1 has weight 2 and h1 → y has weight 5. x1 → h2 has weight 1 and h2 → y has weight 4. What is the effective weight of x1?\n\n*Answer:* 2×5 + 1×4 = 10 + 4 = 14.",
+      "trap": "Assuming every unit connects to every unit in the next layer, or multiplying where two paths join. The figure decides which edges exist. Multiply down a path and add across paths.",
+      "why_full": "Equivalent-network questions reward a clean method and punish miscounting. Once you can collapse a ReLU net, you also see why depth without a nonlinearity adds no power. In GATE: find the single neuron equivalent to a drawn network for positive inputs.\n\nAsked: 2024 DA Q43 (equivalent network, with p, q, r = 36, 24, 24)."
+    }
+  ],
+  "scenes": [
+    {
+      "id": "ml.ffnn.forward",
+      "title": "Forward pass through a 2-2-1 net",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "x1",
+          "kind": "node",
+          "x": 50,
+          "y": 95,
+          "r": 24,
+          "label": "2"
+        },
+        {
+          "id": "x2",
+          "kind": "node",
+          "x": 50,
+          "y": 195,
+          "r": 24,
+          "label": "1"
+        },
+        {
+          "id": "h1",
+          "kind": "node",
+          "x": 180,
+          "y": 95,
+          "r": 24,
+          "label": "h1"
+        },
+        {
+          "id": "h2",
+          "kind": "node",
+          "x": 180,
+          "y": 195,
+          "r": 24,
+          "label": "h2"
+        },
+        {
+          "id": "y",
+          "kind": "node",
+          "x": 310,
+          "y": 145,
+          "r": 24,
+          "label": "ŷ"
+        },
+        {
+          "id": "x1h1",
+          "kind": "arrow",
+          "from": "x1",
+          "to": "h1"
+        },
+        {
+          "id": "x1h2",
+          "kind": "arrow",
+          "from": "x1",
+          "to": "h2"
+        },
+        {
+          "id": "x2h1",
+          "kind": "arrow",
+          "from": "x2",
+          "to": "h1"
+        },
+        {
+          "id": "x2h2",
+          "kind": "arrow",
+          "from": "x2",
+          "to": "h2"
+        },
+        {
+          "id": "h1y",
+          "kind": "arrow",
+          "from": "h1",
+          "to": "y",
+          "label": "2"
+        },
+        {
+          "id": "h2y",
+          "kind": "arrow",
+          "from": "h2",
+          "to": "y",
+          "label": "−1"
+        },
+        {
+          "id": "wh1",
+          "kind": "text",
+          "x": 180,
+          "y": 52,
+          "text": "w=(1, 3)  b=−1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "wh2",
+          "kind": "text",
+          "x": 180,
+          "y": 238,
+          "text": "w=(2, −2)  b=1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "wy",
+          "kind": "text",
+          "x": 290,
+          "y": 206,
+          "text": "v=(2, −1)  c=1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 270,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "A 2-2-1 network with input x = (2, 1). Each hidden unit has its own weights w and bias b. The output unit has weights v and bias c.",
+          "show": [
+            "wh1",
+            "wh2",
+            "wy"
+          ],
+          "highlight": [
+            "x1",
+            "x2"
+          ]
+        },
+        {
+          "caption": "Hidden unit 1: z1 = 1×2 + 3×1 + (−1) = 4. ReLU keeps positive numbers, so a1 = 4.",
+          "set": [
+            {
+              "id": "h1",
+              "label": "4",
+              "tone": "good"
+            },
+            {
+              "id": "t",
+              "text": "z1 = 1×2 + 3×1 − 1 = 4  →  a1 = 4"
+            }
+          ],
+          "highlight": [
+            "x1h1",
+            "x2h1",
+            "h1"
+          ]
+        },
+        {
+          "caption": "Hidden unit 2: z2 = 2×2 + (−2)×1 + 1 = 3. Positive again, so a2 = 3.",
+          "set": [
+            {
+              "id": "h2",
+              "label": "3",
+              "tone": "good"
+            },
+            {
+              "id": "t",
+              "text": "z2 = 2×2 − 2×1 + 1 = 3  →  a2 = 3"
+            }
+          ],
+          "highlight": [
+            "x1h2",
+            "x2h2",
+            "h2"
+          ]
+        },
+        {
+          "caption": "Output: ŷ = 2×4 + (−1)×3 + 1 = 8 − 3 + 1 = 6. This is the prediction.",
+          "set": [
+            {
+              "id": "y",
+              "label": "6",
+              "tone": "good"
+            },
+            {
+              "id": "t",
+              "text": "ŷ = 2×4 − 1×3 + 1 = 6"
+            }
+          ],
+          "highlight": [
+            "h1y",
+            "h2y",
+            "y"
+          ]
+        },
+        {
+          "caption": "Keep every number: z = (4, 3), a = (4, 3), ŷ = 6. Backpropagation will reuse them.",
+          "set": {
+            "id": "t",
+            "text": "z = (4, 3)    a = (4, 3)    ŷ = 6"
+          },
+          "highlight": [
+            "h1",
+            "h2",
+            "y"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.ffnn.params",
+      "title": "Counting weights and biases in a 4-5-3 net",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "i0",
+          "kind": "node",
+          "x": 60,
+          "y": 62,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "i1",
+          "kind": "node",
+          "x": 60,
+          "y": 112,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "i2",
+          "kind": "node",
+          "x": 60,
+          "y": 162,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "i3",
+          "kind": "node",
+          "x": 60,
+          "y": 212,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "h0",
+          "kind": "node",
+          "x": 180,
+          "y": 49,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "h1",
+          "kind": "node",
+          "x": 180,
+          "y": 93,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "h2",
+          "kind": "node",
+          "x": 180,
+          "y": 137,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "h3",
+          "kind": "node",
+          "x": 180,
+          "y": 181,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "h4",
+          "kind": "node",
+          "x": 180,
+          "y": 225,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "o0",
+          "kind": "node",
+          "x": 300,
+          "y": 87,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "o1",
+          "kind": "node",
+          "x": 300,
+          "y": 137,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "o2",
+          "kind": "node",
+          "x": 300,
+          "y": 187,
+          "r": 11,
+          "label": ""
+        },
+        {
+          "id": "a00",
+          "kind": "edge",
+          "from": "i0",
+          "to": "h0"
+        },
+        {
+          "id": "a01",
+          "kind": "edge",
+          "from": "i0",
+          "to": "h1"
+        },
+        {
+          "id": "a02",
+          "kind": "edge",
+          "from": "i0",
+          "to": "h2"
+        },
+        {
+          "id": "a03",
+          "kind": "edge",
+          "from": "i0",
+          "to": "h3"
+        },
+        {
+          "id": "a04",
+          "kind": "edge",
+          "from": "i0",
+          "to": "h4"
+        },
+        {
+          "id": "a10",
+          "kind": "edge",
+          "from": "i1",
+          "to": "h0"
+        },
+        {
+          "id": "a11",
+          "kind": "edge",
+          "from": "i1",
+          "to": "h1"
+        },
+        {
+          "id": "a12",
+          "kind": "edge",
+          "from": "i1",
+          "to": "h2"
+        },
+        {
+          "id": "a13",
+          "kind": "edge",
+          "from": "i1",
+          "to": "h3"
+        },
+        {
+          "id": "a14",
+          "kind": "edge",
+          "from": "i1",
+          "to": "h4"
+        },
+        {
+          "id": "a20",
+          "kind": "edge",
+          "from": "i2",
+          "to": "h0"
+        },
+        {
+          "id": "a21",
+          "kind": "edge",
+          "from": "i2",
+          "to": "h1"
+        },
+        {
+          "id": "a22",
+          "kind": "edge",
+          "from": "i2",
+          "to": "h2"
+        },
+        {
+          "id": "a23",
+          "kind": "edge",
+          "from": "i2",
+          "to": "h3"
+        },
+        {
+          "id": "a24",
+          "kind": "edge",
+          "from": "i2",
+          "to": "h4"
+        },
+        {
+          "id": "a30",
+          "kind": "edge",
+          "from": "i3",
+          "to": "h0"
+        },
+        {
+          "id": "a31",
+          "kind": "edge",
+          "from": "i3",
+          "to": "h1"
+        },
+        {
+          "id": "a32",
+          "kind": "edge",
+          "from": "i3",
+          "to": "h2"
+        },
+        {
+          "id": "a33",
+          "kind": "edge",
+          "from": "i3",
+          "to": "h3"
+        },
+        {
+          "id": "a34",
+          "kind": "edge",
+          "from": "i3",
+          "to": "h4"
+        },
+        {
+          "id": "b00",
+          "kind": "edge",
+          "from": "h0",
+          "to": "o0"
+        },
+        {
+          "id": "b01",
+          "kind": "edge",
+          "from": "h0",
+          "to": "o1"
+        },
+        {
+          "id": "b02",
+          "kind": "edge",
+          "from": "h0",
+          "to": "o2"
+        },
+        {
+          "id": "b10",
+          "kind": "edge",
+          "from": "h1",
+          "to": "o0"
+        },
+        {
+          "id": "b11",
+          "kind": "edge",
+          "from": "h1",
+          "to": "o1"
+        },
+        {
+          "id": "b12",
+          "kind": "edge",
+          "from": "h1",
+          "to": "o2"
+        },
+        {
+          "id": "b20",
+          "kind": "edge",
+          "from": "h2",
+          "to": "o0"
+        },
+        {
+          "id": "b21",
+          "kind": "edge",
+          "from": "h2",
+          "to": "o1"
+        },
+        {
+          "id": "b22",
+          "kind": "edge",
+          "from": "h2",
+          "to": "o2"
+        },
+        {
+          "id": "b30",
+          "kind": "edge",
+          "from": "h3",
+          "to": "o0"
+        },
+        {
+          "id": "b31",
+          "kind": "edge",
+          "from": "h3",
+          "to": "o1"
+        },
+        {
+          "id": "b32",
+          "kind": "edge",
+          "from": "h3",
+          "to": "o2"
+        },
+        {
+          "id": "b40",
+          "kind": "edge",
+          "from": "h4",
+          "to": "o0"
+        },
+        {
+          "id": "b41",
+          "kind": "edge",
+          "from": "h4",
+          "to": "o1"
+        },
+        {
+          "id": "b42",
+          "kind": "edge",
+          "from": "h4",
+          "to": "o2"
+        },
+        {
+          "id": "l0",
+          "kind": "text",
+          "x": 60,
+          "y": 24,
+          "text": "4 inputs",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "l1",
+          "kind": "text",
+          "x": 180,
+          "y": 24,
+          "text": "5 hidden",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "l2",
+          "kind": "text",
+          "x": 300,
+          "y": 24,
+          "text": "3 outputs",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "bh",
+          "kind": "text",
+          "x": 180,
+          "y": 252,
+          "text": "+ 5 biases",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "mid"
+        },
+        {
+          "id": "bo",
+          "kind": "text",
+          "x": 300,
+          "y": 222,
+          "text": "+ 3 biases",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "mid"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 282,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "4 inputs, 5 hidden units, 3 outputs. Every unit connects to every unit in the next layer.",
+          "set": {
+            "id": "t",
+            "text": "weights + biases"
+          }
+        },
+        {
+          "caption": "Inputs to hidden: each of the 4 inputs has a weight to each of the 5 hidden units. That is 4 × 5 = 20 weights.",
+          "show": [
+            "a00",
+            "a01",
+            "a02",
+            "a03",
+            "a04",
+            "a10",
+            "a11",
+            "a12",
+            "a13",
+            "a14",
+            "a20",
+            "a21",
+            "a22",
+            "a23",
+            "a24",
+            "a30",
+            "a31",
+            "a32",
+            "a33",
+            "a34"
+          ],
+          "highlight": [
+            "a00",
+            "a01",
+            "a02",
+            "a03",
+            "a04",
+            "a10",
+            "a11",
+            "a12",
+            "a13",
+            "a14",
+            "a20",
+            "a21",
+            "a22",
+            "a23",
+            "a24",
+            "a30",
+            "a31",
+            "a32",
+            "a33",
+            "a34"
+          ],
+          "set": {
+            "id": "t",
+            "text": "4 × 5 = 20 weights"
+          }
+        },
+        {
+          "caption": "Each hidden unit also has one bias, so add 5 more numbers: 20 + 5 = 25 parameters in this layer.",
+          "show": "bh",
+          "set": {
+            "id": "t",
+            "text": "20 weights + 5 biases = 25"
+          }
+        },
+        {
+          "caption": "Hidden to output: 5 × 3 = 15 weights.",
+          "show": [
+            "b00",
+            "b01",
+            "b02",
+            "b10",
+            "b11",
+            "b12",
+            "b20",
+            "b21",
+            "b22",
+            "b30",
+            "b31",
+            "b32",
+            "b40",
+            "b41",
+            "b42"
+          ],
+          "dim": [
+            "a00",
+            "a01",
+            "a02",
+            "a03",
+            "a04",
+            "a10",
+            "a11",
+            "a12",
+            "a13",
+            "a14",
+            "a20",
+            "a21",
+            "a22",
+            "a23",
+            "a24",
+            "a30",
+            "a31",
+            "a32",
+            "a33",
+            "a34"
+          ],
+          "highlight": [
+            "b00",
+            "b01",
+            "b02",
+            "b10",
+            "b11",
+            "b12",
+            "b20",
+            "b21",
+            "b22",
+            "b30",
+            "b31",
+            "b32",
+            "b40",
+            "b41",
+            "b42"
+          ],
+          "set": {
+            "id": "t",
+            "text": "5 × 3 = 15 weights"
+          }
+        },
+        {
+          "caption": "Add 3 biases for the output units: 15 + 3 = 18. Total 25 + 18 = 43. ReLU and softmax have no parameters.",
+          "show": "bo",
+          "set": {
+            "id": "t",
+            "text": "18 here.  Total 25 + 18 = 43"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.ffnn.act",
+      "title": "ReLU, sigmoid and tanh: value and slope",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 170,
+          "y": 200,
+          "unit": 36,
+          "xr": [
+            -4,
+            4
+          ],
+          "yr": [
+            -1,
+            4
+          ],
+          "xlabel": "z",
+          "ylabel": "a"
+        },
+        {
+          "id": "relu",
+          "kind": "curve",
+          "axis": "ax",
+          "fn": "(x+abs(x))/2",
+          "tone": "accent"
+        },
+        {
+          "id": "pm2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            -2,
+            0
+          ],
+          "tone": "bad"
+        },
+        {
+          "id": "lm2",
+          "kind": "text",
+          "x": 74,
+          "y": 186,
+          "text": "z=−2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "bad"
+        },
+        {
+          "id": "p3",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            3
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "l3",
+          "kind": "text",
+          "x": 272,
+          "y": 108,
+          "text": "z=3",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "tg3",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              3,
+              3
+            ],
+            [
+              3.8,
+              3
+            ],
+            [
+              3.8,
+              3.8
+            ]
+          ],
+          "dash": true,
+          "tone": "good"
+        },
+        {
+          "id": "sig",
+          "kind": "curve",
+          "axis": "ax",
+          "fn": "1/(1+exp(-x))",
+          "tone": "accent"
+        },
+        {
+          "id": "p2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            0.881
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "l2",
+          "kind": "text",
+          "x": 236,
+          "y": 186.3,
+          "text": "z=2",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "tg2",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              2,
+              0.881
+            ],
+            [
+              3,
+              0.881
+            ],
+            [
+              3,
+              0.986
+            ]
+          ],
+          "dash": true,
+          "tone": "mid"
+        },
+        {
+          "id": "tnh",
+          "kind": "curve",
+          "axis": "ax",
+          "fn": "(exp(2x)-1)/(exp(2x)+1)",
+          "tone": "accent"
+        },
+        {
+          "id": "ph",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            0.5,
+            0.46
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "tgh",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              0.5,
+              0.46
+            ],
+            [
+              1.5,
+              0.46
+            ],
+            [
+              1.5,
+              1.25
+            ]
+          ],
+          "dash": true,
+          "tone": "mid"
+        },
+        {
+          "id": "nm",
+          "kind": "text",
+          "x": 70,
+          "y": 62,
+          "text": "ReLU",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "accent"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 270,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "ReLU(z) = max(0, z): flat at 0 on the left, a straight 45-degree line on the right. Its slope is 0 on the left and 1 on the right.",
+          "draw": "relu",
+          "show": "nm",
+          "set": {
+            "id": "t",
+            "text": "slope: 0 for z < 0,  1 for z > 0"
+          }
+        },
+        {
+          "caption": "z = −2 is on the flat part. ReLU(−2) = 0 and the slope is 0. This unit is off for this input.",
+          "show": [
+            "pm2",
+            "lm2"
+          ],
+          "highlight": "pm2",
+          "set": {
+            "id": "t",
+            "text": "z = −2:  ReLU = 0,  slope = 0"
+          }
+        },
+        {
+          "caption": "z = 3 is on the ramp. ReLU(3) = 3 and the slope is 1: one step right gives one step up (dashed).",
+          "show": [
+            "p3",
+            "l3",
+            "tg3"
+          ],
+          "highlight": [
+            "p3",
+            "tg3"
+          ],
+          "set": {
+            "id": "t",
+            "text": "z = 3:  ReLU = 3,  slope = 1"
+          }
+        },
+        {
+          "caption": "Sigmoid at z = 2: 1 / (1 + e⁻²) = 1 / (1 + 0.135) = 0.881. Slope = 0.881 × (1 − 0.881) = 0.105, nearly flat (dashed).",
+          "hide": [
+            "relu",
+            "pm2",
+            "lm2",
+            "p3",
+            "l3",
+            "tg3"
+          ],
+          "show": [
+            "sig",
+            "p2",
+            "l2",
+            "tg2"
+          ],
+          "draw": "sig",
+          "set": [
+            {
+              "id": "nm",
+              "text": "sigmoid"
+            },
+            {
+              "id": "t",
+              "text": "σ(2) = 0.881,  slope = 0.881×0.119 = 0.105"
+            }
+          ],
+          "highlight": [
+            "p2"
+          ]
+        },
+        {
+          "caption": "tanh at z = 0.5: tanh = 0.46. Slope = 1 − 0.46² = 1 − 0.21 = 0.79, much steeper than the sigmoid at 2.",
+          "hide": [
+            "sig",
+            "p2",
+            "l2",
+            "tg2"
+          ],
+          "show": [
+            "tnh",
+            "ph",
+            "tgh"
+          ],
+          "draw": "tnh",
+          "set": [
+            {
+              "id": "nm",
+              "text": "tanh"
+            },
+            {
+              "id": "t",
+              "text": "tanh(0.5) = 0.46,  slope = 1 − 0.46² = 0.79"
+            }
+          ],
+          "highlight": [
+            "ph"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.ffnn.relu",
+      "title": "ReLU: continuous, kinked, scales for a ≥ 0",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 150,
+          "y": 185,
+          "unit": 28,
+          "xr": [
+            -4,
+            5
+          ],
+          "yr": [
+            -2,
+            5
+          ],
+          "xlabel": "z",
+          "ylabel": "ReLU"
+        },
+        {
+          "id": "relu",
+          "kind": "curve",
+          "axis": "ax",
+          "fn": "(x+abs(x))/2",
+          "tone": "accent"
+        },
+        {
+          "id": "p0",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            0,
+            0
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "tgL",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              -3,
+              0
+            ],
+            [
+              3,
+              0
+            ]
+          ],
+          "dash": true,
+          "tone": "mid"
+        },
+        {
+          "id": "tgR",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              -2,
+              -2
+            ],
+            [
+              3,
+              3
+            ]
+          ],
+          "dash": true,
+          "tone": "bad"
+        },
+        {
+          "id": "pa",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2,
+            2
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "la",
+          "kind": "text",
+          "x": 214,
+          "y": 147,
+          "text": "f(2) = 2",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "pb",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            4
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "lb",
+          "kind": "text",
+          "x": 270,
+          "y": 91,
+          "text": "f(4) = 4",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "pc",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            -2,
+            0
+          ],
+          "tone": "bad"
+        },
+        {
+          "id": "lc",
+          "kind": "text",
+          "x": 94,
+          "y": 169,
+          "text": "f(−2) = 0",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "bad"
+        },
+        {
+          "id": "pd",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            -2,
+            -2
+          ],
+          "hollow": true,
+          "tone": "bad"
+        },
+        {
+          "id": "ld",
+          "kind": "text",
+          "x": 106,
+          "y": 241,
+          "text": "−2",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "bad"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 272,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "ReLU(z) = max(0, z): the x-axis up to 0, then the line y = z.",
+          "draw": "relu",
+          "set": {
+            "id": "t",
+            "text": "f(z) = max(0, z)"
+          }
+        },
+        {
+          "caption": "Continuous: coming from the left the value is 0, from the right it is 0, and f(0) = 0. The graph has no jump.",
+          "show": "p0",
+          "highlight": "p0",
+          "set": {
+            "id": "t",
+            "text": "left 0,  right 0,  f(0) = 0  →  no jump"
+          }
+        },
+        {
+          "caption": "Kink at 0: the tangent from the left is flat (slope 0), the tangent from the right has slope 1. Two different slopes, so no derivative at 0.",
+          "show": [
+            "tgL",
+            "tgR"
+          ],
+          "highlight": [
+            "tgL",
+            "tgR"
+          ],
+          "set": {
+            "id": "t",
+            "text": "slope 0 on the left,  1 on the right"
+          }
+        },
+        {
+          "caption": "Scale by a = 2: f(2×2) = f(4) = 4, and 2×f(2) = 2×2 = 4. Equal, so scaling by a positive number works.",
+          "hide": [
+            "tgL",
+            "tgR",
+            "p0"
+          ],
+          "show": [
+            "pa",
+            "la",
+            "pb",
+            "lb"
+          ],
+          "highlight": [
+            "pa",
+            "pb"
+          ],
+          "set": {
+            "id": "t",
+            "text": "f(4) = 4 = 2 × f(2): equal"
+          }
+        },
+        {
+          "caption": "Scale by a = −1: f(−1×2) = f(−2) = 0, but −1×f(2) = −2. Not equal, so scaling fails for a negative a.",
+          "hide": [
+            "pa",
+            "la",
+            "pb",
+            "lb"
+          ],
+          "show": [
+            "pc",
+            "lc",
+            "pd",
+            "ld"
+          ],
+          "highlight": [
+            "pc",
+            "pd"
+          ],
+          "set": {
+            "id": "t",
+            "text": "f(−2) = 0  ≠  −1 × f(2) = −2: not equal"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.ffnn.softmax",
+      "title": "Softmax turns logits into probabilities",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "bz",
+          "kind": "bar",
+          "x": 60,
+          "y": 52,
+          "w": 240,
+          "h": 150,
+          "values": [
+            2,
+            1,
+            0
+          ],
+          "labels": [
+            "class 1",
+            "class 2",
+            "class 3"
+          ],
+          "max": 8
+        },
+        {
+          "id": "bp",
+          "kind": "bar",
+          "x": 60,
+          "y": 52,
+          "w": 240,
+          "h": 150,
+          "values": [
+            0.665,
+            0.245,
+            0.09
+          ],
+          "labels": [
+            "class 1",
+            "class 2",
+            "class 3"
+          ],
+          "max": 1
+        },
+        {
+          "id": "hdr",
+          "kind": "text",
+          "x": 180,
+          "y": 22,
+          "text": "logits z",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The last layer gives three raw scores (logits): 2, 1 and 0. They are not probabilities yet.",
+          "show": "bz",
+          "set": {
+            "id": "t",
+            "text": "z = (2, 1, 0)"
+          }
+        },
+        {
+          "caption": "Step 1: raise e to each score. e² = 7.389, e¹ = 2.718, e⁰ = 1. Every value is now positive, and the biggest score grew the most.",
+          "set": [
+            {
+              "id": "bz",
+              "values": [
+                7.389,
+                2.718,
+                1
+              ]
+            },
+            {
+              "id": "hdr",
+              "text": "e raised to z"
+            },
+            {
+              "id": "t",
+              "text": "e² = 7.389   e¹ = 2.718   e⁰ = 1"
+            }
+          ]
+        },
+        {
+          "caption": "Step 2: add them up. 7.389 + 2.718 + 1 = 11.107. This total is the denominator for every class.",
+          "highlight": "bz",
+          "set": {
+            "id": "t",
+            "text": "sum = 7.389 + 2.718 + 1 = 11.107"
+          }
+        },
+        {
+          "caption": "Step 3: divide each by the total. 7.389 / 11.107 = 0.665, 2.718 / 11.107 = 0.245, 1 / 11.107 = 0.090.",
+          "hide": "bz",
+          "show": "bp",
+          "set": [
+            {
+              "id": "hdr",
+              "text": "softmax probabilities"
+            },
+            {
+              "id": "t",
+              "text": "0.665    0.245    0.090"
+            }
+          ]
+        },
+        {
+          "caption": "Check: 0.665 + 0.245 + 0.090 = 1.000. Class 1 gets about 66.5% of the probability.",
+          "highlight": "bp",
+          "set": {
+            "id": "t",
+            "text": "0.665 + 0.245 + 0.090 = 1.000"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.ffnn.loss",
+      "title": "Squared error is a bowl; its slope is ŷ − y",
+      "viewBox": [
+        0,
+        0,
+        360,
+        310
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 50,
+          "y": 250,
+          "unit": 24,
+          "xr": [
+            0,
+            9
+          ],
+          "yr": [
+            0,
+            8
+          ],
+          "xlabel": "ŷ",
+          "ylabel": "L"
+        },
+        {
+          "id": "bowl",
+          "kind": "curve",
+          "axis": "ax",
+          "fn": "0.5*(x-4)^2",
+          "domain": [
+            0,
+            8
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "tgt",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            0
+          ],
+          "hollow": true,
+          "tone": "good"
+        },
+        {
+          "id": "pp",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            6,
+            2
+          ],
+          "tone": "bad"
+        },
+        {
+          "id": "lp",
+          "kind": "text",
+          "x": 208,
+          "y": 206,
+          "text": "ŷ=6",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "bad"
+        },
+        {
+          "id": "tg6",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              5,
+              0
+            ],
+            [
+              7,
+              4
+            ]
+          ],
+          "dash": true,
+          "tone": "bad"
+        },
+        {
+          "id": "go1",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            6,
+            5.5
+          ],
+          "to": [
+            4.8,
+            5.5
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "p3",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            0.5
+          ],
+          "label": "ŷ=3",
+          "tone": "mid"
+        },
+        {
+          "id": "tg3",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              2,
+              1.5
+            ],
+            [
+              3.5,
+              0
+            ]
+          ],
+          "dash": true,
+          "tone": "mid"
+        },
+        {
+          "id": "go2",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            2.6,
+            5.5
+          ],
+          "to": [
+            3.8,
+            5.5
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 292,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The squared-error loss L = ½(ŷ − 4)² is a bowl in the prediction ŷ. Its lowest point (the ring) is at the target, y = 4.",
+          "draw": "bowl",
+          "show": "tgt",
+          "set": {
+            "id": "t",
+            "text": "L = ½(ŷ − 4)²:  a bowl with its bottom at 4"
+          }
+        },
+        {
+          "caption": "Our network predicts ŷ = 6. Loss: ½ × (6 − 4)² = ½ × 4 = 2.",
+          "show": [
+            "pp",
+            "lp"
+          ],
+          "highlight": "pp",
+          "set": {
+            "id": "t",
+            "text": "ŷ = 6:  L = ½ × (6 − 4)² = 2"
+          }
+        },
+        {
+          "caption": "The slope of the bowl at ŷ = 6 is ŷ − y = 6 − 4 = 2. The dashed line is that tangent: up 2 for every 1 to the right.",
+          "show": "tg6",
+          "highlight": "tg6",
+          "set": {
+            "id": "t",
+            "text": "slope = ŷ − y = 6 − 4 = 2"
+          }
+        },
+        {
+          "caption": "The slope is positive: the bowl rises to the right. To lower the loss we move ŷ to the left, towards 4.",
+          "show": "go1",
+          "highlight": "go1",
+          "set": {
+            "id": "t",
+            "text": "positive gradient  →  move ŷ left"
+          }
+        },
+        {
+          "caption": "If the prediction were 3: L = ½ × (3 − 4)² = 0.5 and the slope is 3 − 4 = −1. A negative slope means move right.",
+          "hide": [
+            "pp",
+            "lp",
+            "tg6",
+            "go1"
+          ],
+          "show": [
+            "p3",
+            "tg3",
+            "go2"
+          ],
+          "highlight": [
+            "p3",
+            "tg3"
+          ],
+          "set": {
+            "id": "t",
+            "text": "ŷ = 3:  L = 0.5,  slope = −1  →  move right"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.ffnn.backprop",
+      "title": "Backprop on the 2-2-1 net, one example",
+      "viewBox": [
+        0,
+        0,
+        360,
+        300
+      ],
+      "objects": [
+        {
+          "id": "x1",
+          "kind": "node",
+          "x": 50,
+          "y": 95,
+          "r": 24,
+          "label": "2"
+        },
+        {
+          "id": "x2",
+          "kind": "node",
+          "x": 50,
+          "y": 195,
+          "r": 24,
+          "label": "1"
+        },
+        {
+          "id": "h1",
+          "kind": "node",
+          "x": 180,
+          "y": 95,
+          "r": 24,
+          "label": "4"
+        },
+        {
+          "id": "h2",
+          "kind": "node",
+          "x": 180,
+          "y": 195,
+          "r": 24,
+          "label": "3"
+        },
+        {
+          "id": "y",
+          "kind": "node",
+          "x": 310,
+          "y": 145,
+          "r": 24,
+          "label": "6"
+        },
+        {
+          "id": "x1h1",
+          "kind": "arrow",
+          "from": "x1",
+          "to": "h1"
+        },
+        {
+          "id": "x1h2",
+          "kind": "arrow",
+          "from": "x1",
+          "to": "h2"
+        },
+        {
+          "id": "x2h1",
+          "kind": "arrow",
+          "from": "x2",
+          "to": "h1"
+        },
+        {
+          "id": "x2h2",
+          "kind": "arrow",
+          "from": "x2",
+          "to": "h2"
+        },
+        {
+          "id": "h1y",
+          "kind": "arrow",
+          "from": "h1",
+          "to": "y",
+          "label": "2"
+        },
+        {
+          "id": "h2y",
+          "kind": "arrow",
+          "from": "h2",
+          "to": "y",
+          "label": "−1"
+        },
+        {
+          "id": "wh1",
+          "kind": "text",
+          "x": 180,
+          "y": 52,
+          "text": "w=(1, 3)  b=−1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "wh2",
+          "kind": "text",
+          "x": 180,
+          "y": 238,
+          "text": "w=(2, −2)  b=1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "wy",
+          "kind": "text",
+          "x": 290,
+          "y": 206,
+          "text": "v=(2, −1)  c=1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 272,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "The forward pass is stored: a = (4, 3), ŷ = 6. Target y = 4, so the loss is ½ × 2² = 2. Both z are positive, so both ReLU slopes are 1.",
+          "set": {
+            "id": "t",
+            "text": "ŷ = 6,  y = 4,  L = ½ × 2² = 2"
+          }
+        },
+        {
+          "caption": "Output delta: δ = ŷ − y = 6 − 4 = 2.",
+          "set": [
+            {
+              "id": "y",
+              "label": "δ=2",
+              "tone": "bad"
+            },
+            {
+              "id": "t",
+              "text": "δ_out = 6 − 4 = 2"
+            }
+          ],
+          "highlight": "y"
+        },
+        {
+          "caption": "Output weights: gradient = δ × the activation feeding them. 2×4 = 8 and 2×3 = 6. The bias gradient is δ = 2.",
+          "set": [
+            {
+              "id": "h1y",
+              "label": "g=8"
+            },
+            {
+              "id": "h2y",
+              "label": "g=6"
+            },
+            {
+              "id": "wy",
+              "text": "grad (8, 6)  c: 2"
+            },
+            {
+              "id": "t",
+              "text": "dL/dv = 2×4 = 8,  2×3 = 6"
+            }
+          ],
+          "highlight": [
+            "h1y",
+            "h2y"
+          ]
+        },
+        {
+          "caption": "Send the delta back: δ × weight × ReLU slope. Unit 1: 2×2×1 = 4. Unit 2: 2×(−1)×1 = −2.",
+          "set": [
+            {
+              "id": "h1",
+              "label": "δ=4",
+              "tone": "bad"
+            },
+            {
+              "id": "h2",
+              "label": "δ=−2",
+              "tone": "bad"
+            },
+            {
+              "id": "t",
+              "text": "δ1 = 2×2×1 = 4    δ2 = 2×(−1)×1 = −2"
+            }
+          ],
+          "highlight": [
+            "h1",
+            "h2"
+          ]
+        },
+        {
+          "caption": "First-layer gradient = hidden delta × the input. Unit 1: 4×(2, 1) = (8, 4), bias 4. Unit 2: −2×(2, 1) = (−4, −2), bias −2.",
+          "set": [
+            {
+              "id": "wh1",
+              "text": "grad (8, 4)  b: 4"
+            },
+            {
+              "id": "wh2",
+              "text": "grad (−4, −2)  b: −2"
+            },
+            {
+              "id": "t",
+              "text": "4×(2, 1) = (8, 4)\n−2×(2, 1) = (−4, −2)"
+            }
+          ],
+          "highlight": [
+            "x1h1",
+            "x2h1",
+            "x1h2",
+            "x2h2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ml.ffnn.step",
+      "title": "Gradient descent rolls down the loss bowl",
+      "viewBox": [
+        0,
+        0,
+        360,
+        320
+      ],
+      "objects": [
+        {
+          "id": "ax",
+          "kind": "axis",
+          "x": 54,
+          "y": 262,
+          "unit": 44,
+          "xr": [
+            0,
+            6
+          ],
+          "yr": [
+            0,
+            4.6
+          ],
+          "xlabel": "w",
+          "ylabel": "L"
+        },
+        {
+          "id": "bowl",
+          "kind": "curve",
+          "axis": "ax",
+          "fn": "0.5*(x-2)^2",
+          "domain": [
+            0,
+            5
+          ],
+          "tone": "accent"
+        },
+        {
+          "id": "p0",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            4,
+            2
+          ],
+          "tone": "bad"
+        },
+        {
+          "id": "l0",
+          "kind": "text",
+          "x": 244,
+          "y": 180,
+          "text": "w=4",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "bad"
+        },
+        {
+          "id": "tg0",
+          "kind": "curve",
+          "axis": "ax",
+          "points": [
+            [
+              3.2,
+              0.4
+            ],
+            [
+              4.8,
+              3.6
+            ]
+          ],
+          "dash": true,
+          "tone": "bad"
+        },
+        {
+          "id": "v01",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            4,
+            2
+          ],
+          "to": [
+            3,
+            0.5
+          ],
+          "dash": true,
+          "tone": "mid"
+        },
+        {
+          "id": "p1",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            3,
+            0.5
+          ],
+          "tone": "mid"
+        },
+        {
+          "id": "l1",
+          "kind": "text",
+          "x": 200,
+          "y": 246.0,
+          "text": "w=3",
+          "size": 12,
+          "anchor": "start",
+          "bold": true,
+          "tone": "mid"
+        },
+        {
+          "id": "v12",
+          "kind": "vector",
+          "axis": "ax",
+          "from": [
+            3,
+            0.5
+          ],
+          "to": [
+            2.5,
+            0.125
+          ],
+          "dash": true,
+          "tone": "good"
+        },
+        {
+          "id": "p2",
+          "kind": "point",
+          "axis": "ax",
+          "at": [
+            2.5,
+            0.125
+          ],
+          "tone": "good"
+        },
+        {
+          "id": "l2",
+          "kind": "text",
+          "x": 154.0,
+          "y": 232.5,
+          "text": "w=2.5",
+          "size": 12,
+          "anchor": "middle",
+          "bold": true,
+          "tone": "good"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 298,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "One weight w with loss L(w) = ½(w − 2)². The lowest point is at w = 2. We start at w = 4, where the loss is ½ × 2² = 2.",
+          "draw": "bowl",
+          "show": [
+            "p0",
+            "l0"
+          ],
+          "highlight": "p0",
+          "set": {
+            "id": "t",
+            "text": "start w = 4:  L = 2,   η = 0.5"
+          }
+        },
+        {
+          "caption": "The gradient is dL/dw = w − 2 = 2. It is positive, so uphill is to the right and we must go left.",
+          "show": "tg0",
+          "highlight": "tg0",
+          "set": {
+            "id": "t",
+            "text": "gradient = w − 2 = 4 − 2 = 2"
+          }
+        },
+        {
+          "caption": "Step 1: w = 4 − 0.5 × 2 = 3. The loss falls to ½ × 1² = 0.5.",
+          "show": [
+            "v01",
+            "p1",
+            "l1"
+          ],
+          "highlight": "p1",
+          "set": {
+            "id": "t",
+            "text": "w = 4 − 0.5×2 = 3,   L = 0.5"
+          }
+        },
+        {
+          "caption": "Step 2: the gradient is now 3 − 2 = 1, so w = 3 − 0.5 × 1 = 2.5. The loss falls to ½ × 0.5² = 0.125.",
+          "show": [
+            "v12",
+            "p2",
+            "l2"
+          ],
+          "highlight": "p2",
+          "set": {
+            "id": "t",
+            "text": "w = 3 − 0.5×1 = 2.5,   L = 0.125"
+          }
+        },
+        {
+          "caption": "The gradient shrinks as we near the bottom, so the steps shrink too. The distance to w = 2 halves each time: 2, 1, 0.5.",
+          "highlight": [
+            "p0",
+            "p1",
+            "p2"
+          ],
+          "set": {
+            "id": "t",
+            "text": "distance to the minimum: 2 → 1 → 0.5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ml.ffnn.paths",
+      "title": "Collapsing a ReLU net: multiply along a path, add across paths",
+      "viewBox": [
+        0,
+        0,
+        360,
+        290
+      ],
+      "objects": [
+        {
+          "id": "x1",
+          "kind": "node",
+          "x": 50,
+          "y": 95,
+          "r": 24,
+          "label": "x1"
+        },
+        {
+          "id": "x2",
+          "kind": "node",
+          "x": 50,
+          "y": 195,
+          "r": 24,
+          "label": "x2"
+        },
+        {
+          "id": "h1",
+          "kind": "node",
+          "x": 180,
+          "y": 95,
+          "r": 24,
+          "label": "h1"
+        },
+        {
+          "id": "h2",
+          "kind": "node",
+          "x": 180,
+          "y": 195,
+          "r": 24,
+          "label": "h2"
+        },
+        {
+          "id": "y",
+          "kind": "node",
+          "x": 310,
+          "y": 145,
+          "r": 24,
+          "label": "y"
+        },
+        {
+          "id": "x1h1",
+          "kind": "arrow",
+          "from": "x1",
+          "to": "h1"
+        },
+        {
+          "id": "x1h2",
+          "kind": "arrow",
+          "from": "x1",
+          "to": "h2"
+        },
+        {
+          "id": "x2h1",
+          "kind": "arrow",
+          "from": "x2",
+          "to": "h1"
+        },
+        {
+          "id": "x2h2",
+          "kind": "arrow",
+          "from": "x2",
+          "to": "h2"
+        },
+        {
+          "id": "h1y",
+          "kind": "arrow",
+          "from": "h1",
+          "to": "y",
+          "label": "2"
+        },
+        {
+          "id": "h2y",
+          "kind": "arrow",
+          "from": "h2",
+          "to": "y",
+          "label": "3"
+        },
+        {
+          "id": "w11",
+          "kind": "text",
+          "x": 115,
+          "y": 82,
+          "text": "1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "w12",
+          "kind": "text",
+          "x": 95,
+          "y": 117,
+          "text": "3",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "w21",
+          "kind": "text",
+          "x": 95,
+          "y": 173,
+          "text": "2",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "w22",
+          "kind": "text",
+          "x": 115,
+          "y": 208,
+          "text": "1",
+          "size": 12,
+          "anchor": "middle"
+        },
+        {
+          "id": "t",
+          "kind": "text",
+          "x": 180,
+          "y": 262,
+          "text": "",
+          "size": 13,
+          "anchor": "middle",
+          "bold": true
+        }
+      ],
+      "steps": [
+        {
+          "caption": "Inputs are positive and every weight is positive, so every ReLU input is positive and ReLU passes it unchanged. Then y = 2·h1 + 3·h2 is a linear formula in x1 and x2.",
+          "set": {
+            "id": "t",
+            "text": "h1 = x1 + 2x2      h2 = 3x1 + x2\ny = 2h1 + 3h2"
+          }
+        },
+        {
+          "caption": "Paths from x1: through h1 the weights are 1 then 2, product 2. Through h2 they are 3 then 3, product 9.",
+          "highlight": [
+            {
+              "id": "x1h1",
+              "tone": "accent"
+            },
+            {
+              "id": "h1y",
+              "tone": "accent"
+            },
+            {
+              "id": "x1h2",
+              "tone": "mid"
+            },
+            {
+              "id": "h2y",
+              "tone": "mid"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "x1→h1→y: 1×2 = 2      x1→h2→y: 3×3 = 9"
+          }
+        },
+        {
+          "caption": "Add the paths: p = 2 + 9 = 11. That is the effective weight of x1.",
+          "highlight": "x1",
+          "set": {
+            "id": "t",
+            "text": "p = 2 + 9 = 11"
+          }
+        },
+        {
+          "caption": "Paths from x2: through h1, 2 then 2, product 4. Through h2, 1 then 3, product 3. So q = 4 + 3 = 7.",
+          "highlight": [
+            {
+              "id": "x2h1",
+              "tone": "accent"
+            },
+            {
+              "id": "h1y",
+              "tone": "accent"
+            },
+            {
+              "id": "x2h2",
+              "tone": "mid"
+            },
+            {
+              "id": "h2y",
+              "tone": "mid"
+            }
+          ],
+          "set": {
+            "id": "t",
+            "text": "x2→h1→y: 2×2 = 4      x2→h2→y: 1×3 = 3\nq = 4 + 3 = 7"
+          }
+        },
+        {
+          "caption": "Check by expanding: 2(x1 + 2x2) + 3(3x1 + x2) = (2 + 9)x1 + (4 + 3)x2 = 11x1 + 7x2. The network equals one unit with weights (11, 7).",
+          "highlight": [
+            "x1",
+            "x2",
+            "y"
+          ],
+          "set": {
+            "id": "t",
+            "text": "y = 11·x1 + 7·x2"
+          }
+        }
+      ]
+    }
+  ]
+}

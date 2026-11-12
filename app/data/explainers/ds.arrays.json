@@ -1,0 +1,2817 @@
+{
+ "topic_id": "ds.arrays",
+ "title": "Arrays",
+ "chapter_note": {
+  "about": "An array stores equal-size cells back to back, so the address of any cell is a formula. This chapter is about that formula and what follows from it: 2-D layouts, C pointer arithmetic, the cost of inserting and searching, how loop order changes page faults, Python list aliasing and one-pass algorithms. Most GATE questions here are small C or Python programs. Turn every index into an offset from the start and they become arithmetic.",
+  "simple": "An array is a row of identical lockers in a corridor, numbered from 0. Because the lockers are all the same size, you can work out where locker 7 is without walking past the first six. That one idea explains a table stored row by row, a C pointer stepping along the lockers, and why squeezing a new locker into the middle means moving every locker after it. It also explains why reading along the row is faster than jumping between rows. Python lists add one twist: two names can point at the same row of lockers.",
+  "concept_map": [
+   {
+    "atom_id": "a1",
+    "title": "Index to address (1-D)",
+    "one_line": "Address = base + (i - lower) x size, so indexing is O(1)."
+   },
+   {
+    "atom_id": "a2",
+    "title": "2-D address, row-major and column-major",
+    "one_line": "Row-major multiplies the row number by the column count; column-major swaps the roles."
+   },
+   {
+    "atom_id": "a3",
+    "title": "Pointer arithmetic",
+    "one_line": "p + k moves k elements, not k bytes. a[i] is *(a + i)."
+   },
+   {
+    "atom_id": "a4",
+    "title": "2-D arrays as arrays of rows",
+    "one_line": "b + 1 steps a whole row; after one * the step is one int."
+   },
+   {
+    "atom_id": "a5",
+    "title": "Shifting cost and search",
+    "one_line": "Access is O(1); insert or delete in the middle shifts the tail, O(n). Binary search needs sorted data."
+   },
+   {
+    "atom_id": "a6",
+    "title": "Traversal order and paging",
+    "one_line": "Walk memory in storage order; the wrong loop order multiplies the page faults."
+   },
+   {
+    "atom_id": "a7",
+    "title": "Initialisers, bounds and aliasing",
+    "one_line": "A short C initialiser zero-fills the tail; Python names alias lists; negative indices count from the end."
+   },
+   {
+    "atom_id": "a8",
+    "title": "Single-pass array algorithms",
+    "one_line": "Running values and two pointers that never go back: one pass, O(n)."
+   }
+  ],
+  "gate_patterns": [
+   "C pointer and array output tracing: convert every `a[i]` to `*(a+i)`, count in elements, and watch the row steps in 2-D expressions. Asked in 2019 CS, 2020 CS, 2021 CS2, 2022 CS, 2025 CS2 and the 2024 DA sample.",
+   "Layout and cost: addresses in row-major or column-major arrays, page faults of a nested loop, and the complexity of an array condition (2023 CS Q57, 2026 CS2 Q38).",
+   "Fill in the missing expression of an array scan by testing each option on a 3-element input (2024 CS2 Q42). Weightage: about 0.4 marks per CS paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "a1",
+   "title": "Index to address (1-D)",
+   "simple": "Think of a corridor of school lockers, all the same width and numbered from 0. If locker 0 starts 2 metres from the door and each locker is half a metre wide, locker 5 starts at 2 + 5 x 0.5 metres. You never walk past every locker, you multiply and add. An array in memory works the same way: the cells are the same size and sit side by side, so the computer jumps straight to any cell. In exam words: the address of `A[i]` is base + (i - lower bound) x element size, which is why indexing is O(1).",
+   "idea": "An array is a row of equal-size boxes stored back to back in memory. Because every box has the same size, the computer finds box `i` with one multiplication and one addition. It never walks along the row. That is why reading `A[i]` takes the same time in a 10-cell array and a 10-million-cell array.",
+   "definition": "If the first cell is at address `B`, each element takes `s` bytes and the first valid index is `L`, then:\n\n`address(A[i]) = B + (i - L) x s`\n\n- `B` is the base address, the address of the first cell.\n- `s` is the size of one element in bytes (an `int` is usually 4).\n- `L` is the lower bound, the index of the first cell: 0 in C and Python, but 1 or something else in many textbook arrays.\n- `i - L` counts the whole cells that come before cell `i`.",
+   "intuition_full": "The formula says: start at the base, then step over every cell before yours. Each step is exactly `s` bytes, so `(i - L)` steps cost `(i - L) x s` bytes. The `- L` is there because counting starts at the first valid index. If the array begins at index 10, then index 10 must sit at offset 0, and index 25 is 15 cells in. A second picture is a bookshelf: if every book is 3 cm thick, the 20th book starts 19 books x 3 cm from the edge. The same reasoning works backwards, from an address to an index: subtract the base, divide by `s`, and add `L`. When the division is not exact, the byte is inside a cell and not at its start.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "`int A[8]` is stored from address 2000. Each `int` takes 4 bytes. What is the address of `A[5]`?",
+     "steps": [
+      "An array keeps equal-size cells back to back. `A[0]` is at 2000 and each `int` takes 4 bytes.",
+      "Cell 1 starts at 2004 and cell 2 at 2008. Every step to the right adds 4 bytes.",
+      "To reach `A[5]` we must skip 5 whole cells, `A[0]` to `A[4]`.",
+      "Bytes skipped = 5 x 4 = 20.",
+      "Address of `A[5]` = 2000 + 20 = 2020."
+     ],
+     "answer": "`A[5]` is at address 2020. One multiplication and one addition, whatever the length of the array."
+    },
+    {
+     "level": "gate",
+     "setup": "A Pascal-style array `X[10..40]` stores 8-byte values from address 500. What is the address of `X[25]`, and how many bytes does the whole array take?",
+     "steps": [
+      "The first valid index is 10, not 0. So `X[10]` is the cell at address 500.",
+      "Cells before `X[25]`: 25 - 10 = 15, not 25.",
+      "Address of `X[25]` = 500 + 15 x 8 = 500 + 120 = 620.",
+      "Number of cells = 40 - 10 + 1 = 31. The array takes 31 x 8 = 248 bytes, ending just before 748."
+     ],
+     "answer": "`X[25]` is at address 620 and the array uses 248 bytes. The trap avoided: using 25 instead of 25 - 10 would give 700."
+    },
+    {
+     "level": "twist",
+     "setup": "`int A[]` starts at address 3000 and an `int` is 4 bytes. Which cell contains the byte at address 3030, and where does that cell start?",
+     "steps": [
+      "Distance from the base: 3030 - 3000 = 30 bytes.",
+      "30 / 4 = 7.5, so 3030 is not the start of a cell. A cell start must be a multiple of 4 bytes from the base.",
+      "Round down: the byte lies inside cell 7, which starts at 3000 + 7 x 4 = 3028 and covers 3028 to 3031.",
+      "Check: `A[8]` would start at 3032, so 3030 is two bytes into `A[7]`."
+     ],
+     "answer": "Byte 3030 is inside `A[7]`, which starts at 3028. A byte address is not always a cell address; divide and round down."
+    }
+   ],
+   "why": "Address arithmetic is the foundation for every array question: 2-D layout, pointers, paging. It also explains why arrays give O(1) access but cost O(n) to insert in the middle. In GATE: given a base, an element size and an index, find an address or an index (2005 CS Q5 style, and as step one of 2-D questions).",
+   "how": [
+    "Write down the base `B`, element size `s` in bytes and lower bound `L`.",
+    "Convert the size to bytes if it was given in words or bits.",
+    "Cells before the target = `i - L`.",
+    "Address = `B + (i - L) x s`. For the reverse question, offset / `s` + `L`."
+   ],
+   "mistake": "Using `i` instead of `i - L` when the array does not start at 0, or adding `i` without multiplying by the element size. For `X[10..40]` with 8-byte cells at 500, `X[25]` is at 620, not 700 and not 525. Subtract the lower bound, then multiply by the size.",
+   "edge_cases": [
+    "`i = L` gives `B`: the first cell sits at the base address.",
+    "Size in words or bits: convert to bytes before you multiply.",
+    "A byte address that is not a multiple of `s` from the base lies inside a cell.",
+    "Number of cells in `A[L..U]` is `U - L + 1`, not `U - L`."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing variables, loops, arrays and functions in C and Python by hand.",
+    "This formula is the first step of 2-D addressing (next card) and pointer arithmetic (the card after)."
+   ],
+   "check": [
+    {
+     "q": "`int A[20]` starts at 6000 with 4-byte ints. What is the address of `A[7]`?",
+     "a": "6000 + 7 x 4 = 6028."
+    },
+    {
+     "q": "`Y[5..9]` stores 2-byte values from address 100. What is the address of `Y[8]`?",
+     "a": "100 + (8 - 5) x 2 = 106."
+    },
+    {
+     "q": "How many bytes does `Z[3..12]` of 4-byte values occupy?",
+     "a": "12 - 3 + 1 = 10 cells, so 40 bytes."
+    }
+   ],
+   "asked": "Asked: 2005 CS Q5, 2015 CS1 Q35 (as a step), and the first step of every 2-D address question",
+   "try": {
+    "id": "gen.ds.arrays.001",
+    "label": "Try the first address question (L1)"
+   },
+   "scene": "ds.arrays.a1.address",
+   "example": {
+    "setup": "`int A[8]` is stored from address 2000. Each `int` takes 4 bytes. What is the address of `A[5]`?",
+    "steps": [
+     "An array keeps equal-size cells back to back. `A[0]` is at 2000 and each `int` takes 4 bytes.",
+     "Cell 1 starts at 2004 and cell 2 at 2008. Every step to the right adds 4 bytes.",
+     "To reach `A[5]` we must skip 5 whole cells, `A[0]` to `A[4]`.",
+     "Bytes skipped = 5 x 4 = 20.",
+     "Address of `A[5]` = 2000 + 20 = 2020."
+    ],
+    "answer": "`A[5]` is at address 2020. One multiplication and one addition, whatever the length of the array."
+   },
+   "what": "An array is a row of equal-size boxes stored back to back in memory. Because every box has the same size, the computer finds box `i` with one multiplication and one addition. It never walks along the row. That is why reading `A[i]` takes the same time in a 10-cell array and a 10-million-cell array.",
+   "what_full": "An array is a row of equal-size boxes stored back to back in memory. Because every box has the same size, the computer finds box `i` with one multiplication and one addition. It never walks along the row. That is why reading `A[i]` takes the same time in a 10-cell array and a 10-million-cell array.\n\nIf the first cell is at address `B`, each element takes `s` bytes and the first valid index is `L`, then:\n\n`address(A[i]) = B + (i - L) x s`\n\n- `B` is the base address, the address of the first cell.\n- `s` is the size of one element in bytes (an `int` is usually 4).\n- `L` is the lower bound, the index of the first cell: 0 in C and Python, but 1 or something else in many textbook arrays.\n- `i - L` counts the whole cells that come before cell `i`.\n\n**Worked example.** `int A[8]` is stored from address 2000. Each `int` takes 4 bytes. What is the address of `A[5]`?\n\n1. An array keeps equal-size cells back to back. `A[0]` is at 2000 and each `int` takes 4 bytes.\n2. Cell 1 starts at 2004 and cell 2 at 2008. Every step to the right adds 4 bytes.\n3. To reach `A[5]` we must skip 5 whole cells, `A[0]` to `A[4]`.\n4. Bytes skipped = 5 x 4 = 20.\n5. Address of `A[5]` = 2000 + 20 = 2020.\n\n**Answer:** `A[5]` is at address 2020. One multiplication and one addition, whatever the length of the array.",
+   "why_full": "Address arithmetic is the foundation for every array question: 2-D layout, pointers, paging. It also explains why arrays give O(1) access but cost O(n) to insert in the middle. In GATE: given a base, an element size and an index, find an address or an index (2005 CS Q5 style, and as step one of 2-D questions).\n\nAsked: 2005 CS Q5, 2015 CS1 Q35 (as a step), and the first step of every 2-D address question",
+   "trap": "Using `i` instead of `i - L` when the array does not start at 0, or adding `i` without multiplying by the element size. For `X[10..40]` with 8-byte cells at 500, `X[25]` is at 620, not 700 and not 525. Subtract the lower bound, then multiply by the size."
+  },
+  {
+   "atom_id": "a2",
+   "title": "2-D address, row-major and column-major",
+   "simple": "A 2-D table in memory still has to be stored as one long line. Picture reading a book: you read row 1 left to right, then row 2, then row 3. That is row-major order. Column-major is like reading the page top to bottom, column by column. Either way, the address of a cell is 'how many cells come before it' times the cell size, plus the start. In exam words: row-major address = base + (i x columns + j) x size; column-major = base + (j x rows + i) x size, adjusted for lower bounds.",
+   "idea": "Memory is a single line, so a 2-D array has to be flattened. **Row-major** order stores one full row after another. **Column-major** order stores one full column after another. To find a cell, count how many cells come before it in that order, multiply by the cell size, and add the base.",
+   "definition": "For `A[R][C]` with 0-based indices, element size `s` and base `B`:\n\n- Row-major: `address(A[i][j]) = B + (i x C + j) x s`\n- Column-major: `address(A[i][j]) = B + (j x R + i) x s`\n\n`R` is the number of rows and `C` is the number of columns. With lower bounds, replace `i` by `i - L1` and `j` by `j - L2`. C uses row-major order. Fortran and MATLAB use column-major.",
+   "intuition_full": "Look at the row-major formula as two jumps. The term `i x C` jumps over `i` complete rows, each `C` cells long. The term `+ j` then moves `j` cells along inside row `i`. Column-major does the same with the roles swapped: `j x R` jumps over `j` complete columns of `R` cells each, and `+ i` walks down inside column `j`. The number that multiplies the outer index is always the length of the inner dimension in that layout: `C` for row-major, `R` for column-major. A good check is the last cell: in row-major, `A[R-1][C-1]` should land on offset `R x C - 1`. And remember that going one step in the fast direction costs one cell, while one step in the slow direction costs a whole row or column.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "`int G[3][4]` is stored in row-major order from address 1000, with 4-byte ints. What is the address of `G[2][1]`?",
+     "steps": [
+      "`G` has 3 rows and 4 columns. Row-major order stores row 0, then row 1, then row 2, each row left to right.",
+      "Row 0 takes memory offsets 0 to 3: `G[0][0]` to `G[0][3]`.",
+      "Row 1 takes offsets 4 to 7.",
+      "Row 2 takes offsets 8 to 11.",
+      "`G[2][1]` has 2 full rows (2 x 4 = 8 cells) before it, plus 1 cell inside its own row. Offset = 2 x 4 + 1 = 9.",
+      "Address = 1000 + 9 x 4 = 1036."
+     ],
+     "answer": "`G[2][1]` is at address 1036. In a column-major layout the same cell would be at 1000 + (1 x 3 + 2) x 4 = 1020."
+    },
+    {
+     "level": "gate",
+     "setup": "`A[1..6][1..4]` holds 2-byte values in **column-major** order, with `A[1][1]` at address 400. What is the address of `A[4][3]`?",
+     "steps": [
+      "Rows run 1 to 6 (R = 6), columns 1 to 4. Column-major stores column 1 first, then column 2, and so on.",
+      "Full columns before column 3: 3 - 1 = 2 columns, each with 6 cells. That is 12 cells.",
+      "Inside column 3, cells before row 4: 4 - 1 = 3.",
+      "Offset = 12 + 3 = 15 cells. Address = 400 + 15 x 2 = 430."
+     ],
+     "answer": "`A[4][3]` is at address 430. The row-major answer would use 4 cells per row and give 400 + (3 x 4 + 2) x 2 = 428. Pick the layout first."
+    },
+    {
+     "level": "twist",
+     "setup": "In the row-major `int G[3][4]` at 1000, a buggy loop reads `G[0][4]`, which is past the end of row 0. Which cell is it really?",
+     "steps": [
+      "Row-major offset of `G[0][4]` = 0 x 4 + 4 = 4.",
+      "Address = 1000 + 4 x 4 = 1016.",
+      "`G[1][0]` has offset 1 x 4 + 0 = 4 as well, and sits at 1016.",
+      "C does not check bounds, so `G[0][4]` is the same memory as `G[1][0]`."
+     ],
+     "answer": "`G[0][4]` reads exactly the cell `G[1][0]` (address 1016). The formula only sees the offset; it never checks the column against the row length."
+    }
+   ],
+   "why": "Every 2-D address, page-fault and pointer-to-row question rests on this offset. In GATE: compute the address of an element in a row-major or column-major array, often with non-zero lower bounds (2015 CS1 Q35 style, 2021 CS2 Q20).",
+   "how": [
+    "Write `R`, `C`, size `s`, base `B` and the lower bounds.",
+    "Decide the layout: row-major (rows outermost) or column-major (columns outermost).",
+    "Offset in cells = (complete lines before it) x (line length) + position inside the line.",
+    "Address = `B` + offset x `s`. Sanity check: the last cell should have offset `R x C - 1`."
+   ],
+   "mistake": "Using the wrong dimension as the multiplier. In row-major, the multiplier is the number of **columns**; in column-major it is the number of **rows**. For `A[1..6][1..4]`, a column-major cell needs 6 per column, not 4. Swapping them moves the answer from 430 to 428.",
+   "edge_cases": [
+    "Square arrays (`R = C`): the two layouts differ only by swapping `i` and `j`.",
+    "Lower bounds not 0: subtract them first, row bound for `i` and column bound for `j`.",
+    "Index past the end of a row spills into the next row in row-major (C does not check).",
+    "1 x C or R x 1 arrays: both layouts give the same offsets."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing variables, loops, arrays and functions in C and Python by hand.",
+    "Arrays chapter: the next card, pointer arithmetic, uses the same offsets in elements. Paging (card a6) shows why layout order changes speed."
+   ],
+   "check": [
+    {
+     "q": "`int M[5][6]`, row-major, base 3000, 4-byte ints. Address of `M[2][3]`?",
+     "a": "Offset 2 x 6 + 3 = 15, so 3000 + 15 x 4 = 3060."
+    },
+    {
+     "q": "Same array stored column-major. Address of `M[2][3]`?",
+     "a": "Offset 3 x 5 + 2 = 17, so 3000 + 17 x 4 = 3068."
+    },
+    {
+     "q": "In a row-major `A[4][5]`, what is the offset of `A[3][4]`?",
+     "a": "3 x 5 + 4 = 19, the last cell (4 x 5 - 1)."
+    }
+   ],
+   "asked": "Asked: 2015 CS1 Q35, 2021 CS2 Q20",
+   "try": {
+    "id": "gen.ds.arrays.006",
+    "label": "Try the first 2-D address question (L2)"
+   },
+   "scene": "ds.arrays.a2.layout",
+   "example": {
+    "setup": "`int G[3][4]` is stored in row-major order from address 1000, with 4-byte ints. What is the address of `G[2][1]`?",
+    "steps": [
+     "`G` has 3 rows and 4 columns. Row-major order stores row 0, then row 1, then row 2, each row left to right.",
+     "Row 0 takes memory offsets 0 to 3: `G[0][0]` to `G[0][3]`.",
+     "Row 1 takes offsets 4 to 7.",
+     "Row 2 takes offsets 8 to 11.",
+     "`G[2][1]` has 2 full rows (2 x 4 = 8 cells) before it, plus 1 cell inside its own row. Offset = 2 x 4 + 1 = 9.",
+     "Address = 1000 + 9 x 4 = 1036."
+    ],
+    "answer": "`G[2][1]` is at address 1036. In a column-major layout the same cell would be at 1000 + (1 x 3 + 2) x 4 = 1020."
+   },
+   "what": "Memory is a single line, so a 2-D array has to be flattened. **Row-major** order stores one full row after another. **Column-major** order stores one full column after another. To find a cell, count how many cells come before it in that order, multiply by the cell size, and add the base.",
+   "what_full": "Memory is a single line, so a 2-D array has to be flattened. **Row-major** order stores one full row after another. **Column-major** order stores one full column after another. To find a cell, count how many cells come before it in that order, multiply by the cell size, and add the base.\n\nFor `A[R][C]` with 0-based indices, element size `s` and base `B`:\n\n- Row-major: `address(A[i][j]) = B + (i x C + j) x s`\n- Column-major: `address(A[i][j]) = B + (j x R + i) x s`\n\n`R` is the number of rows and `C` is the number of columns. With lower bounds, replace `i` by `i - L1` and `j` by `j - L2`. C uses row-major order. Fortran and MATLAB use column-major.\n\n**Worked example.** `int G[3][4]` is stored in row-major order from address 1000, with 4-byte ints. What is the address of `G[2][1]`?\n\n1. `G` has 3 rows and 4 columns. Row-major order stores row 0, then row 1, then row 2, each row left to right.\n2. Row 0 takes memory offsets 0 to 3: `G[0][0]` to `G[0][3]`.\n3. Row 1 takes offsets 4 to 7.\n4. Row 2 takes offsets 8 to 11.\n5. `G[2][1]` has 2 full rows (2 x 4 = 8 cells) before it, plus 1 cell inside its own row. Offset = 2 x 4 + 1 = 9.\n6. Address = 1000 + 9 x 4 = 1036.\n\n**Answer:** `G[2][1]` is at address 1036. In a column-major layout the same cell would be at 1000 + (1 x 3 + 2) x 4 = 1020.",
+   "why_full": "Every 2-D address, page-fault and pointer-to-row question rests on this offset. In GATE: compute the address of an element in a row-major or column-major array, often with non-zero lower bounds (2015 CS1 Q35 style, 2021 CS2 Q20).\n\nAsked: 2015 CS1 Q35, 2021 CS2 Q20",
+   "trap": "Using the wrong dimension as the multiplier. In row-major, the multiplier is the number of **columns**; in column-major it is the number of **rows**. For `A[1..6][1..4]`, a column-major cell needs 6 per column, not 4. Swapping them moves the answer from 430 to 428."
+  },
+  {
+   "atom_id": "a3",
+   "title": "Pointer arithmetic",
+   "simple": "Imagine houses on a street, each 4 plots wide. If you stand at house 2 and say 'go 1 house forward', you walk 4 plots, not 1. A C pointer works like that. Adding 1 to an `int` pointer moves to the next int, which is 4 bytes along. You say how many things to move, and the compiler works out the bytes. In exam words: `p + k` moves `k` elements (k x `sizeof` bytes), `a[i]` is `*(a + i)`, and `p - q` counts elements.",
+   "idea": "In C, a pointer knows the type it points at. So `p + 1` does not move 1 byte. It moves to the next element, however many bytes that is. This is also why `a[i]` and `*(a + i)` mean exactly the same thing.",
+   "definition": "For a pointer `p` of type `T *` and an integer `k`:\n\n- `p + k` is the address `p + k x sizeof(T)` bytes.\n- `*(p + k)` is the same cell as `p[k]`.\n- `a[i]` is defined as `*(a + i)`, where array name `a` becomes a pointer to `a[0]`.\n- For two pointers into the same array, `p - q` is the number of **elements** between them.",
+   "intuition_full": "The compiler needs to know how big each step is, and the pointer's type tells it. That is why `p + 1` is safe to write without ever mentioning 4. It also explains the odd-looking facts: `a[i]` equals `*(a + i)`, and since addition is commutative, `i[a]` works too. A pointer can start in the middle of an array, and then `p[0]`, `p[1]` and `p[-1]` count outward from where `p` points. If you cast to `char *`, the type changes to 'one byte' and so does the step. Picture a ruler marked in elements, not bytes: the pointer sits on a mark, and `+ k` slides along `k` marks.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "What does this print?\n```c\nint a[] = {7, 3, 9, 4, 1};\nint *p = a + 2;\nprintf(\"%d\", *(p + 1));\n```",
+     "steps": [
+      "`a` stands for the address of `a[0]`. The cells hold 7, 3, 9, 4, 1.",
+      "`p = a + 2` moves 2 elements to the right of `a[0]`. So `p` points at `a[2]`, which holds 9.",
+      "`p + 1` moves one more element. For `int` that is 4 bytes, so it points at `a[3]`.",
+      "`*(p + 1)` reads the cell it points at, which is 4."
+     ],
+     "answer": "It prints `4`. Pointer arithmetic counts elements; the compiler multiplies by 4 for you."
+    },
+    {
+     "level": "gate",
+     "setup": "What does this print? Note that `p - a` is a count of elements.\n```c\nint a[] = {5, 1, 8, 2, 6, 9};\nint *p = a + 3;\nprintf(\"%d %ld\", p[-2] + p[2], (long)(p - a));\n```",
+     "steps": [
+      "`p = a + 3` points at `a[3]`, which holds 2.",
+      "`p[-2]` means `*(p - 2)`. That is `a[1]` = 1.",
+      "`p[2]` means `*(p + 2)`. That is `a[5]` = 9.",
+      "The sum is 1 + 9 = 10.",
+      "`p - a` is the number of elements between the pointers: 3 (not 12 bytes)."
+     ],
+     "answer": "It prints `10 3`. `p[k]` re-bases the index at `p`, so negative indices are fine, and pointer difference is in elements."
+    },
+    {
+     "level": "twist",
+     "setup": "What does this print? Assume `int` is 4 bytes.\n```c\nint a[] = {10, 20, 30};\nchar *c = (char *)a;\nprintf(\"%d %ld\", *(int *)(c + 4), (long)((char *)(a + 2) - c));\n```",
+     "steps": [
+      "`c` is a `char *`, so `c + 4` moves 4 **bytes**, not 4 elements.",
+      "`c + 4` is the address of `a[1]`. Cast it back to `int *` and read: 20.",
+      "`a + 2` moves 2 ints = 8 bytes. After casting to `char *`, subtracting `c` counts bytes: 8."
+     ],
+     "answer": "It prints `20 8`. The step size follows the pointer's type: +1 on `char *` is 1 byte, +1 on `int *` is 4 bytes."
+    }
+   ],
+   "why": "Pointer output tracing is the most frequent array question in GATE. In GATE: print the result of expressions mixing `a`, `p`, `*(p+k)`, `p[k]` and `p - a` (2019 CS Q34, 2025 CS2 Q62, 2022 CS Q43).",
+   "how": [
+    "Write the array cells with their indices.",
+    "Turn every pointer into an index: `p = a + 3` means `p` sits on index 3.",
+    "Rewrite each `*(p + k)` or `p[k]` as `a[3 + k]`.",
+    "Read the cell. For `char *` casts, count in bytes instead."
+   ],
+   "mistake": "Treating `p + k` as `k` bytes. For `int *p`, `p + 1` is 4 bytes along, not 1. The opposite slip is counting from `a[0]` when `p` is in the middle: after `p = a + 3`, `p[1]` is `a[4]`, not `a[1]`.",
+   "edge_cases": [
+    "`p - a` is in elements; cast both to `char *` to get bytes.",
+    "`p[-1]` is legal when `p` is not at the start of the array.",
+    "`i[a]` is the same as `a[i]`, since both are `*(a + i)`.",
+    "Going outside the array (`p + 10` past a 5-cell array) is undefined behaviour."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing variables, loops, arrays and functions in C and Python by hand.",
+    "Linked lists (chapter ds.linkedlist) use pointers too, but they follow `next`, not arithmetic."
+   ],
+   "check": [
+    {
+     "q": "`int a[] = {2, 4, 6, 8}; int *p = a + 1;` What is `*p + p[1]`?",
+     "a": "`*p` = 4 and `p[1]` = `a[2]` = 6, so 10."
+    },
+    {
+     "q": "`int a[10]; int *p = &a[7];` What is `p - a`?",
+     "a": "7 (elements, not bytes)."
+    },
+    {
+     "q": "If `char *c` is at address 500, what is `c + 3`? What if `int *q` is at 500?",
+     "a": "`c + 3` = 503. `q + 3` = 512 (3 x 4 bytes)."
+    }
+   ],
+   "asked": "Asked: 2019 CS Q34, 2022 CS Q43, 2025 CS2 Q62, 2011 CS Q22, 2015 CS3 Q7",
+   "try": {
+    "id": "gen.ds.arrays.008",
+    "label": "Try the first pointer arithmetic question (L2)"
+   },
+   "scene": "ds.arrays.a3.pointer",
+   "example": {
+    "setup": "What does this print?\n```c\nint a[] = {7, 3, 9, 4, 1};\nint *p = a + 2;\nprintf(\"%d\", *(p + 1));\n```",
+    "steps": [
+     "`a` stands for the address of `a[0]`. The cells hold 7, 3, 9, 4, 1.",
+     "`p = a + 2` moves 2 elements to the right of `a[0]`. So `p` points at `a[2]`, which holds 9.",
+     "`p + 1` moves one more element. For `int` that is 4 bytes, so it points at `a[3]`.",
+     "`*(p + 1)` reads the cell it points at, which is 4."
+    ],
+    "answer": "It prints `4`. Pointer arithmetic counts elements; the compiler multiplies by 4 for you."
+   },
+   "what": "In C, a pointer knows the type it points at. So `p + 1` does not move 1 byte. It moves to the next element, however many bytes that is. This is also why `a[i]` and `*(a + i)` mean exactly the same thing.",
+   "what_full": "In C, a pointer knows the type it points at. So `p + 1` does not move 1 byte. It moves to the next element, however many bytes that is. This is also why `a[i]` and `*(a + i)` mean exactly the same thing.\n\nFor a pointer `p` of type `T *` and an integer `k`:\n\n- `p + k` is the address `p + k x sizeof(T)` bytes.\n- `*(p + k)` is the same cell as `p[k]`.\n- `a[i]` is defined as `*(a + i)`, where array name `a` becomes a pointer to `a[0]`.\n- For two pointers into the same array, `p - q` is the number of **elements** between them.\n\n**Worked example.** What does this print?\n```c\nint a[] = {7, 3, 9, 4, 1};\nint *p = a + 2;\nprintf(\"%d\", *(p + 1));\n```\n\n1. `a` stands for the address of `a[0]`. The cells hold 7, 3, 9, 4, 1.\n2. `p = a + 2` moves 2 elements to the right of `a[0]`. So `p` points at `a[2]`, which holds 9.\n3. `p + 1` moves one more element. For `int` that is 4 bytes, so it points at `a[3]`.\n4. `*(p + 1)` reads the cell it points at, which is 4.\n\n**Answer:** It prints `4`. Pointer arithmetic counts elements; the compiler multiplies by 4 for you.",
+   "why_full": "Pointer output tracing is the most frequent array question in GATE. In GATE: print the result of expressions mixing `a`, `p`, `*(p+k)`, `p[k]` and `p - a` (2019 CS Q34, 2025 CS2 Q62, 2022 CS Q43).\n\nAsked: 2019 CS Q34, 2022 CS Q43, 2025 CS2 Q62, 2011 CS Q22, 2015 CS3 Q7",
+   "trap": "Treating `p + k` as `k` bytes. For `int *p`, `p + 1` is 4 bytes along, not 1. The opposite slip is counting from `a[0]` when `p` is in the middle: after `p = a + 3`, `p[1]` is `a[4]`, not `a[1]`."
+  },
+  {
+   "atom_id": "a4",
+   "title": "2-D arrays as arrays of rows",
+   "simple": "Think of a filing cabinet with 3 drawers, and each drawer holds 3 folders. If you say 'drawer 2', you point at a whole drawer. If you then say 'folder 1 of that drawer', you point at one folder. A 2-D array in C is like that. `b[2]` is a whole row, and `b[2][1]` is one cell in it. So moving `b` by 1 hops a whole drawer, and moving a row pointer by 1 hops one folder. In exam words: `b` points at rows; `b + k` steps k rows; `*(b + k)` is the row, which decays to a pointer to its first element.",
+   "idea": "A 2-D array `int b[R][C]` is an array of `R` rows, and each row is an array of `C` ints. The name `b` points at a whole row, so `b + 1` jumps one entire row. Dereferencing with `*` turns a row into a pointer to its first int, and then `+ 1` jumps one int.",
+   "definition": "For `int b[R][C]`:\n\n- `b + i` points at row `i`; the step is `C x sizeof(int)` bytes.\n- `*(b + i)` is the same as `b[i]`: row `i`, which decays to `int *` pointing at `b[i][0]`.\n- `*(b + i) + j` points at `b[i][j]`; the step is one `int`.\n- `*(*(b + i) + j)` is `b[i][j]`.\n- `sizeof(b[i])` is `C x sizeof(int)`.",
+   "intuition_full": "Each `*` strips off one array dimension, and each dimension has its own step size. Before the first `*`, the pointer is a 'pointer to a row', so +1 skips `C` ints. After the first `*`, it is a 'pointer to int', so +1 skips one int. That is why `b + 1` and `*b + 1` are different addresses even though they start at the same place. The memory is still one contiguous block (row-major), so an `int *` moved far enough runs from the end of one row into the start of the next. When the expression is nested, read it from the inside out. Evaluate any plain values first, then decide at each step whether you are moving by rows or by ints.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "What does this print, and by how many bytes does `b + 1` differ from `b`? Assume 4-byte ints.\n```c\nint b[3][3] = {{1,2,3},{4,5,6},{7,8,9}};\nprintf(\"%d\", *(*(b + 2) + 1));\n```",
+     "steps": [
+      "`b` is an array of 3 rows, each row an array of 3 ints. In an expression, `b` points at row 0.",
+      "`b + 2` steps over 2 whole rows (2 x 3 x 4 = 24 bytes) and points at row 2, which is `{7, 8, 9}`. So `b + 1` differs from `b` by 12 bytes.",
+      "`*(b + 2)` is row 2 itself, which turns into a pointer to its first int (the 7).",
+      "`+ 1` now steps one int (4 bytes), to the cell holding 8.",
+      "The outer `*` reads that cell."
+     ],
+     "answer": "It prints `8`. `b + 1` is a **row** step (12 bytes); only after one `*` do the steps become single ints."
+    },
+    {
+     "level": "gate",
+     "setup": "What does this print?\n```c\nint r[4][3] = {{0,1,2},{3,4,5},{6,7,8},{9,10,11}};\nprintf(\"%d\", *(*(r + r[0][1] + 1) + r[1][0] - 2));\n```",
+     "steps": [
+      "Evaluate the inner values first. `r[0][1]` = 1 and `r[1][0]` = 3.",
+      "`r + r[0][1] + 1` = `r + 2`, a pointer to row 2 (`{6, 7, 8}`).",
+      "`*(r + 2)` is row 2 as an int pointer. Add `r[1][0] - 2` = 3 - 2 = 1: the second cell of row 2.",
+      "The outer `*` reads it: `r[2][1]` = 7."
+     ],
+     "answer": "It prints `7`. Reading inside-out and turning each pointer step into a row step or a cell step avoids every trap."
+    },
+    {
+     "level": "twist",
+     "setup": "What does `*(r[1] + 5)` print for the same `r[4][3]`? The column index 5 is larger than the row length.",
+     "steps": [
+      "`r[1]` is row 1, which decays to a pointer to `r[1][0]` (the 3).",
+      "`r[1] + 5` is an **int** pointer. It moves 5 ints from `r[1][0]`.",
+      "The array is one contiguous block, so flat position = 1 x 3 + 5 = 8.",
+      "Flat position 8 is row 2 (flat 6 to 8), column 2. That cell holds 8."
+     ],
+     "answer": "It prints `8`. Moving 5 cells from the start of row 1 runs past the end of the row into row 2: the memory is one block."
+    }
+   ],
+   "why": "Nested-pointer 2-D expressions are a repeat GATE trap. In GATE: output of `*(*(a + i) + j)`, `*(a[i] + k)` and `sizeof(a[i])` style expressions (2020 CS Q32, 2021 CS2 Q20, 2022 CS Q43).",
+   "how": [
+    "Write the array as rows and mark each row.",
+    "Evaluate inner plain values first (`a[0][1]`, `**a`).",
+    "At each `+`, ask: is this pointer 'to a row' (step = a whole row) or 'to int' (step = one int)?",
+    "Each `*` or `[ ]` removes one level. After the last one you have a value."
+   ],
+   "mistake": "Treating `b + 1` as 'one int along'. On `int b[3][3]`, `b + 1` is a row step of 12 bytes, and `*b + 1` is the int step of 4 bytes. Count each `*` to know what the pointer points at.",
+   "edge_cases": [
+    "`a[i] + k` with k beyond the row length runs into the next row (one flat block).",
+    "`sizeof(a)`, `sizeof(a[0])`, `sizeof(**a)` are whole array, one row and one int.",
+    "`&a[1] + 1` steps a row; `a[1] + 1` steps an int.",
+    "An `int **` is not the same thing as a 2-D array; the layout differs."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing variables, loops, arrays and functions in C and Python by hand.",
+    "The previous card gave the address of `a[i][j]` as a number. This card gives the same offsets as pointer steps.",
+    "Pointer arithmetic card (a3) is the base skill here."
+   ],
+   "check": [
+    {
+     "q": "`int m[2][5]`. What is `sizeof(m[0])` if an int is 4 bytes?",
+     "a": "20 bytes: one row of 5 ints."
+    },
+    {
+     "q": "`int m[3][3]` = {{1,2,3},{4,5,6},{7,8,9}}. What is `*(m[1] + 2)`?",
+     "a": "`m[1][2]` = 6."
+    },
+    {
+     "q": "Same array. What is `**(m + 1)`?",
+     "a": "`*(m + 1)` is row 1; `*` of it is the first cell: 4."
+    }
+   ],
+   "asked": "Asked: 2020 CS Q32, 2021 CS2 Q20, 2022 CS Q43, 2015 CS1 Q35",
+   "try": {
+    "id": "gen.ds.arrays.009",
+    "label": "Try the first array-of-rows question (L2)"
+   },
+   "scene": "ds.arrays.a4.rows",
+   "example": {
+    "setup": "What does this print, and by how many bytes does `b + 1` differ from `b`? Assume 4-byte ints.\n```c\nint b[3][3] = {{1,2,3},{4,5,6},{7,8,9}};\nprintf(\"%d\", *(*(b + 2) + 1));\n```",
+    "steps": [
+     "`b` is an array of 3 rows, each row an array of 3 ints. In an expression, `b` points at row 0.",
+     "`b + 2` steps over 2 whole rows (2 x 3 x 4 = 24 bytes) and points at row 2, which is `{7, 8, 9}`. So `b + 1` differs from `b` by 12 bytes.",
+     "`*(b + 2)` is row 2 itself, which turns into a pointer to its first int (the 7).",
+     "`+ 1` now steps one int (4 bytes), to the cell holding 8.",
+     "The outer `*` reads that cell."
+    ],
+    "answer": "It prints `8`. `b + 1` is a **row** step (12 bytes); only after one `*` do the steps become single ints."
+   },
+   "what": "A 2-D array `int b[R][C]` is an array of `R` rows, and each row is an array of `C` ints. The name `b` points at a whole row, so `b + 1` jumps one entire row. Dereferencing with `*` turns a row into a pointer to its first int, and then `+ 1` jumps one int.",
+   "what_full": "A 2-D array `int b[R][C]` is an array of `R` rows, and each row is an array of `C` ints. The name `b` points at a whole row, so `b + 1` jumps one entire row. Dereferencing with `*` turns a row into a pointer to its first int, and then `+ 1` jumps one int.\n\nFor `int b[R][C]`:\n\n- `b + i` points at row `i`; the step is `C x sizeof(int)` bytes.\n- `*(b + i)` is the same as `b[i]`: row `i`, which decays to `int *` pointing at `b[i][0]`.\n- `*(b + i) + j` points at `b[i][j]`; the step is one `int`.\n- `*(*(b + i) + j)` is `b[i][j]`.\n- `sizeof(b[i])` is `C x sizeof(int)`.\n\n**Worked example.** What does this print, and by how many bytes does `b + 1` differ from `b`? Assume 4-byte ints.\n```c\nint b[3][3] = {{1,2,3},{4,5,6},{7,8,9}};\nprintf(\"%d\", *(*(b + 2) + 1));\n```\n\n1. `b` is an array of 3 rows, each row an array of 3 ints. In an expression, `b` points at row 0.\n2. `b + 2` steps over 2 whole rows (2 x 3 x 4 = 24 bytes) and points at row 2, which is `{7, 8, 9}`. So `b + 1` differs from `b` by 12 bytes.\n3. `*(b + 2)` is row 2 itself, which turns into a pointer to its first int (the 7).\n4. `+ 1` now steps one int (4 bytes), to the cell holding 8.\n5. The outer `*` reads that cell.\n\n**Answer:** It prints `8`. `b + 1` is a **row** step (12 bytes); only after one `*` do the steps become single ints.",
+   "why_full": "Nested-pointer 2-D expressions are a repeat GATE trap. In GATE: output of `*(*(a + i) + j)`, `*(a[i] + k)` and `sizeof(a[i])` style expressions (2020 CS Q32, 2021 CS2 Q20, 2022 CS Q43).\n\nAsked: 2020 CS Q32, 2021 CS2 Q20, 2022 CS Q43, 2015 CS1 Q35",
+   "trap": "Treating `b + 1` as 'one int along'. On `int b[3][3]`, `b + 1` is a row step of 12 bytes, and `*b + 1` is the int step of 4 bytes. Count each `*` to know what the pointer points at."
+  },
+  {
+   "atom_id": "a5",
+   "title": "Shifting cost and search",
+   "simple": "Picture kids standing shoulder to shoulder in a line with no gaps, and a new kid wants to squeeze into spot 3. Everybody behind spot 3 has to shuffle one step back, starting from the last kid. Reaching spot 3 is quick if you know its number. Making room costs one step for every kid behind it. An array is that line: jumping to a place is instant, but adding or removing in the middle shifts everything after it. In exam words: access by index is O(1), insert or delete in the middle is O(n), and binary search needs sorted data.",
+   "idea": "An array keeps its elements packed with no gaps. To insert in the middle, every element after the spot slides one place right to make room. Deleting slides them left to close the gap. Reading `A[i]` is instant, but making or closing room costs time proportional to how many elements must move.",
+   "definition": "For an array of `n` elements:\n\n- Access `A[i]`: O(1), one address calculation.\n- Insert at index `i`: moves the `n - i` elements from `i` onward. Worst case (front) is `n` moves, so O(n).\n- Delete at index `i`: moves the `n - 1 - i` elements after it. Worst case is O(n).\n- Linear search: up to `n` comparisons, O(n).\n- Binary search on a **sorted** array: at most `floor(log2 n) + 1` comparisons, O(log n).",
+   "intuition_full": "The reason is the layout. Elements sit at fixed addresses, one after another, so index access is a formula. The same rigidity means there is no spare space between cells. To open a gap you must move the cells after it, and you must move the last one first, otherwise you overwrite a value you still need. The number of moves is exactly the number of elements to the right of the spot. Averaged over a random spot, about n/2 elements move. Binary search is different: each probe looks at the middle, and a sorted array tells you which half the key can be in, so half of the remaining range disappears. That halving is why the answer is a logarithm. If the data is not sorted, a probe tells you nothing about the other half, and the argument collapses.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The array `[10, 20, 30, 40, 50]` has one free slot at the end. Insert 25 at index 2 so that it reads `10, 20, 25, 30, 40, 50`. How many elements move?",
+     "steps": [
+      "Elements at index 2 and beyond (30, 40, 50) must make room. The target slot is index 2.",
+      "Work from the right so nothing is overwritten. Move 50 from index 4 to index 5.",
+      "Move 40 from index 3 to index 4.",
+      "Move 30 from index 2 to index 3. Slot 2 is now free.",
+      "Write 25 into slot 2.",
+      "3 elements moved = n - index = 5 - 2. Inserting at the front would move all 5."
+     ],
+     "answer": "3 elements move. Shifts = (number of elements) - (insert index), so the cost grows with how close to the front you insert."
+    },
+    {
+     "level": "gate",
+     "setup": "A sorted array holds 100 integers and has one free slot. A new key is inserted in order, using binary search to find its place. What is the worst-case number of comparisons for the search, and the worst-case number of element moves?",
+     "steps": [
+      "Binary search keeps the larger half each time. In the worst case the range goes 100, 50, 25, 12, 6, 3, 1.",
+      "That is 7 probes. Check: 6 probes cover at most 2^6 - 1 = 63 elements, and 7 probes cover 127, so 100 needs 7.",
+      "Now make room. The new key may be smaller than everything, so it goes at index 0 and all 100 elements move right: 100 moves.",
+      "Binary search made finding the spot cheap, but shifting still costs up to n. Insertion into a sorted array is O(n)."
+     ],
+     "answer": "At most 7 comparisons and 100 moves. Binary search speeds up finding the place, not making room for it."
+    },
+    {
+     "level": "twist",
+     "setup": "Binary search for 3 in the **unsorted** array `[9, 3, 1, 7, 5]`. Does it find the 3 that is really there?",
+     "steps": [
+      "`lo = 0`, `hi = 4`, `mid = 2`. `A[2]` = 1. Since 3 > 1, the algorithm discards the left half and sets `lo = 3`.",
+      "`mid = (3 + 4) / 2 = 3`. `A[3]` = 7. Since 3 < 7, it sets `hi = 2`.",
+      "Now `lo = 3 > hi = 2`, so the search stops and reports 'not found'.",
+      "The 3 sat at index 1, in the half that was thrown away at the first step."
+     ],
+     "answer": "It reports 'not found' although 3 is present. Binary search relies on the data being sorted; on unsorted data use linear search, O(n)."
+    }
+   ],
+   "why": "Cost of array operations underlies most complexity questions on data structures. In GATE: the cost of insert, delete or search, binary search probe counts, and loop-based searching code (2014 CS3 Q42, 2026 CS2 Q38).",
+   "how": [
+    "Decide which operation is asked: access, search, insert or delete.",
+    "For insert/delete, count the elements to the right of the position: those are the moves.",
+    "Take the worst case: the front for insert and delete, a missing key for search.",
+    "For binary search the probes are floor(log2 n) + 1; confirm the array is sorted first."
+   ],
+   "mistake": "Thinking binary search makes insertion cheap. It finds the position in O(log n), but the elements must still shift, so inserting into a sorted array is O(n). A second slip: applying binary search to unsorted data, which can miss a key that is present.",
+   "edge_cases": [
+    "Insert at the end (free slot available) moves nothing: O(1).",
+    "A full array cannot take another element; dynamic arrays copy to a bigger block first.",
+    "Empty array: binary search does zero probes.",
+    "Duplicates: binary search finds one of them, not necessarily the first."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing variables, loops, arrays and functions in C and Python by hand.",
+    "Linked lists (chapter ds.linkedlist) trade this: insertion after a known node is O(1), but there is no O(1) index access.",
+    "Binary search appears again in the searching chapter (algo.searching)."
+   ],
+   "check": [
+    {
+     "q": "An array has 8 elements and a free slot. Insert at index 3. How many elements move?",
+     "a": "8 - 3 = 5."
+    },
+    {
+     "q": "Worst-case probes for binary search on 31 sorted elements?",
+     "a": "floor(log2 31) + 1 = 4 + 1 = 5."
+    },
+    {
+     "q": "Delete the element at index 0 of a 6-element array. How many elements move?",
+     "a": "5, because all the others slide left."
+    }
+   ],
+   "asked": "Asked: 2014 CS3 Q42, 2026 CS2 Q38",
+   "try": {
+    "id": "gen.ds.arrays.005",
+    "label": "Try the first shifting-cost question (L1)"
+   },
+   "scene": "ds.arrays.a5.shift",
+   "example": {
+    "setup": "The array `[10, 20, 30, 40, 50]` has one free slot at the end. Insert 25 at index 2 so that it reads `10, 20, 25, 30, 40, 50`. How many elements move?",
+    "steps": [
+     "Elements at index 2 and beyond (30, 40, 50) must make room. The target slot is index 2.",
+     "Work from the right so nothing is overwritten. Move 50 from index 4 to index 5.",
+     "Move 40 from index 3 to index 4.",
+     "Move 30 from index 2 to index 3. Slot 2 is now free.",
+     "Write 25 into slot 2.",
+     "3 elements moved = n - index = 5 - 2. Inserting at the front would move all 5."
+    ],
+    "answer": "3 elements move. Shifts = (number of elements) - (insert index), so the cost grows with how close to the front you insert."
+   },
+   "what": "An array keeps its elements packed with no gaps. To insert in the middle, every element after the spot slides one place right to make room. Deleting slides them left to close the gap. Reading `A[i]` is instant, but making or closing room costs time proportional to how many elements must move.",
+   "what_full": "An array keeps its elements packed with no gaps. To insert in the middle, every element after the spot slides one place right to make room. Deleting slides them left to close the gap. Reading `A[i]` is instant, but making or closing room costs time proportional to how many elements must move.\n\nFor an array of `n` elements:\n\n- Access `A[i]`: O(1), one address calculation.\n- Insert at index `i`: moves the `n - i` elements from `i` onward. Worst case (front) is `n` moves, so O(n).\n- Delete at index `i`: moves the `n - 1 - i` elements after it. Worst case is O(n).\n- Linear search: up to `n` comparisons, O(n).\n- Binary search on a **sorted** array: at most `floor(log2 n) + 1` comparisons, O(log n).\n\n**Worked example.** The array `[10, 20, 30, 40, 50]` has one free slot at the end. Insert 25 at index 2 so that it reads `10, 20, 25, 30, 40, 50`. How many elements move?\n\n1. Elements at index 2 and beyond (30, 40, 50) must make room. The target slot is index 2.\n2. Work from the right so nothing is overwritten. Move 50 from index 4 to index 5.\n3. Move 40 from index 3 to index 4.\n4. Move 30 from index 2 to index 3. Slot 2 is now free.\n5. Write 25 into slot 2.\n6. 3 elements moved = n - index = 5 - 2. Inserting at the front would move all 5.\n\n**Answer:** 3 elements move. Shifts = (number of elements) - (insert index), so the cost grows with how close to the front you insert.",
+   "why_full": "Cost of array operations underlies most complexity questions on data structures. In GATE: the cost of insert, delete or search, binary search probe counts, and loop-based searching code (2014 CS3 Q42, 2026 CS2 Q38).\n\nAsked: 2014 CS3 Q42, 2026 CS2 Q38",
+   "trap": "Thinking binary search makes insertion cheap. It finds the position in O(log n), but the elements must still shift, so inserting into a sorted array is O(n). A second slip: applying binary search to unsorted data, which can miss a key that is present."
+  },
+  {
+   "atom_id": "a6",
+   "title": "Traversal order and paging",
+   "simple": "Imagine a library where each shelf's books are boxed together, and you can only carry one box to your desk at a time. If you read a whole shelf, you fetch one box. If you read the first book of every shelf, then the second book of every shelf, you keep swapping boxes. Memory comes in pages, and a 2-D array in C stores one row after another. Reading along a row stays in one page. Reading down a column hops pages. In exam words: traverse row-major arrays row by row; column-wise traversal causes many more page faults.",
+   "idea": "Memory is moved in fixed-size chunks called pages. A program touches an element, and if its page is not in memory (a page fault), the system loads it. A C 2-D array is stored row by row, so a row-by-row loop moves through memory in order and loads each page once. A column-by-column loop jumps a whole row each step and may touch a different page every time.",
+   "definition": "Let a page hold `P` array elements and let the process have `F` frames.\n\n- A **page fault** occurs when the page of the accessed element is not in a frame.\n- Row-major, sequential access: faults = number of pages touched (about `n / P`).\n- Strided access with stride larger than a page: each access may touch a new page.\n- With LRU, a cycle of more than `F` pages makes every page change a fault.",
+   "intuition_full": "The cost depends on locality: how many nearby accesses land in the same page. Row-wise access has perfect locality, because consecutive elements are consecutive in memory. Column-wise access has almost none, because the next element is a full row away. If a whole row is bigger than a page, every column step lands on a different page. If the pages touched in one column sweep fit in the frames, the later columns reuse them. If they do not fit, LRU evicts the page you will need soonest, and each sweep reloads everything. That is why two loops with identical arithmetic can differ by a large factor in speed. The page number of element `(i, j)` is `(i x C + j) / P`; write it down for a few steps and watch where it changes.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "`int M[3][4]` is stored row-major. One page holds exactly one row (4 ints) and the process has **one** page frame. Count the page faults for a row-by-row loop and a column-by-column loop.",
+     "steps": [
+      "Row `i` is on page `i`. Pages 0, 1, 2 hold rows 0, 1, 2. The single frame holds one page at a time.",
+      "Row-wise loop: `M[0][0]` to `M[0][3]` all sit on page 0. One fault loads it, and the other 3 accesses hit.",
+      "Rows 1 and 2 behave the same way: one fault each. In total 3 faults for 12 accesses.",
+      "Column-wise loop: `M[0][0]` is on page 0, `M[1][0]` on page 1, `M[2][0]` on page 2. Every access needs a different page than the previous one.",
+      "The next column starts on page 0 again, but page 0 was just evicted. The page order is 0, 1, 2, 0, 1, 2, ..., so every access faults: 12 faults.",
+      "Same 12 elements, 3 faults against 12 faults."
+     ],
+     "answer": "Row-wise: 3 faults. Column-wise: 12 faults. Walking against the storage order touches a new page almost every time."
+    },
+    {
+     "level": "gate",
+     "setup": "`int M[8][8]` is stored row-major. A page holds 16 ints (2 rows). The process has 3 page frames with LRU replacement. All pages start out of memory. How many page faults does a column-by-column loop cause? And with 4 frames?",
+     "steps": [
+      "Row `i` is on page `i / 2`. Pages 0 to 3 hold rows 0-1, 2-3, 4-5, 6-7.",
+      "Column 0 visits rows 0 to 7: pages 0, 0, 1, 1, 2, 2, 3, 3. A fault happens only when the page changes.",
+      "Every column repeats the cycle of pages 0, 1, 2, 3.",
+      "With 3 frames and LRU, a cycle of 4 pages always evicts exactly the page needed next. All 4 page changes fault: 4 faults per column.",
+      "8 columns x 4 faults = 32 faults.",
+      "With 4 frames all four pages stay in memory, so only the 4 first-touch faults occur."
+     ],
+     "answer": "32 faults with 3 frames, 4 with 4 frames. One missing frame turns 4 faults into 32 when the access pattern cycles through every page."
+    },
+    {
+     "level": "twist",
+     "setup": "`int M[4][4]` is stored row-major. A page holds 6 ints, which does not divide a row. One frame. How many faults for a row-by-row loop?",
+     "steps": [
+      "Flat offset of `M[i][j]` is `4i + j`, from 0 to 15. Page number = offset / 6 (integer division).",
+      "Offsets 0 to 5 are page 0, offsets 6 to 11 are page 1, offsets 12 to 15 are page 2.",
+      "The row-wise loop visits offsets 0, 1, 2, ..., 15 in order, so pages go 0 ... 0, 1 ... 1, 2 ... 2.",
+      "Each page is loaded once: 3 faults, not 4. Rows and pages do not line up, but sequential access still loads each page once."
+     ],
+     "answer": "3 faults = ceil(16 / 6). When access is sequential in memory, faults equal the number of pages touched, whatever the row length."
+    }
+   ],
+   "why": "It links the array layout to memory behaviour. In GATE: count page faults of a nested loop over a 2-D array, row-wise versus column-wise (2023 CS Q57).",
+   "how": [
+    "Write the page number of element (i, j): (i x C + j) / P in row-major.",
+    "List the page sequence for the first few iterations of the loop.",
+    "Apply the replacement rule (LRU or FIFO) with F frames to that sequence.",
+    "Multiply by the number of repeats if the pattern is periodic."
+   ],
+   "mistake": "Assuming both loop orders fault the same amount. They touch the same elements, but only the row-wise order follows memory. Also, counting faults per element instead of per page change: consecutive accesses on the same page cost one fault, not many.",
+   "edge_cases": [
+    "Whole array fits in the frames: only first-touch faults, whatever the loop order.",
+    "Page size not a multiple of the row: count pages by offset / P, not by rows.",
+    "Column-major storage (Fortran): the good loop order flips.",
+    "FIFO and LRU may give different counts for the same sequence."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing variables, loops, arrays and functions in C and Python by hand.",
+    "Memory chapters (os.memory, coa.memory) define paging and LRU properly. This card only uses them to compare loop orders.",
+    "Cache locality works the same way as page locality."
+   ],
+   "check": [
+    {
+     "q": "`int M[2][8]` row-major, a page holds 8 ints (one row), one frame. Faults for a column-wise loop?",
+     "a": "Pages alternate 0,1,0,1,... for 16 accesses: 16 faults."
+    },
+    {
+     "q": "Same array, row-wise loop?",
+     "a": "2 faults, one per row."
+    },
+    {
+     "q": "How many pages does a 100-element array touch if a page holds 32 elements and it is read in order?",
+     "a": "ceil(100 / 32) = 4 pages, so 4 faults."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q57",
+   "try": {
+    "id": "gen.ds.arrays.012",
+    "label": "Try the first traversal-order question (L2)"
+   },
+   "scene": "ds.arrays.a6.paging",
+   "example": {
+    "setup": "`int M[3][4]` is stored row-major. One page holds exactly one row (4 ints) and the process has **one** page frame. Count the page faults for a row-by-row loop and a column-by-column loop.",
+    "steps": [
+     "Row `i` is on page `i`. Pages 0, 1, 2 hold rows 0, 1, 2. The single frame holds one page at a time.",
+     "Row-wise loop: `M[0][0]` to `M[0][3]` all sit on page 0. One fault loads it, and the other 3 accesses hit.",
+     "Rows 1 and 2 behave the same way: one fault each. In total 3 faults for 12 accesses.",
+     "Column-wise loop: `M[0][0]` is on page 0, `M[1][0]` on page 1, `M[2][0]` on page 2. Every access needs a different page than the previous one.",
+     "The next column starts on page 0 again, but page 0 was just evicted. The page order is 0, 1, 2, 0, 1, 2, ..., so every access faults: 12 faults.",
+     "Same 12 elements, 3 faults against 12 faults."
+    ],
+    "answer": "Row-wise: 3 faults. Column-wise: 12 faults. Walking against the storage order touches a new page almost every time."
+   },
+   "what": "Memory is moved in fixed-size chunks called pages. A program touches an element, and if its page is not in memory (a page fault), the system loads it. A C 2-D array is stored row by row, so a row-by-row loop moves through memory in order and loads each page once. A column-by-column loop jumps a whole row each step and may touch a different page every time.",
+   "what_full": "Memory is moved in fixed-size chunks called pages. A program touches an element, and if its page is not in memory (a page fault), the system loads it. A C 2-D array is stored row by row, so a row-by-row loop moves through memory in order and loads each page once. A column-by-column loop jumps a whole row each step and may touch a different page every time.\n\nLet a page hold `P` array elements and let the process have `F` frames.\n\n- A **page fault** occurs when the page of the accessed element is not in a frame.\n- Row-major, sequential access: faults = number of pages touched (about `n / P`).\n- Strided access with stride larger than a page: each access may touch a new page.\n- With LRU, a cycle of more than `F` pages makes every page change a fault.\n\n**Worked example.** `int M[3][4]` is stored row-major. One page holds exactly one row (4 ints) and the process has **one** page frame. Count the page faults for a row-by-row loop and a column-by-column loop.\n\n1. Row `i` is on page `i`. Pages 0, 1, 2 hold rows 0, 1, 2. The single frame holds one page at a time.\n2. Row-wise loop: `M[0][0]` to `M[0][3]` all sit on page 0. One fault loads it, and the other 3 accesses hit.\n3. Rows 1 and 2 behave the same way: one fault each. In total 3 faults for 12 accesses.\n4. Column-wise loop: `M[0][0]` is on page 0, `M[1][0]` on page 1, `M[2][0]` on page 2. Every access needs a different page than the previous one.\n5. The next column starts on page 0 again, but page 0 was just evicted. The page order is 0, 1, 2, 0, 1, 2, ..., so every access faults: 12 faults.\n6. Same 12 elements, 3 faults against 12 faults.\n\n**Answer:** Row-wise: 3 faults. Column-wise: 12 faults. Walking against the storage order touches a new page almost every time.",
+   "why_full": "It links the array layout to memory behaviour. In GATE: count page faults of a nested loop over a 2-D array, row-wise versus column-wise (2023 CS Q57).\n\nAsked: 2023 CS Q57",
+   "trap": "Assuming both loop orders fault the same amount. They touch the same elements, but only the row-wise order follows memory. Also, counting faults per element instead of per page change: consecutive accesses on the same page cost one fault, not many."
+  },
+  {
+   "atom_id": "a7",
+   "title": "Initialisers, bounds and aliasing",
+   "simple": "A friend gives you a copy of a locker key. Now you both open the same locker, and what one person puts in, the other finds. But if you photocopy the papers inside, each person has their own pile. In Python, `b = a` hands over a copy of the key, so both names point at one list. A slice like `a[:]` makes a real copy of the papers. In C, if you list only some starting values for an array, the rest are filled with zero, while an array with no list holds junk. In exam words: Python assignment aliases a list, negative indices count from the end, and a short C initialiser zero-fills the tail.",
+   "idea": "Three small rules cause many wrong answers. In C, a brace list that is shorter than the array fills the remaining cells with zero. In Python, a list name is a reference, so `b = a` makes two names for one list. And Python lets you count from the end with negative indices, while slices never raise errors.",
+   "definition": "- **C initialiser:** `int a[n] = {v1, ..., vk}` with `k < n` sets `a[k..n-1]` to 0. With no braces, a local array holds garbage. With empty size `int a[] = {...}`, the size equals the number of values.\n- **Python aliasing:** `b = a` copies the reference. `a[:]` and `list(a)` copy the list, one level deep. `[row] * k` repeats the **same** `row` reference `k` times.\n- **Negative index:** `a[-k]` is `a[len(a) - k]`. Valid for `1 <= k <= len(a)`.\n- **Slice:** `a[i:j]` is clipped to the list and never raises `IndexError`.",
+   "intuition_full": "Think of a variable in Python as a sticky note stuck on an object, and not as a box that holds the object. Two notes can be stuck on the same list. Assignment moves a note, it does not copy the list. Changing the list through one note is visible through the other. A nested list is a list of notes, so a shallow copy `a[:]` copies the outer list but still shares the inner lists. In C the picture is different: an array is the cells themselves, so there is nothing to alias, but the initialiser rule fills in the cells you did not name. Negative indices are a convenience that adds `len(a)`: `a[-1]` is the last element, and one step further than `-len(a)` is out of range. Slices clip instead, because they describe a range, and an empty range is fine.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "What does this print?\n```c\nint a[6] = {4, 8};\nprintf(\"%d\", a[0] + a[3] + a[5]);\n```",
+     "steps": [
+      "`int a[6]` reserves six cells in a row. The initialiser list `{4, 8}` has only two values.",
+      "The list writes `a[0] = 4` and `a[1] = 8`.",
+      "C sets every cell the list did not mention to zero: `a[2]` to `a[5]` become 0.",
+      "`a[0] + a[3] + a[5]` = 4 + 0 + 0."
+     ],
+     "answer": "It prints `4`. A brace initialiser, even a short one, zero-fills the rest of the array."
+    },
+    {
+     "level": "gate",
+     "setup": "What does this Python program print?\n```python\nrow = [1, 2]\ngrid = [row, row, row]\ngrid[1][0] = 9\nprint(sum(map(sum, grid)))\n```",
+     "steps": [
+      "`row` is one list, `[1, 2]`. `grid = [row, row, row]` stores three references to that same list.",
+      "`grid[1][0] = 9` follows the second reference and changes the one shared list to `[9, 2]`.",
+      "All three rows of `grid` are that list: `[[9, 2], [9, 2], [9, 2]]`.",
+      "Sum = 3 x (9 + 2) = 33."
+     ],
+     "answer": "It prints `33`. Names and list entries are references: one change shows through every name that points to the same list."
+    },
+    {
+     "level": "twist",
+     "setup": "What do `a[-5]`, `a[1:-1]` and `a[5:]` give for `a = [10, 20, 30, 40, 50]`? And what do `a[-6]` and `a[-6:]` give?",
+     "steps": [
+      "A negative index counts from the end: `a[-1]` is 50, so `a[-5]` is `a[0]` = 10.",
+      "A slice `a[1:-1]` runs from index 1 up to but not including index 4: `[20, 30, 40]`.",
+      "`a[5:]` starts at index 5, which is one past the end. A slice never raises an error: the result is `[]`.",
+      "`a[-6]` means index 5 - 6 = -1, outside the list, so it raises `IndexError`. `a[-6:]` is a slice, so Python clips it and returns the whole list."
+     ],
+     "answer": "`10`, `[20, 30, 40]`, `[]`; `a[-6]` raises `IndexError`, while `a[-6:]` returns the full list. Single indices are strict, slices are forgiving."
+    }
+   ],
+   "why": "These rules hide in output-tracing questions. In GATE: C arrays with partial initialisers and Python list code with copies, aliases and slices (2025 CS2 Q62, 2024 DA sample Q24).",
+   "how": [
+    "For C: count the values in the braces, and set the remaining cells to 0.",
+    "For Python: ask whether the line copies the list or only a name.",
+    "Draw one box per list and one arrow per name.",
+    "Translate negative indices with `len(a) + index`; slices are clipped."
+   ],
+   "mistake": "Believing `[[0] * 3] * 2` or `[row, row]` creates independent rows. It repeats one reference, so changing a cell in one row changes them all. The fix is a list comprehension, `[[0] * 3 for _ in range(2)]`, which builds a new inner list each time.",
+   "edge_cases": [
+    "`int a[5] = {0};` sets every cell to 0, not only the first.",
+    "`int a[3] = {1,2,3,4}` is an error: too many initialisers.",
+    "`a[len(a)]` raises IndexError; `a[len(a):]` is `[]`.",
+    "A shallow copy still shares nested lists; `copy.deepcopy` copies everything."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing variables, loops, arrays and functions in C and Python by hand.",
+    "Python lists reappear in the recursion and tree chapters, where aliasing decides what a function can change."
+   ],
+   "check": [
+    {
+     "q": "`int a[4] = {9};` What is `a[0] + a[3]`?",
+     "a": "9 + 0 = 9."
+    },
+    {
+     "q": "`x = [1, 2]; y = x; y.append(3); print(len(x))`",
+     "a": "3, since `x` and `y` are one list."
+    },
+    {
+     "q": "`a = [5, 6, 7]`. What is `a[-1] + a[-3]`?",
+     "a": "7 + 5 = 12."
+    }
+   ],
+   "asked": "Asked: 2025 CS2 Q62, 2024 DA sample Q24",
+   "try": {
+    "id": "gen.ds.arrays.002",
+    "label": "Try the first initialiser question (L1)"
+   },
+   "scene": "ds.arrays.a7.init",
+   "example": {
+    "setup": "What does this print?\n```c\nint a[6] = {4, 8};\nprintf(\"%d\", a[0] + a[3] + a[5]);\n```",
+    "steps": [
+     "`int a[6]` reserves six cells in a row. The initialiser list `{4, 8}` has only two values.",
+     "The list writes `a[0] = 4` and `a[1] = 8`.",
+     "C sets every cell the list did not mention to zero: `a[2]` to `a[5]` become 0.",
+     "`a[0] + a[3] + a[5]` = 4 + 0 + 0."
+    ],
+    "answer": "It prints `4`. A brace initialiser, even a short one, zero-fills the rest of the array."
+   },
+   "what": "Three small rules cause many wrong answers. In C, a brace list that is shorter than the array fills the remaining cells with zero. In Python, a list name is a reference, so `b = a` makes two names for one list. And Python lets you count from the end with negative indices, while slices never raise errors.",
+   "what_full": "Three small rules cause many wrong answers. In C, a brace list that is shorter than the array fills the remaining cells with zero. In Python, a list name is a reference, so `b = a` makes two names for one list. And Python lets you count from the end with negative indices, while slices never raise errors.\n\n- **C initialiser:** `int a[n] = {v1, ..., vk}` with `k < n` sets `a[k..n-1]` to 0. With no braces, a local array holds garbage. With empty size `int a[] = {...}`, the size equals the number of values.\n- **Python aliasing:** `b = a` copies the reference. `a[:]` and `list(a)` copy the list, one level deep. `[row] * k` repeats the **same** `row` reference `k` times.\n- **Negative index:** `a[-k]` is `a[len(a) - k]`. Valid for `1 <= k <= len(a)`.\n- **Slice:** `a[i:j]` is clipped to the list and never raises `IndexError`.\n\n**Worked example.** What does this print?\n```c\nint a[6] = {4, 8};\nprintf(\"%d\", a[0] + a[3] + a[5]);\n```\n\n1. `int a[6]` reserves six cells in a row. The initialiser list `{4, 8}` has only two values.\n2. The list writes `a[0] = 4` and `a[1] = 8`.\n3. C sets every cell the list did not mention to zero: `a[2]` to `a[5]` become 0.\n4. `a[0] + a[3] + a[5]` = 4 + 0 + 0.\n\n**Answer:** It prints `4`. A brace initialiser, even a short one, zero-fills the rest of the array.",
+   "why_full": "These rules hide in output-tracing questions. In GATE: C arrays with partial initialisers and Python list code with copies, aliases and slices (2025 CS2 Q62, 2024 DA sample Q24).\n\nAsked: 2025 CS2 Q62, 2024 DA sample Q24",
+   "trap": "Believing `[[0] * 3] * 2` or `[row, row]` creates independent rows. It repeats one reference, so changing a cell in one row changes them all. The fix is a list comprehension, `[[0] * 3 for _ in range(2)]`, which builds a new inner list each time."
+  },
+  {
+   "atom_id": "a8",
+   "title": "Single-pass array algorithms",
+   "simple": "Say you must find two numbers that add up to 10 in a sorted list. You could test every pair, but there is a smarter way. Put one finger on the smallest number and another on the biggest. If the sum is too big, move the right finger left. If it is too small, move the left finger right. Each finger moves in one direction only, so you cross the list once. In exam words: a single-pass algorithm keeps a few running variables or two pointers that never go back, so it is O(n) time and O(1) extra space.",
+   "idea": "Many array problems can be solved by walking through the array once while carrying a little information: a running sum, the biggest value so far, or two indices that move towards each other. Each element is looked at a constant number of times, so the work is proportional to the length of the array.",
+   "definition": "A **single-pass** algorithm reads the array in order and updates a constant number of variables, so it runs in Theta(n) time with O(1) extra space.\n\nA **loop invariant** is a statement that is true before the loop and after every iteration. When the loop ends, the invariant plus the exit condition gives the answer.\n\n**Two pointers** `L` and `R` start at the two ends (or both at the start) and each moves in only one direction. Together they move at most `n` steps.",
+   "intuition_full": "To trust a scan, say what each variable means after `i` elements have been read. For the running maximum, `m` is the largest of `a[0..i-1]`. When you read `a[i]`, either it beats `m` and the statement stays true after the update, or it does not and `m` is unchanged. Proving this once for the first iteration and once for 'step i to step i+1' is the whole proof. For two pointers, the reason you can move one pointer without losing the answer is monotonicity. In a sorted array, a sum that is too big can only be reduced by moving the right pointer left, because moving the left pointer right makes the sum even bigger. Every move discards elements that cannot be part of the answer. Counting steps then reduces to counting pointer moves, which are at most n in total.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "In the sorted array `[1, 3, 4, 6, 8, 11]`, find two elements that add up to 10 with two pointers, one at each end. How many comparisons does it take?",
+     "steps": [
+      "Put a left pointer `L` at index 0 and a right pointer `R` at index 5. Each step looks at `A[L] + A[R]`.",
+      "`1 + 11 = 12`, which is more than 10. Only moving `R` left can make the sum smaller. `R` goes to index 4.",
+      "`1 + 8 = 9`, which is less than 10. Only moving `L` right can make the sum bigger. `L` goes to index 1.",
+      "`3 + 8 = 11`, too big. `R` goes to index 3.",
+      "`3 + 6 = 9`, too small. `L` goes to index 2.",
+      "`4 + 6 = 10`. Found after 5 sums. Neither pointer moved backwards."
+     ],
+     "answer": "The pair is 4 and 6 (indices 2 and 3), found with 5 comparisons in one pass. Each pointer moves one way only, so the cost is at most n - 1 steps: O(n)."
+    },
+    {
+     "level": "gate",
+     "setup": "What does `f` return for `a = {3, 1, 4, 1, 5, 9, 2, 6}`, `n = 8`? What is its running time?\n```c\nint f(int a[], int n) {\n  int m = a[0], c = 1;\n  for (int i = 1; i < n; i++)\n    if (a[i] > m) { m = a[i]; c++; }\n  return c;\n}\n```",
+     "steps": [
+      "Start with `m = 3` and `c = 1`. The invariant: `m` is the maximum of the elements read so far, and `c` is how many times a new maximum appeared.",
+      "`i = 1`: 1 is not above 3. `i = 2`: 4 > 3, so `m = 4` and `c = 2`.",
+      "`i = 3`: 1 is not above 4. `i = 4`: 5 > 4, so `m = 5` and `c = 3`.",
+      "`i = 5`: 9 > 5, so `m = 9` and `c = 4`. `i = 6` (2) and `i = 7` (6) do not beat 9.",
+      "The loop runs `n - 1 = 7` times and does a constant amount of work each time."
+     ],
+     "answer": "It returns `4` (the values 3, 4, 5, 9). Running time is Theta(n) with O(1) extra space: one pass with two variables."
+    },
+    {
+     "level": "twist",
+     "setup": "Run the same `f` on `a = {5, 5, 5, 5}`. What does it return? What if `>` is changed to `>=`?",
+     "steps": [
+      "Start: `m = 5`, `c = 1`.",
+      "With `>`: the other 5s are not strictly bigger than `m`, so `c` never changes. It returns 1.",
+      "With `>=`: every 5 passes the test, so `c` increments 3 times. It returns 4.",
+      "The invariant changed from 'new strict maximum' to 'new maximum or tie'."
+     ],
+     "answer": "`1` with `>` and `4` with `>=`. In a scan, the exact comparison decides how ties are counted; test it on equal values."
+    }
+   ],
+   "why": "It is the standard way to write fast array code, and to read and cost it. In GATE: complete or trace an array scan, find a missing expression, or reduce an 'all pairs' condition to adjacent pairs (2024 CS2 Q42, 2026 CS2 Q38).",
+   "how": [
+    "Say what each variable means after i elements (the invariant).",
+    "Test the code on a 3 or 4 element array by hand, including ties.",
+    "Count loop iterations and the work per iteration for the running time.",
+    "For an 'all pairs' condition, look for a chain: if consecutive pairs satisfy it, all pairs do."
+   ],
+   "mistake": "Counting passes wrongly or testing only one easy input. A single `for` with a constant body is Theta(n), but a hidden inner loop (a call to `search` inside the scan) makes it Theta(n^2). And ties break many scans: always try an input with equal values.",
+   "edge_cases": [
+    "Empty array: `a[0]` is invalid, so check `n` first.",
+    "One element: loops that start at `i = 1` do nothing; the initial values must already be correct.",
+    "Equal elements decide whether `>` or `>=` is right.",
+    "Two pointers need a sorted array; on unsorted data, the 'too big, move right' argument fails."
+   ],
+   "connections": [
+    "Foundations: **Programming basics** (found.programming_basics) covers tracing variables, loops, arrays and functions in C and Python by hand.",
+    "Sorting (algo.sorting) and divide and conquer (algo.dnc) build on this: they also reason with invariants.",
+    "The 'all pairs reduces to adjacent pairs' idea reappears in the complexity chapter."
+   ],
+   "check": [
+    {
+     "q": "Two pointers on `[2, 5, 7, 9]` for target 12. Which pair?",
+     "a": "2+9 = 11 < 12 so L moves; 5+9 = 14 > 12 so R moves; 5+7 = 12. Pair is 5 and 7."
+    },
+    {
+     "q": "A scan keeps a running sum of `[4, -1, 2]`. What is the sum after all three?",
+     "a": "4 - 1 + 2 = 5."
+    },
+    {
+     "q": "Reversing an array of 7 elements by swapping `a[i]` and `a[6-i]`: how many swaps?",
+     "a": "3, since the middle element stays."
+    }
+   ],
+   "asked": "Asked: 2024 CS2 Q42, 2026 CS2 Q38, 2000 CS Q1.2",
+   "try": {
+    "id": "gen.ds.arrays.013",
+    "label": "Try the first single-pass question (L2)"
+   },
+   "scene": "ds.arrays.a8.two_pointers",
+   "example": {
+    "setup": "In the sorted array `[1, 3, 4, 6, 8, 11]`, find two elements that add up to 10 with two pointers, one at each end. How many comparisons does it take?",
+    "steps": [
+     "Put a left pointer `L` at index 0 and a right pointer `R` at index 5. Each step looks at `A[L] + A[R]`.",
+     "`1 + 11 = 12`, which is more than 10. Only moving `R` left can make the sum smaller. `R` goes to index 4.",
+     "`1 + 8 = 9`, which is less than 10. Only moving `L` right can make the sum bigger. `L` goes to index 1.",
+     "`3 + 8 = 11`, too big. `R` goes to index 3.",
+     "`3 + 6 = 9`, too small. `L` goes to index 2.",
+     "`4 + 6 = 10`. Found after 5 sums. Neither pointer moved backwards."
+    ],
+    "answer": "The pair is 4 and 6 (indices 2 and 3), found with 5 comparisons in one pass. Each pointer moves one way only, so the cost is at most n - 1 steps: O(n)."
+   },
+   "what": "Many array problems can be solved by walking through the array once while carrying a little information: a running sum, the biggest value so far, or two indices that move towards each other. Each element is looked at a constant number of times, so the work is proportional to the length of the array.",
+   "what_full": "Many array problems can be solved by walking through the array once while carrying a little information: a running sum, the biggest value so far, or two indices that move towards each other. Each element is looked at a constant number of times, so the work is proportional to the length of the array.\n\nA **single-pass** algorithm reads the array in order and updates a constant number of variables, so it runs in Theta(n) time with O(1) extra space.\n\nA **loop invariant** is a statement that is true before the loop and after every iteration. When the loop ends, the invariant plus the exit condition gives the answer.\n\n**Two pointers** `L` and `R` start at the two ends (or both at the start) and each moves in only one direction. Together they move at most `n` steps.\n\n**Worked example.** In the sorted array `[1, 3, 4, 6, 8, 11]`, find two elements that add up to 10 with two pointers, one at each end. How many comparisons does it take?\n\n1. Put a left pointer `L` at index 0 and a right pointer `R` at index 5. Each step looks at `A[L] + A[R]`.\n2. `1 + 11 = 12`, which is more than 10. Only moving `R` left can make the sum smaller. `R` goes to index 4.\n3. `1 + 8 = 9`, which is less than 10. Only moving `L` right can make the sum bigger. `L` goes to index 1.\n4. `3 + 8 = 11`, too big. `R` goes to index 3.\n5. `3 + 6 = 9`, too small. `L` goes to index 2.\n6. `4 + 6 = 10`. Found after 5 sums. Neither pointer moved backwards.\n\n**Answer:** The pair is 4 and 6 (indices 2 and 3), found with 5 comparisons in one pass. Each pointer moves one way only, so the cost is at most n - 1 steps: O(n).",
+   "why_full": "It is the standard way to write fast array code, and to read and cost it. In GATE: complete or trace an array scan, find a missing expression, or reduce an 'all pairs' condition to adjacent pairs (2024 CS2 Q42, 2026 CS2 Q38).\n\nAsked: 2024 CS2 Q42, 2026 CS2 Q38, 2000 CS Q1.2",
+   "trap": "Counting passes wrongly or testing only one easy input. A single `for` with a constant body is Theta(n), but a hidden inner loop (a call to `search` inside the scan) makes it Theta(n^2). And ties break many scans: always try an input with equal values."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "ds.arrays.a1.address",
+   "title": "Address of A[5]: skip five cells, then read",
+   "viewBox": [
+    0,
+    0,
+    360,
+    236
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "int A[8], base 2000, 4 bytes per cell",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "val",
+     "kind": "array",
+     "x": 12,
+     "y": 78,
+     "cells": [
+      12,
+      40,
+      7,
+      25,
+      9,
+      31,
+      18,
+      3
+     ],
+     "cw": 42,
+     "ch": 34
+    },
+    {
+     "id": "addr",
+     "kind": "array",
+     "x": 12,
+     "y": 140,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 42,
+     "ch": 28,
+     "indices": false
+    },
+    {
+     "id": "p",
+     "kind": "pointer",
+     "array": "val",
+     "index": 0,
+     "label": "A[0]",
+     "side": "above"
+    },
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 12,
+     "y": 198,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "f2",
+     "kind": "text",
+     "x": 12,
+     "y": 224,
+     "text": "",
+     "size": 14,
+     "anchor": "start",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Find the address of `A[5]`. An array keeps equal-size cells back to back. `A[0]` is at 2000 and each `int` takes 4 bytes.",
+     "highlight": [
+      {
+       "id": "val",
+       "cells": [
+        0
+       ]
+      },
+      {
+       "id": "addr",
+       "cells": [
+        0
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "addr",
+       "cells": [
+        "2000",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Cell 1 starts at 2004 and cell 2 at 2008. Every step to the right adds 4 bytes.",
+     "highlight": [
+      {
+       "id": "addr",
+       "cells": [
+        1,
+        2
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "addr",
+       "cells": [
+        "2000",
+        "2004",
+        "2008",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "each step right = +4 bytes"
+      }
+     ]
+    },
+    {
+     "caption": "To reach `A[5]` we must skip 5 whole cells, `A[0]` to `A[4]`.",
+     "move": {
+      "id": "p",
+      "index": 5
+     },
+     "set": [
+      {
+       "id": "p",
+       "label": "A[5]"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "val",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4
+       ],
+       "tone": "mid"
+      },
+      {
+       "id": "val",
+       "cells": [
+        5
+       ],
+       "tone": "accent"
+      }
+     ]
+    },
+    {
+     "caption": "Bytes skipped = 5 x 4 = 20.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "skipped = 5 x 4 = 20 bytes"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "val",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Address of `A[5]` = 2000 + 20 = 2020.",
+     "set": [
+      {
+       "id": "addr",
+       "cells": [
+        "2000",
+        "2004",
+        "2008",
+        "2012",
+        "2016",
+        "2020",
+        "2024",
+        "2028"
+       ]
+      },
+      {
+       "id": "f2",
+       "text": "A[5] = 2000 + 20 = 2020"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "addr",
+       "cells": [
+        5
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "val",
+       "cells": [
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.arrays.a2.layout",
+   "title": "Row-major: G[3][4] laid out row by row",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 16,
+     "y": 16,
+     "text": "int G[3][4], base 1000, row-major",
+     "size": 13,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 40,
+     "y": 54,
+     "rows": 3,
+     "cols": 4,
+     "cw": 36,
+     "ch": 30,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "rowLabels": [
+      "0",
+      "1",
+      "2"
+     ],
+     "colLabels": [
+      "0",
+      "1",
+      "2",
+      "3"
+     ]
+    },
+    {
+     "id": "gl",
+     "kind": "text",
+     "x": 190,
+     "y": 76,
+     "text": "grid cell = its offset",
+     "size": 12,
+     "anchor": "start",
+     "tone": "muted"
+    },
+    {
+     "id": "mem",
+     "kind": "array",
+     "x": 12,
+     "y": 160,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 28,
+     "ch": 30
+    },
+    {
+     "id": "ml",
+     "kind": "text",
+     "x": 12,
+     "y": 150,
+     "text": "memory (cell = G[row][col], index = offset)",
+     "size": 12,
+     "anchor": "start",
+     "tone": "muted"
+    },
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 16,
+     "y": 222,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "f2",
+     "kind": "text",
+     "x": 16,
+     "y": 248,
+     "text": "",
+     "size": 14,
+     "anchor": "start",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Lay out `G` in memory. `G` has 3 rows and 4 columns. Row-major order stores row 0, then row 1, then row 2, each row left to right.",
+     "highlight": [
+      "g"
+     ]
+    },
+    {
+     "caption": "Row 0 takes memory offsets 0 to 3: `G[0][0]` to `G[0][3]`.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "mem",
+       "cells": [
+        "00",
+        "01",
+        "02",
+        "03",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ]
+      },
+      {
+       "id": "mem",
+       "cells": [
+        0,
+        1,
+        2,
+        3
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Row 1 takes offsets 4 to 7.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "mem",
+       "cells": [
+        "00",
+        "01",
+        "02",
+        "03",
+        "10",
+        "11",
+        "12",
+        "13",
+        "",
+        "",
+        "",
+        ""
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ]
+      },
+      {
+       "id": "mem",
+       "cells": [
+        4,
+        5,
+        6,
+        7
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Row 2 takes offsets 8 to 11.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+       ]
+      },
+      {
+       "id": "mem",
+       "cells": [
+        "00",
+        "01",
+        "02",
+        "03",
+        "10",
+        "11",
+        "12",
+        "13",
+        "20",
+        "21",
+        "22",
+        "23"
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        8,
+        9,
+        10,
+        11
+       ]
+      },
+      {
+       "id": "mem",
+       "cells": [
+        8,
+        9,
+        10,
+        11
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "`G[2][1]` has 2 full rows (2 x 4 = 8 cells) before it, plus 1 cell inside its own row. Offset = 2 x 4 + 1 = 9.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "offset = 2 x 4 + 1 = 9"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "mem",
+       "cells": [
+        9
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "mem",
+       "cells": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Address = 1000 + 9 x 4 = 1036.",
+     "set": [
+      {
+       "id": "f2",
+       "text": "address = 1000 + 9 x 4 = 1036"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "mem",
+       "cells": [
+        9
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.arrays.a3.pointer",
+   "title": "p = a + 2, then *(p + 1)",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "int a[] = {7, 3, 9, 4, 1};   int *p = a + 2;",
+     "size": 12,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 40,
+     "y": 84,
+     "cells": [
+      7,
+      3,
+      9,
+      4,
+      1
+     ],
+     "cw": 56,
+     "ch": 38
+    },
+    {
+     "id": "pa",
+     "kind": "pointer",
+     "array": "a",
+     "index": 0,
+     "label": "a",
+     "side": "above"
+    },
+    {
+     "id": "pp",
+     "kind": "pointer",
+     "array": "a",
+     "index": 2,
+     "label": "p",
+     "side": "below"
+    },
+    {
+     "id": "pq",
+     "kind": "pointer",
+     "array": "a",
+     "index": 3,
+     "label": "p+1",
+     "side": "below"
+    },
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 180,
+     "y": 208,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "f2",
+     "kind": "text",
+     "x": 180,
+     "y": 234,
+     "text": "",
+     "size": 15,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Trace the pointers. `a` stands for the address of `a[0]`. The cells hold 7, 3, 9, 4, 1.",
+     "show": [
+      "pa"
+     ],
+     "set": [
+      {
+       "id": "f1",
+       "text": "a == &a[0]"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        0
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "`p = a + 2` moves 2 elements to the right of `a[0]`. So `p` points at `a[2]`, which holds 9.",
+     "show": [
+      "pp"
+     ],
+     "set": [
+      {
+       "id": "f1",
+       "text": "p = a + 2  (2 elements = 8 bytes)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        2
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "`p + 1` moves one more element. For `int` that is 4 bytes, so it points at `a[3]`.",
+     "show": [
+      "pq"
+     ],
+     "set": [
+      {
+       "id": "f1",
+       "text": "p + 1  (+4 bytes)"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        3
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "`*(p + 1)` reads the cell it points at, which is 4.",
+     "set": [
+      {
+       "id": "f2",
+       "text": "*(p + 1) = a[3] = 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.arrays.a4.rows",
+   "title": "b + 2, then * , then + 1, then *",
+   "viewBox": [
+    0,
+    0,
+    360,
+    220
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "int b[3][3]:  *(*(b + 2) + 1)",
+     "size": 13,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 30,
+     "y": 50,
+     "rows": 3,
+     "cols": 3,
+     "cw": 44,
+     "ch": 38,
+     "cells": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+     ],
+     "rowLabels": [
+      "0",
+      "1",
+      "2"
+     ]
+    },
+    {
+     "id": "t1",
+     "kind": "text",
+     "x": 190,
+     "y": 80,
+     "text": "",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "t2",
+     "kind": "text",
+     "x": 190,
+     "y": 112,
+     "text": "",
+     "size": 12,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "t3",
+     "kind": "text",
+     "x": 190,
+     "y": 144,
+     "text": "",
+     "size": 12,
+     "anchor": "start",
+     "mono": true,
+     "tone": "good"
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 30,
+     "y": 196,
+     "text": "",
+     "size": 15,
+     "anchor": "start",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Walk the pointer down. `b` is an array of 3 rows, each row an array of 3 ints. In an expression, `b` points at row 0.",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "t1",
+       "text": "b -> row 0"
+      },
+      {
+       "id": "t2",
+       "text": "step = 12 bytes"
+      }
+     ]
+    },
+    {
+     "caption": "`b + 2` steps over 2 whole rows (2 x 3 x 4 = 24 bytes) and points at row 2, which is `{7, 8, 9}`. So `b + 1` differs from `b` by 12 bytes.",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "t1",
+       "text": "b + 2 -> row 2"
+      },
+      {
+       "id": "t2",
+       "text": "skipped 24 bytes"
+      }
+     ]
+    },
+    {
+     "caption": "`*(b + 2)` is row 2 itself, which turns into a pointer to its first int (the 7).",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         0
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "t1",
+       "text": "*(b+2) -> &row2[0]"
+      },
+      {
+       "id": "t2",
+       "text": "now a pointer to int"
+      }
+     ]
+    },
+    {
+     "caption": "`+ 1` now steps one int (4 bytes), to the cell holding 8.",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         1
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "t1",
+       "text": "*(b+2) + 1 -> &b[2][1]"
+      },
+      {
+       "id": "t2",
+       "text": "step = 4 bytes"
+      }
+     ]
+    },
+    {
+     "caption": "The outer `*` reads that cell.",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": [
+      {
+       "id": "t3",
+       "text": "value 8"
+      },
+      {
+       "id": "res",
+       "text": "prints 8"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.arrays.a5.shift",
+   "title": "Insert 25 at index 2: shift from the right",
+   "viewBox": [
+    0,
+    0,
+    360,
+    210
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "insert 25 at index 2",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "arr",
+     "kind": "array",
+     "x": 24,
+     "y": 84,
+     "cells": [
+      10,
+      20,
+      30,
+      40,
+      50,
+      ""
+     ],
+     "cw": 52,
+     "ch": 38
+    },
+    {
+     "id": "ins",
+     "kind": "pointer",
+     "array": "arr",
+     "index": 2,
+     "label": "insert here",
+     "side": "above"
+    },
+    {
+     "id": "mv",
+     "kind": "text",
+     "x": 180,
+     "y": 160,
+     "text": "moves: 0",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "note",
+     "kind": "text",
+     "x": 180,
+     "y": 190,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Open a gap in an array. Elements at index 2 and beyond (30, 40, 50) must make room. The target slot is index 2.",
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        2,
+        3,
+        4
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "note",
+       "text": "these 3 must make room"
+      }
+     ]
+    },
+    {
+     "caption": "Work from the right so nothing is overwritten. Move 50 from index 4 to index 5.",
+     "set": [
+      {
+       "id": "arr",
+       "cells": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        50
+       ]
+      },
+      {
+       "id": "mv",
+       "text": "moves: 1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        4,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Move 40 from index 3 to index 4.",
+     "set": [
+      {
+       "id": "arr",
+       "cells": [
+        10,
+        20,
+        30,
+        40,
+        40,
+        50
+       ]
+      },
+      {
+       "id": "mv",
+       "text": "moves: 2"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        3,
+        4
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Move 30 from index 2 to index 3. Slot 2 is now free.",
+     "set": [
+      {
+       "id": "arr",
+       "cells": [
+        10,
+        20,
+        30,
+        30,
+        40,
+        50
+       ]
+      },
+      {
+       "id": "mv",
+       "text": "moves: 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        2,
+        3
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Write 25 into slot 2.",
+     "set": [
+      {
+       "id": "arr",
+       "cells": [
+        10,
+        20,
+        25,
+        30,
+        40,
+        50
+       ]
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "3 elements moved = n - index = 5 - 2. Inserting at the front would move all 5.",
+     "set": [
+      {
+       "id": "note",
+       "text": "moves = n - index = 5 - 2 = 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "arr",
+       "cells": [
+        3,
+        4,
+        5
+       ],
+       "tone": "mid"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.arrays.a6.paging",
+   "title": "Row-wise versus column-wise: 3 faults against 12",
+   "viewBox": [
+    0,
+    0,
+    360,
+    230
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 16,
+     "y": 16,
+     "text": "M[3][4], row-major. One page = one row, 1 frame",
+     "size": 13,
+     "anchor": "start",
+     "bold": true
+    },
+    {
+     "id": "g",
+     "kind": "grid",
+     "x": 40,
+     "y": 56,
+     "rows": 3,
+     "cols": 4,
+     "cw": 44,
+     "ch": 34,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "rowLabels": [
+      "p0",
+      "p1",
+      "p2"
+     ]
+    },
+    {
+     "id": "fr",
+     "kind": "text",
+     "x": 232,
+     "y": 80,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "mono": true
+    },
+    {
+     "id": "ft",
+     "kind": "text",
+     "x": 232,
+     "y": 106,
+     "text": "",
+     "size": 14,
+     "anchor": "start",
+     "bold": true,
+     "tone": "bad"
+    },
+    {
+     "id": "ord",
+     "kind": "text",
+     "x": 232,
+     "y": 134,
+     "text": "",
+     "size": 12,
+     "anchor": "start",
+     "tone": "muted"
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 16,
+     "y": 210,
+     "text": "",
+     "size": 14,
+     "anchor": "start",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Walk the same array two ways. Row `i` is on page `i`. Pages 0, 1, 2 hold rows 0, 1, 2. The single frame holds one page at a time.",
+     "highlight": [
+      "g"
+     ]
+    },
+    {
+     "caption": "Row-wise loop: `M[0][0]` to `M[0][3]` all sit on page 0. One fault loads it, and the other 3 accesses hit.",
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         0,
+         1
+        ],
+        [
+         0,
+         2
+        ],
+        [
+         0,
+         3
+        ]
+       ]
+      }
+     ],
+     "set": [
+      {
+       "id": "fr",
+       "text": "frame: p0"
+      },
+      {
+       "id": "ft",
+       "text": "faults: 1"
+      },
+      {
+       "id": "ord",
+       "text": "row 0: 1 fault"
+      }
+     ]
+    },
+    {
+     "caption": "Rows 1 and 2 behave the same way: one fault each. In total 3 faults for 12 accesses.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+       ]
+      },
+      {
+       "id": "fr",
+       "text": "frame: p2"
+      },
+      {
+       "id": "ft",
+       "text": "faults: 3"
+      },
+      {
+       "id": "ord",
+       "text": "row-wise: 3"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         2,
+         0
+        ],
+        [
+         2,
+         1
+        ],
+        [
+         2,
+         2
+        ],
+        [
+         2,
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "Column-wise loop: `M[0][0]` is on page 0, `M[1][0]` on page 1, `M[2][0]` on page 2. Every access needs a different page than the previous one.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "fr",
+       "text": "frame: p0"
+      },
+      {
+       "id": "ft",
+       "text": "faults: 1"
+      },
+      {
+       "id": "ord",
+       "text": "column-wise"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         0
+        ],
+        [
+         1,
+         0
+        ],
+        [
+         2,
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "The next column starts on page 0 again, but page 0 was just evicted. The page order is 0, 1, 2, 0, 1, 2, ..., so every access faults: 12 faults.",
+     "set": [
+      {
+       "id": "g",
+       "cells": [
+        1,
+        4,
+        7,
+        10,
+        2,
+        5,
+        8,
+        11,
+        3,
+        6,
+        9,
+        12
+       ]
+      },
+      {
+       "id": "fr",
+       "text": "frame: p0"
+      },
+      {
+       "id": "ft",
+       "text": "faults: 4"
+      },
+      {
+       "id": "ord",
+       "text": "p0,p1,p2,p0,..."
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         1
+        ],
+        [
+         1,
+         1
+        ],
+        [
+         2,
+         1
+        ]
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Same 12 elements, 3 faults against 12 faults.",
+     "set": [
+      {
+       "id": "ft",
+       "text": "faults: 12"
+      },
+      {
+       "id": "ord",
+       "text": "all 12 fault"
+      },
+      {
+       "id": "res",
+       "text": "row-wise 3, column-wise 12"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "g",
+       "cells": [
+        [
+         0,
+         3
+        ],
+        [
+         1,
+         3
+        ],
+        [
+         2,
+         3
+        ]
+       ],
+       "tone": "bad"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.arrays.a7.init",
+   "title": "int a[6] = {4, 8}: the tail becomes zero",
+   "viewBox": [
+    0,
+    0,
+    360,
+    190
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "int a[6] = {4, 8};",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "mono": true
+    },
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 24,
+     "y": 70,
+     "cells": [
+      "?",
+      "?",
+      "?",
+      "?",
+      "?",
+      "?"
+     ],
+     "cw": 52,
+     "ch": 38
+    },
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 180,
+     "y": 148,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "f2",
+     "kind": "text",
+     "x": 180,
+     "y": 174,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Fill the array. `int a[6]` reserves six cells in a row. The initialiser list `{4, 8}` has only two values.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "six cells reserved, contents unknown yet"
+      }
+     ],
+     "highlight": [
+      "a"
+     ]
+    },
+    {
+     "caption": "The list writes `a[0] = 4` and `a[1] = 8`.",
+     "set": [
+      {
+       "id": "a",
+       "cells": [
+        4,
+        8,
+        "?",
+        "?",
+        "?",
+        "?"
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "the list writes a[0] and a[1]"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        0,
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "C sets every cell the list did not mention to zero: `a[2]` to `a[5]` become 0.",
+     "set": [
+      {
+       "id": "a",
+       "cells": [
+        4,
+        8,
+        0,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "C zero-fills every cell not listed"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        2,
+        3,
+        4,
+        5
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "`a[0] + a[3] + a[5]` = 4 + 0 + 0.",
+     "set": [
+      {
+       "id": "f2",
+       "text": "a[0] + a[3] + a[5] = 4 + 0 + 0 = 4"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        0,
+        3,
+        5
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ds.arrays.a8.two_pointers",
+   "title": "Two pointers close in on target 10",
+   "viewBox": [
+    0,
+    0,
+    360,
+    217
+   ],
+   "objects": [
+    {
+     "id": "hd",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "sorted array, find a pair with sum 10",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "a",
+     "kind": "array",
+     "x": 30,
+     "y": 80,
+     "cells": [
+      1,
+      3,
+      4,
+      6,
+      8,
+      11
+     ],
+     "cw": 50,
+     "ch": 38
+    },
+    {
+     "id": "L",
+     "kind": "pointer",
+     "array": "a",
+     "index": 0,
+     "label": "L",
+     "side": "above"
+    },
+    {
+     "id": "R",
+     "kind": "pointer",
+     "array": "a",
+     "index": 5,
+     "label": "R",
+     "side": "above"
+    },
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 180,
+     "y": 152,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "mono": true
+    },
+    {
+     "id": "f2",
+     "kind": "text",
+     "x": 180,
+     "y": 180,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "accent"
+    },
+    {
+     "id": "res",
+     "kind": "text",
+     "x": 180,
+     "y": 204,
+     "text": "",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "good"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Close the gap from both ends. Put a left pointer `L` at index 0 and a right pointer `R` at index 5. Each step looks at `A[L] + A[R]`.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "L = 0, R = 5"
+      },
+      {
+       "id": "f2",
+       "text": "compare A[L] + A[R] with 10"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        0,
+        5
+       ]
+      }
+     ]
+    },
+    {
+     "caption": "`1 + 11 = 12`, which is more than 10. Only moving `R` left can make the sum smaller. `R` goes to index 4.",
+     "move": {
+      "id": "R",
+      "index": 4
+     },
+     "set": [
+      {
+       "id": "f1",
+       "text": "1 + 11 = 12 > 10"
+      },
+      {
+       "id": "f2",
+       "text": "too big: move R left"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        0,
+        5
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "`1 + 8 = 9`, which is less than 10. Only moving `L` right can make the sum bigger. `L` goes to index 1.",
+     "move": {
+      "id": "L",
+      "index": 1
+     },
+     "set": [
+      {
+       "id": "f1",
+       "text": "1 + 8 = 9 < 10"
+      },
+      {
+       "id": "f2",
+       "text": "too small: move L right"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        0,
+        4
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "`3 + 8 = 11`, too big. `R` goes to index 3.",
+     "move": {
+      "id": "R",
+      "index": 3
+     },
+     "set": [
+      {
+       "id": "f1",
+       "text": "3 + 8 = 11 > 10"
+      },
+      {
+       "id": "f2",
+       "text": "too big: move R left"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        1,
+        4
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "`3 + 6 = 9`, too small. `L` goes to index 2.",
+     "move": {
+      "id": "L",
+      "index": 2
+     },
+     "set": [
+      {
+       "id": "f1",
+       "text": "3 + 6 = 9 < 10"
+      },
+      {
+       "id": "f2",
+       "text": "too small: move L right"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        1,
+        3
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "`4 + 6 = 10`. Found after 5 sums. Neither pointer moved backwards.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "4 + 6 = 10"
+      },
+      {
+       "id": "f2",
+       "text": "found after 5 sums"
+      },
+      {
+       "id": "res",
+       "text": "pair: 4 and 6"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "a",
+       "cells": [
+        2,
+        3
+       ],
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

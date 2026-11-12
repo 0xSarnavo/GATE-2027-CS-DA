@@ -1,0 +1,2277 @@
+{
+ "topic_id": "coa.io",
+ "title": "I/O and DMA",
+ "chapter_note": {
+  "about": "Input and output questions are all about who does the work and how long it takes. A device is slow, so the CPU must either keep checking it (polling), wait to be told (interrupts), or hand the whole job to a helper (DMA). This chapter covers each method in that order, then compares their CPU cost. It ends with the disk, whose access time is the standard arithmetic example of seek, rotation and transfer.",
+  "simple": "A computer talks to slow things like keyboards and disks. There are three ways to wait for them. In the first, the CPU keeps asking if the thing is ready, which wastes time. In the second, the device rings a bell when it is ready, and the CPU stops what it is doing for a moment. In the third, a helper moves a whole pile of data by itself and rings the bell only once at the end. You also learn how long a hard disk takes to find a sector: move the arm, wait for the spin, then read. In exam words: polling, interrupts, DMA, cycle stealing, disk access time.",
+  "concept_map": [
+   {
+    "atom_id": "i1",
+    "title": "Programmed I/O and polling",
+    "one_line": "The CPU loops on a status bit; cost is poll rate times poll time, paid every time."
+   },
+   {
+    "atom_id": "i2",
+    "title": "Interrupt sequence",
+    "one_line": "Finish the instruction, save PC and flags, load the ISR address, run, restore."
+   },
+   {
+    "atom_id": "i2b",
+    "title": "Vectored interrupts and priority",
+    "one_line": "The vector points to the ISR; a daisy chain gives priority by position."
+   },
+   {
+    "atom_id": "i3",
+    "title": "DMA modes and the count register",
+    "one_line": "The controller is bus master; the count register limits one transfer."
+   },
+   {
+    "atom_id": "i4",
+    "title": "Cycle-stealing transfer rate",
+    "one_line": "Rate = clock x stolen fraction x bits per cycle."
+   },
+   {
+    "atom_id": "i5",
+    "title": "CPU overhead: polling, interrupts, DMA",
+    "one_line": "Polling pays for waiting, interrupts per event, DMA per block."
+   },
+   {
+    "atom_id": "i6",
+    "title": "Disk access time",
+    "one_line": "Seek + half a rotation + one sector transfer."
+   }
+  ],
+  "gate_patterns": [
+   "Interrupts: order of events, saved return address, vectored interrupts and daisy-chain priority (2018 CS Q19, 2025 CS1 Q11, 2026 CS2 Q18, 2020 CS Q13, 2009 CS Q8).",
+   "DMA numbers: data rate by cycle stealing, count register transfers and the CPU share of DMA overhead (2021 CS2 Q30, 2024 CS2 Q11, 2004 CS Q68, 2005 CS Q70, 2011 CS Q28, 2016 CS1 Q31).",
+   "Choosing and costing a technique, and disk geometry and access time (2023 CS Q34, 2005 CS Q69, 2022 CS Q17, 2024 CS1 Q54, 2024 CS2 Q53). Weightage: about 0.9 marks per CS paper."
+  ]
+ },
+ "cards": [
+  {
+   "atom_id": "i1",
+   "title": "Programmed I/O and polling",
+   "simple": "Say you are waiting for a parcel. Polling is walking to the front door every few minutes to check. Each walk costs effort, whether or not the parcel has come. If the parcel arrives right after you checked, you only find out on your next walk. The effort per hour depends only on how often you walk, not on how many parcels arrive. In exam words: in polling, also called programmed I/O, the CPU keeps reading a device's status register. The cost per second is polls per second times the CPU time of one poll.",
+   "idea": "With **polling** (programmed I/O) the CPU reads a device's status register again and again until the ready bit is set. Every poll costs CPU time, whether or not the device has anything to report. To lose no data, the CPU must poll at least as often as the device produces data.",
+   "definition": "CPU share of polling $=f_{poll}\\times t_{poll}$, where $f_{poll}$ is polls per second and $t_{poll}$ is the CPU time of one poll.\n\nTo lose no data with a one-item buffer, polls must be at least as frequent as events: $f_{poll}\\ge$ event rate. The polling cost does not depend on how many events actually happen.",
+   "intuition_full": "The CPU has no way to be told that the device is ready, so it asks. Asking is cheap but it never stops. If you ask very often, you catch events quickly but burn a large share of the CPU. If you ask rarely, you waste little but events wait, and a device with a one-byte buffer can overrun and lose data. So the polling rate is set by the device's data rate, not by the CPU's convenience. The total cost is a fixed bill per second, like a fixed rent. Interrupts work the other way: they cost nothing while the device is idle and charge per event. Polling tends to win only when events are so frequent that nearly every poll finds one. That is the break-even idea behind questions that compare the two.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The CPU polls a device status register every 4 ms. Each poll takes 30 $\\mu$s of CPU time. The device becomes ready at 9 ms. What fraction of the CPU does polling use, and how long does the event wait?",
+     "steps": [
+      "The CPU polls the status register every 4 ms, so 250 times a second. Each poll costs 30 $\\mu$s of CPU time.",
+      "Polls at 0, 4 and 8 ms find the device not ready. They still cost 30 $\\mu$s each.",
+      "The device becomes ready at 9 ms. Nothing happens yet: the CPU only learns this at its next poll.",
+      "The poll at 12 ms finds the device ready and the CPU serves it. The event waited 3 ms.",
+      "In one second there are 250 polls, whether or not any event happened: $250\\times30\\ \\mu\\text{s}=7.5$ ms.",
+      "That is $7.5/1000=0.75\\%$ of the CPU. It is set by the poll rate alone, not by how many events occur."
+     ],
+     "answer": "Polling uses 0.75% of the CPU. This event waited 3 ms until the poll at 12 ms."
+    },
+    {
+     "level": "gate",
+     "setup": "A sensor puts one byte into a 1-byte register every 5 ms. The CPU runs at 2 GHz and one poll takes 1500 cycles. The CPU polls just often enough to lose no byte. What percentage of CPU time is spent polling?",
+     "steps": [
+      "A new byte arrives every 5 ms, so the CPU must poll at least $1/5\\text{ ms}=200$ times a second.",
+      "One poll $=1500/(2\\times10^9)\\text{ s}=0.75\\ \\mu\\text{s}$.",
+      "CPU time per second $=200\\times0.75\\ \\mu\\text{s}=150\\ \\mu\\text{s}$.",
+      "Share $=150\\ \\mu\\text{s}/1\\text{ s}=0.015\\%$."
+     ],
+     "answer": "0.015%. The data rate fixes the minimum poll rate, and the poll rate fixes the cost."
+    },
+    {
+     "level": "twist",
+     "setup": "Polling costs 7.5 ms of CPU per second (the scene above). An interrupt-driven design costs 40 $\\mu$s per event and nothing otherwise. How many events per second make interrupts more expensive than polling?",
+     "steps": [
+      "Interrupt cost per second $=40\\ \\mu\\text{s}\\times e$ for $e$ events per second.",
+      "Set it equal to polling: $40\\ \\mu\\text{s}\\times e=7500\\ \\mu\\text{s}$, so $e=187.5$.",
+      "Above about 188 events per second the interrupt design costs more. Below that, interrupts win."
+     ],
+     "answer": "About 188 events per second. Polling has a fixed bill and interrupts a per-event bill, so there is a break-even rate."
+    }
+   ],
+   "why": "Polling is the simplest I/O method and the baseline the others are compared against. In GATE: the CPU share of polling for a given poll rate, or whether polling or interrupts cost less for a given event rate.",
+   "how": [
+    "Find the poll rate (from the stem, or from the minimum needed to lose no data).",
+    "Cost per second $=f_{poll}\\times t_{poll}$. Convert cycles to time with the clock rate.",
+    "Add the service time only for polls that find an event, if the stem says so.",
+    "Compare with interrupts using cost per event times event rate."
+   ],
+   "mistake": "Counting only the polls that find an event. Every poll costs CPU time, including the ones that find nothing. That is the whole price of polling.",
+   "edge_cases": [
+    "No events at all: polling still costs $f_{poll}\\,t_{poll}$ every second.",
+    "Event arrives just after a poll: it waits almost a full poll interval.",
+    "A slow poll rate can lose data if the device buffer is only one item."
+   ],
+   "connections": [
+    "Interrupts (next cards) remove the idle cost of polling.",
+    "Card i5 compares polling, interrupts and DMA on the same transfer."
+   ],
+   "check": [
+    {
+     "q": "A device is polled 500 times a second at 10 $\\mu$s per poll. What share of the CPU is used?",
+     "a": "$500\\times10\\ \\mu\\text{s}=5$ ms per second, which is 0.5%."
+    },
+    {
+     "q": "Does polling cost more when the device is busy than when it is idle?",
+     "a": "No. The poll cost is the same either way."
+    },
+    {
+     "q": "A device delivers a byte every 2 ms into a 1-byte buffer. What is the minimum poll rate?",
+     "a": "500 polls per second."
+    }
+   ],
+   "asked": "Asked: 2023 CS Q34, 2005 CS Q69",
+   "try": {
+    "id": "gen.coa.io.001",
+    "label": "Try: the CPU-polling technique question (L1)"
+   },
+   "scene": "coa.io.i1",
+   "example": {
+    "setup": "The CPU polls a device status register every 4 ms. Each poll takes 30 $\\mu$s of CPU time. The device becomes ready at 9 ms. What fraction of the CPU does polling use, and how long does the event wait?",
+    "steps": [
+     "The CPU polls the status register every 4 ms, so 250 times a second. Each poll costs 30 $\\mu$s of CPU time.",
+     "Polls at 0, 4 and 8 ms find the device not ready. They still cost 30 $\\mu$s each.",
+     "The device becomes ready at 9 ms. Nothing happens yet: the CPU only learns this at its next poll.",
+     "The poll at 12 ms finds the device ready and the CPU serves it. The event waited 3 ms.",
+     "In one second there are 250 polls, whether or not any event happened: $250\\times30\\ \\mu\\text{s}=7.5$ ms.",
+     "That is $7.5/1000=0.75\\%$ of the CPU. It is set by the poll rate alone, not by how many events occur."
+    ],
+    "answer": "Polling uses 0.75% of the CPU. This event waited 3 ms until the poll at 12 ms."
+   },
+   "what": "With **polling** (programmed I/O) the CPU reads a device's status register again and again until the ready bit is set. Every poll costs CPU time, whether or not the device has anything to report. To lose no data, the CPU must poll at least as often as the device produces data.",
+   "what_full": "With **polling** (programmed I/O) the CPU reads a device's status register again and again until the ready bit is set. Every poll costs CPU time, whether or not the device has anything to report. To lose no data, the CPU must poll at least as often as the device produces data.\n\nCPU share of polling $=f_{poll}\\times t_{poll}$, where $f_{poll}$ is polls per second and $t_{poll}$ is the CPU time of one poll.\n\nTo lose no data with a one-item buffer, polls must be at least as frequent as events: $f_{poll}\\ge$ event rate. The polling cost does not depend on how many events actually happen.\n\n**Worked example.** The CPU polls a device status register every 4 ms. Each poll takes 30 $\\mu$s of CPU time. The device becomes ready at 9 ms. What fraction of the CPU does polling use, and how long does the event wait?\n\n1. The CPU polls the status register every 4 ms, so 250 times a second. Each poll costs 30 $\\mu$s of CPU time.\n2. Polls at 0, 4 and 8 ms find the device not ready. They still cost 30 $\\mu$s each.\n3. The device becomes ready at 9 ms. Nothing happens yet: the CPU only learns this at its next poll.\n4. The poll at 12 ms finds the device ready and the CPU serves it. The event waited 3 ms.\n5. In one second there are 250 polls, whether or not any event happened: $250\\times30\\ \\mu\\text{s}=7.5$ ms.\n6. That is $7.5/1000=0.75\\%$ of the CPU. It is set by the poll rate alone, not by how many events occur.\n\n**Answer:** Polling uses 0.75% of the CPU. This event waited 3 ms until the poll at 12 ms.",
+   "why_full": "Polling is the simplest I/O method and the baseline the others are compared against. In GATE: the CPU share of polling for a given poll rate, or whether polling or interrupts cost less for a given event rate.\n\nAsked: 2023 CS Q34, 2005 CS Q69",
+   "trap": "Counting only the polls that find an event. Every poll costs CPU time, including the ones that find nothing. That is the whole price of polling."
+  },
+  {
+   "atom_id": "i2",
+   "title": "Interrupt sequence",
+   "simple": "You are reading a book and your phone buzzes. You do not stop mid-sentence. You finish the sentence, put a bookmark where you will resume, pick up the phone and deal with it. When you are done, you go back to the bookmark and carry on as if nothing happened. The CPU does the same. In exam words: the CPU finishes the current instruction, saves the PC and status, loads the ISR address, runs the interrupt service routine, then restores the state and returns.",
+   "idea": "An **interrupt** lets a device ask for attention without being polled. The CPU finishes the **current instruction**, saves where it was (the PC and the flags), jumps to the **interrupt service routine (ISR)**, and then returns to exactly where it left off. The order of these steps is fixed.",
+   "definition": "Sequence: (1) device raises the interrupt request; (2) CPU completes the current instruction; (3) CPU saves the PC (address of the next instruction) and the status flags; (4) CPU loads the ISR address into PC; (5) ISR runs; (6) return-from-interrupt restores the status and the PC.\n\nThe saved PC is the address of the instruction that would have run next, not the one that was interrupted.",
+   "intuition_full": "An instruction is the unit the hardware cannot split, so interrupts are taken at an instruction boundary. At that moment PC already holds the next address, so saving it is enough to resume later. The status flags must be saved too, because the ISR will change them, and the interrupted program expects its comparison result to survive. Saving comes before loading the ISR address, since loading overwrites PC. A stack is used because interrupts can nest: a more urgent device may interrupt an ISR, and the saved values then unwind in reverse order, last in first out. The ISR itself may also save the registers it uses. The cost of an interrupt is the save, the jump, the ISR body, and the restore.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 4-byte-word machine runs I1 at 4000, I2 at 4004 (two words), I3 at 4012, I4 at 4016 (two words) and I5 at 4024. A device interrupts while I2 executes. Follow the CPU through the interrupt and give the saved return address.",
+     "steps": [
+      "The program runs from address 4000. I2 (at 4004, two words long) is executing, so PC already holds 4012, the address of I3. A device raises an interrupt request.",
+      "The CPU does not stop in the middle of I2. It finishes the instruction first.",
+      "The CPU saves the return address 4012 (and the flags) on the stack.",
+      "It loads the start address of the interrupt service routine (ISR) into PC, so control jumps to the ISR.",
+      "The ISR serves the device. Its last instruction is return-from-interrupt.",
+      "Return pops the saved values: PC becomes 4012 again and the flags come back. I3 runs next, as if nothing had happened."
+     ],
+     "answer": "The saved return address is 4012, the instruction after I2. Order: finish instruction, save PC and flags, load ISR address, run ISR, restore."
+    },
+    {
+     "level": "gate",
+     "setup": "A 32-bit processor has a stack that grows downward. On an interrupt, hardware pushes the 4-byte PC and then the 4-byte PSW. SP points to the last item pushed and starts at $\\text{0x2000}$. What is SP after the interrupt is accepted, and where is each item stored?",
+     "steps": [
+      "Push PC first: $\\text{SP}=\\text{0x2000}-4=\\text{0x1FFC}$, and PC is stored at $\\text{0x1FFC}$.",
+      "Push PSW next: $\\text{SP}=\\text{0x1FF8}$, and PSW is stored at $\\text{0x1FF8}$.",
+      "Return-from-interrupt pops in reverse: PSW from $\\text{0x1FF8}$ first, then PC from $\\text{0x1FFC}$, and SP returns to $\\text{0x2000}$."
+     ],
+     "answer": "SP $=\\text{0x1FF8}$. PSW is on top at $\\text{0x1FF8}$ and PC below it at $\\text{0x1FFC}$. They come back in last-in, first-out order."
+    },
+    {
+     "level": "twist",
+     "setup": "While a low-priority ISR is running, a higher-priority device interrupts it. The first interrupt saved return address 4012. The higher-priority interrupt arrives while the ISR is about to execute the instruction at 9040 (a 4-byte instruction). Describe the stack and the order of return.",
+     "steps": [
+      "Stack after the first interrupt: [4012].",
+      "The second interrupt is taken after the ISR instruction at 9040 completes. PC is 9044, so 9044 is pushed: [4012, 9044].",
+      "The high-priority ISR finishes and pops 9044, so the low-priority ISR resumes at 9044. When it finishes it pops 4012 and the main program resumes at I3."
+     ],
+     "answer": "Stack depth 2, top to bottom: 9044 then 4012. Returns happen in reverse order: first to 9044, then to 4012."
+    }
+   ],
+   "why": "Interrupts replace the wasteful polling loop and let the CPU do useful work between events. In GATE: put interrupt events in the right order, give the saved return address, or reason about stack contents and nesting.",
+   "how": [
+    "Remember the order: finish the instruction, save PC and status, load ISR address, run ISR, restore and return.",
+    "The saved PC is the address of the next instruction after the interrupted one.",
+    "For stack questions: each push moves SP by the item size, and pops reverse the pushes.",
+    "For nested interrupts, the stack unwinds last-in, first-out."
+   ],
+   "mistake": "Saving the state after loading the ISR address (PC is already overwritten), or interrupting in the middle of an instruction. The CPU always finishes the current instruction first.",
+   "edge_cases": [
+    "Interrupts can be masked (disabled) by a flag; a masked request waits.",
+    "An interrupt during a multi-word instruction is taken after the whole instruction, so the return address skips all its words.",
+    "Traps and exceptions raised by the instruction itself are handled in the same way but saved PC may point at the faulting instruction."
+   ],
+   "connections": [
+    "Card i2b covers how the ISR address is found (vectored interrupts) and how priority is decided.",
+    "The OS chapter builds the context switch on this same save and restore."
+   ],
+   "check": [
+    {
+     "q": "At which point in an instruction does the CPU accept an interrupt?",
+     "a": "At the end of the current instruction."
+    },
+    {
+     "q": "Which comes first, saving the PC or loading the ISR address?",
+     "a": "Saving the PC. Loading the ISR address overwrites PC."
+    },
+    {
+     "q": "Instructions are 4 bytes each at 100, 104, 108. An interrupt arrives during the one at 104. What return address is saved?",
+     "a": "108."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q19, 2025 CS1 Q11, 2026 CS2 Q18, 2020 CS Q13, 2009 CS Q8, 2002 CS Q1_9, 2005 CS Q19, 2001 CS Q1_12, 2011 CS Q11, 2007 CS Q73",
+   "try": {
+    "id": "gen.coa.io.002",
+    "label": "Try: the interrupt during an instruction question (L1)"
+   },
+   "scene": "coa.io.i2",
+   "example": {
+    "setup": "A 4-byte-word machine runs I1 at 4000, I2 at 4004 (two words), I3 at 4012, I4 at 4016 (two words) and I5 at 4024. A device interrupts while I2 executes. Follow the CPU through the interrupt and give the saved return address.",
+    "steps": [
+     "The program runs from address 4000. I2 (at 4004, two words long) is executing, so PC already holds 4012, the address of I3. A device raises an interrupt request.",
+     "The CPU does not stop in the middle of I2. It finishes the instruction first.",
+     "The CPU saves the return address 4012 (and the flags) on the stack.",
+     "It loads the start address of the interrupt service routine (ISR) into PC, so control jumps to the ISR.",
+     "The ISR serves the device. Its last instruction is return-from-interrupt.",
+     "Return pops the saved values: PC becomes 4012 again and the flags come back. I3 runs next, as if nothing had happened."
+    ],
+    "answer": "The saved return address is 4012, the instruction after I2. Order: finish instruction, save PC and flags, load ISR address, run ISR, restore."
+   },
+   "what": "An **interrupt** lets a device ask for attention without being polled. The CPU finishes the **current instruction**, saves where it was (the PC and the flags), jumps to the **interrupt service routine (ISR)**, and then returns to exactly where it left off. The order of these steps is fixed.",
+   "what_full": "An **interrupt** lets a device ask for attention without being polled. The CPU finishes the **current instruction**, saves where it was (the PC and the flags), jumps to the **interrupt service routine (ISR)**, and then returns to exactly where it left off. The order of these steps is fixed.\n\nSequence: (1) device raises the interrupt request; (2) CPU completes the current instruction; (3) CPU saves the PC (address of the next instruction) and the status flags; (4) CPU loads the ISR address into PC; (5) ISR runs; (6) return-from-interrupt restores the status and the PC.\n\nThe saved PC is the address of the instruction that would have run next, not the one that was interrupted.\n\n**Worked example.** A 4-byte-word machine runs I1 at 4000, I2 at 4004 (two words), I3 at 4012, I4 at 4016 (two words) and I5 at 4024. A device interrupts while I2 executes. Follow the CPU through the interrupt and give the saved return address.\n\n1. The program runs from address 4000. I2 (at 4004, two words long) is executing, so PC already holds 4012, the address of I3. A device raises an interrupt request.\n2. The CPU does not stop in the middle of I2. It finishes the instruction first.\n3. The CPU saves the return address 4012 (and the flags) on the stack.\n4. It loads the start address of the interrupt service routine (ISR) into PC, so control jumps to the ISR.\n5. The ISR serves the device. Its last instruction is return-from-interrupt.\n6. Return pops the saved values: PC becomes 4012 again and the flags come back. I3 runs next, as if nothing had happened.\n\n**Answer:** The saved return address is 4012, the instruction after I2. Order: finish instruction, save PC and flags, load ISR address, run ISR, restore.",
+   "why_full": "Interrupts replace the wasteful polling loop and let the CPU do useful work between events. In GATE: put interrupt events in the right order, give the saved return address, or reason about stack contents and nesting.\n\nAsked: 2018 CS Q19, 2025 CS1 Q11, 2026 CS2 Q18, 2020 CS Q13, 2009 CS Q8, 2002 CS Q1_9, 2005 CS Q19, 2001 CS Q1_12, 2011 CS Q11, 2007 CS Q73",
+   "trap": "Saving the state after loading the ISR address (PC is already overwritten), or interrupting in the middle of an instruction. The CPU always finishes the current instruction first."
+  },
+  {
+   "atom_id": "i2b",
+   "title": "Vectored interrupts and daisy-chain priority",
+   "simple": "Imagine three students in a row behind the teacher, all with their hands up. To pick one, the teacher sends a note down the row. The first student with a hand up grabs it and answers, so the ones behind never get it. That is a daisy chain: the closest student wins. The chosen student also says their roll number, so the teacher knows who it is without asking everyone. That roll number is the vector. In exam words: a vectored interrupt supplies an identifying number, and the CPU uses it to find the ISR directly. In a daisy chain, priority follows position.",
+   "idea": "A **vectored interrupt** brings its own identity: the device sends a vector number that points straight to its ISR, so the CPU does not poll devices to find the source. When several devices request at once, a **daisy chain** passes the acknowledge signal along a wire. The first requesting device on the chain keeps it, so priority follows position.",
+   "definition": "ISR address $=$ the entry at $\\text{table base}+\\text{vector}\\times\\text{entry size}$.\n\nNon-vectored: the CPU jumps to one fixed ISR, which polls the devices to find the requester. Vectored: the device supplies the vector. Daisy chain: the device nearest the CPU has the highest priority, and a device with no request passes the acknowledge signal on.",
+   "intuition_full": "Without vectors, one shared handler must ask every device whether it was the one. That polling takes time proportional to the number of devices. A vector replaces the search by a table look-up, which takes the same time for any device. Priority is a separate question: when two requests arrive together, someone must be served first. Daisy chaining does this with almost no extra hardware, since the acknowledge wire runs through each device and the first one that needs it blocks it. The price is that priority is fixed by wiring and a device far down the chain can starve if nearer devices keep requesting. A faulty device that does not pass the signal blocks everything behind it. A parallel priority encoder avoids both problems at higher cost.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "Devices D1, D2, D3 sit in a daisy chain in that order from the CPU. D2 and D3 request an interrupt together. D2's vector is 0x21 and the vector table has 4-byte entries. Which device is served first, and where is its ISR address?",
+     "steps": [
+      "Three devices are wired in a chain behind the CPU. D1 is nearest the CPU and D3 is farthest. All share one interrupt request line.",
+      "D2 and D3 raise requests at the same time. The CPU sees one request on the shared line.",
+      "The CPU finishes its instruction and sends the acknowledge signal down the chain. It reaches D1 first. D1 has no request, so it passes the signal on.",
+      "D2 has a request, so it keeps the acknowledge signal. D3 never sees it and must wait. Position in the chain decides priority.",
+      "D2 puts its vector number, 0x21, on the data bus. The CPU multiplies by 4 (4-byte table entries): $0x21\\times4=132$. No polling is needed.",
+      "The CPU reads the ISR address from table entry 132 and jumps to it. After D2 is done, D3's request is acknowledged next."
+     ],
+     "answer": "D2 is served first because it is nearer the CPU. Its ISR address is stored at table offset $132=\\text{0x84}$."
+    },
+    {
+     "level": "gate",
+     "setup": "A system has a vector table starting at $\\text{0x0400}$ with 4-byte entries. A device places vector $\\text{0x1C}$ on the bus. At what address is the ISR address stored?",
+     "steps": [
+      "Offset $=\\text{vector}\\times\\text{entry size}=\\text{0x1C}\\times4=28\\times4=112=\\text{0x70}$.",
+      "Address $=\\text{0x0400}+\\text{0x70}=\\text{0x0470}$."
+     ],
+     "answer": "$\\text{0x0470}$. Forgetting to multiply by the entry size would give $\\text{0x041C}$, which is wrong."
+    },
+    {
+     "level": "twist",
+     "setup": "In a daisy chain D1, D2, D3, D4 (D1 nearest the CPU), D2 is faulty and never passes the acknowledge signal on. D3 and D4 request an interrupt. What happens?",
+     "steps": [
+      "The acknowledge signal passes D1 and reaches D2.",
+      "D2 is not requesting, but being faulty it does not forward the signal either.",
+      "D3 and D4 never see the acknowledge, so their requests stay pending."
+     ],
+     "answer": "D3 and D4 are never served. A daisy chain depends on every device forwarding the signal, so one fault blocks all devices behind it."
+    }
+   ],
+   "why": "Vectors and priority decide how fast the right ISR starts and who goes first. In GATE: statements about vectored versus non-vectored interrupts and daisy chains, and sometimes the table address of an ISR.",
+   "how": [
+    "Vectored: the device sends the vector, so the CPU does not poll.",
+    "ISR address location $=\\text{base}+\\text{vector}\\times\\text{entry size}$.",
+    "Daisy chain: the nearest requesting device wins. The CPU does not poll every device.",
+    "Check what a fault in the chain blocks: everything behind it."
+   ],
+   "mistake": "Reading daisy chaining as the CPU polling every device. The CPU sends one acknowledge signal, and the devices themselves decide who keeps it, in order of position.",
+   "edge_cases": [
+    "Non-vectored interrupts need a polling routine inside the ISR to find the source.",
+    "Priority is fixed by position in a daisy chain, so the farthest device can starve.",
+    "Masking an interrupt keeps it pending but does not lose it."
+   ],
+   "connections": [
+    "Builds on the interrupt sequence (card i2).",
+    "Parallel priority schemes (an encoder) trade hardware for flexible priorities."
+   ],
+   "check": [
+    {
+     "q": "In a daisy chain, which requesting device is acknowledged first?",
+     "a": "The one nearest the CPU."
+    },
+    {
+     "q": "Vector $\\text{0x10}$, table base $\\text{0x0000}$, 4-byte entries. Where is the ISR address?",
+     "a": "$\\text{0x10}\\times4=\\text{0x40}$."
+    },
+    {
+     "q": "Why is a vectored interrupt faster than a non-vectored one?",
+     "a": "The CPU jumps via the vector directly and does not poll devices."
+    }
+   ],
+   "asked": "Asked: 2018 CS Q19, 2025 CS1 Q11, 2026 CS2 Q18, 2020 CS Q13, 2009 CS Q8, 2002 CS Q1_9, 2005 CS Q19, 2001 CS Q1_12, 2011 CS Q11, 2007 CS Q73",
+   "try": {
+    "id": "gen.coa.io.009",
+    "label": "Try: the vectored versus non-vectored interrupt question (L2)"
+   },
+   "scene": "coa.io.i2b",
+   "example": {
+    "setup": "Devices D1, D2, D3 sit in a daisy chain in that order from the CPU. D2 and D3 request an interrupt together. D2's vector is 0x21 and the vector table has 4-byte entries. Which device is served first, and where is its ISR address?",
+    "steps": [
+     "Three devices are wired in a chain behind the CPU. D1 is nearest the CPU and D3 is farthest. All share one interrupt request line.",
+     "D2 and D3 raise requests at the same time. The CPU sees one request on the shared line.",
+     "The CPU finishes its instruction and sends the acknowledge signal down the chain. It reaches D1 first. D1 has no request, so it passes the signal on.",
+     "D2 has a request, so it keeps the acknowledge signal. D3 never sees it and must wait. Position in the chain decides priority.",
+     "D2 puts its vector number, 0x21, on the data bus. The CPU multiplies by 4 (4-byte table entries): $0x21\\times4=132$. No polling is needed.",
+     "The CPU reads the ISR address from table entry 132 and jumps to it. After D2 is done, D3's request is acknowledged next."
+    ],
+    "answer": "D2 is served first because it is nearer the CPU. Its ISR address is stored at table offset $132=\\text{0x84}$."
+   },
+   "what": "A **vectored interrupt** brings its own identity: the device sends a vector number that points straight to its ISR, so the CPU does not poll devices to find the source. When several devices request at once, a **daisy chain** passes the acknowledge signal along a wire. The first requesting device on the chain keeps it, so priority follows position.",
+   "what_full": "A **vectored interrupt** brings its own identity: the device sends a vector number that points straight to its ISR, so the CPU does not poll devices to find the source. When several devices request at once, a **daisy chain** passes the acknowledge signal along a wire. The first requesting device on the chain keeps it, so priority follows position.\n\nISR address $=$ the entry at $\\text{table base}+\\text{vector}\\times\\text{entry size}$.\n\nNon-vectored: the CPU jumps to one fixed ISR, which polls the devices to find the requester. Vectored: the device supplies the vector. Daisy chain: the device nearest the CPU has the highest priority, and a device with no request passes the acknowledge signal on.\n\n**Worked example.** Devices D1, D2, D3 sit in a daisy chain in that order from the CPU. D2 and D3 request an interrupt together. D2's vector is 0x21 and the vector table has 4-byte entries. Which device is served first, and where is its ISR address?\n\n1. Three devices are wired in a chain behind the CPU. D1 is nearest the CPU and D3 is farthest. All share one interrupt request line.\n2. D2 and D3 raise requests at the same time. The CPU sees one request on the shared line.\n3. The CPU finishes its instruction and sends the acknowledge signal down the chain. It reaches D1 first. D1 has no request, so it passes the signal on.\n4. D2 has a request, so it keeps the acknowledge signal. D3 never sees it and must wait. Position in the chain decides priority.\n5. D2 puts its vector number, 0x21, on the data bus. The CPU multiplies by 4 (4-byte table entries): $0x21\\times4=132$. No polling is needed.\n6. The CPU reads the ISR address from table entry 132 and jumps to it. After D2 is done, D3's request is acknowledged next.\n\n**Answer:** D2 is served first because it is nearer the CPU. Its ISR address is stored at table offset $132=\\text{0x84}$.",
+   "why_full": "Vectors and priority decide how fast the right ISR starts and who goes first. In GATE: statements about vectored versus non-vectored interrupts and daisy chains, and sometimes the table address of an ISR.\n\nAsked: 2018 CS Q19, 2025 CS1 Q11, 2026 CS2 Q18, 2020 CS Q13, 2009 CS Q8, 2002 CS Q1_9, 2005 CS Q19, 2001 CS Q1_12, 2011 CS Q11, 2007 CS Q73",
+   "trap": "Reading daisy chaining as the CPU polling every device. The CPU sends one acknowledge signal, and the devices themselves decide who keeps it, in order of position."
+  },
+  {
+   "atom_id": "i3",
+   "title": "DMA modes and the count register",
+   "simple": "Think of a delivery truck that unloads a pile of boxes straight into the warehouse, without the manager carrying each box. The manager only gives the truck a short note at the start: where to put the boxes and how many. The truck then does all the carrying by itself and rings a bell when it is done. The manager is free to do other jobs in between. The note can only hold a limited number, so a very large delivery needs several notes. In exam words: direct memory access (DMA) moves data between a device and memory without the CPU. The CPU programs an address register and a count register, and the DMA controller interrupts once at the end.",
+   "idea": "With **DMA** a controller moves a block of data between a device and memory by itself. The CPU only sets it up: start address, count and direction. The controller becomes **bus master** for the transfer, then raises one interrupt when the count reaches zero. An $n$-bit count register limits one transfer to $2^n$ units.",
+   "definition": "Setup: address register, count register, direction. Each word moved: address $+1$, count $-1$. Done when count $=0$, then interrupt.\n\n**Burst mode:** the controller holds the bus for the whole block. **Cycle stealing:** it takes the bus for one cycle per word and gives it back. Only one bus master at a time. Transfers needed for $N$ bytes with an $n$-bit byte counter: $\\lceil N/2^n\\rceil$.",
+   "intuition_full": "Without DMA every byte passes through the CPU, so an instruction runs for every byte. With DMA the CPU spends a few instructions at the start and a few at the end, and the bulk copying is done by cheap dedicated hardware. The bus can serve only one master at a time, so the controller first asks for the bus (HOLD) and the CPU lets go of it (HLDA). In burst mode the CPU is locked out for the whole block, which is fastest for the device but stalls the CPU. In cycle stealing the controller grabs single bus cycles between the CPU's cycles, so the CPU slows down only slightly. The count register has finite width, so a very large file needs the controller to be set up again and again. Each setup is one transfer, and a partly filled last block still needs a full transfer.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "The CPU programs a DMA controller to move 4 words from a disk to memory starting at address 100. Follow the registers and say how much work the CPU does.",
+     "steps": [
+      "The CPU writes the DMA registers: start address 100, count 4, direction device to memory. Then the CPU goes on with other work.",
+      "The disk has data. The DMA controller asks for the bus and the CPU grants it. Now the DMA controller is the only bus master.",
+      "Word 1 moves from the disk straight into memory address 100. Address register becomes 101, count becomes 3.",
+      "Words 2 and 3 follow into addresses 101 and 102. Address register 103, count 1.",
+      "Word 4 goes into address 103. Address register 104, count 0: the programmed transfer is finished.",
+      "The DMA controller releases the bus and raises one interrupt. The CPU spent time only on setup and on this completion."
+     ],
+     "answer": "All 4 words are moved without a CPU instruction per word. The CPU does the setup and handles one interrupt."
+    },
+    {
+     "level": "gate",
+     "setup": "A DMA controller has an 11-bit count register that counts bytes. A 3 MB file ($3\\times2^{20}$ bytes) is read from disk into memory. At least how many times must the controller be programmed?",
+     "steps": [
+      "One programming can move at most $2^{11}=2048$ bytes.",
+      "File size $=3\\times2^{20}=3\\,145\\,728$ bytes.",
+      "Transfers $=3\\,145\\,728/2048=1536$."
+     ],
+     "answer": "1536 transfers. Here the division is exact, so no partial block is left over."
+    },
+    {
+     "level": "twist",
+     "setup": "The count register is 12 bits wide and counts bytes. A file has 100 000 bytes. How many transfers are needed, and how big is the last one?",
+     "steps": [
+      "Block size $=2^{12}=4096$ bytes.",
+      "$100000/4096=24.41$. Round up, because a partial block still needs a transfer: 25 transfers.",
+      "The first 24 move $24\\times4096=98\\,304$ bytes. The last moves $100000-98304=1696$ bytes."
+     ],
+     "answer": "25 transfers, the last one with 1696 bytes. Rounding down to 24 would leave data behind."
+    }
+   ],
+   "why": "DMA is how bulk data moves without wasting the CPU. In GATE: choose DMA for bulk transfers, count how many transfers a file needs from the count register width, or compare burst and cycle stealing.",
+   "how": [
+    "Name the mode: burst holds the bus for the block, cycle stealing takes one cycle per word.",
+    "Transfers needed $=\\lceil N/2^n\\rceil$ for an $n$-bit count register.",
+    "CPU work $=$ setup $+$ one completion interrupt per transfer.",
+    "Only one bus master at a time: the CPU cannot use the bus during burst."
+   ],
+   "mistake": "Letting the CPU and the DMA controller use the bus at the same time, and rounding down the number of transfers. A partial last block still costs a full transfer.",
+   "edge_cases": [
+    "Count register width is in bits; the block limit is $2^n$ units, where the unit may be bytes or words.",
+    "Burst mode blocks the CPU for the whole block; cycle stealing blocks it for one cycle at a time.",
+    "Transparent mode uses only bus cycles the CPU is not using."
+   ],
+   "connections": [
+    "Card i4 turns the stolen-cycle idea into a data rate.",
+    "Card i5 compares the CPU time spent with polling, interrupts and DMA."
+   ],
+   "check": [
+    {
+     "q": "A 10-bit byte counter, file of 5000 bytes. Number of transfers?",
+     "a": "$\\lceil5000/1024\\rceil=5$."
+    },
+    {
+     "q": "Which DMA mode holds the bus for a whole block?",
+     "a": "Burst mode."
+    },
+    {
+     "q": "After each word, how do the address and count registers change?",
+     "a": "Address goes up by 1 (one word), count goes down by 1."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q30, 2024 CS2 Q11, 2004 CS Q68, 2005 CS Q70, 2011 CS Q28, 2016 CS1 Q31",
+   "try": {
+    "id": "gen.coa.io.003",
+    "label": "Try: the burst mode question (L1)"
+   },
+   "scene": "coa.io.i3",
+   "example": {
+    "setup": "The CPU programs a DMA controller to move 4 words from a disk to memory starting at address 100. Follow the registers and say how much work the CPU does.",
+    "steps": [
+     "The CPU writes the DMA registers: start address 100, count 4, direction device to memory. Then the CPU goes on with other work.",
+     "The disk has data. The DMA controller asks for the bus and the CPU grants it. Now the DMA controller is the only bus master.",
+     "Word 1 moves from the disk straight into memory address 100. Address register becomes 101, count becomes 3.",
+     "Words 2 and 3 follow into addresses 101 and 102. Address register 103, count 1.",
+     "Word 4 goes into address 103. Address register 104, count 0: the programmed transfer is finished.",
+     "The DMA controller releases the bus and raises one interrupt. The CPU spent time only on setup and on this completion."
+    ],
+    "answer": "All 4 words are moved without a CPU instruction per word. The CPU does the setup and handles one interrupt."
+   },
+   "what": "With **DMA** a controller moves a block of data between a device and memory by itself. The CPU only sets it up: start address, count and direction. The controller becomes **bus master** for the transfer, then raises one interrupt when the count reaches zero. An $n$-bit count register limits one transfer to $2^n$ units.",
+   "what_full": "With **DMA** a controller moves a block of data between a device and memory by itself. The CPU only sets it up: start address, count and direction. The controller becomes **bus master** for the transfer, then raises one interrupt when the count reaches zero. An $n$-bit count register limits one transfer to $2^n$ units.\n\nSetup: address register, count register, direction. Each word moved: address $+1$, count $-1$. Done when count $=0$, then interrupt.\n\n**Burst mode:** the controller holds the bus for the whole block. **Cycle stealing:** it takes the bus for one cycle per word and gives it back. Only one bus master at a time. Transfers needed for $N$ bytes with an $n$-bit byte counter: $\\lceil N/2^n\\rceil$.\n\n**Worked example.** The CPU programs a DMA controller to move 4 words from a disk to memory starting at address 100. Follow the registers and say how much work the CPU does.\n\n1. The CPU writes the DMA registers: start address 100, count 4, direction device to memory. Then the CPU goes on with other work.\n2. The disk has data. The DMA controller asks for the bus and the CPU grants it. Now the DMA controller is the only bus master.\n3. Word 1 moves from the disk straight into memory address 100. Address register becomes 101, count becomes 3.\n4. Words 2 and 3 follow into addresses 101 and 102. Address register 103, count 1.\n5. Word 4 goes into address 103. Address register 104, count 0: the programmed transfer is finished.\n6. The DMA controller releases the bus and raises one interrupt. The CPU spent time only on setup and on this completion.\n\n**Answer:** All 4 words are moved without a CPU instruction per word. The CPU does the setup and handles one interrupt.",
+   "why_full": "DMA is how bulk data moves without wasting the CPU. In GATE: choose DMA for bulk transfers, count how many transfers a file needs from the count register width, or compare burst and cycle stealing.\n\nAsked: 2021 CS2 Q30, 2024 CS2 Q11, 2004 CS Q68, 2005 CS Q70, 2011 CS Q28, 2016 CS1 Q31",
+   "trap": "Letting the CPU and the DMA controller use the bus at the same time, and rounding down the number of transfers. A partial last block still costs a full transfer."
+  },
+  {
+   "atom_id": "i4",
+   "title": "Cycle-stealing transfer rate",
+   "simple": "A delivery van and your car share a single-lane road. The van squeezes in now and then, takes the lane for one second, drops a small parcel and leaves. If it takes the lane 1 second out of every 5, you still drive for 4 seconds out of 5. The parcels delivered each second equal the number of lane-seconds it takes times the size of one parcel. In exam words: in cycle stealing, data rate = clock rate × fraction of cycles stolen × bits moved per stolen cycle. Time stolen = words per second × memory cycle time.",
+   "idea": "In **cycle stealing** the DMA controller takes the bus for one cycle at a time and moves one word, then gives the bus back. Count the stolen cycles per second and multiply by the bits moved in each. That gives the **data rate**. The same count tells you how much of the bus time the CPU loses.",
+   "definition": "$\\text{rate}=f_{clk}\\times\\text{(fraction stolen)}\\times\\text{(bits per stolen cycle)}$.\n\nGoing the other way: words per second $=\\text{rate}/\\text{word size}$, and the share of cycles stolen $=\\text{words per second}\\times t_{cycle}$, where $t_{cycle}$ is the memory cycle time. Keep bits and bytes apart.",
+   "intuition_full": "The bus is a shared resource that runs for a fixed number of cycles each second. The DMA controller uses a share of them. Each cycle it uses moves a fixed number of bits, set by the bus width. So the rate is just share times cycles times width. Reversing it, if a device must deliver a given rate, the number of words per second is fixed, and each word costs one memory cycle of bus time. The product of those two is the fraction of time the bus is busy with DMA, which is the slowdown felt by the CPU. If that product would exceed 1, the device is too fast for cycle stealing and needs burst mode or a wider bus. The classic slip is mixing bytes and bits: always write the unit next to every number.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A 20 MHz processor shares its bus with a DMA controller that steals 1 cycle in every 5. Each stolen cycle moves 8 bits. Find the data rate and the share of cycles left for the CPU.",
+     "steps": [
+      "The processor clock is 20 MHz, so there are 20 million bus cycles every second. The row shows 10 of them.",
+      "The DMA controller steals 1 cycle in every 5. In these 10 cycles, cycles 5 and 10 are stolen.",
+      "Stolen cycles per second $=20\\times10^6\\times\\frac15=4\\times10^6$.",
+      "Each stolen cycle moves 8 bits: $4\\times10^6\\times8=32\\times10^6$ bits per second.",
+      "That is 4 MB per second. The CPU still gets $20\\times10^6-4\\times10^6=16\\times10^6$ cycles, 80% of them."
+     ],
+     "answer": "Data rate $=32\\times10^6$ bits per second ($4$ MB/s), and the CPU keeps 80% of the cycles."
+    },
+    {
+     "level": "gate",
+     "setup": "A disk spins at 3600 RPM and has 128 sectors per track of 1 KB. It is read by cycle-stealing DMA, one 4-byte word at a time, and a memory cycle takes 80 ns. What percentage of time is the CPU blocked at the maximum transfer rate?",
+     "steps": [
+      "Bytes per rotation $=128\\times1024=131\\,072$. One rotation takes $60/3600=1/60$ s.",
+      "Rate $=131\\,072\\times60=7\\,864\\,320$ bytes per second.",
+      "Words per second $=7\\,864\\,320/4=1\\,966\\,080$.",
+      "Time stolen per second $=1\\,966\\,080\\times80\\text{ ns}=0.1573$ s."
+     ],
+     "answer": "About 15.7%. Bytes per word matters: using bytes per second as the count would give a result 4 times too large."
+    },
+    {
+     "level": "twist",
+     "setup": "Memory has a 32-bit bus and an 80 ns cycle. What is the highest rate cycle stealing can deliver if the DMA controller used every cycle? Can a 60 MB/s device be handled?",
+     "steps": [
+      "Cycles per second $=1/80\\text{ ns}=12.5\\times10^6$.",
+      "Bits per cycle $=32$, so the maximum rate $=12.5\\times10^6\\times32=400\\times10^6$ bits per second $=50$ MB/s.",
+      "A 60 MB/s device needs more than 100% of the bus cycles, so it cannot be sustained."
+     ],
+     "answer": "The ceiling is 50 MB/s. A 60 MB/s device needs a wider bus or a faster memory; no sharing is possible at that rate."
+    }
+   ],
+   "why": "This turns the DMA idea into numbers: how fast data moves and how much the CPU slows down. In GATE: data rate from a stolen fraction, or the percentage of time the CPU is blocked for a given device rate.",
+   "how": [
+    "Write each given number with its unit (Hz, bits, bytes, ns).",
+    "Rate $=f_{clk}\\times\\text{fraction}\\times\\text{bits per cycle}$.",
+    "Blocked share $=\\text{words per second}\\times t_{cycle}$.",
+    "Check the share is below 100%."
+   ],
+   "mistake": "Using bytes instead of bits per stolen cycle (or the other way round). Write the unit next to every figure and convert once, at the end.",
+   "edge_cases": [
+    "Share over 100% means the device is too fast for cycle stealing.",
+    "Burst mode ignores the stolen-fraction idea: the CPU is blocked for the whole block.",
+    "A wider bus moves more bits per stolen cycle and lowers the share."
+   ],
+   "connections": [
+    "Builds on the DMA modes in card i3.",
+    "Card i5 compares the CPU time DMA uses with polling and interrupts."
+   ],
+   "check": [
+    {
+     "q": "10 MHz clock, 5% of cycles stolen, 16 bits per stolen cycle. Data rate?",
+     "a": "$10^7\\times0.05\\times16=8\\times10^6$ bits per second."
+    },
+    {
+     "q": "A device sends 4 million 2-byte words a second. Memory cycle 100 ns. Share of bus time stolen?",
+     "a": "$4\\times10^6\\times100\\text{ ns}=40\\%$."
+    },
+    {
+     "q": "If the computed share is 130%, what does that tell you?",
+     "a": "Cycle stealing cannot keep up with this device."
+    }
+   ],
+   "asked": "Asked: 2021 CS2 Q30, 2024 CS2 Q11, 2004 CS Q68, 2005 CS Q70, 2011 CS Q28, 2016 CS1 Q31",
+   "try": {
+    "id": "gen.coa.io.005",
+    "label": "Try: the cycle-stealing 4 MHz data rate question (L2)"
+   },
+   "scene": "coa.io.i4",
+   "example": {
+    "setup": "A 20 MHz processor shares its bus with a DMA controller that steals 1 cycle in every 5. Each stolen cycle moves 8 bits. Find the data rate and the share of cycles left for the CPU.",
+    "steps": [
+     "The processor clock is 20 MHz, so there are 20 million bus cycles every second. The row shows 10 of them.",
+     "The DMA controller steals 1 cycle in every 5. In these 10 cycles, cycles 5 and 10 are stolen.",
+     "Stolen cycles per second $=20\\times10^6\\times\\frac15=4\\times10^6$.",
+     "Each stolen cycle moves 8 bits: $4\\times10^6\\times8=32\\times10^6$ bits per second.",
+     "That is 4 MB per second. The CPU still gets $20\\times10^6-4\\times10^6=16\\times10^6$ cycles, 80% of them."
+    ],
+    "answer": "Data rate $=32\\times10^6$ bits per second ($4$ MB/s), and the CPU keeps 80% of the cycles."
+   },
+   "what": "In **cycle stealing** the DMA controller takes the bus for one cycle at a time and moves one word, then gives the bus back. Count the stolen cycles per second and multiply by the bits moved in each. That gives the **data rate**. The same count tells you how much of the bus time the CPU loses.",
+   "what_full": "In **cycle stealing** the DMA controller takes the bus for one cycle at a time and moves one word, then gives the bus back. Count the stolen cycles per second and multiply by the bits moved in each. That gives the **data rate**. The same count tells you how much of the bus time the CPU loses.\n\n$\\text{rate}=f_{clk}\\times\\text{(fraction stolen)}\\times\\text{(bits per stolen cycle)}$.\n\nGoing the other way: words per second $=\\text{rate}/\\text{word size}$, and the share of cycles stolen $=\\text{words per second}\\times t_{cycle}$, where $t_{cycle}$ is the memory cycle time. Keep bits and bytes apart.\n\n**Worked example.** A 20 MHz processor shares its bus with a DMA controller that steals 1 cycle in every 5. Each stolen cycle moves 8 bits. Find the data rate and the share of cycles left for the CPU.\n\n1. The processor clock is 20 MHz, so there are 20 million bus cycles every second. The row shows 10 of them.\n2. The DMA controller steals 1 cycle in every 5. In these 10 cycles, cycles 5 and 10 are stolen.\n3. Stolen cycles per second $=20\\times10^6\\times\\frac15=4\\times10^6$.\n4. Each stolen cycle moves 8 bits: $4\\times10^6\\times8=32\\times10^6$ bits per second.\n5. That is 4 MB per second. The CPU still gets $20\\times10^6-4\\times10^6=16\\times10^6$ cycles, 80% of them.\n\n**Answer:** Data rate $=32\\times10^6$ bits per second ($4$ MB/s), and the CPU keeps 80% of the cycles.",
+   "why_full": "This turns the DMA idea into numbers: how fast data moves and how much the CPU slows down. In GATE: data rate from a stolen fraction, or the percentage of time the CPU is blocked for a given device rate.\n\nAsked: 2021 CS2 Q30, 2024 CS2 Q11, 2004 CS Q68, 2005 CS Q70, 2011 CS Q28, 2016 CS1 Q31",
+   "trap": "Using bytes instead of bits per stolen cycle (or the other way round). Write the unit next to every figure and convert once, at the end."
+  },
+  {
+   "atom_id": "i5",
+   "title": "CPU overhead: polling, interrupts and DMA",
+   "simple": "You are waiting for 1000 letters to arrive, one every few minutes. Polling means standing at the letterbox the whole time. Interrupts mean doing your homework and walking over only when the doorbell rings, which costs a little time for each letter. DMA means a helper collects all 1000 letters into a tray and calls you once at the end. Standing the whole time wastes everything. The doorbell wastes a little per letter. The helper costs you only a short briefing and one call. In exam words: polling pays for waiting, interrupts pay per event, DMA pays per block.",
+   "idea": "Compare the **CPU time** each I/O method needs for the same transfer. Polling keeps the CPU busy for the whole transfer. Interrupts cost a fixed overhead for every byte or word. **DMA** costs a setup and one completion interrupt per block, and the data copy itself uses no CPU time.",
+   "definition": "Polling: CPU time $=$ the whole device time (or $f_{poll}\\,t_{poll}$ per second).\n\nInterrupts: CPU time $=\\text{events}\\times(t_{ISR}+t_{overhead})$.\n\nDMA: CPU time $=t_{setup}+t_{complete}$ per block, so for $N$ bytes in blocks of size $B$ it is $\\lceil N/B\\rceil\\,(t_{setup}+t_{complete})$.\n\nPick the method with the least CPU time that still meets the device's needs.",
+   "intuition_full": "Each method pays for something different. Polling pays for waiting: while the device is slow, the CPU does nothing else. Interrupts pay for events: each event costs saving state, running the ISR and restoring state, so a device producing thousands of bytes per second can still eat much of the CPU. DMA pays per block: its cost does not grow with the number of bytes, only with the number of blocks. That makes DMA best for bulk transfers, interrupts best for rare events like a keyboard press, and polling acceptable only when events are very frequent or the system has nothing else to do. A fair comparison needs the same unit for each method, usually cycles per second or cycles per block. Always check whether a figure includes the data transfer itself, because with DMA the transfer is not CPU time.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A device delivers 1000 bytes, one every 2000 CPU cycles. Interrupt overhead is 100 cycles per byte. DMA needs 250 cycles of setup and 150 cycles to complete. Compare the CPU cycles used by polling, interrupts and DMA.",
+     "steps": [
+      "A device delivers 1000 bytes, one every 2000 cycles. The transfer lasts $1000\\times2000=2{,}000{,}000$ cycles in real time.",
+      "Polling: the CPU spins on the status bit the whole time. CPU busy $=2{,}000{,}000$ cycles, 100%.",
+      "Interrupts: the CPU is free between bytes and pays 100 cycles of overhead per byte: $1000\\times100=100{,}000$ cycles, 5%.",
+      "DMA: setup 250 cycles plus one completion interrupt of 150 cycles. Total 400 cycles for the whole block.",
+      "Interrupts need $2{,}000{,}000/100{,}000=20$ times less CPU time than polling. DMA needs $100{,}000/400=250$ times less than interrupts."
+     ],
+     "answer": "Polling 2,000,000 cycles, interrupts 100,000 cycles, DMA 400 cycles."
+    },
+    {
+     "level": "gate",
+     "setup": "A device needs service 50 times a second. Polling runs 400 times a second at 10 $\\mu$s per poll, and servicing an event costs 100 $\\mu$s. An interrupt design has the same 100 $\\mu$s service plus 30 $\\mu$s entry and exit overhead per event. Compare the CPU time per second.",
+     "steps": [
+      "Polling: $400\\times10+50\\times100=4000+5000=9000\\ \\mu\\text{s}$ per second.",
+      "Interrupts: $50\\times(100+30)=6500\\ \\mu\\text{s}$ per second.",
+      "Ratio polling/interrupts $=9000/6500\\approx1.38$."
+     ],
+     "answer": "Polling uses 9000 $\\mu$s and interrupts 6500 $\\mu$s per second, so interrupts are about 1.38 times cheaper here."
+    },
+    {
+     "level": "twist",
+     "setup": "Same device and designs as above, but now it needs service 300 times a second. Which method costs less CPU time, and at what event rate do the two cost the same?",
+     "steps": [
+      "Polling: $4000+300\\times100=34{,}000\\ \\mu\\text{s}$. Interrupts: $300\\times130=39{,}000\\ \\mu\\text{s}$. Polling now wins.",
+      "Break-even: $4000+100e=130e$, so $e=4000/30\\approx133$ events per second.",
+      "Below about 133 events per second interrupts win; above it, polling wins."
+     ],
+     "answer": "At 300 events per second polling is cheaper. The cross-over is near 133 events per second, because polling is a fixed bill and interrupts a per-event bill."
+    }
+   ],
+   "why": "Choosing the I/O method is a standing GATE theme. DMA for bulk data, interrupts for rare events, polling for very frequent ones. In GATE: compare CPU time per second or per byte, or pick the right technique for a device.",
+   "how": [
+    "Choose one unit (cycles or $\\mu$s per second, or per block).",
+    "Polling: poll rate $\\times$ poll cost, plus service time per event.",
+    "Interrupts: events $\\times$ (ISR + overhead). DMA: setup + completion per block.",
+    "Do not count the DMA data copy itself as CPU time."
+   ],
+   "mistake": "Counting the DMA data transfer as CPU time, or counting only polls that find an event. DMA copies without the CPU, and every poll costs CPU time, found event or not.",
+   "edge_cases": [
+    "For rare events, interrupts beat polling by a large factor.",
+    "For continuous high-rate data, per-byte interrupts can cost more than polling.",
+    "A partial last DMA block still pays a full setup and completion."
+   ],
+   "connections": [
+    "Uses the poll cost (card i1), interrupt cost (cards i2, i2b) and DMA (cards i3, i4).",
+    "The OS chapter treats the same costs as context-switch overhead."
+   ],
+   "check": [
+    {
+     "q": "1 KB arrives in 256-byte DMA blocks, each block costs 300 cycles of CPU. Total CPU cycles?",
+     "a": "4 blocks $\\times300=1200$ cycles."
+    },
+    {
+     "q": "Which method suits a keyboard that is used a few times a second?",
+     "a": "Interrupts."
+    },
+    {
+     "q": "Which method wastes CPU time even when the device has nothing to say?",
+     "a": "Polling."
+    }
+   ],
+   "asked": "Asked: 2022 CS Q17, 2024 CS1 Q15, 2005 CS Q20, 2008 CS Q64, 2023 CS Q34, 2005 CS Q69",
+   "try": {
+    "id": "gen.coa.io.008",
+    "label": "Try: the keyboard polled 100 times a second (L2)"
+   },
+   "scene": "coa.io.i5",
+   "example": {
+    "setup": "A device delivers 1000 bytes, one every 2000 CPU cycles. Interrupt overhead is 100 cycles per byte. DMA needs 250 cycles of setup and 150 cycles to complete. Compare the CPU cycles used by polling, interrupts and DMA.",
+    "steps": [
+     "A device delivers 1000 bytes, one every 2000 cycles. The transfer lasts $1000\\times2000=2{,}000{,}000$ cycles in real time.",
+     "Polling: the CPU spins on the status bit the whole time. CPU busy $=2{,}000{,}000$ cycles, 100%.",
+     "Interrupts: the CPU is free between bytes and pays 100 cycles of overhead per byte: $1000\\times100=100{,}000$ cycles, 5%.",
+     "DMA: setup 250 cycles plus one completion interrupt of 150 cycles. Total 400 cycles for the whole block.",
+     "Interrupts need $2{,}000{,}000/100{,}000=20$ times less CPU time than polling. DMA needs $100{,}000/400=250$ times less than interrupts."
+    ],
+    "answer": "Polling 2,000,000 cycles, interrupts 100,000 cycles, DMA 400 cycles."
+   },
+   "what": "Compare the **CPU time** each I/O method needs for the same transfer. Polling keeps the CPU busy for the whole transfer. Interrupts cost a fixed overhead for every byte or word. **DMA** costs a setup and one completion interrupt per block, and the data copy itself uses no CPU time.",
+   "what_full": "Compare the **CPU time** each I/O method needs for the same transfer. Polling keeps the CPU busy for the whole transfer. Interrupts cost a fixed overhead for every byte or word. **DMA** costs a setup and one completion interrupt per block, and the data copy itself uses no CPU time.\n\nPolling: CPU time $=$ the whole device time (or $f_{poll}\\,t_{poll}$ per second).\n\nInterrupts: CPU time $=\\text{events}\\times(t_{ISR}+t_{overhead})$.\n\nDMA: CPU time $=t_{setup}+t_{complete}$ per block, so for $N$ bytes in blocks of size $B$ it is $\\lceil N/B\\rceil\\,(t_{setup}+t_{complete})$.\n\nPick the method with the least CPU time that still meets the device's needs.\n\n**Worked example.** A device delivers 1000 bytes, one every 2000 CPU cycles. Interrupt overhead is 100 cycles per byte. DMA needs 250 cycles of setup and 150 cycles to complete. Compare the CPU cycles used by polling, interrupts and DMA.\n\n1. A device delivers 1000 bytes, one every 2000 cycles. The transfer lasts $1000\\times2000=2{,}000{,}000$ cycles in real time.\n2. Polling: the CPU spins on the status bit the whole time. CPU busy $=2{,}000{,}000$ cycles, 100%.\n3. Interrupts: the CPU is free between bytes and pays 100 cycles of overhead per byte: $1000\\times100=100{,}000$ cycles, 5%.\n4. DMA: setup 250 cycles plus one completion interrupt of 150 cycles. Total 400 cycles for the whole block.\n5. Interrupts need $2{,}000{,}000/100{,}000=20$ times less CPU time than polling. DMA needs $100{,}000/400=250$ times less than interrupts.\n\n**Answer:** Polling 2,000,000 cycles, interrupts 100,000 cycles, DMA 400 cycles.",
+   "why_full": "Choosing the I/O method is a standing GATE theme. DMA for bulk data, interrupts for rare events, polling for very frequent ones. In GATE: compare CPU time per second or per byte, or pick the right technique for a device.\n\nAsked: 2022 CS Q17, 2024 CS1 Q15, 2005 CS Q20, 2008 CS Q64, 2023 CS Q34, 2005 CS Q69",
+   "trap": "Counting the DMA data transfer as CPU time, or counting only polls that find an event. DMA copies without the CPU, and every poll costs CPU time, found event or not."
+  },
+  {
+   "atom_id": "i6",
+   "title": "Disk access time",
+   "simple": "Think of an old record player. To play a particular song you first move the arm to the right groove ring. That is the seek. Then you wait for the record to spin until the start of the song arrives under the needle. That is the rotational wait. Only then does the song play. On average you wait half a spin, because the song could be anywhere around the ring. In exam words: access time = seek time + average rotational latency + transfer time. Average rotational latency is half a rotation, and transfer time is one rotation divided by the sectors per track.",
+   "idea": "Reading a sector takes three steps. The head **seeks** to the right track. Then it waits for the sector to rotate under it, the **rotational latency**, which is half a rotation on average. Finally the sector passes under the head: the **transfer time**. A file of randomly placed sectors pays seek and latency for every sector.",
+   "definition": "$T_{access}=T_{seek}+\\tfrac12 T_{rot}+\\dfrac{T_{rot}}{\\text{sectors per track}}$, with $T_{rot}=\\dfrac{60}{\\text{RPM}}$ seconds.\n\nCapacity $=\\text{surfaces}\\times\\text{tracks}\\times\\text{sectors per track}\\times\\text{bytes per sector}$. A **cylinder** is the same track number on every surface, so cylinders $=$ tracks per surface and sectors per cylinder $=\\text{surfaces}\\times\\text{sectors per track}$.",
+   "intuition_full": "Two of the three parts are mechanical and slow: moving the arm and waiting for the platter. The transfer is fast because it only needs the sector to pass the head. Seek time is an average over random track distances. Rotational latency is uniform between 0 and a full rotation, so its average is half. When sectors are stored one after another on a track, only the first pays the seek and latency; the next sectors just add their transfer times. That is why file systems try to keep files contiguous. When sectors are scattered, each one pays the full price, so the time is several milliseconds per sector. A cylinder is all the tracks the heads can reach without moving the arm, so switching surfaces within a cylinder costs no seek.",
+   "examples": [
+    {
+     "level": "basic",
+     "setup": "A disk spins at 5400 RPM, has an average seek time of 9 ms and 600 sectors per track. Find the average time to read one randomly placed sector.",
+     "steps": [
+      "The disk spins at 5400 RPM, so one rotation takes $60/5400$ s $=11.11$ ms. It has 600 sectors per track. The target sector S is on the track marked in the middle.",
+      "Seek: the head moves across the platter to the target track. The average seek time is 9 ms.",
+      "Rotational latency, first quarter turn: the sector S is on average half a turn away from the head, so it needs to turn a quarter first.",
+      "Second quarter turn: S reaches the head. Half a rotation is $11.11/2=5.56$ ms of average latency.",
+      "Transfer: the sector passes under the head in one rotation divided by sectors per track, $11.11/600=0.0185$ ms.",
+      "Total $=9+5.56+0.02=14.57$ ms for one randomly placed sector."
+     ],
+     "answer": "About 14.57 ms. The seek and the latency dominate; the transfer is tiny."
+    },
+    {
+     "level": "gate",
+     "setup": "A disk has 8 surfaces, 1000 tracks per surface, 200 sectors per track of 512 bytes, spins at 6000 RPM and has an average seek time of 8 ms. How long to read a 100-sector file stored contiguously on one track, and how long if the 100 sectors are scattered at random?",
+     "steps": [
+      "$T_{rot}=60/6000=10$ ms, so the average latency is 5 ms, and one sector transfers in $10/200=0.05$ ms.",
+      "Contiguous: seek and latency once, then 100 sectors in a row: $8+5+100\\times0.05=18$ ms.",
+      "Scattered: every sector pays all three: $100\\times(8+5+0.05)=1305$ ms."
+     ],
+     "answer": "18 ms contiguous against 1305 ms scattered, about 72 times slower."
+    },
+    {
+     "level": "twist",
+     "setup": "For the same disk, how many cylinders does it have, how many sectors does one cylinder hold, and how many cylinders does a 3200-sector file fill?",
+     "steps": [
+      "A cylinder is one track number across all surfaces, so cylinders $=$ tracks per surface $=1000$ (not 8000).",
+      "Sectors per cylinder $=8\\times200=1600$.",
+      "A 3200-sector file fills $3200/1600=2$ cylinders."
+     ],
+     "answer": "1000 cylinders of 1600 sectors each, and the file fills 2 cylinders. Moving between surfaces inside a cylinder needs no seek."
+    }
+   ],
+   "why": "Disk time shows how slow mechanical parts are compared with the CPU. In GATE: average access time for one sector, the time for a scattered or contiguous file, or the capacity and cylinder arithmetic of a disk.",
+   "how": [
+    "Rotation time $=60/\\text{RPM}$ s. Latency $=$ half of that.",
+    "Transfer for one sector $=T_{rot}/\\text{sectors per track}$.",
+    "One random sector: seek + latency + transfer. Scattered file: multiply by the number of sectors.",
+    "Contiguous file: pay seek and latency once, then add the transfer of each sector."
+   ],
+   "mistake": "Paying seek and rotational latency once for a randomly scattered file, or forgetting that a cylinder spans all surfaces. A scattered file pays the full cost for every sector.",
+   "edge_cases": [
+    "Best case latency is 0 and worst case is a full rotation; the average is half.",
+    "Track-to-track seek is much shorter than the average seek.",
+    "The question may state the transfer rate directly instead of sectors per track."
+   ],
+   "connections": [
+    "File system allocation (OS chapter) tries to keep files contiguous for this reason.",
+    "DMA moves the sector from the disk into memory (cards i3, i4)."
+   ],
+   "check": [
+    {
+     "q": "At 7200 RPM, what is the average rotational latency?",
+     "a": "One rotation $=8.33$ ms, so about 4.17 ms."
+    },
+    {
+     "q": "Which parts of access time are paid again for each sector of a scattered file?",
+     "a": "Seek, rotational latency and transfer."
+    },
+    {
+     "q": "A disk has 4 surfaces and 500 tracks per surface. How many cylinders?",
+     "a": "500."
+    }
+   ],
+   "asked": "Asked: 2024 CS1 Q54, 2024 CS2 Q53",
+   "try": {
+    "id": "gen.coa.io.004",
+    "label": "Try: the disk read time components question (L1)"
+   },
+   "scene": "coa.io.i6",
+   "example": {
+    "setup": "A disk spins at 5400 RPM, has an average seek time of 9 ms and 600 sectors per track. Find the average time to read one randomly placed sector.",
+    "steps": [
+     "The disk spins at 5400 RPM, so one rotation takes $60/5400$ s $=11.11$ ms. It has 600 sectors per track. The target sector S is on the track marked in the middle.",
+     "Seek: the head moves across the platter to the target track. The average seek time is 9 ms.",
+     "Rotational latency, first quarter turn: the sector S is on average half a turn away from the head, so it needs to turn a quarter first.",
+     "Second quarter turn: S reaches the head. Half a rotation is $11.11/2=5.56$ ms of average latency.",
+     "Transfer: the sector passes under the head in one rotation divided by sectors per track, $11.11/600=0.0185$ ms.",
+     "Total $=9+5.56+0.02=14.57$ ms for one randomly placed sector."
+    ],
+    "answer": "About 14.57 ms. The seek and the latency dominate; the transfer is tiny."
+   },
+   "what": "Reading a sector takes three steps. The head **seeks** to the right track. Then it waits for the sector to rotate under it, the **rotational latency**, which is half a rotation on average. Finally the sector passes under the head: the **transfer time**. A file of randomly placed sectors pays seek and latency for every sector.",
+   "what_full": "Reading a sector takes three steps. The head **seeks** to the right track. Then it waits for the sector to rotate under it, the **rotational latency**, which is half a rotation on average. Finally the sector passes under the head: the **transfer time**. A file of randomly placed sectors pays seek and latency for every sector.\n\n$T_{access}=T_{seek}+\\tfrac12 T_{rot}+\\dfrac{T_{rot}}{\\text{sectors per track}}$, with $T_{rot}=\\dfrac{60}{\\text{RPM}}$ seconds.\n\nCapacity $=\\text{surfaces}\\times\\text{tracks}\\times\\text{sectors per track}\\times\\text{bytes per sector}$. A **cylinder** is the same track number on every surface, so cylinders $=$ tracks per surface and sectors per cylinder $=\\text{surfaces}\\times\\text{sectors per track}$.\n\n**Worked example.** A disk spins at 5400 RPM, has an average seek time of 9 ms and 600 sectors per track. Find the average time to read one randomly placed sector.\n\n1. The disk spins at 5400 RPM, so one rotation takes $60/5400$ s $=11.11$ ms. It has 600 sectors per track. The target sector S is on the track marked in the middle.\n2. Seek: the head moves across the platter to the target track. The average seek time is 9 ms.\n3. Rotational latency, first quarter turn: the sector S is on average half a turn away from the head, so it needs to turn a quarter first.\n4. Second quarter turn: S reaches the head. Half a rotation is $11.11/2=5.56$ ms of average latency.\n5. Transfer: the sector passes under the head in one rotation divided by sectors per track, $11.11/600=0.0185$ ms.\n6. Total $=9+5.56+0.02=14.57$ ms for one randomly placed sector.\n\n**Answer:** About 14.57 ms. The seek and the latency dominate; the transfer is tiny.",
+   "why_full": "Disk time shows how slow mechanical parts are compared with the CPU. In GATE: average access time for one sector, the time for a scattered or contiguous file, or the capacity and cylinder arithmetic of a disk.\n\nAsked: 2024 CS1 Q54, 2024 CS2 Q53",
+   "trap": "Paying seek and rotational latency once for a randomly scattered file, or forgetting that a cylinder spans all surfaces. A scattered file pays the full cost for every sector."
+  }
+ ],
+ "scenes": [
+  {
+   "id": "coa.io.i1",
+   "title": "Polling a device every 4 ms",
+   "viewBox": [
+    0,
+    0,
+    360,
+    248
+   ],
+   "objects": [
+    {
+     "id": "tl",
+     "kind": "edge",
+     "x1": 20,
+     "y1": 110,
+     "x2": 342,
+     "y2": 110
+    },
+    {
+     "id": "c1",
+     "kind": "text",
+     "x": 180,
+     "y": 18,
+     "text": "each poll costs 30 us of CPU time",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "muted"
+    },
+    {
+     "id": "P1",
+     "kind": "box",
+     "x": 15.0,
+     "y": 68,
+     "w": 30,
+     "h": 26,
+     "label": "P1"
+    },
+    {
+     "id": "tt0",
+     "kind": "text",
+     "x": 30.0,
+     "y": 126,
+     "text": "0 ms",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "P2",
+     "kind": "box",
+     "x": 90.0,
+     "y": 68,
+     "w": 30,
+     "h": 26,
+     "label": "P2"
+    },
+    {
+     "id": "tt1",
+     "kind": "text",
+     "x": 105.0,
+     "y": 126,
+     "text": "4 ms",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "P3",
+     "kind": "box",
+     "x": 165.0,
+     "y": 68,
+     "w": 30,
+     "h": 26,
+     "label": "P3"
+    },
+    {
+     "id": "tt2",
+     "kind": "text",
+     "x": 180.0,
+     "y": 126,
+     "text": "8 ms",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "P4",
+     "kind": "box",
+     "x": 240.0,
+     "y": 68,
+     "w": 30,
+     "h": 26,
+     "label": "P4"
+    },
+    {
+     "id": "tt3",
+     "kind": "text",
+     "x": 255.0,
+     "y": 126,
+     "text": "12 ms",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "muted"
+    },
+    {
+     "id": "r1",
+     "kind": "text",
+     "x": 30.0,
+     "y": 56,
+     "text": "no",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "r2",
+     "kind": "text",
+     "x": 105.0,
+     "y": 56,
+     "text": "no",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "r3",
+     "kind": "text",
+     "x": 180.0,
+     "y": 56,
+     "text": "no",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "r4",
+     "kind": "text",
+     "x": 255.0,
+     "y": 56,
+     "text": "YES",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "good",
+     "bold": true
+    },
+    {
+     "id": "ev",
+     "kind": "arrow",
+     "x1": 198.75,
+     "y1": 170,
+     "x2": 198.75,
+     "y2": 114,
+     "tone": "accent"
+    },
+    {
+     "id": "evt",
+     "kind": "text",
+     "x": 198.75,
+     "y": 188,
+     "text": "device ready at 9 ms",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "accent"
+    },
+    {
+     "id": "wt",
+     "kind": "text",
+     "x": 240,
+     "y": 154,
+     "text": "waits 3 ms",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "bad"
+    },
+    {
+     "id": "c2",
+     "kind": "text",
+     "x": 180,
+     "y": 212,
+     "text": "250 polls x 30 us = 7.5 ms per second",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "c3",
+     "kind": "text",
+     "x": 180,
+     "y": 236,
+     "text": "7.5 ms / 1000 ms = 0.75% of the CPU",
+     "size": 14,
+     "anchor": "middle",
+     "bold": true,
+     "tone": "accent"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The CPU polls the status register every 4 ms, so 250 times a second. Each poll costs 30 $\\mu$s of CPU time.",
+     "show": [
+      "P1",
+      "tt0",
+      "r1"
+     ]
+    },
+    {
+     "caption": "Polls at 0, 4 and 8 ms find the device not ready. They still cost 30 $\\mu$s each.",
+     "show": [
+      "P2",
+      "P3",
+      "tt1",
+      "tt2",
+      "r2",
+      "r3"
+     ],
+     "highlight": [
+      {
+       "id": "P1",
+       "tone": "bad"
+      },
+      {
+       "id": "P2",
+       "tone": "bad"
+      },
+      {
+       "id": "P3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "The device becomes ready at 9 ms. Nothing happens yet: the CPU only learns this at its next poll.",
+     "show": [
+      "ev",
+      "evt"
+     ]
+    },
+    {
+     "caption": "The poll at 12 ms finds the device ready and the CPU serves it. The event waited 3 ms.",
+     "show": [
+      "P4",
+      "tt3",
+      "r4",
+      "wt"
+     ],
+     "highlight": [
+      {
+       "id": "P4",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "In one second there are 250 polls, whether or not any event happened: $250\\times30\\ \\mu\\text{s}=7.5$ ms.",
+     "show": "c2",
+     "highlight": [
+      "P1",
+      "P2",
+      "P3",
+      "P4"
+     ]
+    },
+    {
+     "caption": "That is $7.5/1000=0.75\\%$ of the CPU. It is set by the poll rate alone, not by how many events occur.",
+     "show": "c3"
+    }
+   ]
+  },
+  {
+   "id": "coa.io.i2",
+   "title": "What the CPU does when an interrupt arrives",
+   "viewBox": [
+    0,
+    0,
+    360,
+    246
+   ],
+   "objects": [
+    {
+     "id": "irq",
+     "kind": "text",
+     "x": 180,
+     "y": 10,
+     "text": "device raises IRQ",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "prog",
+     "kind": "array",
+     "x": 30,
+     "y": 46,
+     "cells": [
+      "I1",
+      "I2",
+      "I3",
+      "I4",
+      "I5"
+     ],
+     "cw": 60,
+     "ch": 32,
+     "indices": false,
+     "label": "program"
+    },
+    {
+     "id": "adr",
+     "kind": "array",
+     "x": 30,
+     "y": 82,
+     "cells": [
+      4000,
+      4004,
+      4012,
+      4016,
+      4024
+     ],
+     "cw": 60,
+     "ch": 24,
+     "indices": false
+    },
+    {
+     "id": "pc",
+     "kind": "pointer",
+     "array": "adr",
+     "index": 2,
+     "label": "PC",
+     "tone": "accent"
+    },
+    {
+     "id": "isr",
+     "kind": "box",
+     "x": 30,
+     "y": 168,
+     "w": 150,
+     "h": 34,
+     "label": "ISR: serve device"
+    },
+    {
+     "id": "stk",
+     "kind": "array",
+     "x": 264,
+     "y": 236,
+     "cells": [],
+     "cw": 64,
+     "ch": 26,
+     "dir": "up",
+     "slots": 2,
+     "indices": false,
+     "label": "stack"
+    },
+    {
+     "id": "n1",
+     "kind": "text",
+     "x": 140,
+     "y": 230,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The program runs from address 4000. I2 (at 4004, two words long) is executing, so PC already holds 4012, the address of I3. A device raises an interrupt request.",
+     "show": [
+      "irq",
+      "pc"
+     ],
+     "highlight": [
+      {
+       "id": "prog",
+       "cells": [
+        1
+       ],
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "PC = 4012"
+     }
+    },
+    {
+     "caption": "The CPU does not stop in the middle of I2. It finishes the instruction first.",
+     "highlight": [
+      {
+       "id": "prog",
+       "cells": [
+        1
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "finish I2 first"
+     }
+    },
+    {
+     "caption": "The CPU saves the return address 4012 (and the flags) on the stack.",
+     "push": {
+      "id": "stk",
+      "value": "4012"
+     },
+     "highlight": "stk",
+     "set": {
+      "id": "n1",
+      "text": "save PC = 4012"
+     }
+    },
+    {
+     "caption": "It loads the start address of the interrupt service routine (ISR) into PC, so control jumps to the ISR.",
+     "hide": "pc",
+     "show": "isr",
+     "highlight": [
+      {
+       "id": "isr",
+       "tone": "accent"
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "PC = ISR start"
+     }
+    },
+    {
+     "caption": "The ISR serves the device. Its last instruction is return-from-interrupt.",
+     "highlight": [
+      {
+       "id": "isr",
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "ISR runs"
+     }
+    },
+    {
+     "caption": "Return pops the saved values: PC becomes 4012 again and the flags come back. I3 runs next, as if nothing had happened.",
+     "pop": {
+      "id": "stk"
+     },
+     "hide": "isr",
+     "show": "pc",
+     "highlight": [
+      {
+       "id": "prog",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ],
+     "set": {
+      "id": "n1",
+      "text": "PC = 4012 again"
+     }
+    }
+   ]
+  },
+  {
+   "id": "coa.io.i2b",
+   "title": "Vectored interrupt with a daisy chain",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "d1",
+     "kind": "box",
+     "x": 104,
+     "y": 60,
+     "w": 60,
+     "h": 36,
+     "label": "D1"
+    },
+    {
+     "id": "d2",
+     "kind": "box",
+     "x": 186,
+     "y": 60,
+     "w": 60,
+     "h": 36,
+     "label": "D2"
+    },
+    {
+     "id": "d3",
+     "kind": "box",
+     "x": 268,
+     "y": 60,
+     "w": 60,
+     "h": 36,
+     "label": "D3"
+    },
+    {
+     "id": "cp",
+     "kind": "box",
+     "x": 14,
+     "y": 60,
+     "w": 62,
+     "h": 36,
+     "label": "CPU"
+    },
+    {
+     "id": "lp1",
+     "kind": "edge",
+     "x1": 76,
+     "y1": 78,
+     "x2": 104,
+     "y2": 78
+    },
+    {
+     "id": "lp2",
+     "kind": "edge",
+     "x1": 164,
+     "y1": 78,
+     "x2": 186,
+     "y2": 78
+    },
+    {
+     "id": "lp3",
+     "kind": "edge",
+     "x1": 246,
+     "y1": 78,
+     "x2": 268,
+     "y2": 78
+    },
+    {
+     "id": "rq2",
+     "kind": "text",
+     "x": 216,
+     "y": 112,
+     "text": "IRQ",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "rq3",
+     "kind": "text",
+     "x": 298,
+     "y": 112,
+     "text": "IRQ",
+     "size": 12,
+     "anchor": "middle",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "v",
+     "kind": "text",
+     "x": 180,
+     "y": 150,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "tb",
+     "kind": "text",
+     "x": 180,
+     "y": 176,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "n",
+     "kind": "text",
+     "x": 180,
+     "y": 206,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "accent",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "Three devices are wired in a chain behind the CPU. D1 is nearest the CPU and D3 is farthest. All share one interrupt request line.",
+     "highlight": [
+      "d1",
+      "d2",
+      "d3"
+     ]
+    },
+    {
+     "caption": "D2 and D3 raise requests at the same time. The CPU sees one request on the shared line.",
+     "show": [
+      "rq2",
+      "rq3"
+     ],
+     "highlight": [
+      {
+       "id": "d2",
+       "tone": "bad"
+      },
+      {
+       "id": "d3",
+       "tone": "bad"
+      }
+     ],
+     "set": {
+      "id": "v",
+      "text": "one shared request line"
+     }
+    },
+    {
+     "caption": "The CPU finishes its instruction and sends the acknowledge signal down the chain. It reaches D1 first. D1 has no request, so it passes the signal on.",
+     "set": [
+      {
+       "id": "v",
+       "text": "acknowledge signal moves outward"
+      },
+      {
+       "id": "n",
+       "text": "D1: no request, passes it on"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "lp1",
+       "tone": "accent"
+      },
+      {
+       "id": "d1",
+       "tone": "muted"
+      }
+     ]
+    },
+    {
+     "caption": "D2 has a request, so it keeps the acknowledge signal. D3 never sees it and must wait. Position in the chain decides priority.",
+     "set": [
+      {
+       "id": "v",
+       "text": "D2 keeps it, D3 never gets it"
+      },
+      {
+       "id": "n",
+       "text": "D2 wins: nearer to the CPU"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "lp2",
+       "tone": "good"
+      },
+      {
+       "id": "d2",
+       "tone": "good"
+      },
+      {
+       "id": "d3",
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "D2 puts its vector number, 0x21, on the data bus. The CPU multiplies by 4 (4-byte table entries): $0x21\\times4=132$. No polling is needed.",
+     "set": [
+      {
+       "id": "v",
+       "text": "vector = 0x21"
+      },
+      {
+       "id": "tb",
+       "text": "0x21 x 4 = 132"
+      },
+      {
+       "id": "n",
+       "text": "entry 132 holds the ISR address"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "d2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The CPU reads the ISR address from table entry 132 and jumps to it. After D2 is done, D3's request is acknowledged next.",
+     "set": [
+      {
+       "id": "v",
+       "text": "CPU jumps to ISR of D2"
+      },
+      {
+       "id": "tb",
+       "text": "then D3 is acknowledged"
+      },
+      {
+       "id": "n",
+       "text": "no polling of devices"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cp",
+       "tone": "good"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.io.i3",
+   "title": "A DMA transfer of four words",
+   "viewBox": [
+    0,
+    0,
+    360,
+    262
+   ],
+   "objects": [
+    {
+     "id": "cpu",
+     "kind": "box",
+     "x": 14,
+     "y": 14,
+     "w": 70,
+     "h": 34,
+     "label": "CPU"
+    },
+    {
+     "id": "dma",
+     "kind": "box",
+     "x": 145,
+     "y": 14,
+     "w": 86,
+     "h": 34,
+     "label": "DMA"
+    },
+    {
+     "id": "dev",
+     "kind": "box",
+     "x": 276,
+     "y": 14,
+     "w": 70,
+     "h": 34,
+     "label": "Disk"
+    },
+    {
+     "id": "ra",
+     "kind": "box",
+     "x": 145,
+     "y": 62,
+     "w": 86,
+     "h": 26,
+     "label": "addr ?"
+    },
+    {
+     "id": "rc",
+     "kind": "box",
+     "x": 145,
+     "y": 94,
+     "w": 86,
+     "h": 26,
+     "label": "count ?"
+    },
+    {
+     "id": "a1",
+     "kind": "arrow",
+     "x1": 84,
+     "y1": 24,
+     "x2": 145,
+     "y2": 24
+    },
+    {
+     "id": "a2",
+     "kind": "arrow",
+     "x1": 276,
+     "y1": 24,
+     "x2": 231,
+     "y2": 24
+    },
+    {
+     "id": "a4",
+     "kind": "arrow",
+     "x1": 145,
+     "y1": 40,
+     "x2": 84,
+     "y2": 40
+    },
+    {
+     "id": "a3",
+     "kind": "arrow",
+     "x1": 188,
+     "y1": 122,
+     "x2": 188,
+     "y2": 170
+    },
+    {
+     "id": "mem",
+     "kind": "array",
+     "x": 60,
+     "y": 176,
+     "cells": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     "cw": 40,
+     "ch": 30,
+     "indices": false,
+     "label": "memory"
+    },
+    {
+     "id": "ma",
+     "kind": "array",
+     "x": 60,
+     "y": 208,
+     "cells": [
+      100,
+      101,
+      102,
+      103,
+      104,
+      105
+     ],
+     "cw": 40,
+     "ch": 20,
+     "indices": false
+    },
+    {
+     "id": "st",
+     "kind": "text",
+     "x": 180,
+     "y": 248,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The CPU writes the DMA registers: start address 100, count 4, direction device to memory. Then the CPU goes on with other work.",
+     "set": [
+      {
+       "id": "ra",
+       "label": "addr 100"
+      },
+      {
+       "id": "rc",
+       "label": "count 4"
+      },
+      {
+       "id": "st",
+       "text": "CPU programs the DMA"
+      }
+     ],
+     "show": "a1",
+     "highlight": [
+      {
+       "id": "ra"
+      },
+      {
+       "id": "rc"
+      }
+     ]
+    },
+    {
+     "caption": "The disk has data. The DMA controller asks for the bus and the CPU grants it. Now the DMA controller is the only bus master.",
+     "hide": "a1",
+     "show": "a3",
+     "set": {
+      "id": "st",
+      "text": "DMA is bus master; CPU waits for the bus"
+     },
+     "highlight": [
+      {
+       "id": "dma",
+       "tone": "accent"
+      }
+     ],
+     "dim": "cpu"
+    },
+    {
+     "caption": "Word 1 moves from the disk straight into memory address 100. Address register becomes 101, count becomes 3.",
+     "show": "a2",
+     "set": [
+      {
+       "id": "mem",
+       "cells": [
+        "w1",
+        "",
+        "",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ra",
+       "label": "addr 101"
+      },
+      {
+       "id": "rc",
+       "label": "count 3"
+      },
+      {
+       "id": "st",
+       "text": "word 1 -> memory 100"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "mem",
+       "cells": [
+        0
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Words 2 and 3 follow into addresses 101 and 102. Address register 103, count 1.",
+     "set": [
+      {
+       "id": "mem",
+       "cells": [
+        "w1",
+        "w2",
+        "w3",
+        "",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ra",
+       "label": "addr 103"
+      },
+      {
+       "id": "rc",
+       "label": "count 1"
+      },
+      {
+       "id": "st",
+       "text": "words 2, 3 -> memory 101, 102"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "mem",
+       "cells": [
+        1,
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Word 4 goes into address 103. Address register 104, count 0: the programmed transfer is finished.",
+     "set": [
+      {
+       "id": "mem",
+       "cells": [
+        "w1",
+        "w2",
+        "w3",
+        "w4",
+        "",
+        ""
+       ]
+      },
+      {
+       "id": "ra",
+       "label": "addr 104"
+      },
+      {
+       "id": "rc",
+       "label": "count 0"
+      },
+      {
+       "id": "st",
+       "text": "word 4 -> memory 103: count is 0"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "mem",
+       "cells": [
+        3
+       ],
+       "tone": "good"
+      },
+      {
+       "id": "rc",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "The DMA controller releases the bus and raises one interrupt. The CPU spent time only on setup and on this completion.",
+     "show": "a4",
+     "hide": [
+      "a2",
+      "a3"
+     ],
+     "undim": "cpu",
+     "set": {
+      "id": "st",
+      "text": "bus released, one interrupt to the CPU"
+     },
+     "highlight": [
+      {
+       "id": "a4",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.io.i4",
+   "title": "Cycle stealing as a data rate",
+   "viewBox": [
+    0,
+    0,
+    360,
+    226
+   ],
+   "objects": [
+    {
+     "id": "cyc",
+     "kind": "array",
+     "x": 30,
+     "y": 56,
+     "cells": [
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C"
+     ],
+     "cw": 30,
+     "ch": 32,
+     "indices": false,
+     "label": "10 of the 20 million cycles in one second"
+    },
+    {
+     "id": "a",
+     "kind": "text",
+     "x": 180,
+     "y": 130,
+     "text": "clock 20 MHz = 20 million cycles a second",
+     "size": 13,
+     "anchor": "middle"
+    },
+    {
+     "id": "b",
+     "kind": "text",
+     "x": 180,
+     "y": 156,
+     "text": "1 cycle in 5 is stolen: 4 million a second",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "bad"
+    },
+    {
+     "id": "c",
+     "kind": "text",
+     "x": 180,
+     "y": 182,
+     "text": "4 million x 8 bits = 32 million bits a second",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "d",
+     "kind": "text",
+     "x": 180,
+     "y": 208,
+     "text": "= 4 MB/s; CPU keeps 16 million cycles",
+     "size": 13,
+     "anchor": "middle",
+     "tone": "accent",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The processor clock is 20 MHz, so there are 20 million bus cycles every second. The row shows 10 of them.",
+     "show": "a",
+     "highlight": "cyc"
+    },
+    {
+     "caption": "The DMA controller steals 1 cycle in every 5. In these 10 cycles, cycles 5 and 10 are stolen.",
+     "set": {
+      "id": "cyc",
+      "cells": [
+       "C",
+       "C",
+       "C",
+       "C",
+       "S",
+       "C",
+       "C",
+       "C",
+       "C",
+       "S"
+      ]
+     },
+     "highlight": [
+      {
+       "id": "cyc",
+       "cells": [
+        4,
+        9
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Stolen cycles per second $=20\\times10^6\\times\\frac15=4\\times10^6$.",
+     "show": "b"
+    },
+    {
+     "caption": "Each stolen cycle moves 8 bits: $4\\times10^6\\times8=32\\times10^6$ bits per second.",
+     "show": "c",
+     "highlight": [
+      {
+       "id": "cyc",
+       "cells": [
+        4,
+        9
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "That is 4 MB per second. The CPU still gets $20\\times10^6-4\\times10^6=16\\times10^6$ cycles, 80% of them.",
+     "show": "d"
+    }
+   ]
+  },
+  {
+   "id": "coa.io.i5",
+   "title": "CPU time for 1000 bytes under polling, interrupts and DMA",
+   "viewBox": [
+    0,
+    0,
+    360,
+    222
+   ],
+   "objects": [
+    {
+     "id": "cp",
+     "kind": "bar",
+     "x": 40,
+     "y": 76,
+     "w": 280,
+     "h": 100,
+     "values": [
+      0,
+      0,
+      0
+     ],
+     "labels": [
+      "polling",
+      "interrupts",
+      "DMA"
+     ],
+     "max": 2000000,
+     "hideZero": true
+    },
+    {
+     "id": "f1",
+     "kind": "text",
+     "x": 180,
+     "y": 16,
+     "text": "",
+     "size": 13,
+     "anchor": "middle",
+     "bold": true
+    },
+    {
+     "id": "f2",
+     "kind": "text",
+     "x": 180,
+     "y": 40,
+     "text": "",
+     "size": 13,
+     "anchor": "middle"
+    }
+   ],
+   "steps": [
+    {
+     "caption": "A device delivers 1000 bytes, one every 2000 cycles. The transfer lasts $1000\\times2000=2{,}000{,}000$ cycles in real time.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "1000 bytes, one every 2000 cycles"
+      },
+      {
+       "id": "f2",
+       "text": "device time = 2,000,000 cycles"
+      }
+     ]
+    },
+    {
+     "caption": "Polling: the CPU spins on the status bit the whole time. CPU busy $=2{,}000{,}000$ cycles, 100%.",
+     "set": [
+      {
+       "id": "cp",
+       "values": [
+        2000000,
+        0,
+        0
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "polling: CPU busy the whole time"
+      },
+      {
+       "id": "f2",
+       "text": "2,000,000 cycles = 100%"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cp",
+       "cells": [
+        0
+       ],
+       "tone": "bad"
+      }
+     ]
+    },
+    {
+     "caption": "Interrupts: the CPU is free between bytes and pays 100 cycles of overhead per byte: $1000\\times100=100{,}000$ cycles, 5%.",
+     "set": [
+      {
+       "id": "cp",
+       "values": [
+        2000000,
+        100000,
+        0
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "interrupts: 100 cycles per byte"
+      },
+      {
+       "id": "f2",
+       "text": "1000 x 100 = 100,000 cycles = 5%"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cp",
+       "cells": [
+        1
+       ],
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "DMA: setup 250 cycles plus one completion interrupt of 150 cycles. Total 400 cycles for the whole block.",
+     "set": [
+      {
+       "id": "cp",
+       "values": [
+        2000000,
+        100000,
+        400
+       ]
+      },
+      {
+       "id": "f1",
+       "text": "DMA: setup 250 + completion 150"
+      },
+      {
+       "id": "f2",
+       "text": "= 400 cycles in all"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cp",
+       "cells": [
+        2
+       ],
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Interrupts need $2{,}000{,}000/100{,}000=20$ times less CPU time than polling. DMA needs $100{,}000/400=250$ times less than interrupts.",
+     "set": [
+      {
+       "id": "f1",
+       "text": "polling : interrupts = 20 : 1"
+      },
+      {
+       "id": "f2",
+       "text": "interrupts : DMA = 250 : 1"
+      }
+     ],
+     "highlight": [
+      {
+       "id": "cp",
+       "tone": "accent"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "coa.io.i6",
+   "title": "Seek, rotational latency and transfer on a disk",
+   "viewBox": [
+    0,
+    0,
+    360,
+    250
+   ],
+   "objects": [
+    {
+     "id": "pl",
+     "kind": "circle",
+     "cx": 110,
+     "cy": 125,
+     "r": 100,
+     "tone": "muted",
+     "fillOpacity": 0.12
+    },
+    {
+     "id": "t1",
+     "kind": "circle",
+     "cx": 110,
+     "cy": 125,
+     "r": 88,
+     "tone": "muted",
+     "fillOpacity": 0
+    },
+    {
+     "id": "t2",
+     "kind": "circle",
+     "cx": 110,
+     "cy": 125,
+     "r": 52,
+     "tone": "mid",
+     "fillOpacity": 0
+    },
+    {
+     "id": "hub",
+     "kind": "circle",
+     "cx": 110,
+     "cy": 125,
+     "r": 8,
+     "tone": "muted",
+     "fillOpacity": 0.4
+    },
+    {
+     "id": "ax",
+     "kind": "axis",
+     "x": 110,
+     "y": 125,
+     "unit": 1,
+     "xr": [
+      -100,
+      100
+     ],
+     "yr": [
+      -100,
+      100
+     ]
+    },
+    {
+     "id": "sec",
+     "kind": "point",
+     "axis": "ax",
+     "at": [
+      -52,
+      0
+     ],
+     "label": "S",
+     "tone": "accent"
+    },
+    {
+     "id": "hd",
+     "kind": "box",
+     "x": 191,
+     "y": 121,
+     "w": 14,
+     "h": 8,
+     "tone": "bad"
+    },
+    {
+     "id": "k0",
+     "kind": "text",
+     "x": 228,
+     "y": 22,
+     "text": "5400 RPM",
+     "size": 13,
+     "anchor": "start"
+    },
+    {
+     "id": "k1",
+     "kind": "text",
+     "x": 228,
+     "y": 64,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "tone": "bad",
+     "bold": true
+    },
+    {
+     "id": "k2",
+     "kind": "text",
+     "x": 228,
+     "y": 104,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "tone": "accent",
+     "bold": true
+    },
+    {
+     "id": "k3",
+     "kind": "text",
+     "x": 228,
+     "y": 144,
+     "text": "",
+     "size": 13,
+     "anchor": "start",
+     "tone": "good",
+     "bold": true
+    },
+    {
+     "id": "k4",
+     "kind": "text",
+     "x": 228,
+     "y": 196,
+     "text": "",
+     "size": 14,
+     "anchor": "start",
+     "bold": true
+    }
+   ],
+   "steps": [
+    {
+     "caption": "The disk spins at 5400 RPM, so one rotation takes $60/5400$ s $=11.11$ ms. It has 600 sectors per track. The target sector S is on the track marked in the middle.",
+     "hide": "ax",
+     "set": {
+      "id": "k0",
+      "text": "turn = 11.11 ms"
+     },
+     "highlight": [
+      {
+       "id": "t2",
+       "tone": "mid"
+      }
+     ]
+    },
+    {
+     "caption": "Seek: the head moves across the platter to the target track. The average seek time is 9 ms.",
+     "move": {
+      "id": "hd",
+      "x": 155
+     },
+     "set": {
+      "id": "k1",
+      "text": "seek 9 ms"
+     },
+     "highlight": "hd"
+    },
+    {
+     "caption": "Rotational latency, first quarter turn: the sector S is on average half a turn away from the head, so it needs to turn a quarter first.",
+     "move": {
+      "id": "sec",
+      "x": 0,
+      "y": 52,
+      "arc": {
+       "cx": 0,
+       "cy": 0
+      }
+     },
+     "set": {
+      "id": "k2",
+      "text": "half-turn wait"
+     }
+    },
+    {
+     "caption": "Second quarter turn: S reaches the head. Half a rotation is $11.11/2=5.56$ ms of average latency.",
+     "move": {
+      "id": "sec",
+      "x": 52,
+      "y": 0,
+      "arc": {
+       "cx": 0,
+       "cy": 0
+      }
+     },
+     "set": {
+      "id": "k2",
+      "text": "latency 5.56 ms"
+     },
+     "highlight": "sec"
+    },
+    {
+     "caption": "Transfer: the sector passes under the head in one rotation divided by sectors per track, $11.11/600=0.0185$ ms.",
+     "set": {
+      "id": "k3",
+      "text": "transfer 0.02 ms"
+     },
+     "highlight": [
+      {
+       "id": "t2",
+       "tone": "good"
+      }
+     ]
+    },
+    {
+     "caption": "Total $=9+5.56+0.02=14.57$ ms for one randomly placed sector.",
+     "set": {
+      "id": "k4",
+      "text": "total 14.57 ms"
+     }
+    }
+   ]
+  }
+ ]
+}
