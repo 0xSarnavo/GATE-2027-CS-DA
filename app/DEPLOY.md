@@ -17,7 +17,7 @@ Images need no upload step. To add one-off images later use `POST /api/media` (s
 Regenerating images locally: `tools/.venv/bin/python tools/recrop_fixes.py` (targeted re-crops of the four broken whole-page strips plus 2019-CS-q31) then `tools/.venv/bin/python tools/optimize_images.py` (PNG to WebP q80; PNGs move to `data/img-png-original/`).
 
 ## Steps
-1. Create the project and service from this directory (the git root is `app/`):
+1. Create the project and service from the `app/` directory (the repository root is one level above):
    ```sh
    cd app
    railway login
